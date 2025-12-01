@@ -53,3 +53,9 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# temp files
+*.tmp
+tmp/
+*~
+build/
