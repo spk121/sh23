@@ -1,4 +1,11 @@
-# mgsh
+# sh23
 
-This is another take on POSIX shell as a strictly conforming ISO C program.
+This intends to be a POSIX shell, but, it will have a compile-time option to
+that it can be built using only ISO C.
+
+When built in ISO C mode
+- no pipes or redirection
+- no directory management
+- all commands launched in the foreground
+
 
