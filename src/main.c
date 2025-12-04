@@ -1,4 +1,9 @@
+#include "xalloc.h"
+
+
 int main()
 {
-  return 0;
+    arena_start();
+    arena_end();
+    return 0;
 }
