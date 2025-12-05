@@ -1,0 +1,1 @@
+/home/runner/work/sh23/.codeql-scratch/dbs/cpp/working/autobuild/bin/cc -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/mgsh.dir/link.d CMakeFiles/mgsh.dir/src/alias.c.o CMakeFiles/mgsh.dir/src/alias_store.c.o CMakeFiles/mgsh.dir/src/alias_array.c.o CMakeFiles/mgsh.dir/src/logging.c.o CMakeFiles/mgsh.dir/src/string.c.o CMakeFiles/mgsh.dir/src/main.c.o -o bin/mgsh
