@@ -18,6 +18,8 @@ add_executable(mgsh
     src/logging.h
     src/string.c
     src/string.h
+    src/xalloc.c
+    src/xalloc.h
 
     src/main.c
 )

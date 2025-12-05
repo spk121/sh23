@@ -12,6 +12,9 @@ typedef struct string_t
     int capacity; // Total allocated bytes (including null terminator)
 } string_t;
 
+// Alias for compatibility
+typedef string_t String;
+
 static const int INITIAL_CAPACITY = 16;
 static const int GROW_FACTOR = 2;
 

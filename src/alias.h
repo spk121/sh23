@@ -20,9 +20,9 @@ const char *alias_get_name_cstr(const Alias *alias);
 const char *alias_get_value_cstr(const Alias *alias);
 
 // Setters
-int alias_set_name(Alias *alias, const String *name);
-int alias_set_value(Alias *alias, const String *value);
-int alias_set_name_cstr(Alias *alias, const char *name);
-int alias_set_value_cstr(Alias *alias, const char *value);
+void alias_set_name(Alias *alias, const String *name);
+void alias_set_value(Alias *alias, const String *value);
+void alias_set_name_cstr(Alias *alias, const char *name);
+void alias_set_value_cstr(Alias *alias, const char *value);
 
 #endif
