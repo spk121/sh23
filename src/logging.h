@@ -132,6 +132,36 @@ void log_fatal(const char* format, ...);
     } \
 } while(0)
 
+#define return_if_ne(a, b) do { \
+    if ((a) != (b)) { \
+        _Generic((a), \
+            char: log_error("Precondition failed at %s:%d - %s != %s (%c == %c)", __func__, __LINE__, #a, #b, (a), (b)), \
+            short: log_error("Precondition failed at %s:%d - %s != %s (%hd == %hd)", __func__, __LINE__, #a, #b, (a), (b)), \
+            int: log_error("Precondition failed at %s:%d - %s != %s (%d == %d)", __func__, __LINE__, #a, #b, (a), (b)), \
+            long: log_error("Precondition failed at %s:%d - %s != %s (%ld == %ld)", __func__, __LINE__, #a, #b, (a), (b)), \
+            float: log_error("Precondition failed at %s:%d - %s != %s (%f == %f)", __func__, __LINE__, #a, #b, (a), (b)), \
+            double: log_error("Precondition failed at %s:%d - %s != %s (%lf == %lf)", __func__, __LINE__, #a, #b, (a), (b)), \
+            default: log_error("Precondition failed at %s:%d - %s != %s (unknown type)", __func__, __LINE__, #a, #b) \
+        ); \
+        return; \
+    } \
+} while(0)
+
+#define return_val_if_ne(a, b, val) do { \
+    if ((a) != (b)) { \
+        _Generic((a), \
+            char: log_error("Precondition failed at %s:%d - %s != %s (%c == %c)", __func__, __LINE__, #a, #b, (a), (b)), \
+            short: log_error("Precondition failed at %s:%d - %s != %s (%hd == %hd)", __func__, __LINE__, #a, #b, (a), (b)), \
+            int: log_error("Precondition failed at %s:%d - %s != %s (%d == %d)", __func__, __LINE__, #a, #b, (a), (b)), \
+            long: log_error("Precondition failed at %s:%d - %s != %s (%ld == %ld)", __func__, __LINE__, #a, #b, (a), (b)), \
+            float: log_error("Precondition failed at %s:%d - %s != %s (%f == %f)", __func__, __LINE__, #a, #b, (a), (b)), \
+            double: log_error("Precondition failed at %s:%d - %s != %s (%lf == %lf)", __func__, __LINE__, #a, #b, (a), (b)), \
+            default: log_error("Precondition failed at %s:%d - %s != %s (unknown type)", __func__, __LINE__, #a, #b) \
+        ); \
+        return (val); \
+    } \
+} while(0)
+
 #define return_if_lt(a, b) do { \
     if ((a) < (b)) { \
         _Generic((a), \
