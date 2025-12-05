@@ -122,7 +122,6 @@ void string_destroy(string_t *str)
     xfree(str->data);
     memset(str, 0, sizeof(string_t));
     xfree(str);
-    str = NULL;
 }
 
 // Accessors
