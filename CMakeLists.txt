@@ -18,6 +18,8 @@ add_executable(mgsh
     src/logging.h
     src/string.c
     src/string.h
+    src/xalloc.c
+    src/xalloc.h
 
     src/main.c
 )
@@ -37,10 +39,10 @@ target_include_directories(ctest_obj PUBLIC
 )
 
 set(MGSH_TEST_SOURCES
-    test/mgsh/test_alias_ctest.c
+    test/mgsh/test_alist_ctest.c
 )
 
-foreach(test_src ${CTEST_SOURCES})
+foreach(test_src ${MGSH_TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)  # e.g. test_substitute_ctest
     add_executable(${test_name} ${test_src}
         src/alias.c
@@ -53,10 +55,11 @@ foreach(test_src ${CTEST_SOURCES})
         src/logging.h
         src/string.c
         src/string.h
+        src/xalloc.c
+        src/xalloc.h
         $<TARGET_OBJECTS:ctest_obj>
     )
     target_compile_definitions(${test_name} PRIVATE CTEST)
-    target_link_libraries(${test_name} PRIVATE vc)
     target_include_directories(${test_name} PRIVATE
         src
         ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest

@@ -1,6 +1,7 @@
 #include "string.h"
 #include "logging.h"
 #include "xalloc.h"
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
