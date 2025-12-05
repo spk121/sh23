@@ -1,237 +1,257 @@
 #include "string.h"
+#include "logging.h"
+#include "xalloc.h"
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
-#include "logging.h"
-
-struct String
-{
-    char *data;      // UTF-8 encoded string
-    int length;      // Byte length (excluding null terminator)
-    int capacity;    // Total allocated bytes (including null terminator)
-};
-
-#define INITIAL_CAPACITY 16
-#define GROW_FACTOR 2
 
 // Helper: Ensure capacity
-static int string_ensure_capacity(String *str, int needed)
+static void string_ensure_capacity(string_t *str, int needed)
 {
-    return_val_if_null (str, -1);
-    return_val_if_lt (needed, 0, -1);
- 
+    Expects_not_null(str);
+    Expects(needed >= 0);
+
     if (needed <= str->capacity)
-        return 0;
+        return;
 
     int new_capacity = str->capacity ? str->capacity : INITIAL_CAPACITY;
     while (new_capacity < needed)
-        new_capacity *= GROW_FACTOR;
-
-    char *new_data = realloc(str->data, new_capacity);
-    if (!new_data)
     {
-        log_fatal ("string_ensure_capacity: memory allocation failure");
-        return -1;
+        if (new_capacity > INT_MAX / GROW_FACTOR)
+        {
+            new_capacity = needed; // prevent overflow
+        }
+        else
+        {
+            new_capacity *= GROW_FACTOR;
+        }
     }
 
+    char *new_data = xrealloc(str->data, new_capacity);
     str->data = new_data;
     str->capacity = new_capacity;
-    return 0;
 }
 
 // Create and destroy
-String *string_create_from_cstr(const char *data)
+string_t *string_create_from_cstr(const char *data)
 {
-    if (!data)
-    {
-        log_fatal ("string_create_from_cstr: argument 'data' is null");
-        return NULL;
-    }
-
+    Expects_not_null(data);
     int len = strlen(data);
-    String *str = string_create_empty(len + 1);
-    if (!str)
-    {
-        log_fatal ("string_create_from_cstr: out of memory");
-        return NULL;
-    }
-    if (string_set_cstr(str, data) != 0)
-    {
-        string_destroy(str);
-        log_fatal ("string_create_from_cstr: set failed");
-        return NULL;
-    }
+    string_t *str = string_create_empty(len + 1);
+    string_set_cstr(str, data);
     return str;
 }
 
-String *string_create_empty(int capacity)
+string_t *string_create_from_cstr_len(const char *data, int len)
 {
-    if (capacity < 0)
-    {
-        log_fatal ("string_create_empty: argument 'capacity' is negative");
-        return NULL;
-    }
-    String *str = malloc(sizeof(String));
-    if (!str) {
-        log_fatal ("string_create_empty: error: out of memory");
-        return NULL;
-    }
-    str->data = NULL;
-    str->length = 0;
-    str->capacity = 0;
+    Expects_not_null(data);
+    Expects(len >= 0);
 
-    if (capacity > 0 && string_ensure_capacity(str, capacity) != 0)
-    {
-        free (str);
-        log_fatal ("string_create_empty: out of memory");
-        return NULL;
-    }
-
-    if (str->capacity > 0)
-    {
-        str->data[0] = '\0';
-    }
+    string_t *str = string_create_empty(len + 1);
+    memcpy(str->data, data, len);
+    str->data[len] = '\0';
+    str->length = len;
     return str;
 }
 
-String *string_create_from(String *other)
+string_t *string_vcreate(const char *format, va_list args)
 {
-    return_val_if_null (other, NULL);
-    return string_create_from_cstr(string_data(other));
+    Expects_not_null(format);
+
+    // First, determine required length
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int needed = vsnprintf(NULL, 0, format, args_copy);
+    va_end(args_copy);
+
+    string_t *str = string_create_empty(needed + 1);
+    int written = vsnprintf(str->data, str->capacity, format, args);
+    str->length = written;
+    return str;
 }
 
-void string_destroy(String *str)
+string_t *string_create_from_format(const char *format, ...)
 {
-    if (str)
+    Expects_not_null(format);
+
+    va_list args;
+    va_start(args, format);
+    string_t *str = string_vcreate(format, args);
+    va_end(args);
+
+    return str;
+}
+
+string_t *string_create_empty(int min_capacity)
+{
+    Expects(min_capacity >= 0);
+    string_t *str = xcalloc(1, sizeof(string_t));
+
+    // Can't use string_ensure_capacity here because str->data is NULL.
+    int needed = min_capacity < INITIAL_CAPACITY ? INITIAL_CAPACITY : min_capacity;
+    int new_capacity;
+    if (needed >= INT_MAX / GROW_FACTOR)
     {
-        log_debug("string_destroy: freeing string %p = %s", str, string_data(str));        
-        free(str->data);
-        free(str);
+        new_capacity = needed;
     }
+    else
+    {
+        new_capacity = INITIAL_CAPACITY;
+        while (new_capacity < needed)
+        {
+            new_capacity *= GROW_FACTOR;
+        }
+    }
+    str->data = xcalloc(new_capacity, 1);
+    str->capacity = new_capacity;
+    return str;
+}
+
+string_t *string_clone(const string_t *other)
+{
+    Expects_not_null(other);
+    Expects(other->data != NULL);
+    Expects(other->length >= 0);
+
+    string_t *str = string_create_empty(other->length + 1);
+    string_set_cstr(str, string_data(other));
+    return str;
+}
+
+void string_destroy(string_t *str)
+{
+    Expects_not_null(str);
+    Expects(str->length >= 0);
+    Expects(str->capacity >= 0);
+    Expects(str->data != NULL);
+
+    memset(str->data, 0, str->capacity);
+    xfree(str->data);
+    memset(str, 0, sizeof(string_t));
+    xfree(str);
 }
 
 // Accessors
-const char *string_data(const String *str)
+const char *string_data(const string_t *str)
 {
-    return_val_if_null (str, NULL);
-    return str->data ? str->data : "";
+    Expects_not_null(str);
+    Expects(str->length >= 0);
+    Expects(str->capacity >= 0);
+    Expects(str->data != NULL);
+
+    return str->data;
 }
 
-int string_length(const String *str)
+char string_char_at(const string_t *str, int index)
 {
-    return_val_if_null (str, 0);
+    Expects_not_null(str);
+    Expects(index >= 0);
+    Expects(index < str->length);
+
+    return str->data[index];
+}
+
+int string_length(const string_t *str)
+{
+    Expects_not_null(str);
+
     return str->length;
 }
 
-int string_capacity(const String *str)
+int string_capacity(const string_t *str)
 {
-    return_val_if_null (str, 0);
+    Expects_not_null(str);
+
     return str->capacity;
 }
 
-int string_is_empty(const String *str)
+bool string_is_empty(const string_t *str)
 {
-    return_val_if_null (str, 0);
+    Expects_not_null(str);
+
     return str->length == 0;
 }
 
 // Modification
-int string_append_cstr(String *str, const char *data)
+void string_append_cstr(string_t *str, const char *data)
 {
-    return_val_if_null (str, -1);
-    return_val_if_null (data, -1);
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(data);
+
     int append_len = strlen(data);
     int new_len = str->length + append_len + 1;
 
-    if (string_ensure_capacity(str, new_len) != 0)
-    {
-        log_fatal ("string_append_cstr: out of memory");
-        return -1;
-    }
+    string_ensure_capacity(str, new_len);
 
     memcpy(str->data + str->length, data, append_len);
     str->length += append_len;
     str->data[str->length] = '\0';
-    return 0;
 }
 
-int string_append_ascii_char(String *str, char c)
+void string_append_ascii_char(string_t *str, char c)
 {
-    return_val_if_null (str, -1);
-    return_val_if_lt(c, 0, -1);
-    return_val_if_ge(c, 128, -1);
-    const char cstr[2] = {c, 0};
-    return string_append_cstr(str, cstr);
+    Expects_not_null(str);
+    Expects(c >= 0);
+
+    string_ensure_capacity(str, str->length + 1);
+    str->data[str->length] = c;
+    str->length++;
+    str->data[str->length] = '\0';
 }
 
-int string_append(String *str, const String *other)
+void string_append(string_t *str, const string_t *other)
 {
-    return_val_if_null (str, -1);
-    return_val_if_null (other, -1);
-    return string_append_cstr(str, string_data(other));
+    Expects_not_null(str);
+    Expects_not_null(other);
+    string_append_cstr(str, string_data(other));
 }
 
-int string_clear(String *str)
+void string_clear(string_t *str)
 {
-    return_val_if_null(str, -1);
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+
+    memset(str->data, 0, str->capacity);
     str->length = 0;
-    if (str->data)
-        str->data[0] = '\0';
-    return 0;
 }
 
-int string_set_cstr(String *str, const char *data)
+void string_set_cstr(string_t *str, const char *data)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(data, -1);
-    int new_len = strlen(data) + 1;
+    Expects_not_null(str);
+    Expects_not_null(data);
+    int new_len = strlen(data);
 
-    if (string_ensure_capacity(str, new_len) != 0)
-    {
-        log_fatal ("string_set_cstr: out of memory");
-        return -1;
-    }
-
+    memset(str->data, 0, str->capacity);
+    string_ensure_capacity(str, new_len + 1);
     memcpy(str->data, data, new_len);
-    str->length = new_len - 1;
-    return 0;
+    str->length = new_len;
 }
 
-int string_resize(String *str, int new_capacity)
+void string_resize(string_t *str, int new_capacity)
 {
-    return_val_if_null(str, -1);
-    return_val_if_lt(new_capacity, 0, -1);
+    Expects_not_null(str);
+    Expects(new_capacity >= 0);
     if (new_capacity < str->length + 1)
         new_capacity = str->length + 1;
 
-    if (string_ensure_capacity(str, new_capacity) != 0)
-    {
-        log_fatal ("string_resize: out of memory");
-        return -1;
-    }
-
+    string_ensure_capacity(str, new_capacity);
     str->capacity = new_capacity;
     str->data[str->length] = '\0';
-    return 0;
 }
 
 // Operations
-String *string_substring(const String *str, int start, int length)
+string_t *string_substring(const string_t *str, int start, int length)
 {
-    return_val_if_null(str, string_create_empty(0));
-    return_val_if_lt(start, 0, string_create_empty(0));
-    return_val_if_lt(length, 0, string_create_empty(0));
-    return_val_if_ge(start, str->length, string_create_empty(0));
+    Expects_not_null(str);
+    Expects(start >= 0);
+    Expects(length >= 0);
+    Expects(start < str->length);
 
     if (start + length > str->length)
         length = str->length - start;
 
-    String *result = string_create_empty(length + 1);
-    if (!result)
-    {
-        log_fatal ("string_substring: out of memory");
-        return NULL;
-    }
+    string_t *result = string_create_empty(length + 1);
 
     memcpy(result->data, str->data + start, length);
     result->data[length] = '\0';
@@ -239,99 +259,65 @@ String *string_substring(const String *str, int start, int length)
     return result;
 }
 
-int string_compare(const String *str1, const String *str2)
+int string_compare(const string_t *str1, const string_t *str2)
 {
-    if (!str1 || !str2)
-        return str1 == str2 ? 0 : str1 ? 1
-                                       : -1;
+    Expects_not_null(str1);
+    Expects_not_null(str2);
+    Expects(str1->data != NULL);
+    Expects(str2->data != NULL);
+
     return strcmp(string_data(str1), string_data(str2));
 }
 
-int string_compare_cstr(const String *str, const char *data)
+int string_compare_cstr(const string_t *str, const char *data)
 {
-    return_val_if_null(str, data ? 1 : 0);
-    return_val_if_null (data, -1);
+    Expects_not_null(str);
+    Expects_not_null(data);
+    Expects(str->data != NULL);
+
     return strcmp(string_data(str), data);
 }
 
-int string_find_cstr(const String *str, const char *substr, int *pos)
+char *string_find_cstr(const string_t *str, const char *substr)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(substr, -1);
-    return_val_if_null(pos, -1);
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(substr);
 
-    char *found = strstr(str->data, substr);
-    if (!found)
-        return -1;
-    *pos = found - str->data;
-    return 0;
+    return strstr(str->data, substr);
 }
 
-int string_replace_cstr(String *str, const char *find, const char *replace, int max_replacements)
+bool string_starts_with_cstr_at(const string_t *str, const char *prefix, int pos)
 {
-    return_val_if_null (str, -1);
-    return_val_if_null (find, -1);
-    return_val_if_null (replace, -1);
-    return_val_if_eq (find[0], '\0', -1);
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(prefix);
+    Expects(pos >= 0);
+    Expects(pos <= str->length);
 
-    size_t find_len = strlen(find);
-    String *result = string_create_empty(str->length + 1);
-    if (!result) {
-        log_fatal ("string_replace_cstr: out of memory");
-        return -1;
-    }
+    int prefix_len = strlen(prefix);
+    if (pos + prefix_len > str->length)
+        return false;
 
-    char *current = str->data;
-    int replacements = 0;
+    return strncmp(str->data + pos, prefix, prefix_len) == 0;
+}
 
-    while (*current && (max_replacements == 0 || replacements < max_replacements))
+bool string_contains_glob(const string_t *str)
+{
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    int len = str->length;
+    const char *s = string_data(str);
+    for (int i = 0; i < len; i++)
     {
-        char *next = strstr(current, find);
-        if (!next)
-        {
-            if (string_append_cstr(result, current) != 0) {
-                string_destroy (result);
-                log_fatal ("string_replace_cstr: append failed");
-                return -1;
-            }
-            break;
-        }
-
-        // Append up to the match
-        int prefix_len = next - current;
-        char *prefix = malloc(prefix_len + 1);
-        if (!prefix)
-        {
-            string_destroy(result);
-            log_fatal ("string_replace_cstr: out of memory");
-            return -1;
-        }
-        memcpy(prefix, current, prefix_len);
-        prefix[prefix_len] = '\0';
-        if (string_append_cstr(result, prefix) != 0) {
-            free(prefix);
-            string_destroy(result);
-            log_fatal("string_replace_cstr: append failed");
-            return -1;
-        }
-        free(prefix);
-        if (string_append_cstr(result, replace) != 0) {
-            string_destroy(result);
-            log_fatal("string_replace_cstr: append failed");
-            return -1;
-        }
-        current = next + find_len;
-        replacements++;
+        if (s[i] == '*' || s[i] == '?' || s[i] == '[')
+            return true;
     }
-
-    // Set result back to str
-    int ret = string_set_cstr(str, string_data(result));
-    string_destroy(result);
-    return ret;
+    return false;
 }
 
 // UTF-8 specific
-static int is_utf8_continuation_byte(uint8_t c)
+static bool is_utf8_continuation_byte(uint8_t c)
 {
     return (c & 0xC0) == 0x80;
 }
@@ -349,11 +335,10 @@ static int utf8_char_size(uint8_t c)
     return 0;     // Invalid
 }
 
-int string_utf8_length(const String *str)
+int string_utf8_length(const string_t *str)
 {
-    return_val_if_null(str, 0);
-    if (!str->data)
-        return 0;
+    Expects_not_null(str);
+    Expects_not_null(str->data);
 
     int count = 0;
     for (int i = 0; i < str->length;)
@@ -367,36 +352,36 @@ int string_utf8_length(const String *str)
     return count;
 }
 
-int string_is_valid_utf8(const String *str)
+bool string_is_valid_utf8(const string_t *str)
 {
-    return_val_if_null(str, 1);
-    if (!str->data)
-        return 1; // Empty is valid
+    Expects_not_null(str);
+    Expects_not_null(str->data);
 
     for (int i = 0; i < str->length;)
     {
         uint8_t c = (uint8_t)str->data[i];
         int size = utf8_char_size(c);
         if (size == 0 || i + size > str->length)
-            return 0;
+            return false;
 
         // Check continuation bytes
         for (int j = 1; j < size; j++)
         {
             if (!is_utf8_continuation_byte((uint8_t)str->data[i + j]))
-                return 0;
+                return false;
         }
 
         i += size;
     }
-    return 1;
+    return true;
 }
 
-int string_utf8_char_at(const String *str, int char_index, char *buffer, int buffer_size)
+bool string_utf8_char_at(const string_t *str, int char_index, char *buffer, int buffer_size)
 {
-    return_val_if_null (str, -1);
-    return_val_if_null (buffer, -1);
-    return_val_if_lt (buffer_size, 5, -1); // Need space for max 4-byte char + null
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(buffer);
+    Expects(buffer_size >= 5); // Need space for max 4-byte char + null
 
     int byte_pos = 0;
     int current_char = 0;
@@ -407,20 +392,20 @@ int string_utf8_char_at(const String *str, int char_index, char *buffer, int buf
         {
             int size = utf8_char_size((uint8_t)str->data[byte_pos]);
             if (size == 0 || byte_pos + size > str->length || size > buffer_size - 1)
-                return -1;
+                return false;
 
             memcpy(buffer, str->data + byte_pos, size);
             buffer[size] = '\0';
-            return 0;
+            return true;
         }
 
         int size = utf8_char_size((uint8_t)str->data[byte_pos]);
         if (size == 0 || byte_pos + size > str->length)
-            return -1;
+            return false;
 
         byte_pos += size;
         current_char++;
     }
 
-    return -1; // Index out of range
+    return false; // Index out of range
 }

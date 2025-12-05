@@ -1,6 +1,5 @@
 #include "xalloc.h"
 
-
 int main()
 {
     arena_start();

@@ -11,14 +11,16 @@ extern bool arena_rollback_in_progress;
 /**
  * Place this code in main, just after initializing the program but before any allocations:
  */
-#define arena_start() \
-    do { \
-        arena_rollback_in_progress = false; \
-        if (setjmp(arena_rollback_point) != 0) { \
-            arena_reset(false); \
-            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n"); \
-        } \
-    } while(0)
+#define arena_start()                                                                                                  \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        arena_init();                                                                                                  \
+        if (setjmp(arena_rollback_point) != 0)                                                                         \
+        {                                                                                                              \
+            arena_reset(false);                                                                                        \
+            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");             \
+        }                                                                                                              \
+    } while (0)
 
 /**
  * Allocate memory tracked by the arena.
@@ -40,6 +42,10 @@ void *xcalloc(size_t n, size_t size);
  */
 void *xrealloc(void *old_ptr, size_t new_size);
 
+/**
+ * Duplicate a string, with memory tracked by the arena.
+ * On allocation failure, triggers a longjmp to the arena rollback point.
+ */
 char *xstrdup(const char *s);
 
 /**
@@ -47,6 +53,8 @@ char *xstrdup(const char *s);
  * Safe to call with NULL.
  */
 void xfree(void *ptr);
+
+void arena_init(void);
 
 /**
  * Free all allocated memory tracked by the arena.
