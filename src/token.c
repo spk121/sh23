@@ -38,26 +38,31 @@ void token_destroy(token_t *token)
     if (token->parts != NULL)
     {
         part_list_destroy(token->parts);
+        token->parts = NULL;
     }
 
     if (token->heredoc_delimiter != NULL)
     {
         string_destroy(token->heredoc_delimiter);
+        token->heredoc_delimiter = NULL;
     }
 
     if (token->heredoc_content != NULL)
     {
         string_destroy(token->heredoc_content);
+        token->heredoc_content = NULL;
     }
 
     if (token->assignment_name != NULL)
     {
         string_destroy(token->assignment_name);
+        token->assignment_name = NULL;
     }
 
     if (token->assignment_value != NULL)
     {
         part_list_destroy(token->assignment_value);
+        token->assignment_value = NULL;
     }
 
     xfree(token);
@@ -152,13 +157,10 @@ void token_set_quoted(token_t *token, bool was_quoted)
 
 void token_add_part(token_t *token, part_t *part)
 {
-    Expects_not_null(part);
+    Expects_not_null(token);
     Expects_eq(token->type, TOKEN_WORD);
-
-    if (token->parts == NULL)
-    {
-        token->parts = part_list_create();
-    }
+    Expects_not_null(token->parts);
+    Expects_not_null(part);
 
     part_list_append(token->parts, part);
 }
@@ -168,8 +170,7 @@ void token_append_literal(token_t *token, const string_t *text)
     Expects_not_null(token);
     Expects_not_null(text);
 
-    part_t *part = part_create_literal(text);
-    token_add_part(token, part);
+    token_add_part(token, part_create_literal(text));
 }
 
 void token_append_parameter(token_t *token, const string_t *param_name)
@@ -177,8 +178,7 @@ void token_append_parameter(token_t *token, const string_t *param_name)
     Expects_not_null(token);
     Expects_not_null(param_name);
 
-    part_t *part = part_create_parameter(param_name);
-    token_add_part(token, part);
+    token_add_part(token, part_create_parameter(param_name));
     token->needs_expansion = true;
     token->needs_field_splitting = true;
 }
@@ -188,9 +188,7 @@ void token_append_command_subst(token_t *token, token_list_t *nested)
     Expects_not_null(token);
     Expects_not_null(nested);
 
-    part_t *part = part_create_command_subst(nested);
-
-    token_add_part(token, part);
+    token_add_part(token, part_create_command_subst(nested));
     token->needs_expansion = true;
     token->needs_field_splitting = true;
 }
@@ -199,9 +197,8 @@ void token_append_arithmetic(token_t *token, token_list_t *nested)
 {
     Expects_not_null(token);
     Expects_not_null(nested);
-    part_t *part = part_create_arithmetic(nested);
 
-    token_add_part(token, part);
+    token_add_part(token, part_create_arithmetic(nested));
     token->needs_expansion = true;
     token->needs_field_splitting = true;
 }
@@ -211,9 +208,7 @@ void token_append_tilde(token_t *token, const string_t *text)
     Expects_not_null(token);
     Expects_not_null(text);
 
-    part_t *part = part_create_tilde(text);
-
-    token_add_part(token, part);
+    token_add_part(token, part_create_tilde(text));
     token->needs_expansion = true;
 }
 
@@ -570,6 +565,7 @@ part_t *part_create_command_subst(token_list_t *nested)
 
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
     part->type = PART_COMMAND_SUBST;
+    part->nested = nested;
     return part;
 }
 
@@ -598,18 +594,27 @@ void part_destroy(part_t *part)
 {
     Expects_not_null(part);
 
+    if (part->word != NULL)
+    {
+        string_destroy(part->word);
+        part->word = NULL;
+    }
     if (part->text != NULL)
     {
         string_destroy(part->text);
+        part->text = NULL;
     }
     if (part->param_name != NULL)
     {
         string_destroy(part->param_name);
+        part->param_name = NULL;
     }
     if (part->nested != NULL)
     {
         token_list_destroy(part->nested);
+        part->nested = NULL;
     }
+
     xfree(part);
 }
 
@@ -747,6 +752,7 @@ void part_list_destroy(part_list_t *list)
     }
 
     xfree(list->parts);
+    list->parts = NULL;
     xfree(list);
 }
 
@@ -811,6 +817,7 @@ void part_list_reinitialize(part_list_t *list)
 
     // Free the old backing array
     xfree(list->parts);
+    list->parts = NULL;
 
     // Allocate a fresh array with initial capacity
     list->parts = (part_t **)xcalloc(INITIAL_LIST_CAPACITY, sizeof(part_t *));
@@ -843,6 +850,7 @@ void token_list_destroy(token_list_t *list)
     }
 
     xfree(list->tokens);
+    list->tokens = NULL;
     xfree(list);
 }
 
@@ -918,6 +926,7 @@ void token_list_reinitialize(token_list_t *list)
 
     // Free the old backing array
     xfree(list->tokens);
+    list->tokens = NULL;
 
     // Allocate a fresh array with initial capacity
     list->tokens = (token_t **)xcalloc(INITIAL_LIST_CAPACITY, sizeof(token_t *));
