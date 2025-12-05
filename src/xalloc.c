@@ -67,7 +67,7 @@ static void insert_ptr(void *p) {
     }
 
     // Note that we can't use xrealloc here because it would call insert_ptr again.
-    if (allocated_count >= allocated_cap) {
+    if (allocated_count == allocated_cap) {
         long new_cap = allocated_cap * 2;
         void **new_ptrs = calloc(new_cap, sizeof(void*));
         if (!new_ptrs) {

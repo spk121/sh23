@@ -280,6 +280,21 @@ char *string_find_cstr(const string_t *str, const char *substr)
     return strstr(str->data, substr);
 }
 
+bool string_starts_with_cstr_at(const string_t *str, const char *prefix, int pos)
+{
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(prefix);
+    Expects(pos >= 0);
+    Expects(pos <= str->length);
+
+    int prefix_len = strlen(prefix);
+    if (pos + prefix_len > str->length)
+        return false;
+
+    return strncmp(str->data + pos, prefix, prefix_len) == 0;
+}
+
 bool string_contains_glob(const string_t *str)
 {
     Expects_not_null(str);
