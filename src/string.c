@@ -1,24 +1,28 @@
 #include "string.h"
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
 #include "logging.h"
 #include "xalloc.h"
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Helper: Ensure capacity
 static void string_ensure_capacity(string_t *str, int needed)
 {
     Expects_not_null(str);
     Expects(needed >= 0);
- 
+
     if (needed <= str->capacity)
         return;
 
     int new_capacity = str->capacity ? str->capacity : INITIAL_CAPACITY;
-    while (new_capacity < needed) {
-        if (new_capacity > INT_MAX / GROW_FACTOR) {
+    while (new_capacity < needed)
+    {
+        if (new_capacity > INT_MAX / GROW_FACTOR)
+        {
             new_capacity = needed; // prevent overflow
-        } else {
+        }
+        else
+        {
             new_capacity *= GROW_FACTOR;
         }
     }
@@ -86,12 +90,15 @@ string_t *string_create_empty(int min_capacity)
     // Can't use string_ensure_capacity here because str->data is NULL.
     int needed = min_capacity < INITIAL_CAPACITY ? INITIAL_CAPACITY : min_capacity;
     int new_capacity;
-    if (needed >= INT_MAX / GROW_FACTOR) {
+    if (needed >= INT_MAX / GROW_FACTOR)
+    {
         new_capacity = needed;
     }
-    else {
+    else
+    {
         new_capacity = INITIAL_CAPACITY;
-        while (new_capacity < needed) {
+        while (new_capacity < needed)
+        {
             new_capacity *= GROW_FACTOR;
         }
     }
@@ -386,7 +393,7 @@ bool string_utf8_char_at(const string_t *str, int char_index, char *buffer, int 
             int size = utf8_char_size((uint8_t)str->data[byte_pos]);
             if (size == 0 || byte_pos + size > str->length || size > buffer_size - 1)
                 return false;
-            
+
             memcpy(buffer, str->data + byte_pos, size);
             buffer[size] = '\0';
             return true;

@@ -11,14 +11,16 @@ extern bool arena_rollback_in_progress;
 /**
  * Place this code in main, just after initializing the program but before any allocations:
  */
-#define arena_start() \
-    do { \
-        arena_init(); \
-        if (setjmp(arena_rollback_point) != 0) { \
-            arena_reset(false); \
-            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n"); \
-        } \
-    } while(0)
+#define arena_start()                                                                                                  \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        arena_init();                                                                                                  \
+        if (setjmp(arena_rollback_point) != 0)                                                                         \
+        {                                                                                                              \
+            arena_reset(false);                                                                                        \
+            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");             \
+        }                                                                                                              \
+    } while (0)
 
 /**
  * Allocate memory tracked by the arena.

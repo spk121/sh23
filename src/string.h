@@ -1,15 +1,15 @@
 #ifndef STRING_T_H
 #define STRING_T_H
 
-#include <stddef.h>
-#include <stdbool.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 typedef struct string_t
 {
-    char *data;      // UTF-8 encoded string
-    int length;      // Byte length (excluding null terminator)
-    int capacity;    // Total allocated bytes (including null terminator)
+    char *data;   // UTF-8 encoded string
+    int length;   // Byte length (excluding null terminator)
+    int capacity; // Total allocated bytes (including null terminator)
 } string_t;
 
 static const int INITIAL_CAPACITY = 16;
