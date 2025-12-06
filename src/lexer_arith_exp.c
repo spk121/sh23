@@ -30,7 +30,9 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    // We enter after $(( has been consumed
+    // We enter after $(( has been consumed.
+    // Note: On LEX_INCOMPLETE, the mode stack is left unchanged so the caller
+    // can provide more input and retry. The mode is only popped on LEX_OK.
     // Ensure we have a word token to build
     if (!lx->in_word)
     {
@@ -68,9 +70,10 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                     part_t *part = part_create_arithmetic(nested);
 
                     // Store raw text for later parsing
+                    // Note: Ownership of expr_text is transferred to the part
                     if (string_length(expr_text) > 0)
                     {
-                        part->text = expr_text;
+                        part->text = expr_text; // part takes ownership
                     }
                     else
                     {
@@ -204,19 +207,24 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
         }
 
         // Handle nested command substitution $(...)
+        // Note: We track parentheses for both nested arithmetic $((
+        // and nested command substitution $(. For arithmetic expansion,
+        // we increment by 2 because $(( adds two parentheses that will
+        // each need a matching ) before we can close the outer expansion.
         if (c == '$' && lexer_peek_ahead(lx, 1) == '(')
         {
             char c3 = lexer_peek_ahead(lx, 2);
             if (c3 == '(')
             {
                 // Nested arithmetic expansion $((
+                // Increment by 2 because we're adding two open parens
                 string_append_ascii_char(expr_text, c);
                 lexer_advance(lx);
                 string_append_ascii_char(expr_text, '(');
                 lexer_advance(lx);
                 string_append_ascii_char(expr_text, '(');
                 lexer_advance(lx);
-                paren_depth += 2; // Track both parens
+                paren_depth += 2;
             }
             else
             {
@@ -225,7 +233,7 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                 lexer_advance(lx);
                 string_append_ascii_char(expr_text, '(');
                 lexer_advance(lx);
-                paren_depth++; // Track the paren
+                paren_depth++;
             }
             continue;
         }
