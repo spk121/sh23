@@ -312,7 +312,7 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     case '#':
         if (has_colon)
         {
-            lexer_set_error(lx, "Bad substitution: invalid operator");
+            lexer_set_error(lx, "Bad substitution: invalid operator :##");
             return LEX_ERROR;
         }
         // Check for ##
