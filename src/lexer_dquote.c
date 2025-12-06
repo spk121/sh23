@@ -567,9 +567,13 @@ lexer_dquote_result_t lexer_dquote_lex(lexer_dquote_t *lexer, part_list_t **part
                         *parts = NULL;
                         return result;
                     }
-                    /* Create arithmetic expansion part */
-                    /* For now, store as a placeholder - full implementation would need
-                     * recursive lexing of the arithmetic expression */
+                    /* Create arithmetic expansion part.
+                     * Note: The nested token_list is empty because recursive
+                     * lexing of the arithmetic expression requires the main
+                     * lexer (lexer_normal.c) to be implemented. The arith_content
+                     * contains the raw text that would be recursively lexed.
+                     * When lexer_normal.c is created, it should call back into
+                     * the appropriate lexer context to parse the expression. */
                     part_t *arith_part = part_create_arithmetic(token_list_create());
                     if (arith_part != NULL)
                     {
@@ -590,7 +594,11 @@ lexer_dquote_result_t lexer_dquote_lex(lexer_dquote_t *lexer, part_list_t **part
                         *parts = NULL;
                         return result;
                     }
-                    /* Create command substitution part */
+                    /* Create command substitution part.
+                     * Note: The nested token_list is empty because recursive
+                     * lexing of the command requires the main lexer (lexer_normal.c)
+                     * to be implemented. The cmd_content contains the raw text
+                     * that would be recursively lexed by the main lexer. */
                     part_t *cmd_part = part_create_command_subst(token_list_create());
                     if (cmd_part != NULL)
                     {
@@ -666,7 +674,11 @@ lexer_dquote_result_t lexer_dquote_lex(lexer_dquote_t *lexer, part_list_t **part
                 return result;
             }
 
-            /* Create command substitution part */
+            /* Create command substitution part (backtick form).
+             * Note: The nested token_list is empty because recursive
+             * lexing of the command requires the main lexer (lexer_normal.c)
+             * to be implemented. The cmd_content contains the raw text
+             * that would be recursively lexed by the main lexer. */
             part_t *cmd_part = part_create_command_subst(token_list_create());
             if (cmd_part != NULL)
             {
