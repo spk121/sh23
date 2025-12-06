@@ -2,6 +2,7 @@
 
 #include "lexer_dquote.h"
 #include "lexer_normal.h"
+#include "lexer_param_exp.h"
 #include "lexer_squote.h"
 #include "logging.h"
 #include "string.h"
@@ -598,13 +599,13 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
         case LEX_DOUBLE_QUOTE:
             status = lexer_process_dquote(lx);
             break;
-#if 0
         case LEX_PARAM_EXP_BRACED:
-            status = lexer_process_param_braced(lx, out_token);
+            status = lexer_process_param_exp_braced(lx);
             break;
         case LEX_PARAM_EXP_UNBRACED:
-            status = lexer_process_param_unbraced(lx, out_token);
+            status = lexer_process_param_exp_unbraced(lx);
             break;
+#if 0
         case LEX_CMD_SUBST_PAREN:
             status = lexer_process_cmd_subst_paren(lx, out_token);
             break;
@@ -639,9 +640,16 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
                 return LEX_OK;
             }
             
+            // If we're in any mode other than NORMAL, we should continue
+            // processing (e.g., after param expansion inside double quotes)
+            if (lexer_current_mode(lx) != LEX_NORMAL)
+            {
+                continue;
+            }
+            
             // If we're back in normal mode and have an in-progress word,
             // we need to continue to finalize it (even at end of input)
-            if (lexer_current_mode(lx) == LEX_NORMAL && lx->in_word)
+            if (lx->in_word)
             {
                 continue;
             }
