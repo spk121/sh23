@@ -44,6 +44,7 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_lexer_param_exp_ctest.c
     test/mgsh/test_lexer_cmd_subst_ctest.c
     test/mgsh/test_lexer_arith_exp_ctest.c
+    test/mgsh/test_lexer_heredoc_ctest.c
 )
 
 foreach(test_src ${MGSH_TEST_SOURCES})
@@ -61,6 +62,8 @@ foreach(test_src ${MGSH_TEST_SOURCES})
         src/lexer_arith_exp.h
         src/lexer_cmd_subst.c
         src/lexer_cmd_subst.h
+        src/lexer_heredoc.c
+        src/lexer_heredoc.h
         src/lexer_normal.c
         src/lexer_normal.h
         src/lexer_squote.c

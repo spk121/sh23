@@ -3,6 +3,7 @@
 #include "lexer_arith_exp.h"
 #include "lexer_cmd_subst.h"
 #include "lexer_dquote.h"
+#include "lexer_heredoc.h"
 #include "lexer_normal.h"
 #include "lexer_param_exp.h"
 #include "lexer_squote.h"
@@ -616,11 +617,9 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
         case LEX_ARITH_EXP:
             status = lexer_process_arith_exp(lx);
             break;
-#if 0
         case LEX_HEREDOC_BODY:
             status = lexer_process_heredoc_body(lx);
             break;
-#endif
         default:
             lexer_set_error(lx, "Unknown lexer mode");
             return LEX_ERROR;
