@@ -1,6 +1,8 @@
 #include "lexer.h"
 
+#include "lexer_dquote.h"
 #include "lexer_normal.h"
+#include "lexer_squote.h"
 #include "logging.h"
 #include "string.h"
 #include "token.h"
@@ -232,16 +234,35 @@ void lexer_start_word(lexer_t *lx)
     lx->in_word = true;
 }
 
+/**
+ * Check if the last part of the current token is an unquoted literal.
+ * Used to determine whether to append to existing part or create new one.
+ */
+static bool lexer_last_part_is_unquoted_literal(lexer_t *lx)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->current_token);
+    
+    if (lx->current_token->parts->size == 0)
+        return false;
+    
+    part_t *last_part = lx->current_token->parts->parts[lx->current_token->parts->size - 1];
+    return (last_part->type == PART_LITERAL && 
+            !last_part->was_single_quoted && 
+            !last_part->was_double_quoted);
+}
+
 void lexer_append_literal_char_to_word(lexer_t *lx, char c)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
 
-    if (token_is_last_part_literal(lx->current_token))
+    // Only append to existing part if it's an unquoted literal
+    if (lexer_last_part_is_unquoted_literal(lx))
         token_append_char_to_last_literal_part(lx->current_token, c);
     else
     {
-        // Create new literal part
+        // Create new literal part (unquoted)
         char buf[2] = {c, '\0'};
         string_t *s = string_create_from_cstr(buf);
         token_add_literal_part(lx->current_token, s);
@@ -256,13 +277,14 @@ void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str)
     Expects_gt(strlen(str), 0);
     Expects_not_null(lx->current_token);
 
-    if (token_is_last_part_literal(lx->current_token))
+    // Only append to existing part if it's an unquoted literal
+    if (lexer_last_part_is_unquoted_literal(lx))
     {
         token_append_cstr_to_last_literal_part(lx->current_token, str);
     }
     else
     {
-        // Create new literal part
+        // Create new literal part (unquoted)
         string_t *s = string_create_from_cstr(str);
         token_add_literal_part(lx->current_token, s);
         string_destroy(s);
@@ -559,31 +581,93 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    switch (lexer_current_mode(lx))
+    lex_status_t status;
+    int initial_token_count = lx->tokens->size;
+    
+    // Loop until we produce a token, need more input, or encounter an error
+    while (1)
     {
-    case LEX_NORMAL:
-        return lexer_process_one_normal_token(lx);
-#if 0            
+        switch (lexer_current_mode(lx))
+        {
+        case LEX_NORMAL:
+            status = lexer_process_one_normal_token(lx);
+            break;
         case LEX_SINGLE_QUOTE:
-            return lexer_process_single_quote(lx, out_token);
+            status = lexer_process_squote(lx);
+            break;
         case LEX_DOUBLE_QUOTE:
-            return lexer_process_double_quote(lx, out_token);
+            status = lexer_process_dquote(lx);
+            break;
+#if 0
         case LEX_PARAM_EXP_BRACED:
-            return lexer_process_param_braced(lx, out_token);
+            status = lexer_process_param_braced(lx, out_token);
+            break;
         case LEX_PARAM_EXP_UNBRACED:
-            return lexer_process_param_unbraced(lx, out_token);
+            status = lexer_process_param_unbraced(lx, out_token);
+            break;
         case LEX_CMD_SUBST_PAREN:
-            return lexer_process_cmd_subst_paren(lx, out_token);
+            status = lexer_process_cmd_subst_paren(lx, out_token);
+            break;
         case LEX_CMD_SUBST_BACKTICK:
-            return lexer_process_cmd_subst_backtick(lx, out_token);
+            status = lexer_process_cmd_subst_backtick(lx, out_token);
+            break;
         case LEX_ARITH_EXP:
-            return lexer_process_arith_exp(lx, out_token);
+            status = lexer_process_arith_exp(lx, out_token);
+            break;
         case LEX_HEREDOC_BODY:
-            return lexer_process_heredoc_body(lx, out_token);
+            status = lexer_process_heredoc_body(lx, out_token);
+            break;
 #endif
-    default:
-        lexer_set_error(lx, "Unknown lexer mode");
-        return LEX_ERROR;
+        default:
+            lexer_set_error(lx, "Unknown lexer mode");
+            return LEX_ERROR;
+        }
+        
+        // If we got an error, return immediately
+        if (status == LEX_ERROR || status == LEX_INTERNAL_ERROR)
+        {
+            return status;
+        }
+        
+        // If we got OK:
+        // - Check if we've produced tokens - if yes, we're done
+        // - If we're back in normal mode, continue to finalize word or find next token
+        if (status == LEX_OK)
+        {
+            if (lx->tokens->size > initial_token_count)
+            {
+                return LEX_OK;
+            }
+            
+            // If we're back in normal mode and have an in-progress word,
+            // we need to continue to finalize it (even at end of input)
+            if (lexer_current_mode(lx) == LEX_NORMAL && lx->in_word)
+            {
+                continue;
+            }
+            
+            // No tokens and no word in progress - return OK
+            return LEX_OK;
+        }
+        
+        // LEX_INCOMPLETE: could mean mode switch or truly need more input
+        if (status == LEX_INCOMPLETE)
+        {
+            // If we've produced any tokens, that counts as success
+            if (lx->tokens->size > initial_token_count)
+            {
+                return LEX_OK;
+            }
+            
+            // If we're at end of input and still incomplete, need more input
+            if (lexer_at_end(lx))
+            {
+                return LEX_INCOMPLETE;
+            }
+            
+            // Otherwise, continue the loop (mode switch happened)
+            continue;
+        }
     }
 }
 
