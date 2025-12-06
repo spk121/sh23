@@ -77,6 +77,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
     {
         char c = lexer_peek(lx);
         char c2 = lexer_peek_ahead(lx, 1);
+        char c3 = lexer_peek_ahead(lx, 2);
 
         if (c == '\\' && c2 == '\n')
         {
@@ -102,6 +103,103 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         {
             lexer_advance(lx);
             lexer_emit_token(lx, TOKEN_NEWLINE);
+            
+            // After a newline, if there are pending heredocs, enter heredoc body mode
+            if (lx->heredoc_queue.size > 0 && !lx->reading_heredoc)
+            {
+                lx->reading_heredoc = true;
+                lx->heredoc_index = 0;
+                lexer_push_mode(lx, LEX_HEREDOC_BODY);
+                return LEX_INCOMPLETE;
+            }
+            continue;
+        }
+
+        // Check for heredoc operators (<< or <<-) with optional IO number prefix
+        // This must be done before generic operator matching
+        if ((c == '<' && c2 == '<')
+              || (c >= '0' && c <= '9' && c2 == '<' && c3 == '<'))
+        {
+            // FIXME: handle multi-digit IO numbers
+            if (c >= '0' && c <= '9')
+            {
+                token_t *io_token = token_create(TOKEN_IO_NUMBER);
+                io_token->io_number = (int)(c - '0');
+                token_set_location(io_token, lx->line_no, lx->col_no - 1, lx->line_no, lx->col_no);
+                lexer_emit_token(lx, TOKEN_IO_NUMBER); 
+                lexer_advance(lx);
+            }
+            // Advance past <<
+            lexer_advance(lx);
+            lexer_advance(lx);
+            
+            // Check for <<-
+            bool strip_tabs = false;
+            char c3 = lexer_peek(lx);
+            if (c3 == '-')
+            {
+                lexer_advance(lx);
+                strip_tabs = true;
+            }
+            
+            // Emit the heredoc operator token
+            if (strip_tabs)
+            {
+                lexer_emit_token(lx, TOKEN_DLESSDASH);
+            }
+            else
+            {
+                lexer_emit_token(lx, TOKEN_DLESS);
+            }
+            
+            // Skip whitespace before delimiter
+            lexer_skip_whitespace(lx);
+            
+            // Parse the delimiter word
+            bool delimiter_quoted = false;
+            char quote_char = '\0';
+            c = lexer_peek(lx);
+            
+            if (c == '\'' || c == '"')
+            {
+                delimiter_quoted = true;
+                quote_char = c;
+                lexer_advance(lx); // consume opening quote
+            }
+            
+            string_t *delimiter = string_create_empty(16);
+            
+            while (!lexer_at_end(lx))
+            {
+                char dc = lexer_peek(lx);
+                
+                if (delimiter_quoted && dc == quote_char)
+                {
+                    lexer_advance(lx); // consume closing quote
+                    break;
+                }
+                else if (!delimiter_quoted && (dc == ' ' || dc == '\t' || dc == '\n' || dc == ';' || dc == '&' || dc == '|' || dc == '<' || dc == '>'))
+                {
+                    // Unquoted delimiter ends at whitespace or metacharacter
+                    break;
+                }
+                
+                string_append_ascii_char(delimiter, dc);
+                lexer_advance(lx);
+            }
+            
+            if (string_length(delimiter) == 0)
+            {
+                lexer_set_error(lx, "heredoc delimiter cannot be empty");
+                string_destroy(delimiter);
+                return LEX_ERROR;
+            }
+            
+            // Queue the heredoc for later body reading
+            // The delimiter is stored in the queue and will be used when processing the heredoc body
+            lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
+            string_destroy(delimiter);
+            
             continue;
         }
 
