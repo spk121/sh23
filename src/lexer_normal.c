@@ -45,14 +45,21 @@ static token_type_t match_operator(const lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
+    // Check operators in order of decreasing length to ensure longer
+    // operators (e.g., "<<-") are matched before shorter ones (e.g., "<<").
+    for (int len = 3; len >= 1; len--)
     {
-        const char *op = normal_mode_operators[i];
-        if (op[0] == '\0')
-            continue; // skip uninitialized
-        if (check_operator_at_position(lx, op))
+        for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
         {
-            return (token_type_t)i;
+            const char *op = normal_mode_operators[i];
+            if (op[0] == '\0')
+                continue; // skip uninitialized
+            if ((int)strlen(op) != len)
+                continue; // only check operators of current length
+            if (check_operator_at_position(lx, op))
+            {
+                return (token_type_t)i;
+            }
         }
     }
     return TOKEN_EOF; // no match
@@ -100,6 +107,10 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
 
         if (c == '\n')
         {
+            if (lx->in_word)
+            {
+                lexer_finalize_word(lx);
+            }
             lexer_advance(lx);
             lexer_emit_token(lx, TOKEN_NEWLINE);
             continue;
@@ -109,6 +120,10 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         op = match_operator(lx);
         if (op)
         {
+            if (lx->in_word)
+            {
+                lexer_finalize_word(lx);
+            }
             advance_over_operator(lx, op);
             lexer_emit_token(lx, op);
             return LEX_OK;
@@ -223,9 +238,9 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
                 }
                 continue;
             }
-            // Otherwise treat as word character
-            lexer_start_word(lx);
+            // Otherwise treat as word character (we're already in a word)
             lexer_append_literal_char_to_word(lx, lexer_advance(lx));
+            continue;
         }
 
         lexer_set_error(lx, "Unexpected character '%c'", c);
