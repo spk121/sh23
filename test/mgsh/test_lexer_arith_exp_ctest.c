@@ -500,6 +500,60 @@ CTEST(test_arith_exp_paren_not_closing)
     (void)ctest;
 }
 
+// Test unbalanced parentheses - single ) at depth 0 followed by non-) character
+CTEST(test_arith_exp_unbalanced_paren)
+{
+    lexer_t *lx = lexer_create();
+    // Single ) at depth 0 followed by 'x' - this is unbalanced
+    lexer_append_input_cstr(lx, "$((1+2)x))");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_ERROR, "unbalanced parens returns ERROR");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test unbalanced parentheses - extra closing paren inside expression
+CTEST(test_arith_exp_extra_close_paren)
+{
+    lexer_t *lx = lexer_create();
+    // Extra ) inside expression before )) - unbalanced
+    // This is $((1) followed by x)), which has a single ) at depth 0 followed by 'x'
+    lexer_append_input_cstr(lx, "$((1)x))");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    // Should error because we have unbalanced parens
+    CTEST_ASSERT_EQ(ctest, status, LEX_ERROR, "unbalanced parens returns ERROR");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test single ) at depth 0 at end of input - should be INCOMPLETE
+CTEST(test_arith_exp_single_paren_eof)
+{
+    lexer_t *lx = lexer_create();
+    // Single ) at depth 0 at end of input
+    lexer_append_input_cstr(lx, "$((1+2)");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    // Should be INCOMPLETE because we need more input
+    CTEST_ASSERT_EQ(ctest, status, LEX_INCOMPLETE, "single ) at EOF returns INCOMPLETE");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
 int main()
 {
     arena_start();
@@ -533,6 +587,10 @@ int main()
         CTEST_ENTRY(test_arith_exp_with_squote),
         CTEST_ENTRY(test_arith_exp_with_backslash),
         CTEST_ENTRY(test_arith_exp_paren_not_closing),
+        // Unbalanced parentheses tests
+        CTEST_ENTRY(test_arith_exp_unbalanced_paren),
+        CTEST_ENTRY(test_arith_exp_extra_close_paren),
+        CTEST_ENTRY(test_arith_exp_single_paren_eof),
         NULL
     };
     

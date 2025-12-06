@@ -98,11 +98,31 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                     lexer_pop_mode(lx);
                     return LEX_OK;
                 }
+                else if (c2 == '\0')
+                {
+                    // End of input after single ) at depth 0 - need more input
+                    // Consume the ) and let the while loop exit normally
+                    string_append_ascii_char(expr_text, c);
+                    lexer_advance(lx);
+                    // Fall through to exit the while loop at end of input
+                }
+                else
+                {
+                    // Single ) at depth 0 followed by non-) character - unbalanced parens
+                    // This is a syntax error: more closing parens than opening parens
+                    string_destroy(expr_text);
+                    token_list_destroy(nested);
+                    lexer_set_error(lx, "Unbalanced parentheses in arithmetic expansion");
+                    return LEX_ERROR;
+                }
             }
-            // Single ) decreases nesting depth
-            paren_depth--;
-            string_append_ascii_char(expr_text, c);
-            lexer_advance(lx);
+            else
+            {
+                // Single ) decreases nesting depth (only when paren_depth > 0)
+                paren_depth--;
+                string_append_ascii_char(expr_text, c);
+                lexer_advance(lx);
+            }
             continue;
         }
 
