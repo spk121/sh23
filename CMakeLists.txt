@@ -41,6 +41,7 @@ target_include_directories(ctest_obj PUBLIC
 set(MGSH_TEST_SOURCES
     test/mgsh/test_alist_ctest.c
     test/mgsh/test_lexer_quotes_ctest.c
+    test/mgsh/test_lexer_param_exp_ctest.c
 )
 
 foreach(test_src ${MGSH_TEST_SOURCES})
@@ -60,6 +61,8 @@ foreach(test_src ${MGSH_TEST_SOURCES})
         src/lexer_squote.h
         src/lexer_dquote.c
         src/lexer_dquote.h
+        src/lexer_param_exp.c
+        src/lexer_param_exp.h
         src/logging.c
         src/logging.h
         src/string.c

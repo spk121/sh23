@@ -323,6 +323,11 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
         return false;
 
     const part_t *first_part = tok->parts->parts[0];
+    
+    // Only literal parts can be reserved words
+    if (part_get_type(first_part) != PART_LITERAL)
+        return false;
+    
     const char *word = string_data(first_part->text);
     struct reserved_word_entry *p;
     token_type_t new_type = TOKEN_WORD;
