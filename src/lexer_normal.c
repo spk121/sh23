@@ -3,6 +3,9 @@
 #include "token.h"
 #include <ctype.h>
 
+// Maximum length of any operator in normal_mode_operators
+#define MAX_OPERATOR_LENGTH 3
+
 // Operators that can appear in normal mode
 static const char normal_mode_operators[TOKEN_TYPE_COUNT][4] = {
     [TOKEN_DLESSDASH] = "<<-", [TOKEN_AND_IF] = "&&",  [TOKEN_OR_IF] = "||",   [TOKEN_DSEMI] = ";;",
@@ -10,6 +13,15 @@ static const char normal_mode_operators[TOKEN_TYPE_COUNT][4] = {
     [TOKEN_LESSGREAT] = "<>",  [TOKEN_CLOBBER] = ">|", [TOKEN_PIPE] = "|",     [TOKEN_SEMI] = ";",
     [TOKEN_AMPER] = "&",       [TOKEN_LPAREN] = "(",   [TOKEN_RPAREN] = ")",   [TOKEN_GREATER] = ">",
     [TOKEN_LESS] = "<",
+};
+
+// Pre-computed lengths of operators for efficiency
+static const int normal_mode_operator_lengths[TOKEN_TYPE_COUNT] = {
+    [TOKEN_DLESSDASH] = 3, [TOKEN_AND_IF] = 2,  [TOKEN_OR_IF] = 2,   [TOKEN_DSEMI] = 2,
+    [TOKEN_DLESS] = 2,     [TOKEN_DGREAT] = 2,  [TOKEN_LESSAND] = 2, [TOKEN_GREATAND] = 2,
+    [TOKEN_LESSGREAT] = 2, [TOKEN_CLOBBER] = 2, [TOKEN_PIPE] = 1,    [TOKEN_SEMI] = 1,
+    [TOKEN_AMPER] = 1,     [TOKEN_LPAREN] = 1,  [TOKEN_RPAREN] = 1,  [TOKEN_GREATER] = 1,
+    [TOKEN_LESS] = 1,
 };
 
 static bool is_delimiter_char(char c)
@@ -47,15 +59,15 @@ static token_type_t match_operator(const lexer_t *lx)
 
     // Check operators in order of decreasing length to ensure longer
     // operators (e.g., "<<-") are matched before shorter ones (e.g., "<<").
-    for (int len = 3; len >= 1; len--)
+    for (int len = MAX_OPERATOR_LENGTH; len >= 1; len--)
     {
         for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
         {
+            if (normal_mode_operator_lengths[i] != len)
+                continue; // only check operators of current length
             const char *op = normal_mode_operators[i];
             if (op[0] == '\0')
                 continue; // skip uninitialized
-            if ((int)strlen(op) != len)
-                continue; // only check operators of current length
             if (check_operator_at_position(lx, op))
             {
                 return (token_type_t)i;
@@ -69,7 +81,7 @@ static void advance_over_operator(lexer_t *lx, token_type_t type)
 {
     Expects_not_null(lx);
 
-    int len = strlen(normal_mode_operators[(int)type]);
+    int len = normal_mode_operator_lengths[(int)type];
     for (int i = 0; i < len; i++)
     {
         lexer_advance(lx);
