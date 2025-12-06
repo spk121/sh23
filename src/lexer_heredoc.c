@@ -24,7 +24,9 @@
 /**
  * Check if a character is a special parameter character.
  * These can follow $ directly without braces.
+ * NOTE: Currently unused but kept for future expansion handling in heredocs.
  */
+static bool is_special_param_char(char c) __attribute__((unused));
 static bool is_special_param_char(char c)
 {
     return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' ||
@@ -33,7 +35,9 @@ static bool is_special_param_char(char c)
 
 /**
  * Check if a character can start a parameter name.
+ * NOTE: Currently unused but kept for future expansion handling in heredocs.
  */
+static bool is_name_start_char(char c) __attribute__((unused));
 static bool is_name_start_char(char c)
 {
     return (isalpha(c) || c == '_');
@@ -56,8 +60,6 @@ static void lexer_append_heredoc_char(lexer_t *lx, char c)
 {
     Expects_not_null(lx);
     Expects(lx->heredoc_index >= 0 && lx->heredoc_index < lx->heredoc_queue.size);
-    
-    heredoc_entry_t *entry = &lx->heredoc_queue.entries[lx->heredoc_index];
     
     // For now, we'll build content in a temporary string on the token
     // This will be attached to the appropriate token when heredoc reading completes
