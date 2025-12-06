@@ -1,10 +1,5 @@
 #include "lexer.h"
 
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
-#include <limits.h>
-#include <ctype.h>
 #include "lexer_arith_exp.h"
 #include "lexer_cmd_subst.h"
 #include "lexer_dquote.h"
@@ -16,6 +11,11 @@
 #include "string_t.h"
 #include "token.h"
 #include "xalloc.h"
+#include <ctype.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ============================================================================
  * Lexer Lifecycle Functions
@@ -322,13 +322,12 @@ static bool lexer_last_part_is_unquoted_literal(lexer_t *lx)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
-    
+
     if (lx->current_token->parts->size == 0)
         return false;
-    
+
     part_t *last_part = token_get_part(lx->current_token, lx->current_token->parts->size - 1);
-    return (part_get_type(last_part) == PART_LITERAL && 
-            !part_was_single_quoted(last_part) && 
+    return (part_get_type(last_part) == PART_LITERAL && !part_was_single_quoted(last_part) &&
             !part_was_double_quoted(last_part));
 }
 
@@ -411,7 +410,7 @@ void lexer_emit_io_number_token(lexer_t *lx, int io_number)
     Expects_not_null(lx);
     Expects_eq(lx->current_token, NULL);
     Expects_ge(io_number, 0);
-    
+
     token_t *tok = token_create(TOKEN_IO_NUMBER);
     tok->io_number = io_number;
     token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
@@ -428,8 +427,6 @@ bool lexer_try_operator(lexer_t *lx) {
     return false;
 }
 #endif
-
-
 
 /* ============================================================================
  * Heredoc Functions
@@ -453,6 +450,22 @@ void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs
     entry->strip_tabs = strip_tabs;
     entry->delimiter_quoted = delimiter_quoted;
     entry->token_index = token_list_size(lx->tokens);
+}
+
+void lexer_empty_heredoc_queue(lexer_t *lx)
+{
+    Expects_not_null(lx);
+
+    for (int i = 0; i < lx->heredoc_queue.size; i++)
+    {
+        heredoc_entry_t *entry = &lx->heredoc_queue.entries[i];
+        if (entry->delimiter)
+        {
+            string_destroy(entry->delimiter);
+            entry->delimiter = NULL;
+        }
+    }
+    lx->heredoc_queue.size = 0;
 }
 
 /* ============================================================================
@@ -667,7 +680,7 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
 
     lex_status_t status;
     int initial_token_count = token_list_size(lx->tokens);
-    
+
     // Loop until we produce a token, need more input, or encounter an error
     while (1)
     {
@@ -704,13 +717,13 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
             lexer_set_error(lx, "Unknown lexer mode");
             return LEX_ERROR;
         }
-        
+
         // If we got an error, return immediately
         if (status == LEX_ERROR || status == LEX_INTERNAL_ERROR)
         {
             return status;
         }
-        
+
         // If we got OK:
         // - Check if we've produced tokens - if yes, we're done
         // - If we're back in normal mode, continue to finalize word or find next token
@@ -720,25 +733,25 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
             {
                 return LEX_OK;
             }
-            
+
             // If we're in any mode other than NORMAL, we should continue
             // processing (e.g., after param expansion inside double quotes)
             if (lexer_current_mode(lx) != LEX_NORMAL)
             {
                 continue;
             }
-            
+
             // If we're back in normal mode and have an in-progress word,
             // we need to continue to finalize it (even at end of input)
             if (lx->in_word)
             {
                 continue;
             }
-            
+
             // No tokens and no word in progress - return OK
             return LEX_OK;
         }
-        
+
         // LEX_INCOMPLETE: could mean mode switch or truly need more input
         if (status == LEX_INCOMPLETE)
         {
@@ -747,13 +760,13 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
             {
                 return LEX_OK;
             }
-            
+
             // If we're at end of input and still incomplete, need more input
             if (lexer_at_end(lx))
             {
                 return LEX_INCOMPLETE;
             }
-            
+
             // Otherwise, continue the loop (mode switch happened)
             continue;
         }

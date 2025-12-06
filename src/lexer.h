@@ -1,10 +1,10 @@
 #ifndef LEXER_H
 #define LEXER_H
 
-#include <stdbool.h>
-#include <stddef.h>
 #include "string_t.h"
 #include "token.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 /* ============================================================================
  * Constants
@@ -353,6 +353,11 @@ bool lexer_previous_token_was_newline(const lexer_t *lx);
  * Called when we encounter << or <<- operator.
  */
 void lexer_queue_heredoc(lexer_t *lexer, const string_t *delimiter, bool strip_tabs, bool delimiter_quoted);
+
+/**
+ * Empty the heredoc queue without reading bodies.
+ */
+void lexer_empty_heredoc_queue(lexer_t *lx);
 
 /**
  * Read all queued heredoc bodies.

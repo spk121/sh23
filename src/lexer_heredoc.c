@@ -271,8 +271,8 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
                 {
                     // All heredocs processed
                     lx->reading_heredoc = false;
+                    lexer_empty_heredoc_queue(lx);
                     lx->heredoc_index = 0;
-                    lx->heredoc_queue.size = 0; // Clear the queue
 
                     // Emit an END_OF_HEREDOC token to signal completion
                     lexer_emit_token(lx, TOKEN_END_OF_HEREDOC);
@@ -281,6 +281,13 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
 
                 return LEX_OK;
             }
+            // For <<-, strip all leading tabs at the start of each line
+            if (strip_tabs && lx->col_no == 1 && c == '\t')
+            {
+                while ((c = lexer_advance(lx)) == '\t') // skip the tab, don't add to content
+                    ;
+                continue;
+            }
         }
 
         // Process the line content
@@ -288,13 +295,6 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
         {
             lexer_append_heredoc_char(lx, c);
             lexer_advance(lx);
-            continue;
-        }
-
-        // For <<-, strip leading tabs at the start of each line
-        if (strip_tabs && lx->col_no == 1 && c == '\t')
-        {
-            lexer_advance(lx); // skip the tab, don't add to content
             continue;
         }
 
