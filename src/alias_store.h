@@ -3,7 +3,7 @@
 
 #include <stdbool.h>
 #include "alias.h"
-#include "string.h"
+#include "string_t.h"
 
 typedef struct AliasStore AliasStore;
 

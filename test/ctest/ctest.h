@@ -1,5 +1,9 @@
-#ifndef CTEST_H
-#define CTEST_H
+#ifndef MY_CTEST_H
+#define MY_CTEST_H
+
+#ifdef CTEST
+#error "CTEST already defined"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -125,4 +129,4 @@ typedef struct {
 
 CTestSummary ctest_last_summary(void);
 
-#endif // CTEST_H
+#endif // MY_CTEST_H

@@ -16,8 +16,8 @@ add_executable(mgsh
     src/alias_array.h
     src/logging.c
     src/logging.h
-    src/string.c
-    src/string.h
+    src/string_t.c
+    src/string_t.h
     src/xalloc.c
     src/xalloc.h
 
@@ -74,15 +74,15 @@ foreach(test_src ${MGSH_TEST_SOURCES})
         src/lexer_param_exp.h
         src/logging.c
         src/logging.h
-        src/string.c
-        src/string.h
+        src/string_t.c
+        src/string_t.h
         src/token.c
         src/token.h
         src/xalloc.c
         src/xalloc.h
         $<TARGET_OBJECTS:ctest_obj>
     )
-    target_compile_definitions(${test_name} PRIVATE CTEST)
+    target_compile_definitions(${test_name} PRIVATE IN_CTEST)
     target_include_directories(${test_name} PRIVATE
         src
         ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest

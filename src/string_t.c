@@ -1,10 +1,10 @@
-#include "string.h"
-#include "logging.h"
-#include "xalloc.h"
+#include "string_t.h"
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "logging.h"
+#include "xalloc.h"
 
 // Helper: Ensure capacity
 static void string_ensure_capacity(string_t *str, int needed)

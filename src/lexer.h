@@ -1,10 +1,10 @@
 #ifndef LEXER_H
 #define LEXER_H
 
-#include "string.h"
-#include "token.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include "string_t.h"
+#include "token.h"
 
 /* ============================================================================
  * Constants
@@ -253,10 +253,38 @@ char lexer_peek(const lexer_t *lexer);
 char lexer_peek_ahead(const lexer_t *lexer, int offset);
 
 /**
+ * Check if the current position starts with a specific string.
+ */
+bool lexer_input_starts_with(const lexer_t *lexer, const char *str);
+
+/**
+ * Check if the input has a specific substring at a given position.
+ */
+bool lexer_input_has_substring_at(const lexer_t *lexer, const char *str, int position);
+
+/**
+ * Check if the input starts with an integer (one or more digits).
+ */
+bool lexer_input_starts_with_integer(const lexer_t *lx);
+
+/**
+ * Peek an integer at the current position without advancing.
+ * Stores the number of digits in digit_count.
+ * Returns the integer value.
+ * Returns 0 and digit_count = 0 if no integer is present.
+ */
+int lexer_peek_integer(const lexer_t *lx, int *digit_count);
+
+/**
  * Get the current character and advance position.
  * Returns '\0' if at end of input.
  */
 char lexer_advance(lexer_t *lexer);
+
+/**
+ * Advance the current position by n characters.
+ */
+void lexer_advance_n_chars(lexer_t *lexer, int n);
 
 /**
  * Check if we're at the end of input.
@@ -299,7 +327,7 @@ void lexer_finalize_word(lexer_t *lexer);
  * Emit a non-WORD token (operator, reserved word, etc.).
  */
 void lexer_emit_token(lexer_t *lexer, token_type_t type);
-
+void lexer_emit_io_number_token(lexer_t *lexer, int io_number);
 /* ============================================================================
  * Operator Recognition Functions
  * ============================================================================ */
@@ -311,14 +339,14 @@ void lexer_emit_token(lexer_t *lexer, token_type_t type);
  */
 bool lexer_try_operator(lexer_t *lexer);
 
-/**
- * Check if the current position starts with a specific operator.
- */
-bool lexer_input_starts_with(const lexer_t *lexer, const char *str);
-
 /* ============================================================================
  * Heredoc Functions
  * ============================================================================ */
+
+/**
+ * Check if the previous token was a newline.
+ */
+bool lexer_previous_token_was_newline(const lexer_t *lx);
 
 /**
  * Queue a heredoc for later reading.

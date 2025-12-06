@@ -1,5 +1,10 @@
 #include "lexer.h"
 
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+#include <limits.h>
+#include <ctype.h>
 #include "lexer_arith_exp.h"
 #include "lexer_cmd_subst.h"
 #include "lexer_dquote.h"
@@ -8,12 +13,9 @@
 #include "lexer_param_exp.h"
 #include "lexer_squote.h"
 #include "logging.h"
-#include "string.h"
+#include "string_t.h"
 #include "token.h"
 #include "xalloc.h"
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
 
 /* ============================================================================
  * Lexer Lifecycle Functions
@@ -188,6 +190,67 @@ char lexer_peek_ahead(const lexer_t *lx, int offset)
     return string_char_at(lx->input, lx->pos + offset);
 }
 
+bool lexer_input_starts_with(const lexer_t *lx, const char *str)
+{
+    Expects_not_null(lx);
+    Expects_not_null(str);
+    Expects_gt(strlen(str), 0);
+
+    int len = strlen(str);
+    if (lx->pos + len > string_length(lx->input))
+        return false;
+    return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
+}
+
+bool lexer_input_has_substring_at(const lexer_t *lexer, const char *str, int position)
+{
+    Expects_not_null(lexer);
+    Expects_not_null(str);
+    Expects_ge(position, 0);
+    Expects_gt(strlen(str), 0);
+
+    int len = strlen(str);
+    if (position + len > string_length(lexer->input))
+        return false;
+    const char *input_data = string_data(lexer->input);
+    return (strncmp(&input_data[position], str, len) == 0);
+}
+
+bool lexer_input_starts_with_integer(const lexer_t *lx)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+
+    if (lx->pos >= string_length(lx->input))
+        return false;
+    char c = string_char_at(lx->input, lx->pos);
+    return isdigit(c);
+}
+
+int lexer_peek_integer(const lexer_t *lx, int *digit_count)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+    Expects_not_null(digit_count);
+
+    int value = 0;
+    int count = 0;
+    int pos = lx->pos;
+    while (pos < string_length(lx->input))
+    {
+        char c = string_char_at(lx->input, pos);
+        if (!isdigit(c))
+            break;
+        if (value > (INT_MAX - (c - '0')) / 10)
+            break; // prevent overflow
+        value = value * 10 + (c - '0');
+        count++;
+        pos++;
+    }
+    *digit_count = count;
+    return value;
+}
+
 char lexer_advance(lexer_t *lx)
 {
     Expects_not_null(lx);
@@ -203,6 +266,19 @@ char lexer_advance(lexer_t *lx)
     else
         lx->col_no++;
     return c;
+}
+
+void lexer_advance_n_chars(lexer_t *lx, int n)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+    Expects_ge(n, 0);
+    Expects_le(lx->pos + n, string_length(lx->input));
+
+    for (int i = 0; i < n; i++)
+    {
+        lexer_advance(lx);
+    }
 }
 
 bool lexer_at_end(const lexer_t *lx)
@@ -318,6 +394,8 @@ void lexer_emit_token(lexer_t *lx, token_type_t type)
 {
     Expects_not_null(lx);
     Expects_eq(lx->current_token, NULL);
+    Expects_ne(type, TOKEN_WORD);
+    Expects_ne(type, TOKEN_IO_NUMBER);
 
     token_t *tok = token_create(type);
     token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
@@ -326,6 +404,18 @@ void lexer_emit_token(lexer_t *lx, token_type_t type)
     // Is this the logical place for this?
     lx->at_command_start = (type == TOKEN_SEMI || type == TOKEN_NEWLINE || type == TOKEN_AND_IF ||
                             type == TOKEN_OR_IF || type == TOKEN_PIPE);
+}
+
+void lexer_emit_io_number_token(lexer_t *lx, int io_number)
+{
+    Expects_not_null(lx);
+    Expects_eq(lx->current_token, NULL);
+    Expects_ge(io_number, 0);
+    
+    token_t *tok = token_create(TOKEN_IO_NUMBER);
+    tok->io_number = io_number;
+    token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
+    token_list_append(lx->tokens, tok);
 }
 
 /* ============================================================================
@@ -339,17 +429,7 @@ bool lexer_try_operator(lexer_t *lx) {
 }
 #endif
 
-bool lexer_input_starts_with(const lexer_t *lx, const char *str)
-{
-    Expects_not_null(lx);
-    Expects_not_null(str);
-    Expects_gt(strlen(str), 0);
 
-    int len = strlen(str);
-    if (lx->pos + len > string_length(lx->input))
-        return false;
-    return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
-}
 
 /* ============================================================================
  * Heredoc Functions

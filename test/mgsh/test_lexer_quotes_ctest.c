@@ -4,7 +4,7 @@
 #include "lexer_squote.h"
 #include "lexer_dquote.h"
 #include "token.h"
-#include "string.h"
+#include "string_t.h"
 #include "xalloc.h"
 
 /* ============================================================================

@@ -69,6 +69,116 @@ static void advance_over_operator(lexer_t *lx, token_type_t type)
     }
 }
 
+static bool get_heredoc_word(lexer_t *lx, string_t *out_word, bool *delimiter_quoted)
+{
+    Expects_not_null(lx);
+    Expects_not_null(out_word);
+    Expects_not_null(delimiter_quoted);
+
+    *delimiter_quoted = false;
+    char quote_char = lexer_peek(lx);
+    if (quote_char == '\'' || quote_char == '"')
+    {
+        *delimiter_quoted = true;
+        lexer_advance(lx); /* consume opening quote */
+    }
+
+    while (!lexer_at_end(lx))
+    {
+        char dc = lexer_peek(lx);
+        if (*delimiter_quoted && dc == quote_char)
+        {
+            lexer_advance(lx); /* consume closing quote */
+            return true;
+        }
+        else if (!*delimiter_quoted && is_delimiter_char(dc))
+        {
+            /* Unquoted delimiter ends at whitespace or metacharacter */
+            break;
+        }
+        string_append_ascii_char(out_word, dc);
+        lexer_advance(lx);
+    }
+
+    return !(*delimiter_quoted); // true if unquoted and done, false if quoted but not closed
+}
+
+static void heredoc_check(lexer_t *lx, bool *found_heredoc, bool *error)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->tokens);
+
+    *found_heredoc = false;
+    *error = false;
+
+    // Check for heredoc operators (<< or <<-) with optional IO number prefix
+    // This must be done before generic operator matching
+    /* Look for a run of digits immediately followed by '<<' (multi-digit IO number)
+     * Only treat digits as an IO-number prefix when it is syntactically a redirection
+     * position: either token list is empty (start of input) or previous token was NEWLINE.
+     */
+
+    /* If digits are present, check context and that they are immediately followed by << */
+    if (lexer_input_starts_with_integer(lx))
+    {
+        int digit_count = 0;
+        int io_number = lexer_peek_integer(lx, &digit_count);
+
+        if (lexer_input_has_substring_at(lx, "<<", digit_count))
+        {
+            lexer_emit_io_number_token(lx, io_number);
+            lexer_advance_n_chars(lx, digit_count);
+        }
+        else
+            // Not a heredoc if digits not followed by <<
+            return;
+    }
+
+    /* Now check for the heredoc operator itself (simple case or after the consumed digits) */
+    if (!lexer_input_starts_with(lx, "<<"))
+        return;
+
+    /* Advance past << */
+    lexer_advance_n_chars(lx, 2);
+
+    /* Check for <<- */
+    bool strip_tabs = false;
+    if (lexer_peek(lx) == '-')
+    {
+        lexer_advance(lx);
+        strip_tabs = true;
+        lexer_emit_token(lx, TOKEN_DLESSDASH);
+    }
+    else
+        lexer_emit_token(lx, TOKEN_DLESS);
+
+    /* Skip whitespace before delimiter */
+    lexer_skip_whitespace(lx);
+
+    /* Parse the delimiter word */
+    bool delimiter_quoted = false;
+    string_t *delimiter = string_create_empty(16);
+    if (!get_heredoc_word(lx, delimiter, &delimiter_quoted))
+    {
+        lexer_set_error(lx, "unterminated heredoc delimiter");
+        string_destroy(delimiter);
+        *error = true;
+        return;
+    }
+    if (string_length(delimiter) == 0)
+    {
+        lexer_set_error(lx, "heredoc delimiter cannot be empty");
+        string_destroy(delimiter);
+        *error = true;
+        return;
+    }
+
+    lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
+    string_destroy(delimiter);
+    *found_heredoc = true;
+    return;
+}
+
 lex_status_t lexer_process_one_normal_token(lexer_t *lx)
 {
     Expects_not_null(lx);
@@ -77,7 +187,6 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
     {
         char c = lexer_peek(lx);
         char c2 = lexer_peek_ahead(lx, 1);
-        char c3 = lexer_peek_ahead(lx, 2);
 
         if (c == '\\' && c2 == '\n')
         {
@@ -115,93 +224,13 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
             continue;
         }
 
-        // Check for heredoc operators (<< or <<-) with optional IO number prefix
-        // This must be done before generic operator matching
-        if ((c == '<' && c2 == '<')
-              || (c >= '0' && c <= '9' && c2 == '<' && c3 == '<'))
-        {
-            // FIXME: handle multi-digit IO numbers
-            if (c >= '0' && c <= '9')
-            {
-                token_t *io_token = token_create(TOKEN_IO_NUMBER);
-                io_token->io_number = (int)(c - '0');
-                token_set_location(io_token, lx->line_no, lx->col_no - 1, lx->line_no, lx->col_no);
-                lexer_emit_token(lx, TOKEN_IO_NUMBER); 
-                lexer_advance(lx);
-            }
-            // Advance past <<
-            lexer_advance(lx);
-            lexer_advance(lx);
-            
-            // Check for <<-
-            bool strip_tabs = false;
-            char c3 = lexer_peek(lx);
-            if (c3 == '-')
-            {
-                lexer_advance(lx);
-                strip_tabs = true;
-            }
-            
-            // Emit the heredoc operator token
-            if (strip_tabs)
-            {
-                lexer_emit_token(lx, TOKEN_DLESSDASH);
-            }
-            else
-            {
-                lexer_emit_token(lx, TOKEN_DLESS);
-            }
-            
-            // Skip whitespace before delimiter
-            lexer_skip_whitespace(lx);
-            
-            // Parse the delimiter word
-            bool delimiter_quoted = false;
-            char quote_char = '\0';
-            c = lexer_peek(lx);
-            
-            if (c == '\'' || c == '"')
-            {
-                delimiter_quoted = true;
-                quote_char = c;
-                lexer_advance(lx); // consume opening quote
-            }
-            
-            string_t *delimiter = string_create_empty(16);
-            
-            while (!lexer_at_end(lx))
-            {
-                char dc = lexer_peek(lx);
-                
-                if (delimiter_quoted && dc == quote_char)
-                {
-                    lexer_advance(lx); // consume closing quote
-                    break;
-                }
-                else if (!delimiter_quoted && (dc == ' ' || dc == '\t' || dc == '\n' || dc == ';' || dc == '&' || dc == '|' || dc == '<' || dc == '>'))
-                {
-                    // Unquoted delimiter ends at whitespace or metacharacter
-                    break;
-                }
-                
-                string_append_ascii_char(delimiter, dc);
-                lexer_advance(lx);
-            }
-            
-            if (string_length(delimiter) == 0)
-            {
-                lexer_set_error(lx, "heredoc delimiter cannot be empty");
-                string_destroy(delimiter);
-                return LEX_ERROR;
-            }
-            
-            // Queue the heredoc for later body reading
-            // The delimiter is stored in the queue and will be used when processing the heredoc body
-            lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
-            string_destroy(delimiter);
-            
+        bool found_heredoc = false;
+        bool error = false;
+        heredoc_check(lx, &found_heredoc, &error);
+        if (error)
+            return LEX_ERROR;
+        if (found_heredoc)
             continue;
-        }
 
         token_type_t op;
         op = match_operator(lx);
