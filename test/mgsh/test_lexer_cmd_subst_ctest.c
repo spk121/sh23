@@ -394,6 +394,69 @@ CTEST(test_cmd_subst_mixed_forms)
     (void)ctest;
 }
 
+/* ============================================================================
+ * Nesting Corner Case Tests
+ * ============================================================================ */
+
+// Test nested backtick inside backtick command substitution
+// Input: `\`ls\``  - The inner \` sequences escape backticks
+// This should produce a command substitution containing "`ls`"
+CTEST(test_cmd_subst_backtick_nested)
+{
+    lexer_t *lx = lexer_create();
+    // In backticks, \` escapes to literal backtick
+    // So `\`ls\`` means: outer backtick, then \` -> `, then ls, then \` -> `, then closing backtick
+    lexer_append_input_cstr(lx, "`\\`ls\\``");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
+    
+    part_t *part = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
+    // The escaped backticks become literal backticks in the command text
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "`ls`", "nested backticks preserved");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test that $( (ls) ) is NOT interpreted as arithmetic expansion
+// This should be a command substitution containing " (ls) " not arithmetic
+CTEST(test_cmd_subst_paren_not_arithmetic)
+{
+    lexer_t *lx = lexer_create();
+    // $( (ls) ) - space after $( means this is command substitution, not arithmetic
+    lexer_append_input_cstr(lx, "$( (ls) )");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
+    
+    part_t *part = token_get_part(tok, 0);
+    // Should be COMMAND_SUBST, not ARITHMETIC
+    CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution, not arithmetic");
+    // The command text should contain the subshell expression
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), " (ls) ", "subshell parens preserved in command");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
 int main()
 {
     arena_start();
@@ -418,6 +481,9 @@ int main()
         // Combined tests
         CTEST_ENTRY(test_cmd_subst_multiple),
         CTEST_ENTRY(test_cmd_subst_mixed_forms),
+        // Nesting corner case tests
+        CTEST_ENTRY(test_cmd_subst_backtick_nested),
+        CTEST_ENTRY(test_cmd_subst_paren_not_arithmetic),
         NULL
     };
     
