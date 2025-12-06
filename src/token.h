@@ -269,7 +269,7 @@ void token_add_part(token_t *token, part_t *part);
  * Convenience: append a literal string to a TOKEN_WORD.
  * Creates and adds a PART_LITERAL part.
  */
-void token_append_literal(token_t *token, const string_t *text);
+void token_add_literal_part(token_t *token, const string_t *text);
 
 /**
  * Convenience: append a parameter expansion to a TOKEN_WORD.
@@ -297,7 +297,7 @@ void token_append_tilde(token_t *token, const string_t *text);
 
 /**
  * Synchronizes the token's top-level expansion, field splitting,
- * and and pathname expansion state based on its parts.
+ * and pathname expansion state based on its parts.
  */
 void token_recompute_expansion_flags(token_t *token);
 
@@ -305,6 +305,21 @@ void token_recompute_expansion_flags(token_t *token);
  * Append a character to the last PART_LITERAL of a TOKEN_WORD.
  */
 void token_append_char_to_last_literal_part(token_t *token, char c);
+
+/**
+ * Append a C-string to the last PART_LITERAL of a TOKEN_WORD.
+ */
+void token_append_cstr_to_last_literal_part(token_t *token, const char *str);
+/* ===========================================================================
+ * Reserved Word Handling
+ * ============================================================================ */
+
+/**
+ * Try to convert a TOKEN_WORD to a reserved word token type.
+ * If allow_in is true, "in" can be converted to TOKEN_IN.
+ * Returns true if conversion was done, false otherwise.
+ */
+bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in);
 
 /* ============================================================================
  * Token Location Tracking

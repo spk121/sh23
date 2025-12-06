@@ -1,9 +1,9 @@
 #ifndef ARENA_ALLOC_H
 #define ARENA_ALLOC_H
 
-#include <setjmp.h>
-#include <stdbool.h>
 #include <stdio.h>
+#include <stdbool.h>
+#include <setjmp.h>
 
 extern jmp_buf arena_rollback_point;
 extern bool arena_rollback_in_progress;

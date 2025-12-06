@@ -132,7 +132,7 @@ bool token_was_quoted(const token_t *token)
     {
         Expects_not_null(token->parts);
         int part_count = (int)token->parts->size;
-        const part_t **parts = token->parts->parts;
+        part_t **parts = token->parts->parts;
         for (int i = 0; i < part_count; i++)
         {
             if (parts[i]->was_single_quoted || parts[i]->was_double_quoted)
@@ -165,7 +165,7 @@ void token_add_part(token_t *token, part_t *part)
     part_list_append(token->parts, part);
 }
 
-void token_append_literal(token_t *token, const string_t *text)
+void token_add_literal_part(token_t *token, const string_t *text)
 {
     Expects_not_null(token);
     Expects_not_null(text);
@@ -277,6 +277,86 @@ void token_append_char_to_last_literal_part(token_t *token, char c)
     Expects_eq(last_part->type, PART_LITERAL);
 
     string_append_ascii_char(last_part->text, c);
+}
+
+void token_append_cstr_to_last_literal_part(token_t *token, const char *str)
+{
+    Expects_not_null(token);
+    Expects_eq(token->type, TOKEN_WORD);
+    Expects_not_null(token->parts);
+    Expects_gt(token->parts->size, 0);
+    Expects_not_null(str);
+    Expects_gt(strlen(str), 0);
+
+    part_t *last_part = token->parts->parts[token->parts->size - 1];
+
+    Expects_not_null(last_part);
+    Expects_eq(last_part->type, PART_LITERAL);
+    string_append_cstr(last_part->text, str);
+}
+
+/* ============================================================================ 
+ * Reserved Word Recognition
+ * ============================================================================ */
+
+struct reserved_word_entry {
+    const char *word;
+    token_type_t type;
+};
+
+static struct reserved_word_entry reserved_words[] = {
+    {"if", TOKEN_IF},
+    {"then", TOKEN_THEN},
+    {"else", TOKEN_ELSE},
+    {"elif", TOKEN_ELIF},
+    {"fi", TOKEN_FI},
+    {"do", TOKEN_DO},
+    {"done", TOKEN_DONE},
+    {"case", TOKEN_CASE},
+    {"esac", TOKEN_ESAC},
+    {"while", TOKEN_WHILE},
+    {"until", TOKEN_UNTIL},
+    {"for", TOKEN_FOR},
+    {"in", TOKEN_IN},
+    {"{", TOKEN_LBRACE},
+    {"}", TOKEN_RBRACE},
+    {"!", TOKEN_BANG},
+    {NULL, TOKEN_WORD} // sentinel
+};
+
+bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in) {
+    Expects_not_null(tok);
+    Expects_eq(token_get_type(tok), TOKEN_WORD);
+    
+    // A reserved word must be a single literal part
+    // and not quoted.
+    if (token_was_quoted(tok) || token_part_count(tok) != 1)
+        return false;
+
+    const part_t *first_part = tok->parts->parts[0];
+    const char *word = string_data(first_part->text);
+    struct reserved_word_entry *p;
+    token_type_t new_type = TOKEN_WORD;
+    for (p = reserved_words; p->word != NULL; p++) {
+        if (strcmp(word, p->word) == 0) {
+            // Special case: "in" only in proper context
+            if (p->type == TOKEN_IN && allow_in) {
+                new_type = TOKEN_IN;
+                break;
+            }
+            else {
+                new_type = p->type;
+                break;
+            }
+        }
+    }
+    if (new_type != TOKEN_WORD) {
+        tok->type = new_type;
+        // Now that we've specialized the token,
+        // we no longer need the parts. Is is worth freeing them here?
+        return true;
+    }
+    return false;
 }
 
 /* ============================================================================
