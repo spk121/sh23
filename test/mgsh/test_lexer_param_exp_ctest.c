@@ -601,6 +601,219 @@ CTEST(test_param_mixed_in_dquote)
     (void)ctest;
 }
 
+/* ============================================================================
+ * Parameter Boundary Tests
+ * ============================================================================ */
+
+// Test two separate braced params with space: ${foo} ${bar}
+CTEST(test_param_two_braced_with_space)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "${foo} ${bar}");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 2, "two tokens produced");
+    
+    // First token: ${foo}
+    token_t *tok1 = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_WORD, "first token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok1), 1, "first token has one part");
+    part_t *part1 = token_get_part(tok1, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_PARAMETER, "first part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part1)), "foo", "param name is 'foo'");
+    
+    // Second token: ${bar}
+    token_t *tok2 = token_list_get(tokens, 1);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok2), TOKEN_WORD, "second token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok2), 1, "second token has one part");
+    part_t *part2 = token_get_part(tok2, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "param name is 'bar'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test two consecutive braced params: ${foo}${bar}
+CTEST(test_param_two_braced_consecutive)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "${foo}${bar}");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
+    
+    part_t *part1 = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_PARAMETER, "first part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part1)), "foo", "first param is 'foo'");
+    
+    part_t *part2 = token_get_part(tok, 1);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "second param is 'bar'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test two consecutive unbraced params: $foo$bar
+CTEST(test_param_two_unbraced_consecutive)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "$foo$bar");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
+    
+    part_t *part1 = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_PARAMETER, "first part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part1)), "foo", "first param is 'foo'");
+    
+    part_t *part2 = token_get_part(tok, 1);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "second param is 'bar'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test mixed unbraced and braced: $foo${bar}
+CTEST(test_param_unbraced_then_braced)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "$foo${bar}");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
+    
+    part_t *part1 = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_PARAMETER, "first part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part1)), "foo", "first param is 'foo'");
+    
+    part_t *part2 = token_get_part(tok, 1);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "second param is 'bar'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test param followed by single-quoted string: $foo'bar'
+CTEST(test_param_followed_by_squote)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "$foo'bar'");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
+    
+    part_t *part1 = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_PARAMETER, "first part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part1)), "foo", "param is 'foo'");
+    
+    part_t *part2 = token_get_part(tok, 1);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_LITERAL, "second part is LITERAL");
+    CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part2), "second part was single-quoted");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "bar", "literal is 'bar'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test single-quoted string followed by param: 'foo'$bar
+CTEST(test_squote_followed_by_param)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "'foo'$bar");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
+    
+    part_t *part1 = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_LITERAL, "first part is LITERAL");
+    CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part1), "first part was single-quoted");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "foo", "literal is 'foo'");
+    
+    part_t *part2 = token_get_part(tok, 1);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "param is 'bar'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Test parameter as word in braced expansion: ${x#$HOME}
+CTEST(test_param_in_word_of_braced)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "${x#$HOME}");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
+    CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
+    
+    token_t *tok = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
+    CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
+    
+    part_t *part = token_get_part(tok, 0);
+    CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_PARAMETER, "part is PARAMETER");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "x", "param name is 'x'");
+    CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_SMALL_PREFIX, "kind is PARAM_REMOVE_SMALL_PREFIX");
+    // The word part contains "$HOME" as a literal (not expanded at lex time)
+    CTEST_ASSERT_NOT_NULL(ctest, part->word, "word is set");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "$HOME", "word is '$HOME'");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
 int main()
 {
     arena_start();
@@ -636,6 +849,14 @@ int main()
         CTEST_ENTRY(test_param_in_dquote),
         CTEST_ENTRY(test_param_braced_in_dquote),
         CTEST_ENTRY(test_param_mixed_in_dquote),
+        // Parameter boundary tests
+        CTEST_ENTRY(test_param_two_braced_with_space),
+        CTEST_ENTRY(test_param_two_braced_consecutive),
+        CTEST_ENTRY(test_param_two_unbraced_consecutive),
+        CTEST_ENTRY(test_param_unbraced_then_braced),
+        CTEST_ENTRY(test_param_followed_by_squote),
+        CTEST_ENTRY(test_squote_followed_by_param),
+        CTEST_ENTRY(test_param_in_word_of_braced),
         NULL
     };
     
