@@ -190,7 +190,9 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         name_start = lx->pos;
     }
 
-    // Check for ${!parameter} - indirect expansion (extension, but common)
+    // Check for ${!parameter} - indirect expansion (non-POSIX extension)
+    // Note: ${!var} is a bash/ksh extension, not part of POSIX.
+    // We parse it for compatibility but mark it as PARAM_INDIRECT.
     if (c == '!' && kind == PARAM_PLAIN)
     {
         char c2 = lexer_peek_ahead(lx, 1);
@@ -203,7 +205,7 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
             lexer_pop_mode(lx);
             return LEX_OK;
         }
-        // ${!var} - indirect expansion
+        // ${!var} - indirect expansion (non-POSIX)
         kind = PARAM_INDIRECT;
         lexer_advance(lx); // consume !
         name_start = lx->pos;
@@ -292,11 +294,8 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     case '%':
         if (has_colon)
         {
-            // :% is not valid, treat as substring
-            kind = PARAM_SUBSTRING;
-            // Put back the colon conceptually - we need to handle this differently
-            // For now, just set error
-            lexer_set_error(lx, "Bad substitution: invalid operator");
+            // :% is not valid in POSIX - return error
+            lexer_set_error(lx, "Bad substitution: invalid operator :%%");
             return LEX_ERROR;
         }
         // Check for %%
