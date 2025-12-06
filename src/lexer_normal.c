@@ -75,32 +75,64 @@ static bool get_heredoc_word(lexer_t *lx, string_t *out_word, bool *delimiter_qu
     Expects_not_null(out_word);
     Expects_not_null(delimiter_quoted);
 
+    // For some utterly ridiculous reason, POSIX allows quotes
+    // at any position in the heredoc delimiter word.
     *delimiter_quoted = false;
-    char quote_char = lexer_peek(lx);
-    if (quote_char == '\'' || quote_char == '"')
-    {
-        *delimiter_quoted = true;
-        lexer_advance(lx); /* consume opening quote */
-    }
+    bool in_single_quote = false;
+    bool in_double_quote = false;
 
     while (!lexer_at_end(lx))
     {
         char dc = lexer_peek(lx);
-        if (*delimiter_quoted && dc == quote_char)
+        if (in_single_quote && dc == '\'')
         {
+            in_single_quote = false;
+            *delimiter_quoted = true;
             lexer_advance(lx); /* consume closing quote */
-            return true;
+            continue;
         }
-        else if (!*delimiter_quoted && is_delimiter_char(dc))
+        else if (in_double_quote && dc == '"')
         {
-            /* Unquoted delimiter ends at whitespace or metacharacter */
+            in_double_quote = false;
+            *delimiter_quoted = true;
+            lexer_advance(lx); /* consume closing quote */
+            continue;
+        }
+        else if (!in_single_quote && !in_double_quote && dc == '\'')
+        {
+            in_single_quote = true;
+            *delimiter_quoted = true;
+            lexer_advance(lx); /* consume opening quote */
+            continue;
+        }
+        else if (!in_single_quote && !in_double_quote && dc == '"')
+        {
+            in_double_quote = true;
+            *delimiter_quoted = true;
+            lexer_advance(lx); /* consume opening quote */
+            continue;
+        }
+        else if (in_single_quote || in_double_quote)
+        {
+            // Inside quotes, take character literally
+            string_append_ascii_char(out_word, dc);
+            lexer_advance(lx);
+            continue;
+        }
+        else if (!is_delimiter_char(dc))
+        {
+            string_append_ascii_char(out_word, dc);
+            lexer_advance(lx);
+            continue;
+        }
+        else
+        {
+            // This must be an unquoted delimiter ending at whitespace or metacharacter.
             break;
         }
-        string_append_ascii_char(out_word, dc);
-        lexer_advance(lx);
     }
 
-    return !(*delimiter_quoted); // true if unquoted and done, false if quoted but not closed
+    return !in_single_quote && !in_double_quote;
 }
 
 static void heredoc_check(lexer_t *lx, bool *found_heredoc, bool *error)
@@ -212,7 +244,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         {
             lexer_advance(lx);
             lexer_emit_token(lx, TOKEN_NEWLINE);
-            
+
             // After a newline, if there are pending heredocs, enter heredoc body mode
             if (lx->heredoc_queue.size > 0 && !lx->reading_heredoc)
             {
