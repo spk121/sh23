@@ -118,12 +118,6 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         // This must be done before generic operator matching
         if (c == '<' && c2 == '<')
         {
-            int saved_pos = lx->pos;
-            
-            // Check if there's an IO number before the <<
-            token_t *last_token = token_list_get_last(lx->tokens);
-            bool has_io_number = (last_token && token_get_type(last_token) == TOKEN_IO_NUMBER);
-            
             // Advance past <<
             lexer_advance(lx);
             lexer_advance(lx);
@@ -191,11 +185,9 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
             }
             
             // Queue the heredoc for later body reading
+            // The delimiter is stored in the queue and will be used when processing the heredoc body
             lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
             string_destroy(delimiter);
-            
-            // Emit a WORD token for the delimiter so parser can track it
-            // (The actual delimiter is stored in the queue)
             
             continue;
         }
