@@ -247,9 +247,9 @@ static bool lexer_last_part_is_unquoted_literal(lexer_t *lx)
         return false;
     
     part_t *last_part = token_get_part(lx->current_token, lx->current_token->parts->size - 1);
-    return (last_part->type == PART_LITERAL && 
-            !last_part->was_single_quoted && 
-            !last_part->was_double_quoted);
+    return (part_get_type(last_part) == PART_LITERAL && 
+            !part_was_single_quoted(last_part) && 
+            !part_was_double_quoted(last_part));
 }
 
 void lexer_append_literal_char_to_word(lexer_t *lx, char c)
