@@ -100,8 +100,11 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                 }
                 else if (c2 == '\0')
                 {
-                    // End of input after single ) at depth 0 - need more input
-                    // Consume the ) and let the while loop exit normally
+                    // End of input after single ) at depth 0 - need more input.
+                    // Consume the ) and let the while loop exit normally.
+                    // Note: The consumed ) is included in expr_text; when the
+                    // lexer is re-invoked with more input, it will process the
+                    // entire input from the beginning (the mode stack is preserved).
                     string_append_ascii_char(expr_text, c);
                     lexer_advance(lx);
                     // Fall through to exit the while loop at end of input

@@ -521,8 +521,8 @@ CTEST(test_arith_exp_unbalanced_paren)
 CTEST(test_arith_exp_extra_close_paren)
 {
     lexer_t *lx = lexer_create();
-    // Extra ) inside expression before )) - unbalanced
-    // This is $((1) followed by x)), which has a single ) at depth 0 followed by 'x'
+    // Arithmetic expansion with unbalanced parentheses where a single )
+    // at depth 0 is followed by 'x' before the required ))
     lexer_append_input_cstr(lx, "$((1)x))");
     
     token_list_t *tokens = token_list_create();
