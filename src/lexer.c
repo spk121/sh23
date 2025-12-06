@@ -1,5 +1,6 @@
 #include "lexer.h"
 
+#include "lexer_cmd_subst.h"
 #include "lexer_dquote.h"
 #include "lexer_normal.h"
 #include "lexer_param_exp.h"
@@ -605,18 +606,18 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
         case LEX_PARAM_EXP_UNBRACED:
             status = lexer_process_param_exp_unbraced(lx);
             break;
-#if 0
         case LEX_CMD_SUBST_PAREN:
-            status = lexer_process_cmd_subst_paren(lx, out_token);
+            status = lexer_process_cmd_subst_paren(lx);
             break;
         case LEX_CMD_SUBST_BACKTICK:
-            status = lexer_process_cmd_subst_backtick(lx, out_token);
+            status = lexer_process_cmd_subst_backtick(lx);
             break;
+#if 0
         case LEX_ARITH_EXP:
-            status = lexer_process_arith_exp(lx, out_token);
+            status = lexer_process_arith_exp(lx);
             break;
         case LEX_HEREDOC_BODY:
-            status = lexer_process_heredoc_body(lx, out_token);
+            status = lexer_process_heredoc_body(lx);
             break;
 #endif
         default:
