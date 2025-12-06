@@ -295,39 +295,28 @@ void token_append_cstr_to_last_literal_part(token_t *token, const char *str)
     string_append_cstr(last_part->text, str);
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Reserved Word Recognition
  * ============================================================================ */
 
-struct reserved_word_entry {
+struct reserved_word_entry
+{
     const char *word;
     token_type_t type;
 };
 
 static struct reserved_word_entry reserved_words[] = {
-    {"if", TOKEN_IF},
-    {"then", TOKEN_THEN},
-    {"else", TOKEN_ELSE},
-    {"elif", TOKEN_ELIF},
-    {"fi", TOKEN_FI},
-    {"do", TOKEN_DO},
-    {"done", TOKEN_DONE},
-    {"case", TOKEN_CASE},
-    {"esac", TOKEN_ESAC},
-    {"while", TOKEN_WHILE},
-    {"until", TOKEN_UNTIL},
-    {"for", TOKEN_FOR},
-    {"in", TOKEN_IN},
-    {"{", TOKEN_LBRACE},
-    {"}", TOKEN_RBRACE},
-    {"!", TOKEN_BANG},
-    {NULL, TOKEN_WORD} // sentinel
+    {"if", TOKEN_IF},       {"then", TOKEN_THEN}, {"else", TOKEN_ELSE}, {"elif", TOKEN_ELIF}, {"fi", TOKEN_FI},
+    {"do", TOKEN_DO},       {"done", TOKEN_DONE}, {"case", TOKEN_CASE}, {"esac", TOKEN_ESAC}, {"while", TOKEN_WHILE},
+    {"until", TOKEN_UNTIL}, {"for", TOKEN_FOR},   {"in", TOKEN_IN},     {"{", TOKEN_LBRACE},  {"}", TOKEN_RBRACE},
+    {"!", TOKEN_BANG},      {NULL, TOKEN_WORD} // sentinel
 };
 
-bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in) {
+bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
+{
     Expects_not_null(tok);
     Expects_eq(token_get_type(tok), TOKEN_WORD);
-    
+
     // A reserved word must be a single literal part
     // and not quoted.
     if (token_was_quoted(tok) || token_part_count(tok) != 1)
@@ -337,23 +326,22 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in) {
     const char *word = string_data(first_part->text);
     struct reserved_word_entry *p;
     token_type_t new_type = TOKEN_WORD;
-    for (p = reserved_words; p->word != NULL; p++) {
-        if (strcmp(word, p->word) == 0) {
+    for (p = reserved_words; p->word != NULL; p++)
+    {
+        if (strcmp(word, p->word) == 0)
+        {
             // Special case: "in" only in proper context
-            if (p->type == TOKEN_IN && allow_in) {
-                new_type = TOKEN_IN;
-                break;
-            }
-            else {
-                new_type = p->type;
-                break;
-            }
+            if (p->type == TOKEN_IN && !allow_in)
+                continue;
+            new_type = p->type;
+            break;
         }
     }
-    if (new_type != TOKEN_WORD) {
+    if (new_type != TOKEN_WORD)
+    {
         tok->type = new_type;
         // Now that we've specialized the token,
-        // we no longer need the parts. Is is worth freeing them here?
+        // we no longer need the parts. Is it worth freeing them here?
         return true;
     }
     return false;

@@ -1,21 +1,21 @@
 #include "lexer.h"
 
-#include <stdlib.h>
-#include <string.h>
-#include <stdarg.h>
+#include "lexer_normal.h"
+#include "logging.h"
 #include "string.h"
 #include "token.h"
-#include "logging.h"
-#include "lexer_normal.h"
 #include "xalloc.h"
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
 
-/* ============================================================================ 
+/* ============================================================================
  * Lexer Lifecycle Functions
  * ============================================================================ */
 
 lexer_t *lexer_create()
 {
-    lexer_t *lx = xcalloc(1,sizeof(lexer_t));
+    lexer_t *lx = xcalloc(1, sizeof(lexer_t));
 
     lx->input = string_create_empty(0);
     lx->pos = 0;
@@ -61,44 +61,56 @@ lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input)
     return lx;
 }
 
-void lexer_destroy(lexer_t *lx) {
+void lexer_destroy(lexer_t *lx)
+{
     Expects_not_null(lx);
 
-    if (lx->input) {
+    if (lx->input)
+    {
         string_destroy(lx->input);
         lx->input = NULL;
     }
-    if (lx->mode_stack.modes) xfree(lx->mode_stack.modes);
-    if (lx->tokens) token_list_destroy(lx->tokens);
-    if (lx->heredoc_queue.entries) xfree(lx->heredoc_queue.entries);
-    if (lx->operator_buffer) string_destroy(lx->operator_buffer);
-    if (lx->error_msg) string_destroy(lx->error_msg);
+    if (lx->mode_stack.modes)
+        xfree(lx->mode_stack.modes);
+    if (lx->tokens)
+        token_list_destroy(lx->tokens);
+    if (lx->heredoc_queue.entries)
+        xfree(lx->heredoc_queue.entries);
+    if (lx->operator_buffer)
+        string_destroy(lx->operator_buffer);
+    if (lx->error_msg)
+        string_destroy(lx->error_msg);
     xfree(lx);
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Main Lexing Functions
  * ============================================================================ */
 
-lex_status_t lexer_tokenize(lexer_t *lx, token_list_t *out_tokens, int *num_tokens_read) {
+lex_status_t lexer_tokenize(lexer_t *lx, token_list_t *out_tokens, int *num_tokens_read)
+{
     return_val_if_null(lx, LEX_INTERNAL_ERROR);
     return_val_if_null(out_tokens, LEX_INTERNAL_ERROR);
 
-    if (num_tokens_read) *num_tokens_read = 0;
+    if (num_tokens_read)
+        *num_tokens_read = 0;
     lex_status_t status;
-    while ((status = lexer_process_one_token(lx)) == LEX_OK) {
+    while ((status = lexer_process_one_token(lx)) == LEX_OK)
+    {
         token_t *tok = lexer_pop_first_token(lx);
-        if (token_get_type(tok) == TOKEN_EOF) {
+        if (token_get_type(tok) == TOKEN_EOF)
+        {
             token_destroy(tok);
             break;
         }
         token_list_append(out_tokens, tok);
-        if (num_tokens_read) (*num_tokens_read)++;
+        if (num_tokens_read)
+            (*num_tokens_read)++;
     }
     return status;
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Mode Stack Functions
  * ============================================================================ */
 
@@ -146,7 +158,7 @@ bool lexer_in_mode(const lexer_t *lx, lex_mode_t mode)
     return false;
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Character Access Functions
  * ============================================================================ */
 
@@ -182,7 +194,8 @@ char lexer_advance(lexer_t *lx)
         lx->line_no++;
         lx->col_no = 1;
     }
-    else lx->col_no++;
+    else
+        lx->col_no++;
     return c;
 }
 
@@ -203,11 +216,12 @@ void lexer_rewind_one(lexer_t *lx) {
 }
 #endif
 
-/* ============================================================================ 
+/* ============================================================================
  * Token Building Functions
  * ============================================================================ */
 
-void lexer_start_word(lexer_t *lx) {
+void lexer_start_word(lexer_t *lx)
+{
     Expects_not_null(lx);
     Expects_eq(lx->current_token, NULL);
     Expects(!lx->in_word);
@@ -218,13 +232,15 @@ void lexer_start_word(lexer_t *lx) {
     lx->in_word = true;
 }
 
-void lexer_append_literal_char_to_word(lexer_t *lx, char c) {
+void lexer_append_literal_char_to_word(lexer_t *lx, char c)
+{
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
 
     if (token_is_last_part_literal(lx->current_token))
         token_append_char_to_last_literal_part(lx->current_token, c);
-    else {
+    else
+    {
         // Create new literal part
         char buf[2] = {c, '\0'};
         string_t *s = string_create_from_cstr(buf);
@@ -233,16 +249,19 @@ void lexer_append_literal_char_to_word(lexer_t *lx, char c) {
     }
 }
 
-void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str) {
+void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str)
+{
     Expects_not_null(lx);
     Expects_not_null(str);
     Expects_gt(strlen(str), 0);
     Expects_not_null(lx->current_token);
 
-    if (token_is_last_part_literal(lx->current_token)) {
+    if (token_is_last_part_literal(lx->current_token))
+    {
         token_append_cstr_to_last_literal_part(lx->current_token, str);
     }
-    else {
+    else
+    {
         // Create new literal part
         string_t *s = string_create_from_cstr(str);
         token_add_literal_part(lx->current_token, s);
@@ -250,25 +269,27 @@ void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str) {
     }
 }
 
-void lexer_finalize_word(lexer_t *lx) {
+void lexer_finalize_word(lexer_t *lx)
+{
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
 
-    if(lx->at_command_start) {
+    if (lx->at_command_start)
+    {
         token_try_promote_to_reserved_word(lx->current_token, lx->after_case_in);
     }
 
     // FIXME: there is probably some logic missing for 'case' 'in' patterns
 
-    token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col,
-                       lx->line_no, lx->col_no);
+    token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col, lx->line_no, lx->col_no);
     token_list_append(lx->tokens, lx->current_token);
     lx->current_token = NULL;
     lx->in_word = false;
     lx->at_command_start = false;
 }
 
-void lexer_emit_token(lexer_t *lx, token_type_t type) {
+void lexer_emit_token(lexer_t *lx, token_type_t type)
+{
     Expects_not_null(lx);
     Expects_eq(lx->current_token, NULL);
 
@@ -277,12 +298,11 @@ void lexer_emit_token(lexer_t *lx, token_type_t type) {
     token_list_append(lx->tokens, tok);
 
     // Is this the logical place for this?
-    lx->at_command_start = (type == TOKEN_SEMI || type == TOKEN_NEWLINE ||
-                            type == TOKEN_AND_IF || type == TOKEN_OR_IF ||
-                            type == TOKEN_PIPE);
+    lx->at_command_start = (type == TOKEN_SEMI || type == TOKEN_NEWLINE || type == TOKEN_AND_IF ||
+                            type == TOKEN_OR_IF || type == TOKEN_PIPE);
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Operator Recognition Functions
  * ============================================================================ */
 
@@ -293,7 +313,8 @@ bool lexer_try_operator(lexer_t *lx) {
 }
 #endif
 
-bool lexer_input_starts_with(const lexer_t *lx, const char *str) {
+bool lexer_input_starts_with(const lexer_t *lx, const char *str)
+{
     Expects_not_null(lx);
     Expects_not_null(str);
     Expects_gt(strlen(str), 0);
@@ -304,13 +325,11 @@ bool lexer_input_starts_with(const lexer_t *lx, const char *str) {
     return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
 }
 
-
-/* ============================================================================ 
+/* ============================================================================
  * Heredoc Functions
  * ============================================================================ */
 
-void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter,
-                        bool strip_tabs, bool delimiter_quoted)
+void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs, bool delimiter_quoted)
 {
     Expects_not_null(lx);
     Expects_not_null(delimiter);
@@ -318,8 +337,7 @@ void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter,
     if (lx->heredoc_queue.size >= lx->heredoc_queue.capacity)
     {
         int newcap = lx->heredoc_queue.capacity * 2;
-        heredoc_entry_t *newentries = xrealloc(lx->heredoc_queue.entries,
-                                             newcap * sizeof(heredoc_entry_t));
+        heredoc_entry_t *newentries = xrealloc(lx->heredoc_queue.entries, newcap * sizeof(heredoc_entry_t));
         lx->heredoc_queue.entries = newentries;
         lx->heredoc_queue.capacity = newcap;
     }
@@ -331,7 +349,7 @@ void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter,
     entry->token_index = token_list_size(lx->tokens);
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Expansion Processing Functions
  * ============================================================================ */
 
@@ -357,7 +375,7 @@ lex_status_t lexer_process_tilde_expansion(lexer_t *lx) {
 }
 #endif
 
-/* ============================================================================ 
+/* ============================================================================
  * Whitespace and Delimiter Handling
  * ============================================================================ */
 
@@ -366,35 +384,40 @@ int lexer_skip_whitespace(lexer_t *lx)
     Expects_not_null(lx);
 
     int skipped = 0;
-    while (!lexer_at_end(lx)) {
+    while (!lexer_at_end(lx))
+    {
         char c = lexer_peek(lx);
-        if (c == ' ' || c == '\t') {
+        if (c == ' ' || c == '\t')
+        {
             lexer_advance(lx);
             skipped++;
-        } else {
+        }
+        else
+        {
             break;
         }
     }
     return skipped;
 }
 
-bool lexer_is_delimiter(const lexer_t *lx, char c) {
+bool lexer_is_delimiter(const lexer_t *lx, char c)
+{
     (void)lx;
-    return (c == ' ' || c == '\t' || c == '\n' ||
-            c == ';' || c == '&' || c == '|' ||
-            c == '<' || c == '>' || c == '(' || c == ')');
+    return (c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '&' || c == '|' || c == '<' || c == '>' ||
+            c == '(' || c == ')');
 }
 
-
-/* ============================================================================ 
+/* ============================================================================
  * Error Handling
  * ============================================================================ */
 
-void lexer_set_error(lexer_t *lx, const char *format, ...) {
+void lexer_set_error(lexer_t *lx, const char *format, ...)
+{
     Expects_not_null(lx);
     Expects_not_null(format);
 
-    if (lx->error_msg) {
+    if (lx->error_msg)
+    {
         string_destroy(lx->error_msg);
         lx->error_msg = NULL;
     }
@@ -406,7 +429,8 @@ void lexer_set_error(lexer_t *lx, const char *format, ...) {
     lx->error_col = lx->col_no;
 }
 
-bool lexer_has_error(const lexer_t *lx) {
+bool lexer_has_error(const lexer_t *lx)
+{
     Expects_not_null(lx);
 
     return lx->error_msg != NULL;
@@ -425,7 +449,8 @@ void lexer_clear_error(lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    if (lx->error_msg) {
+    if (lx->error_msg)
+    {
         string_destroy(lx->error_msg);
         lx->error_msg = NULL;
     }
@@ -433,14 +458,13 @@ void lexer_clear_error(lexer_t *lx)
     lx->error_col = 0;
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Utility Functions
  * ============================================================================ */
 
 bool lexer_is_metachar(char c)
 {
-    return (c == '|' || c == '&' || c == ';' ||
-            c == '(' || c == ')' || c == '<' || c == '>');
+    return (c == '|' || c == '&' || c == ';' || c == '(' || c == ')' || c == '<' || c == '>');
 }
 
 bool lexer_is_quote(char c)
@@ -459,48 +483,75 @@ string_t *lexer_debug_string(const lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    string_t *dbg = string_create_from_format("Lexer(pos=%d, line=%d, col=%d, mode=",
-                                   (int)lx->pos, lx->line_no, lx->col_no);
+    string_t *dbg =
+        string_create_from_format("Lexer(pos=%d, line=%d, col=%d, mode=", (int)lx->pos, lx->line_no, lx->col_no);
 
     switch (lexer_current_mode(lx))
     {
-        case LEX_NORMAL: string_append_cstr(dbg, "NORMAL"); break;
-        case LEX_SINGLE_QUOTE: string_append_cstr(dbg, "SINGLE_QUOTE"); break;
-        case LEX_DOUBLE_QUOTE: string_append_cstr(dbg, "DOUBLE_QUOTE"); break;
-        case LEX_PARAM_EXP_BRACED: string_append_cstr(dbg, "PARAM_BRACED"); break;
-        case LEX_PARAM_EXP_UNBRACED: string_append_cstr(dbg, "PARAM_UNBRACED"); break;
-        case LEX_CMD_SUBST_PAREN: string_append_cstr(dbg, "CMD_SUBST_PAREN"); break;
-        case LEX_CMD_SUBST_BACKTICK: string_append_cstr(dbg, "CMD_SUBST_BACKTICK"); break;
-        case LEX_ARITH_EXP: string_append_cstr(dbg, "ARITH_EXP"); break;
-        case LEX_HEREDOC_BODY: string_append_cstr(dbg, "HEREDOC_BODY"); break;
-        default: string_append_cstr(dbg, "UNKNOWN"); break;
+    case LEX_NORMAL:
+        string_append_cstr(dbg, "NORMAL");
+        break;
+    case LEX_SINGLE_QUOTE:
+        string_append_cstr(dbg, "SINGLE_QUOTE");
+        break;
+    case LEX_DOUBLE_QUOTE:
+        string_append_cstr(dbg, "DOUBLE_QUOTE");
+        break;
+    case LEX_PARAM_EXP_BRACED:
+        string_append_cstr(dbg, "PARAM_BRACED");
+        break;
+    case LEX_PARAM_EXP_UNBRACED:
+        string_append_cstr(dbg, "PARAM_UNBRACED");
+        break;
+    case LEX_CMD_SUBST_PAREN:
+        string_append_cstr(dbg, "CMD_SUBST_PAREN");
+        break;
+    case LEX_CMD_SUBST_BACKTICK:
+        string_append_cstr(dbg, "CMD_SUBST_BACKTICK");
+        break;
+    case LEX_ARITH_EXP:
+        string_append_cstr(dbg, "ARITH_EXP");
+        break;
+    case LEX_HEREDOC_BODY:
+        string_append_cstr(dbg, "HEREDOC_BODY");
+        break;
+    default:
+        string_append_cstr(dbg, "UNKNOWN");
+        break;
     }
 
     string_append_cstr(dbg, ")");
     return dbg;
 }
 
-/* ============================================================================ 
+/* ============================================================================
  * Builder Stack Functions (stubs for now)
  * ============================================================================ */
 
-int lexer_builder_push_word(lexer_t *lx, token_t *word) {
-    (void)lx; (void)word;
+int lexer_builder_push_word(lexer_t *lx, token_t *word)
+{
+    (void)lx;
+    (void)word;
     return 0;
 }
 
-int lexer_builder_push_nested(lexer_t *lx, part_type_t type) {
-    (void)lx; (void)type;
+int lexer_builder_push_nested(lexer_t *lx, part_type_t type)
+{
+    (void)lx;
+    (void)type;
     return 0;
 }
 
-int lexer_builder_push_complex_param(lexer_t *lx, param_subtype_t kind,
-                                     const string_t *param_name) {
-    (void)lx; (void)kind; (void)param_name;
+int lexer_builder_push_complex_param(lexer_t *lx, param_subtype_t kind, const string_t *param_name)
+{
+    (void)lx;
+    (void)kind;
+    (void)param_name;
     return 0;
 }
 
-void lexer_builder_pop(lexer_t *lx) {
+void lexer_builder_pop(lexer_t *lx)
+{
     (void)lx;
 }
 
@@ -508,9 +559,10 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    switch (lexer_current_mode(lx)) {
-        case LEX_NORMAL:
-            return lexer_process_one_normal_token(lx);
+    switch (lexer_current_mode(lx))
+    {
+    case LEX_NORMAL:
+        return lexer_process_one_normal_token(lx);
 #if 0            
         case LEX_SINGLE_QUOTE:
             return lexer_process_single_quote(lx, out_token);
@@ -528,10 +580,10 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
             return lexer_process_arith_exp(lx, out_token);
         case LEX_HEREDOC_BODY:
             return lexer_process_heredoc_body(lx, out_token);
-#endif            
-        default:
-            lexer_set_error(lx, "Unknown lexer mode");
-            return LEX_ERROR;
+#endif
+    default:
+        lexer_set_error(lx, "Unknown lexer mode");
+        return LEX_ERROR;
     }
 }
 
@@ -540,7 +592,8 @@ token_t *lexer_pop_first_token(lexer_t *lx)
     Expects_not_null(lx);
     Expects_not_null(lx->tokens);
 
-    if(lx->tokens->size == 0) {
+    if (lx->tokens->size == 0)
+    {
         return NULL;
     }
 

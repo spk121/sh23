@@ -1,10 +1,10 @@
 #ifndef LEXER_H
 #define LEXER_H
 
-#include <stdbool.h>
-#include <stddef.h>
 #include "string.h"
 #include "token.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 /* ============================================================================
  * Constants
@@ -17,33 +17,35 @@ static const int LEXER_INITIAL_HEREDOC_CAPACITY = 4;
  * Lexer Modes (for mode stack)
  * ============================================================================ */
 
-typedef enum {
-    LEX_NORMAL = 0,             // normal shell input
-    LEX_SINGLE_QUOTE,           // inside '...'
-    LEX_DOUBLE_QUOTE,           // inside "..."
-    LEX_PARAM_EXP_BRACED,       // inside ${...}
-    LEX_PARAM_EXP_UNBRACED,     // inside $var (implicit, usually not stacked)
-    LEX_CMD_SUBST_PAREN,        // inside $(...)
-    LEX_CMD_SUBST_BACKTICK,     // inside `...`
-    LEX_ARITH_EXP,              // inside $((...))
-    LEX_HEREDOC_BODY,           // reading heredoc body
+typedef enum
+{
+    LEX_NORMAL = 0,         // normal shell input
+    LEX_SINGLE_QUOTE,       // inside '...'
+    LEX_DOUBLE_QUOTE,       // inside "..."
+    LEX_PARAM_EXP_BRACED,   // inside ${...}
+    LEX_PARAM_EXP_UNBRACED, // inside $var (implicit, usually not stacked)
+    LEX_CMD_SUBST_PAREN,    // inside $(...)
+    LEX_CMD_SUBST_BACKTICK, // inside `...`
+    LEX_ARITH_EXP,          // inside $((...))
+    LEX_HEREDOC_BODY,       // reading heredoc body
 } lex_mode_t;
 
 /* ============================================================================
  * Lexer Status (return codes)
  * ============================================================================ */
 
-typedef enum {
-    LEX_OK = 0,                 // successful tokenization
-    LEX_ERROR,                  // syntax error
-    LEX_INCOMPLETE,             // need more input (e.g., unclosed quote)
-    LEX_NEED_HEREDOC,           // parsed heredoc operator, need body next
-    LEX_INTERNAL_ERROR,         // an error due to bad programming logic
+typedef enum
+{
+    LEX_OK = 0,         // successful tokenization
+    LEX_ERROR,          // syntax error
+    LEX_INCOMPLETE,     // need more input (e.g., unclosed quote)
+    LEX_NEED_HEREDOC,   // parsed heredoc operator, need body next
+    LEX_INTERNAL_ERROR, // an error due to bad programming logic
 } lex_status_t;
 
 /*
-* Forward declarations
-*/
+ * Forward declarations
+ */
 
 typedef struct builder_stack_t builder_stack_t;
 typedef struct builder_frame_t builder_frame_t;
@@ -52,43 +54,47 @@ typedef struct builder_frame_t builder_frame_t;
  * Mode Stack (for tracking nested contexts)
  * ============================================================================ */
 
-typedef struct {
-    lex_mode_t *modes;          // stack of modes
-    int      capacity;       // allocated capacity
-    int      size;           // current depth
+typedef struct
+{
+    lex_mode_t *modes; // stack of modes
+    int capacity;      // allocated capacity
+    int size;          // current depth
 } lex_mode_stack_t;
 
 /* ============================================================================
  * Heredoc Queue (for pending heredoc bodies)
  * ============================================================================ */
 
-typedef struct {
-    string_t *delimiter;        // the delimiter to look for
-    bool      strip_tabs;       // true for <<-, false for <<
-    bool      delimiter_quoted; // was delimiter quoted (affects expansion)
-    int       token_index;      // index in output tokens where this heredoc belongs
+typedef struct
+{
+    string_t *delimiter;   // the delimiter to look for
+    bool strip_tabs;       // true for <<-, false for <<
+    bool delimiter_quoted; // was delimiter quoted (affects expansion)
+    int token_index;       // index in output tokens where this heredoc belongs
 } heredoc_entry_t;
 
-typedef struct {
-    heredoc_entry_t *entries;   // array of pending heredocs
-    int           capacity;  // allocated capacity
-    int           size;      // number of pending heredocs
+typedef struct
+{
+    heredoc_entry_t *entries; // array of pending heredocs
+    int capacity;             // allocated capacity
+    int size;                 // number of pending heredocs
 } heredoc_queue_t;
 
 /* ============================================================================
  * Lexer Context (main state structure)
  * ============================================================================ */
 
-typedef struct lexer_t {
+typedef struct lexer_t
+{
     /* Input management */
-    string_t   *input;          // input string (owned by lexer)
-    int         pos;            // current position in input
+    string_t *input; // input string (owned by lexer)
+    int pos;         // current position in input
 
     /* Position tracking for error messages */
-    int         line_no;        // current line number (1-indexed)
-    int         col_no;         // current column number (1-indexed)
-    int         tok_start_line; // line where current token started
-    int         tok_start_col;  // column where current token started
+    int line_no;        // current line number (1-indexed)
+    int col_no;         // current column number (1-indexed)
+    int tok_start_line; // line where current token started
+    int tok_start_col;  // column where current token started
 
     /* Mode stack for nested contexts */
     lex_mode_stack_t mode_stack;
@@ -96,34 +102,34 @@ typedef struct lexer_t {
     // builder_stack_t builder;
 
     /* Current token being built */
-    token_t    *current_token;  // the token being constructed
-    bool        in_word;        // true if we're building a WORD token
+    token_t *current_token; // the token being constructed
+    bool in_word;           // true if we're building a WORD token
 
     /* Output tokens */
-    token_list_t *tokens;       // list of completed tokens
+    token_list_t *tokens; // list of completed tokens
 
     /* Heredoc handling */
-    heredoc_queue_t heredoc_queue;   // pending heredocs to read
-    bool            reading_heredoc; // true when reading heredoc body
-    int             heredoc_index;   // which heredoc we're currently reading
+    heredoc_queue_t heredoc_queue; // pending heredocs to read
+    bool reading_heredoc;          // true when reading heredoc body
+    int heredoc_index;             // which heredoc we're currently reading
 
     /* Character escape state */
-    bool        escaped;        // next char is escaped by backslash
+    bool escaped; // next char is escaped by backslash
 
     /* Operator recognition */
-    string_t   *operator_buffer; // for multi-char operators like &&, <<, etc.
+    string_t *operator_buffer; // for multi-char operators like &&, <<, etc.
 
     /* Context for reserved word recognition */
-    bool        at_command_start; // true if next word could be a reserved word
-    bool        after_case_in;    // special context for case...in patterns
+    bool at_command_start; // true if next word could be a reserved word
+    bool after_case_in;    // special context for case...in patterns
 
     /* Alias expansion state (if you implement aliases) */
-    bool        check_next_for_alias; // set when alias ends in blank
+    bool check_next_for_alias; // set when alias ends in blank
 
     /* Error reporting */
-    string_t   *error_msg;      // detailed error message if LEX_ERROR
-    int         error_line;     // line number of error
-    int         error_col;      // column number of error
+    string_t *error_msg; // detailed error message if LEX_ERROR
+    int error_line;      // line number of error
+    int error_col;       // column number of error
 
 } lexer_t;
 
@@ -131,18 +137,20 @@ typedef struct lexer_t {
  * Nested Expansion Builder Stack
  * ============================================================================ */
 
-struct builder_frame_t {
-    token_t      *owner_token;     // the TOKEN_WORD that owns this part
-    part_list_t  *target_parts;    // where new parts go
-    token_list_t *nested_list;     // current nested token list (for $(...), $((...), ${...})
-    param_subtype_t active_param_kind;  // for ${var:...} forms
-    bool          in_param_word;        // are we parsing the "word" in ${var:-word}?
+struct builder_frame_t
+{
+    token_t *owner_token;              // the TOKEN_WORD that owns this part
+    part_list_t *target_parts;         // where new parts go
+    token_list_t *nested_list;         // current nested token list (for $(...), $((...), ${...})
+    param_subtype_t active_param_kind; // for ${var:...} forms
+    bool in_param_word;                // are we parsing the "word" in ${var:-word}?
 };
 
-struct builder_stack_t {
+struct builder_stack_t
+{
     struct builder_frame_t *stack;
-    int          capacity;
-    int          size;
+    int capacity;
+    int size;
 };
 
 /* ============================================================================
@@ -177,7 +185,7 @@ void lexer_destroy(lexer_t *lexer);
  * Returns the status of the last tokenization attempt:
  * LEX_OK on success, LEX_ERROR on syntax error, or LEX_INCOMPLETE
  * if more input is needed (e.g., unclosed quote).
- * 
+ *
  * Ownership of any successfully processed tokens in the output list is transferred to the caller.
  * On error, the lexer's error_msg field contains details.
  */
@@ -223,11 +231,10 @@ lex_mode_t lexer_current_mode(const lexer_t *lexer);
  */
 bool lexer_in_mode(const lexer_t *lexer, lex_mode_t mode);
 
-int  lexer_builder_push_word(lexer_t *lx, token_t *word);
-int  lexer_builder_push_nested(lexer_t *lx, part_type_t type);  // for $(, $((, `
-int  lexer_builder_push_complex_param(lexer_t *lx, param_subtype_t kind,
-                                      const string_t *param_name);
-void lexer_builder_pop(lexer_t *lx);  // call on ), }, `
+int lexer_builder_push_word(lexer_t *lx, token_t *word);
+int lexer_builder_push_nested(lexer_t *lx, part_type_t type); // for $(, $((, `
+int lexer_builder_push_complex_param(lexer_t *lx, param_subtype_t kind, const string_t *param_name);
+void lexer_builder_pop(lexer_t *lx); // call on ), }, `
 
 /* ============================================================================
  * Character Access Functions
@@ -317,8 +324,7 @@ bool lexer_input_starts_with(const lexer_t *lexer, const char *str);
  * Queue a heredoc for later reading.
  * Called when we encounter << or <<- operator.
  */
-void lexer_queue_heredoc(lexer_t *lexer, const string_t *delimiter,
-                        bool strip_tabs, bool delimiter_quoted);
+void lexer_queue_heredoc(lexer_t *lexer, const string_t *delimiter, bool strip_tabs, bool delimiter_quoted);
 
 /**
  * Read all queued heredoc bodies.
