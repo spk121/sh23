@@ -77,6 +77,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
     {
         char c = lexer_peek(lx);
         char c2 = lexer_peek_ahead(lx, 1);
+        char c3 = lexer_peek_ahead(lx, 2);
 
         if (c == '\\' && c2 == '\n')
         {
@@ -116,8 +117,18 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
 
         // Check for heredoc operators (<< or <<-) with optional IO number prefix
         // This must be done before generic operator matching
-        if (c == '<' && c2 == '<')
+        if ((c == '<' && c2 == '<')
+              || (c >= '0' && c <= '9' && c2 == '<' && c3 == '<'))
         {
+            // FIXME: handle multi-digit IO numbers
+            if (c >= '0' && c <= '9')
+            {
+                token_t *io_token = token_create(TOKEN_IO_NUMBER);
+                io_token->io_number = (int)(c - '0');
+                token_set_location(io_token, lx->line_no, lx->col_no - 1, lx->line_no, lx->col_no);
+                lexer_emit_token(lx, TOKEN_IO_NUMBER); 
+                lexer_advance(lx);
+            }
             // Advance past <<
             lexer_advance(lx);
             lexer_advance(lx);
