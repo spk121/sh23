@@ -174,6 +174,83 @@ CTEST(test_heredoc_incomplete)
     (void)ctest;
 }
 
+// Integration test: heredoc with << operator and unquoted delimiter
+CTEST(test_heredoc_integration_unquoted)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "cat <<EOF\nhello world\nEOF\n");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
+    CTEST_ASSERT_TRUE(ctest, token_list_size(tokens) >= 3, "at least 3 tokens produced");
+    
+    // Should have: WORD(cat), DLESS(<<), NEWLINE, and possibly more
+    token_t *tok0 = token_list_get(tokens, 0);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok0), TOKEN_WORD, "first token is WORD");
+    
+    token_t *tok1 = token_list_get(tokens, 1);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_DLESS, "second token is DLESS");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Integration test: heredoc with <<- operator (tab stripping)
+CTEST(test_heredoc_integration_strip_tabs)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "cat <<-EOF\n\thello\n\tEOF\n");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
+    
+    // Should have: WORD(cat), DLESSDASH(<<-), NEWLINE
+    token_t *tok1 = token_list_get(tokens, 1);
+    CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_DLESSDASH, "second token is DLESSDASH");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Integration test: heredoc with quoted delimiter
+CTEST(test_heredoc_integration_quoted_delimiter)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "cat <<'EOF'\nhello world\nEOF\n");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
+    CTEST_ASSERT_TRUE(ctest, token_list_size(tokens) >= 2, "at least 2 tokens produced");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
+// Integration test: heredoc with double-quoted delimiter
+CTEST(test_heredoc_integration_dquoted_delimiter)
+{
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, "cat <<\"EOF\"\nhello world\nEOF\n");
+    
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lexer_tokenize(lx, tokens, NULL);
+    
+    CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
+    
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    (void)ctest;
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
@@ -190,6 +267,10 @@ int main(int argc, char **argv)
         CTEST_ENTRY(test_heredoc_body_simple),
         CTEST_ENTRY(test_heredoc_body_strip_tabs),
         CTEST_ENTRY(test_heredoc_incomplete),
+        CTEST_ENTRY(test_heredoc_integration_unquoted),
+        CTEST_ENTRY(test_heredoc_integration_strip_tabs),
+        CTEST_ENTRY(test_heredoc_integration_quoted_delimiter),
+        CTEST_ENTRY(test_heredoc_integration_dquoted_delimiter),
         NULL
     };
     

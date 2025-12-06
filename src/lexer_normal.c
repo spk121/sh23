@@ -102,6 +102,101 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         {
             lexer_advance(lx);
             lexer_emit_token(lx, TOKEN_NEWLINE);
+            
+            // After a newline, if there are pending heredocs, enter heredoc body mode
+            if (lx->heredoc_queue.size > 0 && !lx->reading_heredoc)
+            {
+                lx->reading_heredoc = true;
+                lx->heredoc_index = 0;
+                lexer_push_mode(lx, LEX_HEREDOC_BODY);
+                return LEX_INCOMPLETE;
+            }
+            continue;
+        }
+
+        // Check for heredoc operators (<< or <<-) with optional IO number prefix
+        // This must be done before generic operator matching
+        if (c == '<' && c2 == '<')
+        {
+            int saved_pos = lx->pos;
+            
+            // Check if there's an IO number before the <<
+            token_t *last_token = token_list_get_last(lx->tokens);
+            bool has_io_number = (last_token && token_get_type(last_token) == TOKEN_IO_NUMBER);
+            
+            // Advance past <<
+            lexer_advance(lx);
+            lexer_advance(lx);
+            
+            // Check for <<-
+            bool strip_tabs = false;
+            char c3 = lexer_peek(lx);
+            if (c3 == '-')
+            {
+                lexer_advance(lx);
+                strip_tabs = true;
+            }
+            
+            // Emit the heredoc operator token
+            if (strip_tabs)
+            {
+                lexer_emit_token(lx, TOKEN_DLESSDASH);
+            }
+            else
+            {
+                lexer_emit_token(lx, TOKEN_DLESS);
+            }
+            
+            // Skip whitespace before delimiter
+            lexer_skip_whitespace(lx);
+            
+            // Parse the delimiter word
+            bool delimiter_quoted = false;
+            char quote_char = '\0';
+            c = lexer_peek(lx);
+            
+            if (c == '\'' || c == '"')
+            {
+                delimiter_quoted = true;
+                quote_char = c;
+                lexer_advance(lx); // consume opening quote
+            }
+            
+            string_t *delimiter = string_create_empty(16);
+            
+            while (!lexer_at_end(lx))
+            {
+                char dc = lexer_peek(lx);
+                
+                if (delimiter_quoted && dc == quote_char)
+                {
+                    lexer_advance(lx); // consume closing quote
+                    break;
+                }
+                else if (!delimiter_quoted && (dc == ' ' || dc == '\t' || dc == '\n' || dc == ';' || dc == '&' || dc == '|' || dc == '<' || dc == '>'))
+                {
+                    // Unquoted delimiter ends at whitespace or metacharacter
+                    break;
+                }
+                
+                string_append_ascii_char(delimiter, dc);
+                lexer_advance(lx);
+            }
+            
+            if (string_length(delimiter) == 0)
+            {
+                lexer_set_error(lx, "heredoc delimiter cannot be empty");
+                string_destroy(delimiter);
+                return LEX_ERROR;
+            }
+            
+            // Queue the heredoc for later body reading
+            lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
+            string_destroy(delimiter);
+            
+            // Emit a WORD token for the delimiter so parser can track it
+            // (The actual delimiter is stored in the queue)
+            
             continue;
         }
 
