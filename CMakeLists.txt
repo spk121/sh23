@@ -14,10 +14,16 @@ add_executable(mgsh
     src/alias_store.h
     src/alias_array.c
     src/alias_array.h
+    src/lexer_dquote.c
+    src/lexer_dquote.h
+    src/lexer_squote.c
+    src/lexer_squote.h
     src/logging.c
     src/logging.h
     src/string.c
     src/string.h
+    src/token.c
+    src/token.h
     src/xalloc.c
     src/xalloc.h
 
@@ -40,6 +46,7 @@ target_include_directories(ctest_obj PUBLIC
 
 set(MGSH_TEST_SOURCES
     test/mgsh/test_alist_ctest.c
+    test/mgsh/test_lexer_quote_ctest.c
 )
 
 foreach(test_src ${MGSH_TEST_SOURCES})
@@ -51,10 +58,16 @@ foreach(test_src ${MGSH_TEST_SOURCES})
         src/alias_store.h
         src/alias_array.c
         src/alias_array.h
+        src/lexer_dquote.c
+        src/lexer_dquote.h
+        src/lexer_squote.c
+        src/lexer_squote.h
         src/logging.c
         src/logging.h
         src/string.c
         src/string.h
+        src/token.c
+        src/token.h
         src/xalloc.c
         src/xalloc.h
         $<TARGET_OBJECTS:ctest_obj>
