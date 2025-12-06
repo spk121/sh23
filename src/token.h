@@ -1,10 +1,10 @@
 #ifndef TOKEN_H
 #define TOKEN_H
 
-#include "logging.h"
-#include "string.h"
 #include <stdbool.h>
 #include <stddef.h>
+#include "logging.h"
+#include "string_t.h"
 
 /* ============================================================================
  * Token Type Enumeration

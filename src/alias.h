@@ -1,7 +1,7 @@
 #ifndef ALIAS_H
 #define ALIAS_H
 
-#include "string.h"
+#include "string_t.h"
 #include "logging.h"
 
 typedef struct Alias Alias;

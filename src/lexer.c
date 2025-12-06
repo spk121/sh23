@@ -3,13 +3,16 @@
 #include "lexer_arith_exp.h"
 #include "lexer_cmd_subst.h"
 #include "lexer_dquote.h"
+#include "lexer_heredoc.h"
 #include "lexer_normal.h"
 #include "lexer_param_exp.h"
 #include "lexer_squote.h"
 #include "logging.h"
-#include "string.h"
+#include "string_t.h"
 #include "token.h"
 #include "xalloc.h"
+#include <ctype.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -187,6 +190,67 @@ char lexer_peek_ahead(const lexer_t *lx, int offset)
     return string_char_at(lx->input, lx->pos + offset);
 }
 
+bool lexer_input_starts_with(const lexer_t *lx, const char *str)
+{
+    Expects_not_null(lx);
+    Expects_not_null(str);
+    Expects_gt(strlen(str), 0);
+
+    int len = strlen(str);
+    if (lx->pos + len > string_length(lx->input))
+        return false;
+    return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
+}
+
+bool lexer_input_has_substring_at(const lexer_t *lexer, const char *str, int position)
+{
+    Expects_not_null(lexer);
+    Expects_not_null(str);
+    Expects_ge(position, 0);
+    Expects_gt(strlen(str), 0);
+
+    int len = strlen(str);
+    if (position + len > string_length(lexer->input))
+        return false;
+    const char *input_data = string_data(lexer->input);
+    return (strncmp(&input_data[position], str, len) == 0);
+}
+
+bool lexer_input_starts_with_integer(const lexer_t *lx)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+
+    if (lx->pos >= string_length(lx->input))
+        return false;
+    char c = string_char_at(lx->input, lx->pos);
+    return isdigit(c);
+}
+
+int lexer_peek_integer(const lexer_t *lx, int *digit_count)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+    Expects_not_null(digit_count);
+
+    int value = 0;
+    int count = 0;
+    int pos = lx->pos;
+    while (pos < string_length(lx->input))
+    {
+        char c = string_char_at(lx->input, pos);
+        if (!isdigit(c))
+            break;
+        if (value > (INT_MAX - (c - '0')) / 10)
+            break; // prevent overflow
+        value = value * 10 + (c - '0');
+        count++;
+        pos++;
+    }
+    *digit_count = count;
+    return value;
+}
+
 char lexer_advance(lexer_t *lx)
 {
     Expects_not_null(lx);
@@ -202,6 +266,19 @@ char lexer_advance(lexer_t *lx)
     else
         lx->col_no++;
     return c;
+}
+
+void lexer_advance_n_chars(lexer_t *lx, int n)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+    Expects_ge(n, 0);
+    Expects_le(lx->pos + n, string_length(lx->input));
+
+    for (int i = 0; i < n; i++)
+    {
+        lexer_advance(lx);
+    }
 }
 
 bool lexer_at_end(const lexer_t *lx)
@@ -245,13 +322,12 @@ static bool lexer_last_part_is_unquoted_literal(lexer_t *lx)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
-    
+
     if (lx->current_token->parts->size == 0)
         return false;
-    
+
     part_t *last_part = token_get_part(lx->current_token, lx->current_token->parts->size - 1);
-    return (part_get_type(last_part) == PART_LITERAL && 
-            !part_was_single_quoted(last_part) && 
+    return (part_get_type(last_part) == PART_LITERAL && !part_was_single_quoted(last_part) &&
             !part_was_double_quoted(last_part));
 }
 
@@ -317,6 +393,8 @@ void lexer_emit_token(lexer_t *lx, token_type_t type)
 {
     Expects_not_null(lx);
     Expects_eq(lx->current_token, NULL);
+    Expects_ne(type, TOKEN_WORD);
+    Expects_ne(type, TOKEN_IO_NUMBER);
 
     token_t *tok = token_create(type);
     token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
@@ -325,6 +403,18 @@ void lexer_emit_token(lexer_t *lx, token_type_t type)
     // Is this the logical place for this?
     lx->at_command_start = (type == TOKEN_SEMI || type == TOKEN_NEWLINE || type == TOKEN_AND_IF ||
                             type == TOKEN_OR_IF || type == TOKEN_PIPE);
+}
+
+void lexer_emit_io_number_token(lexer_t *lx, int io_number)
+{
+    Expects_not_null(lx);
+    Expects_eq(lx->current_token, NULL);
+    Expects_ge(io_number, 0);
+
+    token_t *tok = token_create(TOKEN_IO_NUMBER);
+    tok->io_number = io_number;
+    token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
+    token_list_append(lx->tokens, tok);
 }
 
 /* ============================================================================
@@ -337,18 +427,6 @@ bool lexer_try_operator(lexer_t *lx) {
     return false;
 }
 #endif
-
-bool lexer_input_starts_with(const lexer_t *lx, const char *str)
-{
-    Expects_not_null(lx);
-    Expects_not_null(str);
-    Expects_gt(strlen(str), 0);
-
-    int len = strlen(str);
-    if (lx->pos + len > string_length(lx->input))
-        return false;
-    return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
-}
 
 /* ============================================================================
  * Heredoc Functions
@@ -372,6 +450,22 @@ void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs
     entry->strip_tabs = strip_tabs;
     entry->delimiter_quoted = delimiter_quoted;
     entry->token_index = token_list_size(lx->tokens);
+}
+
+void lexer_empty_heredoc_queue(lexer_t *lx)
+{
+    Expects_not_null(lx);
+
+    for (int i = 0; i < lx->heredoc_queue.size; i++)
+    {
+        heredoc_entry_t *entry = &lx->heredoc_queue.entries[i];
+        if (entry->delimiter)
+        {
+            string_destroy(entry->delimiter);
+            entry->delimiter = NULL;
+        }
+    }
+    lx->heredoc_queue.size = 0;
 }
 
 /* ============================================================================
@@ -586,7 +680,7 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
 
     lex_status_t status;
     int initial_token_count = token_list_size(lx->tokens);
-    
+
     // Loop until we produce a token, need more input, or encounter an error
     while (1)
     {
@@ -616,22 +710,20 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
         case LEX_ARITH_EXP:
             status = lexer_process_arith_exp(lx);
             break;
-#if 0
         case LEX_HEREDOC_BODY:
             status = lexer_process_heredoc_body(lx);
             break;
-#endif
         default:
             lexer_set_error(lx, "Unknown lexer mode");
             return LEX_ERROR;
         }
-        
+
         // If we got an error, return immediately
         if (status == LEX_ERROR || status == LEX_INTERNAL_ERROR)
         {
             return status;
         }
-        
+
         // If we got OK:
         // - Check if we've produced tokens - if yes, we're done
         // - If we're back in normal mode, continue to finalize word or find next token
@@ -641,25 +733,25 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
             {
                 return LEX_OK;
             }
-            
+
             // If we're in any mode other than NORMAL, we should continue
             // processing (e.g., after param expansion inside double quotes)
             if (lexer_current_mode(lx) != LEX_NORMAL)
             {
                 continue;
             }
-            
+
             // If we're back in normal mode and have an in-progress word,
             // we need to continue to finalize it (even at end of input)
             if (lx->in_word)
             {
                 continue;
             }
-            
+
             // No tokens and no word in progress - return OK
             return LEX_OK;
         }
-        
+
         // LEX_INCOMPLETE: could mean mode switch or truly need more input
         if (status == LEX_INCOMPLETE)
         {
@@ -668,13 +760,13 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
             {
                 return LEX_OK;
             }
-            
+
             // If we're at end of input and still incomplete, need more input
             if (lexer_at_end(lx))
             {
                 return LEX_INCOMPLETE;
             }
-            
+
             // Otherwise, continue the loop (mode switch happened)
             continue;
         }

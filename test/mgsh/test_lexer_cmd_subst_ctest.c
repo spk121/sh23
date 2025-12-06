@@ -3,7 +3,7 @@
 #include "lexer_normal.h"
 #include "lexer_cmd_subst.h"
 #include "token.h"
-#include "string.h"
+#include "string_t.h"
 #include "xalloc.h"
 
 /* ============================================================================
