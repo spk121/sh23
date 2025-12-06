@@ -56,14 +56,16 @@ static void lexer_append_dquote_char_to_word(lexer_t *lx, char c)
     Expects_not_null(lx->current_token);
 
     // Check if last part is a literal with double-quoted flag
-    if (lx->current_token->parts->size > 0)
+    int part_count = token_part_count(lx->current_token);
+    if (part_count > 0)
     {
-        part_t *last_part = lx->current_token->parts->parts[lx->current_token->parts->size - 1];
-        if (last_part->type == PART_LITERAL && last_part->was_double_quoted &&
-            !last_part->was_single_quoted)
+        part_t *last_part = token_get_part(lx->current_token, part_count - 1);
+        if (part_get_type(last_part) == PART_LITERAL && 
+            part_was_double_quoted(last_part) &&
+            !part_was_single_quoted(last_part))
         {
             // Append to existing double-quoted literal part
-            string_append_ascii_char(last_part->text, c);
+            token_append_char_to_last_literal_part(lx->current_token, c);
             return;
         }
     }

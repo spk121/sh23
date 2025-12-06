@@ -582,7 +582,7 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
     Expects_not_null(lx);
 
     lex_status_t status;
-    int initial_token_count = lx->tokens->size;
+    int initial_token_count = token_list_size(lx->tokens);
     
     // Loop until we produce a token, need more input, or encounter an error
     while (1)
@@ -634,7 +634,7 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
         // - If we're back in normal mode, continue to finalize word or find next token
         if (status == LEX_OK)
         {
-            if (lx->tokens->size > initial_token_count)
+            if (token_list_size(lx->tokens) > initial_token_count)
             {
                 return LEX_OK;
             }
@@ -654,7 +654,7 @@ lex_status_t lexer_process_one_token(lexer_t *lx)
         if (status == LEX_INCOMPLETE)
         {
             // If we've produced any tokens, that counts as success
-            if (lx->tokens->size > initial_token_count)
+            if (token_list_size(lx->tokens) > initial_token_count)
             {
                 return LEX_OK;
             }
