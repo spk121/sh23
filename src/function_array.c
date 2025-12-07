@@ -50,7 +50,6 @@ int function_array_resize(function_array_t *array, size_t new_capacity) {
     Expects_not_null(array);
     if (new_capacity < array->len) return -1;
     function_t **newv = xrealloc(array->data, new_capacity * sizeof *newv);
-    if (!newv && new_capacity) return -1;
     array->data = newv;
     array->cap = new_capacity;
     return 0;
