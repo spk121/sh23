@@ -87,6 +87,7 @@ void function_store_unset(function_store_t *store, const char *name) {
         function_t *func = function_array_get(store->functions, i);
         if (func && strcmp(func->name, name) == 0) {
             function_array_remove(store->functions, i);
+            return;
         }
     }
 }

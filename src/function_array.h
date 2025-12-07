@@ -6,6 +6,9 @@
 // Forward declaration to avoid circular includes
 typedef struct function_t function_t;
 
+// Optional element free function signature
+typedef void (*function_array_free_func_t)(function_t *element);
+
 // Type-specific dynamic array of function_t*
 typedef struct function_array_t {
     function_t **data;
@@ -14,8 +17,6 @@ typedef struct function_array_t {
     function_array_free_func_t free_func;
 } function_array_t;
 
-// Optional element free function signature
-typedef void (*function_array_free_func_t)(function_t *element);
 // Apply/compare helpers (optional; useful for iteration and search)
 typedef void (*function_array_apply_func_t)(function_t *element, void *user_data);
 typedef int  (*function_array_compare_func_t)(const function_t *element, const void *user_data);

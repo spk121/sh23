@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include "variable.h"
 
+// Optional element free function signature
+typedef void (*variable_array_free_func_t)(variable_t *element);
+
 // Type-specific dynamic array of variable_t*
 typedef struct variable_array_t {
     variable_t **data;
@@ -11,9 +14,6 @@ typedef struct variable_array_t {
     size_t cap;
     variable_array_free_func_t free_func;
 } variable_array_t;
-
-// Optional element free function signature
-typedef void (*variable_array_free_func_t)(variable_t *element);
 
 // Apply/compare helpers (optional; useful for iteration and search)
 typedef void (*variable_array_apply_func_t)(variable_t *element, void *user_data);
