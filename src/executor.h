@@ -2,6 +2,7 @@
 #define EXECUTOR_H
 
 #include "ast.h"
+#include "string_t.h"
 #include <stdbool.h>
 
 /* ============================================================================
