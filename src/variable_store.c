@@ -369,10 +369,6 @@ int variable_store_set_positional_params(variable_store_t *store, const string_t
         char index_str[32];
         snprintf(index_str, sizeof(index_str), "%zu", i + 1);
         variable_t *var = variable_create_from_cstr(index_str, string_data(params[i]), false, false);
-        if (!var) {
-            log_fatal("variable_store_set_positional_params: failed to create variable for index %zu", i + 1);
-            return -1;
-        }
         if (variable_array_append(store->positional_params, var) != 0) {
             variable_destroy(var);
             log_fatal("variable_store_set_positional_params: failed to append variable at index %zu", i + 1);
@@ -400,10 +396,6 @@ int variable_store_set_positional_params_cstr(variable_store_t *store, const cha
         char index_str[32];
         snprintf(index_str, sizeof(index_str), "%zu", i + 1);
         variable_t *var = variable_create_from_cstr(index_str, params[i], false, false);
-        if (!var) {
-            log_fatal("variable_store_set_positional_params_cstr: failed to create variable for index %zu", i + 1);
-            return -1;
-        }
         if (variable_array_append(store->positional_params, var) != 0) {
             variable_destroy(var);
             log_fatal("variable_store_set_positional_params_cstr: failed to append variable at index %zu", i + 1);
