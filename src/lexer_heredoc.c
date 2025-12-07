@@ -29,7 +29,8 @@
 static bool is_special_param_char(char c) __attribute__((unused));
 static bool is_special_param_char(char c)
 {
-    return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || c == '@' || c == '*' || c == '_');
+    return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || c == '@' ||
+            c == '*' || c == '_');
 }
 
 /**
@@ -51,236 +52,150 @@ static bool is_heredoc_escapable(char c)
     return (c == '$' || c == '`' || c == '\\' || c == '\n');
 }
 
-/**
- * Append a character from heredoc context to the current heredoc content.
- * In heredoc mode, we're building up the heredoc_content string, not a word token.
- */
-static void lexer_append_heredoc_char(lexer_t *lx, char c)
+bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool strip_tabs)
 {
-    Expects_not_null(lx);
-    Expects(lx->heredoc_index >= 0 && lx->heredoc_index < lx->heredoc_queue.size);
+    const char *d = string_data(delim);
+    int len = string_length(delim);
+    int pos = lx->pos;
 
-    // For now, we'll build content in a temporary string on the token
-    // This will be attached to the appropriate token when heredoc reading completes
-    // We need to accumulate content somewhere - let's use the current_token's heredoc_content
-    if (!lx->current_token)
-    {
-        // Create a temporary token to hold the heredoc content
-        lx->current_token = token_create(TOKEN_WORD);
-        lx->current_token->heredoc_content = string_create_empty(256);
-    }
-
-    if (!lx->current_token->heredoc_content)
-    {
-        lx->current_token->heredoc_content = string_create_empty(256);
-    }
-
-    string_append_ascii_char(lx->current_token->heredoc_content, c);
-}
-
-/**
- * Check if the current line matches the heredoc delimiter.
- * This function checks if we're at the start of a line that contains only
- * the delimiter (possibly with leading tabs if strip_tabs is true).
- *
- */
-static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delimiter, bool strip_tabs)
-{
-    Expects_not_null(lx);
-    Expects_not_null(delimiter);
-
-    if (lx->col_no > 1)
-        return false;
-    int tabs_count = 0;
-
-    // For <<-, skip leading tabs
     if (strip_tabs)
     {
-        while (!lexer_at_end(lx) && lexer_peek_ahead(lx, tabs_count) == '\t')
-        {
-            tabs_count++;
-        }
+        while (pos < string_length(lx->input) && string_data(lx->input)[pos] == '\t')
+            pos++;
     }
 
-    // Since it is an undefined behavior in POSIX to search for
-    // backslash-newline sequences on delimiter lines, we will ignore them here.
-    const char *delim_str = string_data(delimiter);
-    int delim_len = string_length(delimiter);
+    if (strncmp(string_data(lx->input) + pos, d, len) != 0)
+        return false;
 
-    if (lexer_input_has_substring_at(lx, delim_str, tabs_count))
+    pos += len;
+
+    // Must be followed by newline or EOF
+    if (pos >= string_length(lx->input))
+        return true;
+    char next = string_data(lx->input)[pos];
+    if (next == '\n' || next == '\0')
     {
-        // Found a match, but, is it followed by newline or EOF?
-        char after_delim = lexer_peek_ahead(lx, tabs_count + delim_len);
-        if (after_delim == '\n' || after_delim == '\0')
+        lx->pos = pos;
+        if (next == '\n')
         {
-            // Found it! Advance position accordingly
-            lx->pos += tabs_count + delim_len + (after_delim == '\n' ? 1 : 0);
-            lx->col_no += tabs_count + delim_len + (after_delim == '\n' ? 1 : 0);
-            return true;
+            lx->pos++;
+            lx->line_no++;
+            lx->col_no = 1;
         }
+        return true;
     }
+
     return false;
-}
-
-/**
- * Process expansion in unquoted heredoc body.
- * Similar to double-quote processing but double-quote itself is literal
- * except within $(), ``, or ${}.
- */
-static lex_status_t lexer_process_heredoc_expansion(lexer_t *lx)
-{
-    Expects_not_null(lx);
-
-    char c = lexer_peek(lx);
-
-    if (c == '\\')
-    {
-        char next_c = lexer_peek_ahead(lx, 1);
-        if (next_c == '\0')
-        {
-            // Backslash at end of input - need more input
-            return LEX_INCOMPLETE;
-        }
-
-        if (is_heredoc_escapable(next_c))
-        {
-            // Escape sequence: consume backslash and add next char literally
-            lexer_advance(lx); // consume backslash
-
-            if (next_c == '\n')
-            {
-                // Line continuation - consume newline but don't add to content
-                lexer_advance(lx);
-            }
-            else
-            {
-                // Add the escaped character
-                lexer_append_heredoc_char(lx, next_c);
-                lexer_advance(lx);
-            }
-        }
-        else
-        {
-            // Backslash is literal when followed by non-escapable char
-            lexer_append_heredoc_char(lx, c);
-            lexer_advance(lx);
-        }
-        return LEX_OK;
-    }
-
-    if (c == '`')
-    {
-        // Command substitution with backticks
-        // For now, we'll treat this as literal content
-        // A full implementation would push mode and handle recursively
-        lexer_append_heredoc_char(lx, c);
-        lexer_advance(lx);
-        return LEX_OK;
-    }
-
-    if (c == '$')
-    {
-        char c2 = lexer_peek_ahead(lx, 1);
-        if (c2 == '\0')
-        {
-            // $ at end of input - need more input
-            return LEX_INCOMPLETE;
-        }
-
-        // For now, treat expansions as literal content
-        // A full implementation would handle parameter/command/arithmetic expansion
-        lexer_append_heredoc_char(lx, c);
-        lexer_advance(lx);
-        return LEX_OK;
-    }
-
-    // Regular character
-    lexer_append_heredoc_char(lx, c);
-    lexer_advance(lx);
-    return LEX_OK;
 }
 
 lex_status_t lexer_process_heredoc_body(lexer_t *lx)
 {
     Expects_not_null(lx);
-    Expects(lx->heredoc_index >= 0 && lx->heredoc_index < lx->heredoc_queue.size);
+    if (lx->heredoc_index >= lx->heredoc_queue.size)
+        return LEX_OK;
 
     heredoc_entry_t *entry = &lx->heredoc_queue.entries[lx->heredoc_index];
+    const string_t *delim = entry->delimiter;
     bool strip_tabs = entry->strip_tabs;
-    bool delimiter_quoted = entry->delimiter_quoted;
-    const string_t *delimiter = entry->delimiter;
+    bool quoted = entry->delimiter_quoted;
 
-    // Initialize heredoc content if needed
-    if (!lx->current_token)
-    {
-        lx->current_token = token_create(TOKEN_WORD);
-        lx->current_token->heredoc_content = string_create_empty(256);
-        lx->current_token->heredoc_delimiter = string_clone(delimiter);
-        lx->current_token->heredoc_delim_quoted = delimiter_quoted;
-    }
+    // Create a string to hold this heredoc's content
+    string_t *content = string_create_empty(256);
 
     while (!lexer_at_end(lx))
     {
-        char c = lexer_peek(lx);
-
-        // Check if this line is the delimiter
-        if (lexer_check_heredoc_delimiter(lx, delimiter, strip_tabs))
+        // Skip leading tabs if <<-
+        if (strip_tabs && lx->col_no == 1)
         {
-            // All the heredoc content is in the token's heredoc_content
-            // field. We can now move it to a new part in the current WORD token.
-            // Attach the content to the token that requested this heredoc
-            token_t *heredoc_tok = lx->current_token;
-            heredoc_tok->needs_expansion = !delimiter_quoted;
-            token_add_literal_part(heredoc_tok, heredoc_tok->heredoc_content);
-            string_destroy(heredoc_tok->heredoc_content);
-            heredoc_tok->heredoc_content = NULL;
-            lexer_finalize_word(lx);
+            while (lexer_peek(lx) == '\t')
+                lexer_advance(lx);
+        }
+
+        // Check for delimiter line
+        if (lexer_check_heredoc_delimiter(lx, delim, strip_tabs))
+        {
+            // Found delimiter — finish this heredoc
+            token_t *target = token_list_get(lx->tokens, entry->token_index);
+            if (!target)
+                target = lx->current_token; // fallback
+
+            part_t *part = part_create_literal(content); // takes ownership
+            part_set_quoted(part, false, true);          // behaves like double-quoted
+            if (quoted)
+                part_set_quoted(part, true, false); // fully literal
+
+            token_add_part(target, part);
+            target->needs_expansion = !quoted;
+
             lexer_emit_token(lx, TOKEN_END_OF_HEREDOC);
-            if (lx->heredoc_index + 1 >= lx->heredoc_queue.size)
+
+            lx->heredoc_index++;
+            if (lx->heredoc_index >= lx->heredoc_queue.size)
             {
-                // All heredocs processed
                 lx->reading_heredoc = false;
                 lexer_empty_heredoc_queue(lx);
-                lx->heredoc_index = 0;
-                lexer_pop_mode(lx); // Exit heredoc mode
-            }
-            else
-            {
-                // Move to next heredoc
-                lx->heredoc_index++;
+                lexer_pop_mode(lx);
             }
             return LEX_OK;
         }
-        // For <<-, strip all leading tabs at the start of each line
-        if (strip_tabs && lx->col_no == 1 && c == '\t')
-        {
-            while ((c = lexer_advance(lx)) == '\t') // skip the tab, don't add to content
-                ;
-        }
 
-        // Process the line content
+        // Not delimiter — read the line
+        char c = lexer_peek(lx);
+
         if (c == '\n')
         {
-            lexer_append_heredoc_char(lx, c);
+            string_append_ascii_char(content, '\n');
             lexer_advance(lx);
+            lx->line_no++;
+            lx->col_no = 1;
+            continue;
         }
-        else if (delimiter_quoted)
+
+        if (quoted)
         {
-            // Quoted delimiter means literal content - no expansion
-            lexer_append_heredoc_char(lx, c);
+            // Fully literal
+            string_append_ascii_char(content, c);
             lexer_advance(lx);
+            continue;
         }
-        else
+
+        // Unquoted: allow expansions, but treat metachars literally
+        if (c == '\\')
         {
-            // Unquoted delimiter means expansion is performed
-            lex_status_t status = lexer_process_heredoc_expansion(lx);
-            if (status != LEX_OK)
+            char next = lexer_peek_ahead(lx, 1);
+            if (next == '\n')
             {
-                return status;
+                lexer_advance(lx);
+                lexer_advance(lx);
+                lx->line_no++;
+                lx->col_no = 1;
+                continue;
             }
+            if (is_heredoc_escapable(next))
+            {
+                string_append_ascii_char(content, next);
+                lexer_advance(lx);
+                lexer_advance(lx);
+                continue;
+            }
+            string_append_ascii_char(content, '\\');
+            lexer_advance(lx);
+            continue;
         }
+
+        if (c == '$' || c == '`')
+        {
+            // Let nested lexer handle it — just copy raw text
+            string_append_ascii_char(content, c);
+            lexer_advance(lx);
+            continue;
+        }
+
+        // All other characters are literal
+        string_append_ascii_char(content, c);
+        lexer_advance(lx);
     }
 
-    // End of input without finding delimiter
+    string_destroy(content);
     return LEX_INCOMPLETE;
 }

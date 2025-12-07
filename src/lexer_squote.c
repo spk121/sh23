@@ -68,7 +68,7 @@ lex_status_t lexer_process_squote(lexer_t *lx)
         if (c == '\'')
         {
             // Found the closing quote
-            lexer_advance(lx); // consume the '
+            lexer_advance(lx);  // consume the '
             lexer_pop_mode(lx); // back to previous mode (usually NORMAL or DOUBLE_QUOTE)
 
             // Don't finalize the word here - the calling mode will decide

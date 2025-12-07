@@ -8,7 +8,7 @@
 // Simple POSIX-like identifier validator: [A-Za-z_][A-Za-z0-9_]*
 static int is_valid_name_cstr(const char *s) {
     Expects_not_null(s);
-    Expects(*s != '\0');
+    Expects_ne(*s, '\0');
 
     if (!(isalpha((unsigned char)*s) || *s == '_')) return 0;
     for (const unsigned char *p = (const unsigned char *)s + 1; *p; ++p) {

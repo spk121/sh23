@@ -281,13 +281,13 @@ void token_append_parameter(token_t *token, const string_t *param_name);
  * Convenience: append a command substitution to a TOKEN_WORD.
  * Creates and adds a PART_COMMAND_SUBST part.
  */
-void token_append_command_subst(token_t *token, token_list_t *nested);
+void token_append_command_subst(token_t *token, const string_t *expr_text);
 
 /**
  * Convenience: append an arithmetic expansion to a TOKEN_WORD.
  * Creates and adds a PART_ARITHMETIC part.
  */
-void token_append_arithmetic(token_t *token, token_list_t *nested);
+void token_append_arithmetic(token_t *token, const string_t *expr_text);
 
 /**
  * Convenience: append a tilde expansion to a TOKEN_WORD.
@@ -328,7 +328,8 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in);
 /**
  * Set the location information for a token.
  */
-void token_set_location(token_t *token, int first_line, int first_column, int last_line, int last_column);
+void token_set_location(token_t *token, int first_line, int first_column, int last_line,
+                        int last_column);
 
 /**
  * Get the starting line of a token.
@@ -395,17 +396,14 @@ part_t *part_create_parameter(const string_t *param_name);
 
 /**
  * Create a command substitution part.
- * The part takes ownership of the nested token list.
- * Returns NULL on allocation failure.
  */
-part_t *part_create_command_subst(token_list_t *nested);
+part_t *part_create_command_subst(const string_t *expr_text);
 
 /**
  * Create an arithmetic expansion part.
- * The part takes ownership of the nested token list.
- * Returns NULL on allocation failure.
+ * The part does not take ownership of the expression text.
  */
-part_t *part_create_arithmetic(token_list_t *nested);
+part_t *part_create_arithmetic(const string_t *expr_text);
 
 /**
  * Create a tilde expansion part.

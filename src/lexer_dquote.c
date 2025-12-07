@@ -32,7 +32,8 @@ static bool is_dquote_escapable(char c)
  */
 static bool is_special_param_char(char c)
 {
-    return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || c == '@' || c == '*' || c == '_');
+    return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || c == '@' ||
+            c == '*' || c == '_');
 }
 
 /**
@@ -108,36 +109,41 @@ lex_status_t lexer_process_dquote(lexer_t *lx)
             return LEX_OK;
         }
 
+        // Handle backslash escapes
         if (c == '\\')
         {
             char next_c = lexer_peek_ahead(lx, 1);
+
+            // Handle trailing backslash gracefully
             if (next_c == '\0')
             {
-                // Backslash at end of input - need more input
+                lexer_append_dquote_char_to_word(lx, '\\');
+                lexer_advance(lx);
                 return LEX_INCOMPLETE;
             }
 
+            lexer_advance(lx); // consume backslash
+
             if (is_dquote_escapable(next_c))
             {
-                // Escape sequence: consume backslash and add next char literally
-                lexer_advance(lx); // consume backslash
-
                 if (next_c == '\n')
                 {
-                    // Line continuation - consume newline but don't add to word
-                    lexer_advance(lx);
+                    lexer_advance(lx); // consume newline
+                    lx->line_no++;
+                    lx->col_no = 1;
+                    continue;
                 }
                 else
                 {
-                    // Add the escaped character
                     lexer_append_dquote_char_to_word(lx, next_c);
                     lexer_advance(lx);
                 }
             }
             else
             {
-                // Backslash is literal when followed by non-escapable char
-                lexer_append_dquote_char_to_word(lx, c);
+                // Backslash not escaping anything → keep both
+                lexer_append_dquote_char_to_word(lx, '\\');
+                lexer_append_dquote_char_to_word(lx, next_c);
                 lexer_advance(lx);
             }
             continue;
