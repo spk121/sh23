@@ -1,78 +1,37 @@
 #include "variable.h"
-#include <stdlib.h>
-
-struct Variable {
-    String *name;
-    String *value;
-    bool exported;
-    bool read_only;
-};
+#include "xalloc.h"
 
 // Constructors
-Variable *variable_create(const String *name, const String *value, bool exported, bool read_only)
+variable_t *variable_create(const string_t *name, const string_t *value, bool exported, bool read_only)
 {
-    return_val_if_null(name, NULL);
-    return_val_if_null(value, NULL);
+    Expects_not_null(name);
+    Expects_not_null(value);
 
-    Variable *variable = malloc(sizeof(Variable));
-    if (!variable) {
-        log_fatal("variable_create: out of memory");
-        return NULL;
-    }
+    variable_t *variable = xmalloc(sizeof(variable_t));
 
-    variable->name = string_create_from((String *)name);
-    if (!variable->name) {
-        free(variable);
-        log_fatal("variable_create: failed to create name");
-        return NULL;
-    }
-
-    variable->value = string_create_from((String *)value);
-    if (!variable->value) {
-        string_destroy(variable->name);
-        free(variable);
-        log_fatal("variable_create: failed to create value");
-        return NULL;
-    }
-
+    variable->name = string_clone(name);
+    variable->value = string_clone(value);
     variable->exported = exported;
     variable->read_only = read_only;
     return variable;
 }
 
-Variable *variable_create_from_cstr(const char *name, const char *value, bool exported, bool read_only)
+variable_t *variable_create_from_cstr(const char *name, const char *value, bool exported, bool read_only)
 {
-    return_val_if_null(name, NULL);
-    return_val_if_null(value, NULL);
+    Expects_not_null(name);
+    Expects_not_null(value);
 
-    Variable *variable = malloc(sizeof(Variable));
-    if (!variable) {
-        log_fatal("variable_create_from_cstr: out of memory");
-        return NULL;
-    }
+    variable_t *variable = xmalloc(sizeof(variable_t));
 
     variable->name = string_create_from_cstr(name);
-    if (!variable->name) {
-        free(variable);
-        log_fatal("variable_create_from_cstr: failed to create name");
-        return NULL;
-    }
-
     variable->value = string_create_from_cstr(value);
-    if (!variable->value) {
-        string_destroy(variable->name);
-        free(variable);
-        log_fatal("variable_create_from_cstr: failed to create value");
-        return NULL;
-    }
-
     variable->exported = exported;
     variable->read_only = read_only;
     return variable;
 }
 
 // Destructor
-void variable_destroy(Variable *variable)
+void variable_destroy(variable_t *variable)
 {
     if (variable) {
         log_debug("variable_destroy: freeing variable %p, name = %s, value = %s, exported = %d, read_only = %d",
@@ -83,65 +42,61 @@ void variable_destroy(Variable *variable)
                   variable->read_only);
         string_destroy(variable->name);
         string_destroy(variable->value);
-        free(variable);
+        xfree(variable);
     }
 }
 
 // Getters
-const String *variable_get_name(const Variable *variable)
+const string_t *variable_get_name(const variable_t *variable)
 {
     return_val_if_null(variable, NULL);
     return variable->name;
 }
 
-const String *variable_get_value(const Variable *variable)
+const string_t *variable_get_value(const variable_t *variable)
 {
     return_val_if_null(variable, NULL);
     return variable->value;
 }
 
-const char *variable_get_name_cstr(const Variable *variable)
+const char *variable_get_name_cstr(const variable_t *variable)
 {
     return_val_if_null(variable, NULL);
     return string_data(variable->name);
 }
 
-const char *variable_get_value_cstr(const Variable *variable)
+const char *variable_get_value_cstr(const variable_t *variable)
 {
     return_val_if_null(variable, NULL);
     return string_data(variable->value);
 }
 
-bool variable_is_exported(const Variable *variable)
+bool variable_is_exported(const variable_t *variable)
 {
     return_val_if_null(variable, false);
     return variable->exported;
 }
 
-bool variable_is_read_only(const Variable *variable)
+bool variable_is_read_only(const variable_t *variable)
 {
     return_val_if_null(variable, false);
     return variable->read_only;
 }
 
 // Setters
-int variable_set_name(Variable *variable, const String *name)
+int variable_set_name(variable_t *variable, const string_t *name)
 {
     return_val_if_null(variable, -1);
     return_val_if_null(name, -1);
 
-    String *new_name = string_create_from((String *)name);
-    if (!new_name) {
-        log_fatal("variable_set_name: failed to create name");
-        return -1;
-    }
+    string_t *new_name = string_clone(name);
 
     string_destroy(variable->name);
     variable->name = new_name;
     return 0;
 }
 
-int variable_set_value(Variable *variable, const String *value)
+int variable_set_value(variable_t *variable, const string_t *value)
 {
     return_val_if_null(variable, -1);
     return_val_if_null(value, -1);
@@ -151,34 +106,26 @@ int variable_set_value(Variable *variable, const String *value)
         return -1;
     }
 
-    String *new_value = string_create_from((String *)value);
-    if (!new_value) {
-        log_fatal("variable_set_value: failed to create value");
-        return -1;
-    }
+    string_t *new_value = string_clone(value);
 
     string_destroy(variable->value);
     variable->value = new_value;
     return 0;
 }
 
-int variable_set_name_cstr(Variable *variable, const char *name)
+int variable_set_name_cstr(variable_t *variable, const char *name)
 {
     return_val_if_null(variable, -1);
     return_val_if_null(name, -1);
 
-    String *new_name = string_create_from_cstr(name);
-    if (!new_name) {
-        log_fatal("variable_set_name_cstr: failed to create name");
-        return -1;
-    }
+    string_t *new_name = string_create_from_cstr(name);
 
     string_destroy(variable->name);
     variable->name = new_name;
     return 0;
 }
 
-int variable_set_value_cstr(Variable *variable, const char *value)
+int variable_set_value_cstr(variable_t *variable, const char *value)
 {
     return_val_if_null(variable, -1);
     return_val_if_null(value, -1);
@@ -188,25 +135,21 @@ int variable_set_value_cstr(Variable *variable, const char *value)
         return -1;
     }
 
-    String *new_value = string_create_from_cstr(value);
-    if (!new_value) {
-        log_fatal("variable_set_value_cstr: failed to create value");
-        return -1;
-    }
+    string_t *new_value = string_create_from_cstr(value);
 
     string_destroy(variable->value);
     variable->value = new_value;
     return 0;
 }
 
-int variable_set_exported(Variable *variable, bool exported)
+int variable_set_exported(variable_t *variable, bool exported)
 {
     return_val_if_null(variable, -1);
     variable->exported = exported;
     return 0;
 }
 
-int variable_set_read_only(Variable *variable, bool read_only)
+int variable_set_read_only(variable_t *variable, bool read_only)
 {
     return_val_if_null(variable, -1);
     variable->read_only = read_only;

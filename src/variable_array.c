@@ -1,60 +1,52 @@
 #include "variable_array.h"
-#include <stdlib.h>
+#include "xalloc.h"
 #include <string.h>
 
-struct VariableArray {
-    Variable **data;
-    size_t len;
-    size_t cap;
-    VariableArrayFreeFunc free_func;
-};
-
-static void *xrealloc(void *p, size_t n) { void *q = realloc(p, n); return q; }
 static size_t grow_cap(size_t cap) { return cap ? cap * 2 : 8; }
 
-VariableArray *variable_array_create(void) {
-    VariableArray *a = (VariableArray *)calloc(1, sizeof *a);
+variable_array_t *variable_array_create(void) {
+    variable_array_t *a = xcalloc(1, sizeof *a);
     return a;
 }
 
-VariableArray *variable_array_create_with_free(VariableArrayFreeFunc free_func) {
-    VariableArray *a = variable_array_create();
+variable_array_t *variable_array_create_with_free(variable_array_free_func_t free_func) {
+    variable_array_t *a = variable_array_create();
     if (a) a->free_func = free_func;
     return a;
 }
 
-void variable_array_destroy(VariableArray *array) {
+void variable_array_destroy(variable_array_t *array) {
     if (!array) return;
     if (array->free_func) {
         for (size_t i = 0; i < array->len; ++i) {
             if (array->data[i]) array->free_func(array->data[i]);
         }
     }
-    free(array->data);
-    free(array);
+    xfree(array->data);
+    xfree(array);
 }
 
-size_t variable_array_size(const VariableArray *array) { return array ? array->len : 0; }
-size_t variable_array_capacity(const VariableArray *array) { return array ? array->cap : 0; }
+size_t variable_array_size(const variable_array_t *array) { return array ? array->len : 0; }
+size_t variable_array_capacity(const variable_array_t *array) { return array ? array->cap : 0; }
 
-Variable *variable_array_get(const VariableArray *array, size_t index) {
+variable_t *variable_array_get(const variable_array_t *array, size_t index) {
     if (!array || index >= array->len) return NULL;
     return array->data[index];
 }
 
-int variable_array_is_empty(const VariableArray *array) { return array ? (array->len == 0) : 1; }
+int variable_array_is_empty(const variable_array_t *array) { return array ? (array->len == 0) : 1; }
 
-int variable_array_resize(VariableArray *array, size_t new_capacity) {
+int variable_array_resize(variable_array_t *array, size_t new_capacity) {
     if (!array) return -1;
     if (new_capacity < array->len) return -1;
-    Variable **newv = (Variable **)xrealloc(array->data, new_capacity * sizeof *newv);
+    variable_t **newv = xrealloc(array->data, new_capacity * sizeof *newv);
     if (!newv && new_capacity) return -1;
     array->data = newv;
     array->cap = new_capacity;
     return 0;
 }
 
-int variable_array_append(VariableArray *array, Variable *element) {
+int variable_array_append(variable_array_t *array, variable_t *element) {
     if (!array) return -1;
     if (array->len == array->cap) {
         if (variable_array_resize(array, grow_cap(array->cap)) != 0) return -1;
@@ -63,7 +55,7 @@ int variable_array_append(VariableArray *array, Variable *element) {
     return 0;
 }
 
-int variable_array_set(VariableArray *array, size_t index, Variable *element) {
+int variable_array_set(variable_array_t *array, size_t index, variable_t *element) {
     if (!array || index >= array->len) return -1;
     if (array->free_func && array->data[index] && array->data[index] != element) {
         array->free_func(array->data[index]);
@@ -72,7 +64,7 @@ int variable_array_set(VariableArray *array, size_t index, Variable *element) {
     return 0;
 }
 
-int variable_array_remove(VariableArray *array, size_t index) {
+int variable_array_remove(variable_array_t *array, size_t index) {
     if (!array || index >= array->len) return -1;
     if (array->free_func && array->data[index]) {
         array->free_func(array->data[index]);
@@ -85,7 +77,7 @@ int variable_array_remove(VariableArray *array, size_t index) {
     return 0;
 }
 
-int variable_array_clear(VariableArray *array) {
+int variable_array_clear(variable_array_t *array) {
     if (!array) return -1;
     if (array->free_func) {
         for (size_t i = 0; i < array->len; ++i) {
@@ -96,14 +88,14 @@ int variable_array_clear(VariableArray *array) {
     return 0;
 }
 
-void variable_array_foreach(VariableArray *array, VariableArrayApplyFunc apply_func, void *user_data) {
+void variable_array_foreach(variable_array_t *array, variable_array_apply_func_t apply_func, void *user_data) {
     if (!array || !apply_func) return;
     for (size_t i = 0; i < array->len; ++i) {
         apply_func(array->data[i], user_data);
     }
 }
 
-int variable_array_find(VariableArray *array, Variable *element, size_t *index) {
+int variable_array_find(variable_array_t *array, variable_t *element, size_t *index) {
     if (!array) return -1;
     for (size_t i = 0; i < array->len; ++i) {
         if (array->data[i] == element) {
@@ -114,7 +106,7 @@ int variable_array_find(VariableArray *array, Variable *element, size_t *index) 
     return 1;
 }
 
-int variable_array_find_with_compare(VariableArray *array, const void *data, VariableArrayCompareFunc compare_func, size_t *index) {
+int variable_array_find_with_compare(variable_array_t *array, const void *data, variable_array_compare_func_t compare_func, size_t *index) {
     if (!array || !compare_func) return -1;
     for (size_t i = 0; i < array->len; ++i) {
         if (compare_func(array->data[i], data) == 0) {
