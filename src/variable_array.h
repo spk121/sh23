@@ -35,7 +35,7 @@ void variable_array_append(variable_array_t *array, variable_t *element);
 void variable_array_set(variable_array_t *array, size_t index, variable_t *element);
 void variable_array_remove(variable_array_t *array, size_t index);     // Compacts; frees element if free_func set
 void variable_array_clear(variable_array_t *array);                    // Frees all if free_func set; len -> 0
-int variable_array_resize(variable_array_t *array, size_t new_capacity);
+void variable_array_resize(variable_array_t *array, size_t new_capacity);
 
 // Operations
 void variable_array_foreach(variable_array_t *array, variable_array_apply_func_t apply_func, void *user_data);

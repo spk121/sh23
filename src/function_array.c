@@ -46,9 +46,9 @@ int function_array_is_empty(const function_array_t *array) {
     return array->len == 0;
 }
 
-int function_array_resize(function_array_t *array, size_t new_capacity) {
+void function_array_resize(function_array_t *array, size_t new_capacity) {
     Expects_not_null(array);
-    if (new_capacity < array->len) return -1;
+    Expects(new_capacity >= array->len);
     
     function_t **newv;
     if (array->data == NULL) {
@@ -61,7 +61,6 @@ int function_array_resize(function_array_t *array, size_t new_capacity) {
     
     array->data = newv;
     array->cap = new_capacity;
-    return 0;
 }
 
 void function_array_append(function_array_t *array, function_t *element) {

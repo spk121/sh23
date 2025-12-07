@@ -47,9 +47,9 @@ int variable_array_is_empty(const variable_array_t *array) {
     return array->len == 0;
 }
 
-int variable_array_resize(variable_array_t *array, size_t new_capacity) {
+void variable_array_resize(variable_array_t *array, size_t new_capacity) {
     Expects_not_null(array);
-    if (new_capacity < array->len) return -1;
+    Expects(new_capacity >= array->len);
     
     variable_t **newv;
     if (array->data == NULL) {
@@ -62,7 +62,6 @@ int variable_array_resize(variable_array_t *array, size_t new_capacity) {
     
     array->data = newv;
     array->cap = new_capacity;
-    return 0;
 }
 
 void variable_array_append(variable_array_t *array, variable_t *element) {

@@ -36,7 +36,7 @@ void function_array_append(function_array_t *array, function_t *element);
 void function_array_set(function_array_t *array, size_t index, function_t *element);
 void function_array_remove(function_array_t *array, size_t index);     // Compacts tail; frees element if free_func set
 void function_array_clear(function_array_t *array);                    // Frees all if free_func set; len -> 0
-int function_array_resize(function_array_t *array, size_t new_capacity);
+void function_array_resize(function_array_t *array, size_t new_capacity);
 
 // Operations
 void function_array_foreach(function_array_t *array, function_array_apply_func_t apply_func, void *user_data);
