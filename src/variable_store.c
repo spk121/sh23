@@ -108,13 +108,11 @@ void variable_store_add(variable_store_t *store, const string_t *name, const str
         // Replace existing variable
         variable_t *new_var = variable_create(name, value, exported, read_only);
         variable_array_set(store->variables, index, new_var);
-        return;
+    } else {
+        // Add new variable
+        variable_t *var = variable_create(name, value, exported, read_only);
+        variable_array_append(store->variables, var);
     }
-
-    // Add new variable
-    variable_t *var = variable_create(name, value, exported, read_only);
-
-    variable_array_append(store->variables, var);
 }
 
 void variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only)
@@ -128,13 +126,11 @@ void variable_store_add_cstr(variable_store_t *store, const char *name, const ch
         // Replace existing variable
         variable_t *new_var = variable_create_from_cstr(name, value, exported, read_only);
         variable_array_set(store->variables, index, new_var);
-        return;
+    } else {
+        // Add new variable
+        variable_t *var = variable_create_from_cstr(name, value, exported, read_only);
+        variable_array_append(store->variables, var);
     }
-
-    // Add new variable
-    variable_t *var = variable_create_from_cstr(name, value, exported, read_only);
-
-    variable_array_append(store->variables, var);
 }
 
 int variable_store_remove(variable_store_t *store, const string_t *name)
