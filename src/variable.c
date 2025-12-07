@@ -49,45 +49,45 @@ void variable_destroy(variable_t *variable)
 // Getters
 const string_t *variable_get_name(const variable_t *variable)
 {
-    return_val_if_null(variable, NULL);
+    Expects_not_null(variable);
     return variable->name;
 }
 
 const string_t *variable_get_value(const variable_t *variable)
 {
-    return_val_if_null(variable, NULL);
+    Expects_not_null(variable);
     return variable->value;
 }
 
 const char *variable_get_name_cstr(const variable_t *variable)
 {
-    return_val_if_null(variable, NULL);
+    Expects_not_null(variable);
     return string_data(variable->name);
 }
 
 const char *variable_get_value_cstr(const variable_t *variable)
 {
-    return_val_if_null(variable, NULL);
+    Expects_not_null(variable);
     return string_data(variable->value);
 }
 
 bool variable_is_exported(const variable_t *variable)
 {
-    return_val_if_null(variable, false);
+    Expects_not_null(variable);
     return variable->exported;
 }
 
 bool variable_is_read_only(const variable_t *variable)
 {
-    return_val_if_null(variable, false);
+    Expects_not_null(variable);
     return variable->read_only;
 }
 
 // Setters
 int variable_set_name(variable_t *variable, const string_t *name)
 {
-    return_val_if_null(variable, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(variable);
+    Expects_not_null(name);
 
     string_t *new_name = string_clone(name);
 
@@ -98,8 +98,8 @@ int variable_set_name(variable_t *variable, const string_t *name)
 
 int variable_set_value(variable_t *variable, const string_t *value)
 {
-    return_val_if_null(variable, -1);
-    return_val_if_null(value, -1);
+    Expects_not_null(variable);
+    Expects_not_null(value);
 
     if (variable->read_only) {
         log_fatal("variable_set_value: cannot modify read-only variable");
@@ -115,8 +115,8 @@ int variable_set_value(variable_t *variable, const string_t *value)
 
 int variable_set_name_cstr(variable_t *variable, const char *name)
 {
-    return_val_if_null(variable, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(variable);
+    Expects_not_null(name);
 
     string_t *new_name = string_create_from_cstr(name);
 
@@ -127,8 +127,8 @@ int variable_set_name_cstr(variable_t *variable, const char *name)
 
 int variable_set_value_cstr(variable_t *variable, const char *value)
 {
-    return_val_if_null(variable, -1);
-    return_val_if_null(value, -1);
+    Expects_not_null(variable);
+    Expects_not_null(value);
 
     if (variable->read_only) {
         log_fatal("variable_set_value_cstr: cannot modify read-only variable");
@@ -144,14 +144,14 @@ int variable_set_value_cstr(variable_t *variable, const char *value)
 
 int variable_set_exported(variable_t *variable, bool exported)
 {
-    return_val_if_null(variable, -1);
+    Expects_not_null(variable);
     variable->exported = exported;
     return 0;
 }
 
 int variable_set_read_only(variable_t *variable, bool read_only)
 {
-    return_val_if_null(variable, -1);
+    Expects_not_null(variable);
     variable->read_only = read_only;
     return 0;
 }

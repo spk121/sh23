@@ -77,7 +77,7 @@ void variable_store_destroy(variable_store_t *store)
 // Clear all variables and parameters
 int variable_store_clear(variable_store_t *store)
 {
-    return_val_if_null(store, -1);
+    Expects_not_null(store);
 
     log_debug("variable_store_clear: clearing store %p, variables %zu, params %zu",
               store,
@@ -109,9 +109,9 @@ int variable_store_clear(variable_store_t *store)
 // variable_t management
 int variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
-    return_val_if_null(value, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
+    Expects_not_null(value);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0) {
@@ -134,9 +134,9 @@ int variable_store_add(variable_store_t *store, const string_t *name, const stri
 
 int variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
-    return_val_if_null(value, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
+    Expects_not_null(value);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0) {
@@ -159,8 +159,8 @@ int variable_store_add_cstr(variable_store_t *store, const char *name, const cha
 
 int variable_store_remove(variable_store_t *store, const string_t *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
@@ -172,8 +172,8 @@ int variable_store_remove(variable_store_t *store, const string_t *name)
 
 int variable_store_remove_cstr(variable_store_t *store, const char *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
@@ -185,8 +185,8 @@ int variable_store_remove_cstr(variable_store_t *store, const char *name)
 
 int variable_store_has_name(const variable_store_t *store, const string_t *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     return variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0 ? 1 : 0;
@@ -194,8 +194,8 @@ int variable_store_has_name(const variable_store_t *store, const string_t *name)
 
 int variable_store_has_name_cstr(const variable_store_t *store, const char *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     return variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0 ? 1 : 0;
@@ -203,8 +203,8 @@ int variable_store_has_name_cstr(const variable_store_t *store, const char *name
 
 const variable_t *variable_store_get_variable(const variable_store_t *store, const string_t *name)
 {
-    return_val_if_null(store, NULL);
-    return_val_if_null(name, NULL);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
@@ -216,8 +216,8 @@ const variable_t *variable_store_get_variable(const variable_store_t *store, con
 
 const variable_t *variable_store_get_variable_cstr(const variable_store_t *store, const char *name)
 {
-    return_val_if_null(store, NULL);
-    return_val_if_null(name, NULL);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
@@ -241,8 +241,8 @@ const char *variable_store_get_value_cstr(const variable_store_t *store, const c
 
 int variable_store_is_read_only(const variable_store_t *store, const string_t *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     const variable_t *var = variable_store_get_variable(store, name);
     if (!var) {
@@ -254,8 +254,8 @@ int variable_store_is_read_only(const variable_store_t *store, const string_t *n
 
 int variable_store_is_read_only_cstr(const variable_store_t *store, const char *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     const variable_t *var = variable_store_get_variable_cstr(store, name);
     if (!var) {
@@ -267,8 +267,8 @@ int variable_store_is_read_only_cstr(const variable_store_t *store, const char *
 
 int variable_store_is_exported(const variable_store_t *store, const string_t *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     const variable_t *var = variable_store_get_variable(store, name);
     if (!var) {
@@ -280,8 +280,8 @@ int variable_store_is_exported(const variable_store_t *store, const string_t *na
 
 int variable_store_is_exported_cstr(const variable_store_t *store, const char *name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     const variable_t *var = variable_store_get_variable_cstr(store, name);
     if (!var) {
@@ -293,8 +293,8 @@ int variable_store_is_exported_cstr(const variable_store_t *store, const char *n
 
 int variable_store_set_read_only(variable_store_t *store, const string_t *name, bool read_only)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
@@ -308,8 +308,8 @@ int variable_store_set_read_only(variable_store_t *store, const string_t *name, 
 
 int variable_store_set_read_only_cstr(variable_store_t *store, const char *name, bool read_only)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
@@ -323,8 +323,8 @@ int variable_store_set_read_only_cstr(variable_store_t *store, const char *name,
 
 int variable_store_set_exported(variable_store_t *store, const string_t *name, bool exported)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
@@ -338,8 +338,8 @@ int variable_store_set_exported(variable_store_t *store, const string_t *name, b
 
 int variable_store_set_exported_cstr(variable_store_t *store, const char *name, bool exported)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(name, -1);
+    Expects_not_null(store);
+    Expects_not_null(name);
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
@@ -354,7 +354,7 @@ int variable_store_set_exported_cstr(variable_store_t *store, const char *name, 
 // Positional parameters
 int variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count)
 {
-    return_val_if_null(store, -1);
+    Expects_not_null(store);
 
     if (variable_array_clear(store->positional_params) != 0) {
         log_fatal("variable_store_set_positional_params: failed to clear positional_params");
@@ -385,7 +385,7 @@ int variable_store_set_positional_params(variable_store_t *store, const string_t
 
 int variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count)
 {
-    return_val_if_null(store, -1);
+    Expects_not_null(store);
 
     if (variable_array_clear(store->positional_params) != 0) {
         log_fatal("variable_store_set_positional_params_cstr: failed to clear positional_params");
@@ -416,7 +416,7 @@ int variable_store_set_positional_params_cstr(variable_store_t *store, const cha
 
 const variable_t *variable_store_get_positional_param(const variable_store_t *store, size_t index)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return variable_array_get(store->positional_params, index);
 }
 
@@ -428,64 +428,64 @@ const char *variable_store_get_positional_param_cstr(const variable_store_t *sto
 
 size_t variable_store_positional_param_count(const variable_store_t *store)
 {
-    return_val_if_null(store, 0);
+    Expects_not_null(store);
     return variable_array_size(store->positional_params);
 }
 
 // Special parameter getters
 const string_t *variable_store_get_status(const variable_store_t *store)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return store->status_str;
 }
 
 long variable_store_get_pid(const variable_store_t *store)
 {
-    return_val_if_null(store, 0);
+    Expects_not_null(store);
     return store->pid;
 }
 
 const string_t *variable_store_get_shell_name(const variable_store_t *store)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return store->shell_name;
 }
 
 long variable_store_get_last_bg_pid(const variable_store_t *store)
 {
-    return_val_if_null(store, 0);
+    Expects_not_null(store);
     return store->last_bg_pid;
 }
 
 const string_t *variable_store_get_options(const variable_store_t *store)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return store->options;
 }
 
 const char *variable_store_get_status_cstr(const variable_store_t *store)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return string_data(store->status_str);
 }
 
 const char *variable_store_get_shell_name_cstr(const variable_store_t *store)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return string_data(store->shell_name);
 }
 
 const char *variable_store_get_options_cstr(const variable_store_t *store)
 {
-    return_val_if_null(store, NULL);
+    Expects_not_null(store);
     return string_data(store->options);
 }
 
 // Special parameter setters
 int variable_store_set_status(variable_store_t *store, const string_t *status)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(status, -1);
+    Expects_not_null(store);
+    Expects_not_null(status);
 
     string_t *new_status = string_clone(status);
 
@@ -496,14 +496,10 @@ int variable_store_set_status(variable_store_t *store, const string_t *status)
 
 int variable_store_set_status_cstr(variable_store_t *store, const char *status)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(status, -1);
+    Expects_not_null(store);
+    Expects_not_null(status);
 
     string_t *new_status = string_create_from_cstr(status);
-    if (!new_status) {
-        log_fatal("variable_store_set_status_cstr: failed to create status");
-        return -1;
-    }
 
     string_destroy(store->status_str);
     store->status_str = new_status;
@@ -512,8 +508,8 @@ int variable_store_set_status_cstr(variable_store_t *store, const char *status)
 
 int variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(shell_name, -1);
+    Expects_not_null(store);
+    Expects_not_null(shell_name);
 
     string_t *new_shell_name = string_clone(shell_name);
 
@@ -524,14 +520,10 @@ int variable_store_set_shell_name(variable_store_t *store, const string_t *shell
 
 int variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(shell_name, -1);
+    Expects_not_null(store);
+    Expects_not_null(shell_name);
 
     string_t *new_shell_name = string_create_from_cstr(shell_name);
-    if (!new_shell_name) {
-        log_fatal("variable_store_set_shell_name_cstr: failed to create shell_name");
-        return -1;
-    }
 
     string_destroy(store->shell_name);
     store->shell_name = new_shell_name;
@@ -540,15 +532,15 @@ int variable_store_set_shell_name_cstr(variable_store_t *store, const char *shel
 
 int variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid)
 {
-    return_val_if_null(store, -1);
+    Expects_not_null(store);
     store->last_bg_pid = last_bg_pid;
     return 0;
 }
 
 int variable_store_set_options(variable_store_t *store, const string_t *options)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(options, -1);
+    Expects_not_null(store);
+    Expects_not_null(options);
 
     string_t *new_options = string_clone(options);
 
@@ -559,14 +551,10 @@ int variable_store_set_options(variable_store_t *store, const string_t *options)
 
 int variable_store_set_options_cstr(variable_store_t *store, const char *options)
 {
-    return_val_if_null(store, -1);
-    return_val_if_null(options, -1);
+    Expects_not_null(store);
+    Expects_not_null(options);
 
     string_t *new_options = string_create_from_cstr(options);
-    if (!new_options) {
-        log_fatal("variable_store_set_options_cstr: failed to create options");
-        return -1;
-    }
 
     string_destroy(store->options);
     store->options = new_options;
