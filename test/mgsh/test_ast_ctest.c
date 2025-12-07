@@ -431,6 +431,44 @@ CTEST(test_parser_case_statement)
 */
 
 /* ============================================================================
+ * Parser Tests - Function Definitions
+ * ============================================================================ */
+
+CTEST(test_parser_function_def)
+{
+    ast_node_t *ast = parse_string("myfunc() {\necho hello\n}");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+    
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.name, "has function name");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
+        CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_BRACE_GROUP, "body is brace group");
+        
+        ast_node_destroy(ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_function_def_with_subshell)
+{
+    ast_node_t *ast = parse_string("myfunc() (echo hello)");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+    
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_SUBSHELL, "body is subshell");
+        
+        ast_node_destroy(ast);
+    }
+    (void)ctest;
+}
+
+/* ============================================================================
  * Parser Tests - Subshells and Brace Groups
  * ============================================================================ */
 
@@ -660,6 +698,10 @@ int main(void)
         // Parser Tests - Case Statements
         // Note: Case statement test temporarily skipped due to memory issue
         // CTEST_ENTRY(test_parser_case_statement),
+
+        // Parser Tests - Function Definitions
+        CTEST_ENTRY(test_parser_function_def),
+        CTEST_ENTRY(test_parser_function_def_with_subshell),
 
         // Parser Tests - Subshells and Brace Groups
         CTEST_ENTRY(test_parser_subshell),

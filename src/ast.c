@@ -131,6 +131,18 @@ void ast_node_destroy(ast_node_t *node)
         ast_node_destroy(node->data.case_item.body);
         break;
 
+    case AST_FUNCTION_DEF:
+        if (node->data.function_def.name != NULL)
+        {
+            string_destroy(node->data.function_def.name);
+        }
+        ast_node_destroy(node->data.function_def.body);
+        if (node->data.function_def.redirections != NULL)
+        {
+            ast_node_list_destroy(node->data.function_def.redirections);
+        }
+        break;
+
     case AST_REDIRECTION:
         if (node->data.redirection.target != NULL)
         {
@@ -286,6 +298,16 @@ ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body)
     return node;
 }
 
+ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
+                                   ast_node_list_t *redirections)
+{
+    ast_node_t *node = ast_node_create(AST_FUNCTION_DEF);
+    node->data.function_def.name = string_clone(name);
+    node->data.function_def.body = body;
+    node->data.function_def.redirections = redirections;
+    return node;
+}
+
 ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
                                   token_t *target)
 {
@@ -392,6 +414,8 @@ const char *ast_node_type_to_string(ast_node_type_t type)
         return "FOR_CLAUSE";
     case AST_CASE_CLAUSE:
         return "CASE_CLAUSE";
+    case AST_FUNCTION_DEF:
+        return "FUNCTION_DEF";
     case AST_REDIRECTION:
         return "REDIRECTION";
     case AST_WORD:
@@ -519,6 +543,18 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_append_cstr(result, "\n");
         }
         ast_node_to_string_helper(node->data.for_clause.body, result, indent_level + 1);
+        break;
+
+    case AST_FUNCTION_DEF:
+        if (node->data.function_def.name != NULL)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "name: ");
+            string_append(result, node->data.function_def.name);
+            string_append_cstr(result, "\n");
+        }
+        ast_node_to_string_helper(node->data.function_def.body, result, indent_level + 1);
         break;
 
     default:

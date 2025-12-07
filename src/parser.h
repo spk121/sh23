@@ -142,6 +142,11 @@ parse_status_t parser_parse_subshell(parser_t *parser, ast_node_t **out_node);
 parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node);
 
 /**
+ * Parse a function definition name() compound-command.
+ */
+parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node);
+
+/**
  * Parse a redirection.
  */
 parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node);

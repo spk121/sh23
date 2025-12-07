@@ -117,6 +117,11 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
  */
 exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_t *node);
 
+/**
+ * Execute a function definition.
+ */
+exec_status_t executor_execute_function_def(executor_t *executor, const ast_node_t *node);
+
 /* ============================================================================
  * Visitor Pattern Support
  * ============================================================================ */

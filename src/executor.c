@@ -133,6 +133,8 @@ exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
         return executor_execute_for_clause(executor, root);
     case AST_CASE_CLAUSE:
         return executor_execute_case_clause(executor, root);
+    case AST_FUNCTION_DEF:
+        return executor_execute_function_def(executor, root);
     default:
         executor_set_error(executor, "Unsupported AST node type: %s",
                           ast_node_type_to_string(root->type));
@@ -465,6 +467,22 @@ exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_
     return executor_execute(executor, node->data.compound.body);
 }
 
+exec_status_t executor_execute_function_def(executor_t *executor, const ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_FUNCTION_DEF);
+
+    // For now, function definitions are not executed - they would be stored
+    // in the shell environment for later invocation
+    // A real implementation would:
+    // 1. Store the function name and body in a function table
+    // 2. Return EXEC_OK to indicate successful definition
+    // For now, just mark as not implemented
+    executor_set_error(executor, "Function definition execution not yet implemented");
+    return EXEC_NOT_IMPL;
+}
+
 /* ============================================================================
  * Visitor Pattern Support
  * ============================================================================ */
@@ -595,6 +613,23 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         if (!ast_traverse_helper(node->data.case_item.body, visitor, user_data))
         {
             return false;
+        }
+        break;
+
+    case AST_FUNCTION_DEF:
+        if (!ast_traverse_helper(node->data.function_def.body, visitor, user_data))
+        {
+            return false;
+        }
+        if (node->data.function_def.redirections != NULL)
+        {
+            for (int i = 0; i < node->data.function_def.redirections->size; i++)
+            {
+                if (!ast_traverse_helper(node->data.function_def.redirections->nodes[i], visitor, user_data))
+                {
+                    return false;
+                }
+            }
         }
         break;
 

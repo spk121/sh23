@@ -374,6 +374,29 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
         return parser_parse_compound_command(parser, out_node);
     }
 
+    // Check for function definition: WORD followed by ()
+    // We need to look ahead to see if this is "name()" pattern
+    if (current == TOKEN_WORD)
+    {
+        // Save position for potential backtrack
+        int saved_pos = parser->position;
+        
+        // Check if next token is LPAREN
+        parser_advance(parser);
+        if (parser_current_token_type(parser) == TOKEN_LPAREN)
+        {
+            parser_advance(parser);
+            if (parser_current_token_type(parser) == TOKEN_RPAREN)
+            {
+                // This is a function definition - restore and parse
+                parser->position = saved_pos;
+                return parser_parse_function_def(parser, out_node);
+            }
+        }
+        // Not a function definition - restore position
+        parser->position = saved_pos;
+    }
+
     // Otherwise, parse simple command
     return parser_parse_simple_command(parser, out_node);
 }
@@ -458,6 +481,25 @@ parse_status_t parser_parse_compound_command(parser_t *parser, ast_node_t **out_
     Expects_not_null(out_node);
 
     token_type_t current = parser_current_token_type(parser);
+
+    // Try to promote { from WORD to TOKEN_LBRACE if needed
+    if (current == TOKEN_WORD)
+    {
+        token_t *tok = parser_current_token(parser);
+        if (tok != NULL && token_part_count(tok) == 1)
+        {
+            part_t *part = token_get_part(tok, 0);
+            if (part_get_type(part) == PART_LITERAL)
+            {
+                const string_t *text = part_get_text(part);
+                if (strcmp(string_data(text), "{") == 0)
+                {
+                    token_set_type(tok, TOKEN_LBRACE);
+                    current = TOKEN_LBRACE;
+                }
+            }
+        }
+    }
 
     switch (current)
     {
@@ -1000,6 +1042,102 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
     }
 
     *out_node = ast_create_brace_group(body);
+    return PARSE_OK;
+}
+
+parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    // Expect function name (a WORD)
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+    {
+        parser_set_error(parser, "Expected function name");
+        return PARSE_ERROR;
+    }
+
+    token_t *name_tok = parser_current_token(parser);
+    // Extract function name
+    string_t *func_name = string_create_empty(32);
+    if (token_part_count(name_tok) == 1)
+    {
+        part_t *part = token_get_part(name_tok, 0);
+        if (part_get_type(part) == PART_LITERAL)
+        {
+            string_append(func_name, part_get_text(part));
+        }
+    }
+    
+    // Validate that we got a name
+    if (string_length(func_name) == 0)
+    {
+        parser_set_error(parser, "Invalid function name");
+        string_destroy(func_name);
+        return PARSE_ERROR;
+    }
+    
+    parser_advance(parser);
+
+    // Expect '('
+    parse_status_t status = parser_expect(parser, TOKEN_LPAREN);
+    if (status != PARSE_OK)
+    {
+        string_destroy(func_name);
+        return status;
+    }
+
+    // Expect ')'
+    status = parser_expect(parser, TOKEN_RPAREN);
+    if (status != PARSE_OK)
+    {
+        string_destroy(func_name);
+        return status;
+    }
+
+    parser_skip_newlines(parser);
+
+    // Parse compound command (body)
+    ast_node_t *body = NULL;
+    status = parser_parse_compound_command(parser, &body);
+    if (status != PARSE_OK)
+    {
+        string_destroy(func_name);
+        return status;
+    }
+
+    // Parse optional redirections
+    ast_node_list_t *redirections = NULL;
+    token_type_t current = parser_current_token_type(parser);
+    if (current == TOKEN_LESS || current == TOKEN_GREATER ||
+        current == TOKEN_DLESS || current == TOKEN_DGREAT ||
+        current == TOKEN_LESSAND || current == TOKEN_GREATAND ||
+        current == TOKEN_LESSGREAT || current == TOKEN_DLESSDASH ||
+        current == TOKEN_CLOBBER || current == TOKEN_IO_NUMBER)
+    {
+        redirections = ast_node_list_create();
+        while (current == TOKEN_LESS || current == TOKEN_GREATER ||
+               current == TOKEN_DLESS || current == TOKEN_DGREAT ||
+               current == TOKEN_LESSAND || current == TOKEN_GREATAND ||
+               current == TOKEN_LESSGREAT || current == TOKEN_DLESSDASH ||
+               current == TOKEN_CLOBBER || current == TOKEN_IO_NUMBER)
+        {
+            ast_node_t *redir = NULL;
+            status = parser_parse_redirection(parser, &redir);
+            if (status != PARSE_OK)
+            {
+                string_destroy(func_name);
+                ast_node_destroy(body);
+                ast_node_list_destroy(redirections);
+                return status;
+            }
+            ast_node_list_append(redirections, redir);
+            current = parser_current_token_type(parser);
+        }
+    }
+
+    *out_node = ast_create_function_def(func_name, body, redirections);
+    string_destroy(func_name); // ast_create_function_def clones it
     return PARSE_OK;
 }
 

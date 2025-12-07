@@ -30,6 +30,7 @@ typedef enum
     AST_UNTIL_CLAUSE,      // until/do/done
     AST_FOR_CLAUSE,        // for/in/do/done
     AST_CASE_CLAUSE,       // case/in/esac
+    AST_FUNCTION_DEF,      // name() compound-command [redirections]
 
     /* Auxiliary nodes */
     AST_REDIRECTION,       // I/O redirection
@@ -203,6 +204,14 @@ struct ast_node_t
             ast_node_t *body;       // commands to execute if pattern matches
         } case_item;
 
+        /* AST_FUNCTION_DEF */
+        struct
+        {
+            string_t *name;                // function name
+            ast_node_t *body;              // compound command (function body)
+            ast_node_list_t *redirections; // optional redirections
+        } function_def;
+
         /* AST_REDIRECTION */
         struct
         {
@@ -319,6 +328,12 @@ ast_node_t *ast_create_case_clause(token_t *word);
  * Create a case item node.
  */
 ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body);
+
+/**
+ * Create a function definition node.
+ */
+ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
+                                   ast_node_list_t *redirections);
 
 /**
  * Create a redirection node.
