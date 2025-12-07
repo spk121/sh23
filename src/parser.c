@@ -844,7 +844,13 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
 
     parser_skip_newlines(parser);
 
-    // Expect 'in'
+    // Expect 'in' keyword - try to promote WORD to TOKEN_IN if needed
+    token_t *maybe_in = parser_current_token(parser);
+    if (maybe_in != NULL && token_get_type(maybe_in) == TOKEN_WORD)
+    {
+        token_try_promote_to_reserved_word(maybe_in, true);
+    }
+    
     status = parser_expect(parser, TOKEN_IN);
     if (status != PARSE_OK)
     {
