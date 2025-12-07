@@ -487,11 +487,7 @@ int variable_store_set_status(variable_store_t *store, const string_t *status)
     return_val_if_null(store, -1);
     return_val_if_null(status, -1);
 
-    string_t *new_status = string_create_from((string_t *)status);
-    if (!new_status) {
-        log_fatal("variable_store_set_status: failed to create status");
-        return -1;
-    }
+    string_t *new_status = string_clone(status);
 
     string_destroy(store->status_str);
     store->status_str = new_status;
@@ -519,11 +515,7 @@ int variable_store_set_shell_name(variable_store_t *store, const string_t *shell
     return_val_if_null(store, -1);
     return_val_if_null(shell_name, -1);
 
-    string_t *new_shell_name = string_create_from((string_t *)shell_name);
-    if (!new_shell_name) {
-        log_fatal("variable_store_set_shell_name: failed to create shell_name");
-        return -1;
-    }
+    string_t *new_shell_name = string_clone(shell_name);
 
     string_destroy(store->shell_name);
     store->shell_name = new_shell_name;
@@ -558,11 +550,7 @@ int variable_store_set_options(variable_store_t *store, const string_t *options)
     return_val_if_null(store, -1);
     return_val_if_null(options, -1);
 
-    string_t *new_options = string_create_from((string_t *)options);
-    if (!new_options) {
-        log_fatal("variable_store_set_options: failed to create options");
-        return -1;
-    }
+    string_t *new_options = string_clone(options);
 
     string_destroy(store->options);
     store->options = new_options;
