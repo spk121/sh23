@@ -1055,7 +1055,12 @@ int token_list_ensure_capacity(token_list_t *list, int needed_capacity)
     while (new_capacity < needed_capacity)
     {
         // Check for overflow before doubling
-        if (new_capacity > INT_MAX / 2)
+        // We can safely double if capacity <= INT_MAX/2
+        if (new_capacity <= INT_MAX / 2)
+        {
+            new_capacity *= 2;
+        }
+        else
         {
             // Can't double, try to allocate exactly what's needed
             if (needed_capacity > INT_MAX)
@@ -1063,7 +1068,6 @@ int token_list_ensure_capacity(token_list_t *list, int needed_capacity)
             new_capacity = needed_capacity;
             break;
         }
-        new_capacity *= 2;
     }
 
     token_t **new_tokens = (token_t **)xrealloc(list->tokens, new_capacity * sizeof(token_t *));

@@ -93,10 +93,10 @@ void tokenizer_set_error(tokenizer_t *tok, const char *format, ...)
     
     // Use vasprintf for dynamic allocation to avoid truncation
     char *buffer = NULL;
-    int len = vasprintf(&buffer, format, args);
+    vasprintf(&buffer, format, args);
     va_end(args);
 
-    if (len >= 0 && buffer != NULL)
+    if (buffer != NULL)
     {
         string_append_cstr(tok->error_msg, buffer);
         free(buffer);
@@ -139,7 +139,12 @@ void tokenizer_mark_alias_expanded(tokenizer_t *tok, const char *alias_name)
     {
         int new_capacity;
         // Check for overflow before doubling
-        if (tok->expanded_aliases_capacity > INT_MAX / 2)
+        // We can safely double if capacity <= INT_MAX/2
+        if (tok->expanded_aliases_capacity <= INT_MAX / 2)
+        {
+            new_capacity = tok->expanded_aliases_capacity * 2;
+        }
+        else
         {
             // Can't double, set to max or fail
             new_capacity = INT_MAX;
@@ -148,10 +153,6 @@ void tokenizer_mark_alias_expanded(tokenizer_t *tok, const char *alias_name)
                 // Can't expand further
                 return;
             }
-        }
-        else
-        {
-            new_capacity = tok->expanded_aliases_capacity * 2;
         }
         
         tok->expanded_aliases = xrealloc(tok->expanded_aliases, new_capacity * sizeof(char *));

@@ -49,8 +49,6 @@ CTEST(test_tokenizer_passthrough_no_aliases)
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
     if (input == NULL)
         return;
-    if (input == NULL)
-        return;
 
     tokenizer_t *tok = tokenizer_create(NULL);
     token_list_t *output = token_list_create();
