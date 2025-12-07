@@ -30,8 +30,8 @@ int variable_store_clear(variable_store_t *store);
 // Variable management
 void variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only);
 void variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only);
-int variable_store_remove(variable_store_t *store, const string_t *name);
-int variable_store_remove_cstr(variable_store_t *store, const char *name);
+void variable_store_remove(variable_store_t *store, const string_t *name);
+void variable_store_remove_cstr(variable_store_t *store, const char *name);
 int variable_store_has_name(const variable_store_t *store, const string_t *name);
 int variable_store_has_name_cstr(const variable_store_t *store, const char *name);
 const variable_t *variable_store_get_variable(const variable_store_t *store, const string_t *name);

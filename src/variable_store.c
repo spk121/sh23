@@ -133,32 +133,26 @@ void variable_store_add_cstr(variable_store_t *store, const char *name, const ch
     }
 }
 
-int variable_store_remove(variable_store_t *store, const string_t *name)
+void variable_store_remove(variable_store_t *store, const string_t *name)
 {
     Expects_not_null(store);
     Expects_not_null(name);
 
     size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
-        return -1; // Name not found
+    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0) {
+        variable_array_remove(store->variables, index);
     }
-
-    variable_array_remove(store->variables, index);
-    return 0;
 }
 
-int variable_store_remove_cstr(variable_store_t *store, const char *name)
+void variable_store_remove_cstr(variable_store_t *store, const char *name)
 {
     Expects_not_null(store);
     Expects_not_null(name);
 
     size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
-        return -1; // Name not found
+    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0) {
+        variable_array_remove(store->variables, index);
     }
-
-    variable_array_remove(store->variables, index);
-    return 0;
 }
 
 int variable_store_has_name(const variable_store_t *store, const string_t *name)
