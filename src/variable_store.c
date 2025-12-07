@@ -84,14 +84,8 @@ int variable_store_clear(variable_store_t *store)
               variable_array_size(store->variables),
               variable_array_size(store->positional_params));
 
-    if (variable_array_clear(store->variables) != 0) {
-        log_fatal("variable_store_clear: failed to clear variables");
-        return -1;
-    }
-    if (variable_array_clear(store->positional_params) != 0) {
-        log_fatal("variable_store_clear: failed to clear positional_params");
-        return -1;
-    }
+    variable_array_clear(store->variables);
+    variable_array_clear(store->positional_params);
 
     string_t *new_status = string_create_from_cstr("0");
     string_destroy(store->status_str);
@@ -356,10 +350,7 @@ int variable_store_set_positional_params(variable_store_t *store, const string_t
 {
     Expects_not_null(store);
 
-    if (variable_array_clear(store->positional_params) != 0) {
-        log_fatal("variable_store_set_positional_params: failed to clear positional_params");
-        return -1;
-    }
+    variable_array_clear(store->positional_params);
 
     for (size_t i = 0; i < count; i++) {
         if (!params[i]) {
@@ -383,10 +374,7 @@ int variable_store_set_positional_params_cstr(variable_store_t *store, const cha
 {
     Expects_not_null(store);
 
-    if (variable_array_clear(store->positional_params) != 0) {
-        log_fatal("variable_store_set_positional_params_cstr: failed to clear positional_params");
-        return -1;
-    }
+    variable_array_clear(store->positional_params);
 
     for (size_t i = 0; i < count; i++) {
         if (!params[i]) {
