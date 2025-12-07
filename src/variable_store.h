@@ -48,8 +48,8 @@ int variable_store_set_exported(variable_store_t *store, const string_t *name, b
 int variable_store_set_exported_cstr(variable_store_t *store, const char *name, bool exported);
 
 // Positional parameters
-int variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count);
-int variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count);
+void variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count);
+void variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count);
 const variable_t *variable_store_get_positional_param(const variable_store_t *store, size_t index);
 const char *variable_store_get_positional_param_cstr(const variable_store_t *store, size_t index);
 size_t variable_store_positional_param_count(const variable_store_t *store);
@@ -65,12 +65,12 @@ const char *variable_store_get_shell_name_cstr(const variable_store_t *store);
 const char *variable_store_get_options_cstr(const variable_store_t *store);
 
 // Special parameter setters
-int variable_store_set_status(variable_store_t *store, const string_t *status);
-int variable_store_set_status_cstr(variable_store_t *store, const char *status);
-int variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name);
-int variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name);
-int variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid);
-int variable_store_set_options(variable_store_t *store, const string_t *options);
-int variable_store_set_options_cstr(variable_store_t *store, const char *options);
+void variable_store_set_status(variable_store_t *store, const string_t *status);
+void variable_store_set_status_cstr(variable_store_t *store, const char *status);
+void variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name);
+void variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name);
+void variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid);
+void variable_store_set_options(variable_store_t *store, const string_t *options);
+void variable_store_set_options_cstr(variable_store_t *store, const char *options);
 
 #endif

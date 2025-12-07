@@ -9,7 +9,7 @@
 static int is_valid_name_cstr(const char *s) {
     Expects_not_null(s);
     Expects(*s != '\0');
-    
+
     if (!(isalpha((unsigned char)*s) || *s == '_')) return 0;
     for (const unsigned char *p = (const unsigned char *)s + 1; *p; ++p) {
         if (!(isalnum(*p) || *p == '_')) return 0;
@@ -42,7 +42,7 @@ int function_store_set(function_store_t *store, const char *name, ast_node_t *bo
     Expects_not_null(body);
 
     if (!is_valid_name_cstr(name)) {
-        fprintf(stderr, "function_store_set: invalid function name: %s\n", name ? name : "(null)");
+        fprintf(stderr, "function_store_set: invalid function name: %s\n", name);
         return -1;
     }
 
@@ -67,7 +67,8 @@ int function_store_set(function_store_t *store, const char *name, ast_node_t *bo
 }
 
 const function_t *function_store_get(const function_store_t *store, const char *name) {
-    if (!store || !name) return NULL;
+    Expects_not_null(store);
+    Expects_not_null(name);
     size_t n = function_array_size(store->functions);
     for (size_t i = 0; i < n; ++i) {
         function_t *func = function_array_get(store->functions, i);

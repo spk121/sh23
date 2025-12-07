@@ -33,7 +33,7 @@ const function_t *function_store_get(const function_store_t *store, const char *
 
 // Remove a function by name. Returns 1 if removed, 0 if not found, -1 on error.
 // Destroys the function_t and its AST body on removal.
-int function_store_unset(function_store_t *store, const char *name);
+void function_store_unset(function_store_t *store, const char *name);
 
 // Introspection
 size_t function_store_size(const function_store_t *store);

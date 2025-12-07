@@ -37,7 +37,7 @@ size_t function_array_capacity(const function_array_t *array) {
 
 function_t *function_array_get(const function_array_t *array, size_t index) {
     Expects_not_null(array);
-    if (index >= array->len) return NULL;
+    Expects_lt(index, array->len);
     return array->data[index];
 }
 
@@ -73,7 +73,7 @@ void function_array_append(function_array_t *array, function_t *element) {
 
 void function_array_set(function_array_t *array, size_t index, function_t *element) {
     Expects_not_null(array);
-    Expects(index < array->len);
+    Expects_lt(index, array->len);
     if (array->free_func && array->data[index] && array->data[index] != element) {
         array->free_func(array->data[index]);
     }
@@ -82,7 +82,7 @@ void function_array_set(function_array_t *array, size_t index, function_t *eleme
 
 void function_array_remove(function_array_t *array, size_t index) {
     Expects_not_null(array);
-    Expects(index < array->len);
+    Expects_lt(index, array->len);
     if (array->free_func && array->data[index]) {
         array->free_func(array->data[index]);
     }

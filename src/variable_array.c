@@ -38,7 +38,8 @@ size_t variable_array_capacity(const variable_array_t *array) {
 
 variable_t *variable_array_get(const variable_array_t *array, size_t index) {
     Expects_not_null(array);
-    if (index >= array->len) return NULL;
+    Expects_lt(index, array->len);
+
     return array->data[index];
 }
 
@@ -49,7 +50,7 @@ int variable_array_is_empty(const variable_array_t *array) {
 
 void variable_array_resize(variable_array_t *array, size_t new_capacity) {
     Expects_not_null(array);
-    Expects(new_capacity >= array->len);
+    Expects_ge(new_capacity, array->len);
     
     variable_t **newv;
     if (array->data == NULL) {
