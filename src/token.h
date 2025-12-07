@@ -575,6 +575,34 @@ int token_list_remove(token_list_t *list, int index);
 void token_list_reinitialize(token_list_t *list);
 
 /**
+ * Clears all token pointers from the list without destroying the tokens.
+ * This transfers ownership of all tokens to the caller.
+ * The list structure remains valid but empty.
+ */
+void token_list_clear_without_destroy(token_list_t *list);
+
+/**
+ * Detaches the tokens array from the list and returns it.
+ * The caller takes ownership of the array.
+ * The list is left in a valid empty state.
+ * Returns NULL if the list is empty.
+ */
+token_t **token_list_detach_tokens(token_list_t *list, int *out_size);
+
+/**
+ * Ensure the list has at least the specified capacity.
+ * Returns 0 on success, -1 on allocation failure.
+ */
+int token_list_ensure_capacity(token_list_t *list, int needed_capacity);
+
+/**
+ * Insert tokens at the specified position in the list.
+ * The list takes ownership of the tokens.
+ * Returns 0 on success, -1 on failure.
+ */
+int token_list_insert_range(token_list_t *list, int index, token_t **tokens, int count);
+
+/**
  * Create a debug string representation of a token list.
  * Caller is responsible for freeing the returned string.
  */

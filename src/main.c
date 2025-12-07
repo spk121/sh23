@@ -31,12 +31,13 @@ int main(void)
 
         if (lx == NULL)
         {
-            lx = lexer_create(line, strlen(line));
+            lx = lexer_create();
+            lexer_append_input_cstr(lx, line);
         }
         else
         {
             // Append new input to existing lexer state
-            lx = lexer_append_input(lx, line, strlen(line));
+            lexer_append_input_cstr(lx, line);
         }
 
         int num_tokens_read = 0;
