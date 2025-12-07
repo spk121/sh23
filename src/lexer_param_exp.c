@@ -23,7 +23,8 @@
  */
 static bool is_special_param_char(char c)
 {
-    return (c == '@' || c == '*' || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || isdigit(c));
+    return (c == '@' || c == '*' || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' ||
+            isdigit(c));
 }
 
 /**
@@ -47,8 +48,8 @@ static bool is_name_char(char c)
 /**
  * Create a PART_PARAMETER and add it to the current token.
  */
-static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, param_subtype_t kind, const char *word,
-                                 int word_len)
+static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, param_subtype_t kind,
+                                 const char *word, int word_len)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
@@ -154,101 +155,71 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     // We enter after ${ has been consumed
     // Ensure we have a word token to build
     if (!lx->in_word)
-    {
         lexer_start_word(lx);
-    }
+
+    const char *input = string_data(lx->input);
+    int start_pos = lx->pos;
 
     if (lexer_at_end(lx))
-    {
         return LEX_INCOMPLETE;
-    }
 
     char c = lexer_peek(lx);
-    param_subtype_t kind = PARAM_PLAIN;
-    const char *input_data = string_data(lx->input);
     int name_start = lx->pos;
     int name_len = 0;
 
-    // Check for ${#parameter} - length operator
-    if (c == '#')
-    {
-        char c2 = lexer_peek_ahead(lx, 1);
-        // ${#} is the special parameter #, not length of empty
-        if (c2 == '}')
-        {
-            // This is ${#} - the special parameter #
-            lexer_advance(lx); // consume #
-            lexer_advance(lx); // consume }
-            lexer_add_param_part(lx, "#", 1, PARAM_PLAIN, NULL, 0);
-            lexer_pop_mode(lx);
-            return LEX_OK;
-        }
-        // Otherwise it's ${#var} - length of var
-        kind = PARAM_LENGTH;
-        lexer_advance(lx); // consume #
-        name_start = lx->pos;
-    }
-
-    // Check for ${!parameter} - indirect expansion (non-POSIX extension)
-    // Note: ${!var} is a bash/ksh extension, not part of POSIX.
-    // We parse it for compatibility but mark it as PARAM_INDIRECT.
-    if (c == '!' && kind == PARAM_PLAIN)
-    {
-        char c2 = lexer_peek_ahead(lx, 1);
-        if (c2 == '}')
-        {
-            // ${!} - the special parameter !
-            lexer_advance(lx); // consume !
-            lexer_advance(lx); // consume }
-            lexer_add_param_part(lx, "!", 1, PARAM_PLAIN, NULL, 0);
-            lexer_pop_mode(lx);
-            return LEX_OK;
-        }
-        // ${!var} - indirect expansion (non-POSIX)
-        kind = PARAM_INDIRECT;
-        lexer_advance(lx); // consume !
-        name_start = lx->pos;
-    }
-
-    if (lexer_at_end(lx))
-    {
-        return LEX_INCOMPLETE;
-    }
-
-    c = lexer_peek(lx);
-
-    // Read the parameter name
     if (is_special_param_char(c))
     {
-        // Special single-character parameter
-        name_len = 1;
         lexer_advance(lx);
+        name_len = 1;
     }
     else if (is_name_start_char(c))
     {
-        // Read the longest valid name
         while (!lexer_at_end(lx) && is_name_char(lexer_peek(lx)))
         {
-            lexer_advance(lx);
+            lexer_advance(lx); // consume !
             name_len++;
         }
     }
-    else if (c == '}')
+    else if (c == '}' || c == '#')
     {
-        // Empty parameter ${} is an error
-        lexer_set_error(lx, "Bad substitution: empty parameter");
-        return LEX_ERROR;
+        // ${} or ${#} → special case below
+        name_len = 0;
     }
     else
     {
-        lexer_set_error(lx, "Bad substitution: invalid character '%c'", c);
+        lexer_set_error(lx, "bad substitution: invalid parameter name");
+        return LEX_ERROR;
+    }
+
+    // Read the longest valid name
+    if (lexer_peek(lx) == '#' && name_len > 0)
+    {
+        lexer_advance(lx);
+        string_t *name = string_create_from_cstr_len(input + name_start, name_len);
+        part_t *part = part_create_parameter(name);
+        part->param_kind = PARAM_LENGTH;
+        part_set_quoted(part, lexer_in_mode(lx, LEX_DOUBLE_QUOTE), false);
+        token_add_part(lx->current_token, part);
+        lx->current_token->needs_expansion = true;
+
+        if (lexer_peek(lx) != '}')
+        {
+            lexer_set_error(lx, "bad substitution: expected '}' after ${#var}");
+            return LEX_ERROR;
+        }
+        lexer_advance(lx);
+        lexer_pop_mode(lx);
+        return LEX_OK;
+    }
+
+    if (name_len == 0)
+    {
+        lexer_set_error(lx, "bad substitution: empty parameter name");
         return LEX_ERROR;
     }
 
     if (lexer_at_end(lx))
-    {
         return LEX_INCOMPLETE;
-    }
 
     c = lexer_peek(lx);
 
@@ -256,7 +227,7 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     if (c == '}')
     {
         lexer_advance(lx); // consume }
-        lexer_add_param_part(lx, input_data + name_start, name_len, kind, NULL, 0);
+        lexer_add_param_part(lx, input + name_start, name_len, PARAM_PLAIN, NULL, 0);
         lexer_pop_mode(lx);
         return LEX_OK;
     }
@@ -264,121 +235,98 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     // Check for operators
     // We need to distinguish between operators with : prefix and without
     bool has_colon = false;
+    param_subtype_t kind = PARAM_PLAIN;
     if (c == ':')
     {
         has_colon = true;
         lexer_advance(lx);
         if (lexer_at_end(lx))
-        {
             return LEX_INCOMPLETE;
-        }
         c = lexer_peek(lx);
     }
 
-    // Determine the operator type
+    int op_start = lx->pos;
+    int op_len = 1;
     switch (c)
     {
     case '-':
-        kind = PARAM_USE_DEFAULT;
+        kind = has_colon ? PARAM_USE_DEFAULT : PARAM_USE_DEFAULT;
         break;
     case '=':
-        kind = PARAM_ASSIGN_DEFAULT;
+        kind = has_colon ? PARAM_ASSIGN_DEFAULT : PARAM_ASSIGN_DEFAULT;
         break;
     case '?':
-        kind = PARAM_ERROR_IF_UNSET;
+        kind = has_colon ? PARAM_ERROR_IF_UNSET : PARAM_ERROR_IF_UNSET;
         break;
     case '+':
-        kind = PARAM_USE_ALTERNATE;
+        kind = has_colon ? PARAM_USE_ALTERNATE : PARAM_USE_ALTERNATE;
         break;
     case '%':
         if (has_colon)
         {
-            // :% is not valid in POSIX - return error
-            lexer_set_error(lx, "Bad substitution: invalid operator :%%");
+            lexer_set_error(lx, "bad substitution: invalid operator :%");
             return LEX_ERROR;
         }
-        // Check for %%
         if (lexer_peek_ahead(lx, 1) == '%')
         {
             kind = PARAM_REMOVE_LARGE_SUFFIX;
-            lexer_advance(lx); // consume first %
+            lexer_advance(lx);
+            op_len++;
         }
         else
-        {
             kind = PARAM_REMOVE_SMALL_SUFFIX;
-        }
         break;
     case '#':
         if (has_colon)
         {
-            lexer_set_error(lx, "Bad substitution: invalid operator :##");
+            lexer_set_error(lx, "bad substitution: invalid operator :#");
             return LEX_ERROR;
         }
-        // Check for ##
         if (lexer_peek_ahead(lx, 1) == '#')
         {
             kind = PARAM_REMOVE_LARGE_PREFIX;
-            lexer_advance(lx); // consume first #
+            lexer_advance(lx);
+            op_len++;
         }
         else
-        {
             kind = PARAM_REMOVE_SMALL_PREFIX;
-        }
         break;
     default:
         if (has_colon)
         {
-            // Could be substring ${var:offset} or ${var:offset:length}
+            // ${var:offset:length} — substring
             kind = PARAM_SUBSTRING;
-            // For substring, the colon is part of the syntax, and what follows is offset
-            // We need to handle this specially
-            // For now, we'll read until } and store as word
+            // do not consume colon or offset — word starts now
+            op_len = 0;
         }
         else
         {
-            lexer_set_error(lx, "Bad substitution: unexpected character '%c'", c);
+            lexer_set_error(lx, "bad substitution: unexpected character '%c'", c);
             return LEX_ERROR;
         }
         break;
     }
 
-    // Consume the operator character (unless it's substring with colon already consumed)
-    if (kind != PARAM_SUBSTRING)
-    {
-        lexer_advance(lx);
-    }
+    if (op_len > 0)
+        lexer_advance_n_chars(lx, op_len);
 
-    // Now read the word part until closing brace
-    // Note: The word can contain nested expansions, quotes, etc.
-    // For simplicity in this implementation, we read until }
-    // without handling nested braces or quotes (basic implementation)
+    // === 6. Read word until closing brace (raw text) ===
     int word_start = lx->pos;
     int word_len = 0;
-    int brace_depth = 1;
 
     while (!lexer_at_end(lx))
     {
         c = lexer_peek(lx);
-
         if (c == '}')
         {
-            brace_depth--;
-            if (brace_depth == 0)
-            {
-                // Found the closing brace
-                lexer_advance(lx); // consume }
-                lexer_add_param_part(lx, input_data + name_start, name_len, kind, input_data + word_start, word_len);
-                lexer_pop_mode(lx);
-                return LEX_OK;
-            }
+            lexer_advance(lx);
+            lexer_add_param_part(lx, input + name_start, name_len, kind,
+                                 word_len > 0 ? input + word_start : NULL, word_len);
+            lexer_pop_mode(lx);
+            return LEX_OK;
         }
-        else if (c == '{')
+        if (c == '\\')
         {
-            brace_depth++;
-        }
-        else if (c == '\\')
-        {
-            // Skip escaped character
             lexer_advance(lx);
             word_len++;
             if (!lexer_at_end(lx))
@@ -388,11 +336,9 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
             }
             continue;
         }
-
         lexer_advance(lx);
         word_len++;
     }
 
-    // Reached end of input without closing brace
     return LEX_INCOMPLETE;
 }
