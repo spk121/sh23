@@ -65,28 +65,26 @@ int variable_array_resize(variable_array_t *array, size_t new_capacity) {
     return 0;
 }
 
-int variable_array_append(variable_array_t *array, variable_t *element) {
+void variable_array_append(variable_array_t *array, variable_t *element) {
     Expects_not_null(array);
     if (array->len == array->cap) {
-        if (variable_array_resize(array, grow_cap(array->cap)) != 0) return -1;
+        variable_array_resize(array, grow_cap(array->cap));
     }
     array->data[array->len++] = element;
-    return 0;
 }
 
-int variable_array_set(variable_array_t *array, size_t index, variable_t *element) {
+void variable_array_set(variable_array_t *array, size_t index, variable_t *element) {
     Expects_not_null(array);
-    if (index >= array->len) return -1;
+    Expects(index < array->len);
     if (array->free_func && array->data[index] && array->data[index] != element) {
         array->free_func(array->data[index]);
     }
     array->data[index] = element;
-    return 0;
 }
 
-int variable_array_remove(variable_array_t *array, size_t index) {
+void variable_array_remove(variable_array_t *array, size_t index) {
     Expects_not_null(array);
-    if (index >= array->len) return -1;
+    Expects(index < array->len);
     if (array->free_func && array->data[index]) {
         array->free_func(array->data[index]);
     }
@@ -95,7 +93,6 @@ int variable_array_remove(variable_array_t *array, size_t index) {
                 (array->len - index - 1) * sizeof *array->data);
     }
     array->len--;
-    return 0;
 }
 
 void variable_array_clear(variable_array_t *array) {

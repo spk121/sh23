@@ -32,9 +32,9 @@ function_t *function_array_get(const function_array_t *array, size_t index);
 int      function_array_is_empty(const function_array_t *array);
 
 // Modification
-int function_array_append(function_array_t *array, function_t *element);
-int function_array_set(function_array_t *array, size_t index, function_t *element);
-int function_array_remove(function_array_t *array, size_t index);     // Compacts tail; frees element if free_func set
+void function_array_append(function_array_t *array, function_t *element);
+void function_array_set(function_array_t *array, size_t index, function_t *element);
+void function_array_remove(function_array_t *array, size_t index);     // Compacts tail; frees element if free_func set
 void function_array_clear(function_array_t *array);                    // Frees all if free_func set; len -> 0
 int function_array_resize(function_array_t *array, size_t new_capacity);
 

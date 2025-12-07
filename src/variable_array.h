@@ -31,9 +31,9 @@ variable_t *variable_array_get(const variable_array_t *array, size_t index);
 int      variable_array_is_empty(const variable_array_t *array);
 
 // Modification
-int variable_array_append(variable_array_t *array, variable_t *element);
-int variable_array_set(variable_array_t *array, size_t index, variable_t *element);
-int variable_array_remove(variable_array_t *array, size_t index);     // Compacts; frees element if free_func set
+void variable_array_append(variable_array_t *array, variable_t *element);
+void variable_array_set(variable_array_t *array, size_t index, variable_t *element);
+void variable_array_remove(variable_array_t *array, size_t index);     // Compacts; frees element if free_func set
 void variable_array_clear(variable_array_t *array);                    // Frees all if free_func set; len -> 0
 int variable_array_resize(variable_array_t *array, size_t new_capacity);
 

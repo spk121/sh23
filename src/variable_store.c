@@ -107,7 +107,8 @@ void variable_store_add(variable_store_t *store, const string_t *name, const str
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0) {
         // Replace existing variable
         variable_t *new_var = variable_create(name, value, exported, read_only);
-        return variable_array_set(store->variables, index, new_var);
+        variable_array_set(store->variables, index, new_var);
+        return;
     }
 
     // Add new variable
@@ -126,7 +127,8 @@ void variable_store_add_cstr(variable_store_t *store, const char *name, const ch
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0) {
         // Replace existing variable
         variable_t *new_var = variable_create_from_cstr(name, value, exported, read_only);
-        return variable_array_set(store->variables, index, new_var);
+        variable_array_set(store->variables, index, new_var);
+        return;
     }
 
     // Add new variable
@@ -145,7 +147,8 @@ int variable_store_remove(variable_store_t *store, const string_t *name)
         return -1; // Name not found
     }
 
-    return variable_array_remove(store->variables, index);
+    variable_array_remove(store->variables, index);
+    return 0;
 }
 
 int variable_store_remove_cstr(variable_store_t *store, const char *name)
@@ -158,7 +161,8 @@ int variable_store_remove_cstr(variable_store_t *store, const char *name)
         return -1; // Name not found
     }
 
-    return variable_array_remove(store->variables, index);
+    variable_array_remove(store->variables, index);
+    return 0;
 }
 
 int variable_store_has_name(const variable_store_t *store, const string_t *name)

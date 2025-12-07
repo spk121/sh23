@@ -64,28 +64,26 @@ int function_array_resize(function_array_t *array, size_t new_capacity) {
     return 0;
 }
 
-int function_array_append(function_array_t *array, function_t *element) {
+void function_array_append(function_array_t *array, function_t *element) {
     Expects_not_null(array);
     if (array->len == array->cap) {
-        if (function_array_resize(array, grow_cap(array->cap)) != 0) return -1;
+        function_array_resize(array, grow_cap(array->cap));
     }
     array->data[array->len++] = element;
-    return 0;
 }
 
-int function_array_set(function_array_t *array, size_t index, function_t *element) {
+void function_array_set(function_array_t *array, size_t index, function_t *element) {
     Expects_not_null(array);
-    if (index >= array->len) return -1;
+    Expects(index < array->len);
     if (array->free_func && array->data[index] && array->data[index] != element) {
         array->free_func(array->data[index]);
     }
     array->data[index] = element;
-    return 0;
 }
 
-int function_array_remove(function_array_t *array, size_t index) {
+void function_array_remove(function_array_t *array, size_t index) {
     Expects_not_null(array);
-    if (index >= array->len) return -1;
+    Expects(index < array->len);
     if (array->free_func && array->data[index]) {
         array->free_func(array->data[index]);
     }
@@ -93,7 +91,6 @@ int function_array_remove(function_array_t *array, size_t index) {
         memmove(&array->data[index], &array->data[index + 1], (array->len - index - 1) * sizeof *array->data);
     }
     array->len--;
-    return 0;
 }
 
 void function_array_clear(function_array_t *array) {
