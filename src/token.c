@@ -184,22 +184,22 @@ void token_append_parameter(token_t *token, const string_t *param_name)
     token->needs_field_splitting = true;
 }
 
-void token_append_command_subst(token_t *token, token_list_t *nested)
+void token_append_command_subst(token_t *token, const string_t *expr_text)
 {
     Expects_not_null(token);
-    Expects_not_null(nested);
+    Expects_not_null(expr_text);
 
-    token_add_part(token, part_create_command_subst(nested));
+    token_add_part(token, part_create_command_subst(expr_text));
     token->needs_expansion = true;
     token->needs_field_splitting = true;
 }
 
-void token_append_arithmetic(token_t *token, token_list_t *nested)
+void token_append_arithmetic(token_t *token, const string_t *expr_text)
 {
     Expects_not_null(token);
-    Expects_not_null(nested);
+    Expects_not_null(expr_text);
 
-    token_add_part(token, part_create_arithmetic(nested));
+    token_add_part(token, part_create_arithmetic(expr_text));
     token->needs_expansion = true;
     token->needs_field_splitting = true;
 }
@@ -307,10 +307,11 @@ struct reserved_word_entry
 };
 
 static struct reserved_word_entry reserved_words[] = {
-    {"if", TOKEN_IF},       {"then", TOKEN_THEN}, {"else", TOKEN_ELSE}, {"elif", TOKEN_ELIF}, {"fi", TOKEN_FI},
-    {"do", TOKEN_DO},       {"done", TOKEN_DONE}, {"case", TOKEN_CASE}, {"esac", TOKEN_ESAC}, {"while", TOKEN_WHILE},
-    {"until", TOKEN_UNTIL}, {"for", TOKEN_FOR},   {"in", TOKEN_IN},     {"{", TOKEN_LBRACE},  {"}", TOKEN_RBRACE},
-    {"!", TOKEN_BANG},      {NULL, TOKEN_WORD} // sentinel
+    {"if", TOKEN_IF},     {"then", TOKEN_THEN},   {"else", TOKEN_ELSE},   {"elif", TOKEN_ELIF},
+    {"fi", TOKEN_FI},     {"do", TOKEN_DO},       {"done", TOKEN_DONE},   {"case", TOKEN_CASE},
+    {"esac", TOKEN_ESAC}, {"while", TOKEN_WHILE}, {"until", TOKEN_UNTIL}, {"for", TOKEN_FOR},
+    {"in", TOKEN_IN},     {"{", TOKEN_LBRACE},    {"}", TOKEN_RBRACE},    {"!", TOKEN_BANG},
+    {NULL, TOKEN_WORD} // sentinel
 };
 
 bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
@@ -357,7 +358,8 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
  * Token Location Tracking
  * ============================================================================ */
 
-void token_set_location(token_t *token, int first_line, int first_column, int last_line, int last_column)
+void token_set_location(token_t *token, int first_line, int first_column, int last_line,
+                        int last_column)
 {
     Expects_not_null(token);
 
@@ -511,7 +513,8 @@ bool token_is_reserved_word(const char *word)
             strcmp(word, "elif") == 0 || strcmp(word, "fi") == 0 || strcmp(word, "do") == 0 ||
             strcmp(word, "done") == 0 || strcmp(word, "case") == 0 || strcmp(word, "esac") == 0 ||
             strcmp(word, "while") == 0 || strcmp(word, "until") == 0 || strcmp(word, "for") == 0 ||
-            strcmp(word, "in") == 0 || strcmp(word, "{") == 0 || strcmp(word, "}") == 0 || strcmp(word, "!") == 0);
+            strcmp(word, "in") == 0 || strcmp(word, "{") == 0 || strcmp(word, "}") == 0 ||
+            strcmp(word, "!") == 0);
 }
 
 token_type_t token_string_to_reserved_word(const char *word)
@@ -558,11 +561,12 @@ bool token_is_operator(const char *str)
 {
     Expects_not_null(str);
 
-    return (strcmp(str, "&&") == 0 || strcmp(str, "||") == 0 || strcmp(str, ";;") == 0 || strcmp(str, "<<") == 0 ||
-            strcmp(str, ">>") == 0 || strcmp(str, "<&") == 0 || strcmp(str, ">&") == 0 || strcmp(str, "<>") == 0 ||
-            strcmp(str, "<<-") == 0 || strcmp(str, ">|") == 0 || strcmp(str, "|") == 0 || strcmp(str, ";") == 0 ||
-            strcmp(str, "&") == 0 || strcmp(str, "(") == 0 || strcmp(str, ")") == 0 || strcmp(str, ">") == 0 ||
-            strcmp(str, "<") == 0);
+    return (strcmp(str, "&&") == 0 || strcmp(str, "||") == 0 || strcmp(str, ";;") == 0 ||
+            strcmp(str, "<<") == 0 || strcmp(str, ">>") == 0 || strcmp(str, "<&") == 0 ||
+            strcmp(str, ">&") == 0 || strcmp(str, "<>") == 0 || strcmp(str, "<<-") == 0 ||
+            strcmp(str, ">|") == 0 || strcmp(str, "|") == 0 || strcmp(str, ";") == 0 ||
+            strcmp(str, "&") == 0 || strcmp(str, "(") == 0 || strcmp(str, ")") == 0 ||
+            strcmp(str, ">") == 0 || strcmp(str, "<") == 0);
 }
 
 token_type_t token_string_to_operator(const char *str)
@@ -633,24 +637,24 @@ part_t *part_create_parameter(const string_t *param_name)
     return part;
 }
 
-part_t *part_create_command_subst(token_list_t *nested)
+part_t *part_create_command_subst(const string_t *expr_text)
 {
-    Expects_not_null(nested);
+    Expects_not_null(expr_text);
 
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
     part->type = PART_COMMAND_SUBST;
-    part->nested = nested;
+    part->text = string_clone(expr_text);
     return part;
 }
 
-part_t *part_create_arithmetic(token_list_t *nested)
+part_t *part_create_arithmetic(const string_t *expr_text)
 {
-    Expects_not_null(nested);
+    Expects_not_null(expr_text);
 
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
 
     part->type = PART_ARITHMETIC;
-    part->nested = nested;
+    part->text = string_clone(expr_text);
     return part;
 }
 

@@ -158,7 +158,6 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         lexer_start_word(lx);
 
     const char *input = string_data(lx->input);
-    int start_pos = lx->pos;
 
     if (lexer_at_end(lx))
         return LEX_INCOMPLETE;
@@ -245,7 +244,6 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         c = lexer_peek(lx);
     }
 
-    int op_start = lx->pos;
     int op_len = 1;
     switch (c)
     {

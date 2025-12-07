@@ -29,6 +29,7 @@ string_t *string_create_from_format(const char *format, ...);
 // Or zero for default initial capacity.
 string_t *string_create_empty(int min_capacity);
 string_t *string_clone(const string_t *other);
+string_t *string_create_from_range(const string_t *str, int start, int length);
 void string_destroy(string_t *str);
 
 // Accessors

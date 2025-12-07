@@ -119,6 +119,20 @@ string_t *string_clone(const string_t *other)
     return str;
 }
 
+string_t *string_create_from_range(const string_t *str, int start, int length)
+{
+    Expects_not_null(str);
+    Expects(start >= 0);
+    Expects(length >= 0);
+    Expects(start + length <= str->length);
+
+    string_t *result = string_create_empty(length + 1);
+    memcpy(result->data, str->data + start, length);
+    result->data[length] = '\0';
+    result->length = length;
+    return result;
+}
+
 void string_destroy(string_t *str)
 {
     Expects_not_null(str);
