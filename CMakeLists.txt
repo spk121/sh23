@@ -41,6 +41,12 @@ set(MGSH_LIB_SOURCES
     src/token.h
     src/tokenizer.c
     src/tokenizer.h
+    src/ast.c
+    src/ast.h
+    src/parser.c
+    src/parser.h
+    src/executor.c
+    src/executor.h
 )
 
 add_library(mgsh_lib STATIC ${MGSH_LIB_SOURCES})
@@ -71,6 +77,7 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_lexer_arith_exp_ctest.c
     test/mgsh/test_lexer_heredoc_ctest.c
     test/mgsh/test_tokenizer_ctest.c
+    test/mgsh/test_ast_ctest.c
 )
 
 foreach(test_src ${MGSH_TEST_SOURCES})
