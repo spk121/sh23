@@ -45,11 +45,7 @@ variable_store_t *variable_store_create_from_envp(const char *shell_name, char *
             }
             *eq = '\0';
             char *value = eq + 1;
-            if (variable_store_add_cstr(store, name, value, true, false) != 0) {
-                log_fatal("variable_store_create_from_envp: failed to add env %s", name);
-                variable_store_destroy(store);
-                return NULL;
-            }
+            variable_store_add_cstr(store, name, value, true, false);
             *eq = '='; // Restore for safety
         }
     }
@@ -101,7 +97,7 @@ int variable_store_clear(variable_store_t *store)
 }
 
 // variable_t management
-int variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only)
+void variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only)
 {
     Expects_not_null(store);
     Expects_not_null(name);
@@ -117,16 +113,10 @@ int variable_store_add(variable_store_t *store, const string_t *name, const stri
     // Add new variable
     variable_t *var = variable_create(name, value, exported, read_only);
 
-    if (variable_array_append(store->variables, var) != 0) {
-        variable_destroy(var);
-        log_fatal("variable_store_add: failed to append variable");
-        return -1;
-    }
-
-    return 0;
+    variable_array_append(store->variables, var);
 }
 
-int variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only)
+void variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only)
 {
     Expects_not_null(store);
     Expects_not_null(name);
@@ -142,13 +132,7 @@ int variable_store_add_cstr(variable_store_t *store, const char *name, const cha
     // Add new variable
     variable_t *var = variable_create_from_cstr(name, value, exported, read_only);
 
-    if (variable_array_append(store->variables, var) != 0) {
-        variable_destroy(var);
-        log_fatal("variable_store_add_cstr: failed to append variable");
-        return -1;
-    }
-
-    return 0;
+    variable_array_append(store->variables, var);
 }
 
 int variable_store_remove(variable_store_t *store, const string_t *name)
@@ -346,52 +330,34 @@ int variable_store_set_exported_cstr(variable_store_t *store, const char *name, 
 }
 
 // Positional parameters
-int variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count)
+void variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count)
 {
     Expects_not_null(store);
 
     variable_array_clear(store->positional_params);
 
     for (size_t i = 0; i < count; i++) {
-        if (!params[i]) {
-            log_fatal("variable_store_set_positional_params: null parameter at index %zu", i);
-            return -1;
-        }
+        Expects_not_null(params[i]);
         char index_str[32];
         snprintf(index_str, sizeof(index_str), "%zu", i + 1);
         variable_t *var = variable_create_from_cstr(index_str, string_data(params[i]), false, false);
-        if (variable_array_append(store->positional_params, var) != 0) {
-            variable_destroy(var);
-            log_fatal("variable_store_set_positional_params: failed to append variable at index %zu", i + 1);
-            return -1;
-        }
+        variable_array_append(store->positional_params, var);
     }
-
-    return 0;
 }
 
-int variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count)
+void variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count)
 {
     Expects_not_null(store);
 
     variable_array_clear(store->positional_params);
 
     for (size_t i = 0; i < count; i++) {
-        if (!params[i]) {
-            log_fatal("variable_store_set_positional_params_cstr: null parameter at index %zu", i);
-            return -1;
-        }
+        Expects_not_null(params[i]);
         char index_str[32];
         snprintf(index_str, sizeof(index_str), "%zu", i + 1);
         variable_t *var = variable_create_from_cstr(index_str, params[i], false, false);
-        if (variable_array_append(store->positional_params, var) != 0) {
-            variable_destroy(var);
-            log_fatal("variable_store_set_positional_params_cstr: failed to append variable at index %zu", i + 1);
-            return -1;
-        }
+        variable_array_append(store->positional_params, var);
     }
-
-    return 0;
 }
 
 const variable_t *variable_store_get_positional_param(const variable_store_t *store, size_t index)
@@ -462,7 +428,7 @@ const char *variable_store_get_options_cstr(const variable_store_t *store)
 }
 
 // Special parameter setters
-int variable_store_set_status(variable_store_t *store, const string_t *status)
+void variable_store_set_status(variable_store_t *store, const string_t *status)
 {
     Expects_not_null(store);
     Expects_not_null(status);
@@ -471,10 +437,9 @@ int variable_store_set_status(variable_store_t *store, const string_t *status)
 
     string_destroy(store->status_str);
     store->status_str = new_status;
-    return 0;
 }
 
-int variable_store_set_status_cstr(variable_store_t *store, const char *status)
+void variable_store_set_status_cstr(variable_store_t *store, const char *status)
 {
     Expects_not_null(store);
     Expects_not_null(status);
@@ -483,10 +448,9 @@ int variable_store_set_status_cstr(variable_store_t *store, const char *status)
 
     string_destroy(store->status_str);
     store->status_str = new_status;
-    return 0;
 }
 
-int variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name)
+void variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name)
 {
     Expects_not_null(store);
     Expects_not_null(shell_name);
@@ -495,10 +459,9 @@ int variable_store_set_shell_name(variable_store_t *store, const string_t *shell
 
     string_destroy(store->shell_name);
     store->shell_name = new_shell_name;
-    return 0;
 }
 
-int variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name)
+void variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name)
 {
     Expects_not_null(store);
     Expects_not_null(shell_name);
@@ -507,17 +470,15 @@ int variable_store_set_shell_name_cstr(variable_store_t *store, const char *shel
 
     string_destroy(store->shell_name);
     store->shell_name = new_shell_name;
-    return 0;
 }
 
-int variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid)
+void variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid)
 {
     Expects_not_null(store);
     store->last_bg_pid = last_bg_pid;
-    return 0;
 }
 
-int variable_store_set_options(variable_store_t *store, const string_t *options)
+void variable_store_set_options(variable_store_t *store, const string_t *options)
 {
     Expects_not_null(store);
     Expects_not_null(options);
@@ -526,10 +487,9 @@ int variable_store_set_options(variable_store_t *store, const string_t *options)
 
     string_destroy(store->options);
     store->options = new_options;
-    return 0;
 }
 
-int variable_store_set_options_cstr(variable_store_t *store, const char *options)
+void variable_store_set_options_cstr(variable_store_t *store, const char *options)
 {
     Expects_not_null(store);
     Expects_not_null(options);
@@ -538,5 +498,5 @@ int variable_store_set_options_cstr(variable_store_t *store, const char *options
 
     string_destroy(store->options);
     store->options = new_options;
-    return 0;
-}
+}   
+
