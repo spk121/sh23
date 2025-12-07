@@ -1,9 +1,9 @@
 #ifndef ALIAS_STORE_H
 #define ALIAS_STORE_H
 
-#include <stdbool.h>
 #include "alias.h"
 #include "string_t.h"
+#include <stdbool.h>
 
 typedef struct AliasStore AliasStore;
 

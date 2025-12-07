@@ -1,7 +1,8 @@
 #include "alias.h"
 #include "xalloc.h"
 
-struct Alias {
+struct Alias
+{
     String *name;
     String *value;
 };
@@ -35,9 +36,7 @@ Alias *alias_create_from_cstr(const char *name, const char *value)
 void alias_destroy(Alias *alias)
 {
     Expects_not_null(alias);
-    log_debug("alias_destroy: freeing alias %p, name = %s, value = %s",
-              alias,
-              string_data(alias->name),
+    log_debug("alias_destroy: freeing alias %p, name = %s, value = %s", alias, string_data(alias->name),
               string_data(alias->value));
     string_destroy(alias->name);
     string_destroy(alias->value);

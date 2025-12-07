@@ -323,11 +323,11 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
         return false;
 
     const part_t *first_part = tok->parts->parts[0];
-    
+
     // Only literal parts can be reserved words
     if (part_get_type(first_part) != PART_LITERAL)
         return false;
-    
+
     const char *word = string_data(first_part->text);
     struct reserved_word_entry *p;
     token_type_t new_type = TOKEN_WORD;
@@ -1012,14 +1012,17 @@ string_t *token_list_to_string(const token_list_t *list)
     Expects_not_null(list);
 
     string_t *result = string_create_empty(256);
-    string_append_cstr(result, "TokenList[");
+    string_append_cstr(result, "TokenList[\n");
     for (int i = 0; i < list->size; i++)
     {
-        if (i > 0)
-            string_append_cstr(result, ", ");
+        string_append_cstr(result, "  ");
         string_t *token_str = token_to_string(list->tokens[i]);
         string_append(result, token_str);
         string_destroy(token_str);
+        if (i + 1 < list->size)
+            string_append_cstr(result, ",\n");
+        else
+            string_append_cstr(result, "\n");
     }
 
     string_append_cstr(result, "]");

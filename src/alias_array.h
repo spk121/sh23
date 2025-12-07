@@ -1,9 +1,9 @@
 #ifndef ALIAS_ARRAY_H
 #define ALIAS_ARRAY_H
 
+#include "alias.h"
 #include <stdbool.h>
 #include <stddef.h>
-#include "alias.h"
 
 typedef struct AliasArray AliasArray;
 
@@ -33,6 +33,7 @@ void alias_array_resize(AliasArray *array, size_t new_capacity);
 // Operations
 void alias_array_foreach(AliasArray *array, AliasArrayApplyFunc apply_func, void *user_data);
 int alias_array_find(AliasArray *array, Alias *element, size_t *index);
-int alias_array_find_with_compare(AliasArray *array, const void *data, AliasArrayCompareFunc compare_func, size_t *index);
+int alias_array_find_with_compare(AliasArray *array, const void *data, AliasArrayCompareFunc compare_func,
+                                  size_t *index);
 
 #endif

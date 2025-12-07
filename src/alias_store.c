@@ -1,10 +1,11 @@
 #include "alias_store.h"
-#include "xalloc.h"
 #include "alias_array.h"
 #include "logging.h"
+#include "xalloc.h"
 #include <ctype.h>
 
-struct AliasStore {
+struct AliasStore
+{
     AliasArray *aliases;
 };
 
@@ -29,7 +30,8 @@ bool alias_name_is_valid(const char *name)
     if (name[0] == '\0')
         return false;
 
-    for (const char *p = name; *p != '\0'; p++) {
+    for (const char *p = name; *p != '\0'; p++)
+    {
         if (!is_valid_alias_char(*p))
             return false;
     }
@@ -58,7 +60,8 @@ AliasStore *alias_store_create_with_capacity(size_t capacity)
     AliasStore *store = xmalloc(sizeof(AliasStore));
     store->aliases = alias_array_create_with_free((AliasArrayFreeFunc)alias_destroy);
 
-    if (capacity > 0) {
+    if (capacity > 0)
+    {
         alias_array_resize(store->aliases, capacity);
     }
 
@@ -70,8 +73,7 @@ void alias_store_destroy(AliasStore *store)
 {
     Expects_not_null(store);
 
-    log_debug("alias_store_destroy: freeing store %p, size %zu",
-              store, alias_array_size(store->aliases));
+    log_debug("alias_store_destroy: freeing store %p, size %zu", store, alias_array_size(store->aliases));
     alias_array_destroy(store->aliases);
     xfree(store);
 }
@@ -85,7 +87,8 @@ void alias_store_add(AliasStore *store, const String *name, const String *value)
 
     // Check if name exists
     size_t index;
-    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name, &index) == 0) {
+    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name, &index) == 0)
+    {
         // Replace existing alias
         Alias *new_alias = alias_create(name, value);
         alias_array_set(store->aliases, index, new_alias);
@@ -105,7 +108,8 @@ void alias_store_add_cstr(AliasStore *store, const char *name, const char *value
 
     // Check if name exists
     size_t index;
-    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) == 0) {
+    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) == 0)
+    {
         // Replace existing alias
         Alias *new_alias = alias_create_from_cstr(name, value);
         alias_array_set(store->aliases, index, new_alias);
@@ -124,7 +128,8 @@ bool alias_store_remove(AliasStore *store, const String *name)
     Expects_not_null(name);
 
     size_t index;
-    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name, &index) != 0) {
+    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name, &index) != 0)
+    {
         return false; // Name not found
     }
 
@@ -138,7 +143,8 @@ bool alias_store_remove_cstr(AliasStore *store, const char *name)
     Expects_not_null(name);
 
     size_t index;
-    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) != 0) {
+    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) != 0)
+    {
         return false; // Name not found
     }
 
@@ -151,8 +157,7 @@ void alias_store_clear(AliasStore *store)
 {
     Expects_not_null(store);
 
-    log_debug("alias_store_clear: clearing store %p, size %zu",
-              store, alias_array_size(store->aliases));
+    log_debug("alias_store_clear: clearing store %p, size %zu", store, alias_array_size(store->aliases));
 
     alias_array_clear(store->aliases);
 }
@@ -190,7 +195,8 @@ const String *alias_store_get_value(const AliasStore *store, const String *name)
     Expects_not_null(name);
 
     size_t index;
-    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name, &index) != 0) {
+    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name, &index) != 0)
+    {
         return NULL; // Name not found
     }
 
@@ -204,7 +210,8 @@ const char *alias_store_get_value_cstr(const AliasStore *store, const char *name
     Expects_not_null(name);
 
     size_t index;
-    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) != 0) {
+    if (alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) != 0)
+    {
         return NULL; // Name not found
     }
 

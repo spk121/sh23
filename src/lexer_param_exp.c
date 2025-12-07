@@ -23,8 +23,7 @@
  */
 static bool is_special_param_char(char c)
 {
-    return (c == '@' || c == '*' || c == '#' || c == '?' ||
-            c == '-' || c == '$' || c == '!' || isdigit(c));
+    return (c == '@' || c == '*' || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || isdigit(c));
 }
 
 /**
@@ -48,8 +47,8 @@ static bool is_name_char(char c)
 /**
  * Create a PART_PARAMETER and add it to the current token.
  */
-static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len,
-                                  param_subtype_t kind, const char *word, int word_len)
+static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, param_subtype_t kind, const char *word,
+                                 int word_len)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
@@ -368,8 +367,7 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
             {
                 // Found the closing brace
                 lexer_advance(lx); // consume }
-                lexer_add_param_part(lx, input_data + name_start, name_len, kind,
-                                     input_data + word_start, word_len);
+                lexer_add_param_part(lx, input_data + name_start, name_len, kind, input_data + word_start, word_len);
                 lexer_pop_mode(lx);
                 return LEX_OK;
             }

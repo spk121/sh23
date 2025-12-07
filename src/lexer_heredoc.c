@@ -89,6 +89,8 @@ static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delimiter
     Expects_not_null(lx);
     Expects_not_null(delimiter);
 
+    if (lx->col_no > 1)
+        return false;
     int tabs_count = 0;
 
     // For <<-, skip leading tabs
@@ -112,8 +114,8 @@ static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delimiter
         if (after_delim == '\n' || after_delim == '\0')
         {
             // Found it! Advance position accordingly
-            lx->pos += tabs_count + delim_len;
-            lx->col_no += tabs_count + delim_len;
+            lx->pos += tabs_count + delim_len + (after_delim == '\n' ? 1 : 0);
+            lx->col_no += tabs_count + delim_len + (after_delim == '\n' ? 1 : 0);
             return true;
         }
     }
@@ -221,73 +223,39 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
     {
         char c = lexer_peek(lx);
 
-        // Check if we're at the beginning of a line
-        if (lx->col_no == 1 || (lx->pos > 0 && string_char_at(lx->input, lx->pos - 1) == '\n'))
+        // Check if this line is the delimiter
+        if (lexer_check_heredoc_delimiter(lx, delimiter, strip_tabs))
         {
-            // Check if this line is the delimiter
-            if (lexer_check_heredoc_delimiter(lx, delimiter, strip_tabs))
+            // All the heredoc content is in the token's heredoc_content
+            // field. We can now move it to a new part in the current WORD token.
+            // Attach the content to the token that requested this heredoc
+            token_t *heredoc_tok = lx->current_token;
+            heredoc_tok->needs_expansion = !delimiter_quoted;
+            token_add_literal_part(heredoc_tok, heredoc_tok->heredoc_content);
+            string_destroy(heredoc_tok->heredoc_content);
+            heredoc_tok->heredoc_content = NULL;
+            lexer_finalize_word(lx);
+            lexer_emit_token(lx, TOKEN_END_OF_HEREDOC);
+            if (lx->heredoc_index + 1 >= lx->heredoc_queue.size)
             {
-                // Found the delimiter!
-                // Consume the newline if present
-                if (!lexer_at_end(lx) && lexer_peek(lx) == '\n')
-                {
-                    lexer_advance(lx);
-                }
-
-                // Finalize this heredoc
-                // Attach the content to the token that requested this heredoc
-                token_t *heredoc_tok = lx->current_token;
-                lx->current_token = NULL;
-
-                // Store the heredoc content on the appropriate token in the output list
-                if (entry->token_index >= 0 && entry->token_index < token_list_size(lx->tokens))
-                {
-                    token_t *target_tok = token_list_get(lx->tokens, entry->token_index);
-                    if (target_tok)
-                    {
-                        if (target_tok->heredoc_content)
-                        {
-                            string_destroy(target_tok->heredoc_content);
-                        }
-                        target_tok->heredoc_content = heredoc_tok->heredoc_content;
-                        heredoc_tok->heredoc_content = NULL;
-
-                        if (target_tok->heredoc_delimiter)
-                        {
-                            string_destroy(target_tok->heredoc_delimiter);
-                        }
-                        target_tok->heredoc_delimiter = heredoc_tok->heredoc_delimiter;
-                        heredoc_tok->heredoc_delimiter = NULL;
-
-                        target_tok->heredoc_delim_quoted = heredoc_tok->heredoc_delim_quoted;
-                    }
-                }
-
-                token_destroy(heredoc_tok);
-
-                // Move to next heredoc or finish
+                // All heredocs processed
+                lx->reading_heredoc = false;
+                lexer_empty_heredoc_queue(lx);
+                lx->heredoc_index = 0;
+                lexer_pop_mode(lx); // Exit heredoc mode
+            }
+            else
+            {
+                // Move to next heredoc
                 lx->heredoc_index++;
-                if (lx->heredoc_index >= lx->heredoc_queue.size)
-                {
-                    // All heredocs processed
-                    lx->reading_heredoc = false;
-                    lexer_empty_heredoc_queue(lx);
-                    lx->heredoc_index = 0;
-
-                    // Emit an END_OF_HEREDOC token to signal completion
-                    lexer_emit_token(lx, TOKEN_END_OF_HEREDOC);
-                    lexer_pop_mode(lx); // Exit heredoc mode
-                }
-
-                return LEX_OK;
             }
-            // For <<-, strip all leading tabs at the start of each line
-            if (strip_tabs && lx->col_no == 1 && c == '\t')
-            {
-                while ((c = lexer_advance(lx)) == '\t') // skip the tab, don't add to content
-                    ;
-                continue;
-            }
+            return LEX_OK;
+        }
+        // For <<-, strip all leading tabs at the start of each line
+        if (strip_tabs && lx->col_no == 1 && c == '\t')
+        {
+            while ((c = lexer_advance(lx)) == '\t') // skip the tab, don't add to content
+                ;
         }
 
         // Process the line content
@@ -295,10 +263,8 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
         {
             lexer_append_heredoc_char(lx, c);
             lexer_advance(lx);
-            continue;
         }
-
-        if (delimiter_quoted)
+        else if (delimiter_quoted)
         {
             // Quoted delimiter means literal content - no expansion
             lexer_append_heredoc_char(lx, c);

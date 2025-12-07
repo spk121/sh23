@@ -242,6 +242,11 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
 
         if (c == '\n')
         {
+            if (lx->in_word)
+            {
+                // End current word
+                lexer_finalize_word(lx);
+            }
             lexer_advance(lx);
             lexer_emit_token(lx, TOKEN_NEWLINE);
 
@@ -268,6 +273,8 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         op = match_operator(lx);
         if (op)
         {
+            if (lx->in_word)
+                lexer_finalize_word(lx);
             advance_over_operator(lx, op);
             lexer_emit_token(lx, op);
             return LEX_OK;
@@ -362,7 +369,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
                 }
             }
         }
-        if (is_word_start_char(c))
+        if (is_word_start_char(c) && c != '#')
         {
             if (!lx->in_word)
             {

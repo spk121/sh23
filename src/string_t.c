@@ -1,10 +1,10 @@
 #include "string_t.h"
+#include "logging.h"
+#include "xalloc.h"
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "logging.h"
-#include "xalloc.h"
 
 // Helper: Ensure capacity
 static void string_ensure_capacity(string_t *str, int needed)
@@ -12,7 +12,7 @@ static void string_ensure_capacity(string_t *str, int needed)
     Expects_not_null(str);
     Expects(needed >= 0);
 
-    if (needed <= str->capacity)
+    if (needed < str->capacity)
         return;
 
     int new_capacity = str->capacity ? str->capacity : INITIAL_CAPACITY;
@@ -236,8 +236,55 @@ void string_resize(string_t *str, int new_capacity)
     if (new_capacity < str->length + 1)
         new_capacity = str->length + 1;
 
-    string_ensure_capacity(str, new_capacity);
-    str->capacity = new_capacity;
+    if (new_capacity > str->capacity)
+    {
+        string_ensure_capacity(str, new_capacity);
+        return;
+    }
+    else if (new_capacity == str->capacity)
+    {
+        return; // no change
+    }
+    else
+    {
+        int shrink_to = str->capacity;
+        while (shrink_to - str->length > REDUCE_THRESHOLD && shrink_to / GROW_FACTOR >= str->length + 1)
+        {
+            shrink_to /= GROW_FACTOR;
+        }
+        if (shrink_to < str->capacity)
+        {
+            char *new_data = xrealloc(str->data, shrink_to);
+            str->data = new_data;
+            str->capacity = shrink_to;
+        }
+    }
+}
+
+void string_drop_front(string_t *str, int n)
+{
+    Expects_not_null(str);
+    Expects(n >= 0);
+    Expects(n <= str->length);
+
+    if (n == 0)
+        return;
+
+    memmove(str->data, str->data + n, str->length - n);
+    str->length -= n;
+    str->data[str->length] = '\0';
+}
+
+void string_drop_back(string_t *str, int n)
+{
+    Expects_not_null(str);
+    Expects(n >= 0);
+    Expects(n <= str->length);
+
+    if (n == 0)
+        return;
+
+    str->length -= n;
     str->data[str->length] = '\0';
 }
 

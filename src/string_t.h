@@ -17,6 +17,8 @@ typedef string_t String;
 
 static const int INITIAL_CAPACITY = 16;
 static const int GROW_FACTOR = 2;
+// When resizing down a string, reduce capacity if there's more than this many unused bytes
+static const int REDUCE_THRESHOLD = 4096;
 
 // Create and destroy
 string_t *string_create_from_cstr(const char *data);
@@ -43,6 +45,8 @@ void string_append(string_t *str, const string_t *other);
 void string_clear(string_t *str);
 void string_set_cstr(string_t *str, const char *data);
 void string_resize(string_t *str, int new_capacity);
+void string_drop_front(string_t *str, int n);
+void string_drop_back(string_t *str, int n);
 
 // Operations
 string_t *string_substring(const string_t *str, int start, int length);

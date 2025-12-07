@@ -32,8 +32,7 @@ static bool is_dquote_escapable(char c)
  */
 static bool is_special_param_char(char c)
 {
-    return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' ||
-            c == '!' || c == '@' || c == '*' || c == '_');
+    return (isdigit(c) || c == '#' || c == '?' || c == '-' || c == '$' || c == '!' || c == '@' || c == '*' || c == '_');
 }
 
 /**
@@ -60,8 +59,7 @@ static void lexer_append_dquote_char_to_word(lexer_t *lx, char c)
     if (part_count > 0)
     {
         part_t *last_part = token_get_part(lx->current_token, part_count - 1);
-        if (part_get_type(last_part) == PART_LITERAL && 
-            part_was_double_quoted(last_part) &&
+        if (part_get_type(last_part) == PART_LITERAL && part_was_double_quoted(last_part) &&
             !part_was_single_quoted(last_part))
         {
             // Append to existing double-quoted literal part
@@ -102,7 +100,7 @@ lex_status_t lexer_process_dquote(lexer_t *lx)
         if (c == '"')
         {
             // Found the closing quote
-            lexer_advance(lx); // consume the "
+            lexer_advance(lx);  // consume the "
             lexer_pop_mode(lx); // back to previous mode
 
             // Don't finalize the word here - the calling mode will decide

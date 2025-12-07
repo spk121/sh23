@@ -160,7 +160,7 @@ struct builder_stack_t
 /**
  * Create a new lexer.
  */
-lexer_t *lexer_create();
+lexer_t *lexer_create(void);
 
 /**
  * Append text to the lexer's input buffer.
@@ -168,6 +168,24 @@ lexer_t *lexer_create();
  * The input must be a valid non-empty C string.
  */
 lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input);
+
+/**
+ * When dropping processed input, consider reallocating
+ * if the input string has a large amount of unused capacity.
+ */
+static const int LEXER_LARGE_UNUSED_INPUT_THRESHOLD = 8192;
+
+/**
+ * When resizing down the input string, add some
+ * padding to avoid frequent reallocations.
+ */
+static const int LEXER_INPUT_RESIZE_PADDING = 1024;
+
+/**
+ * Drop processed input up to the current position.
+ * This frees memory for input that has already been lexed.
+ */
+void lexer_drop_processed_input(lexer_t *lx);
 
 /**
  * Destroy a lexer and free all associated memory.

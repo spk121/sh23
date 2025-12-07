@@ -21,7 +21,7 @@
  * Lexer Lifecycle Functions
  * ============================================================================ */
 
-lexer_t *lexer_create()
+lexer_t *lexer_create(void)
 {
     lexer_t *lx = xcalloc(1, sizeof(lexer_t));
 
@@ -69,6 +69,24 @@ lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input)
     return lx;
 }
 
+void lexer_drop_processed_input(lexer_t *lx)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+
+    if (lx->pos > 0)
+    {
+        string_drop_front(lx->input, lx->pos);
+        lx->pos = 0;
+
+        if (string_capacity(lx->input) - string_length(lx->input) > LEXER_LARGE_UNUSED_INPUT_THRESHOLD)
+        {
+            // If there's a lot of unused capacity, shrink the string
+            string_resize(lx->input, string_length(lx->input) + LEXER_INPUT_RESIZE_PADDING);
+        }
+    }
+}
+
 void lexer_destroy(lexer_t *lx)
 {
     Expects_not_null(lx);
@@ -105,15 +123,15 @@ lex_status_t lexer_tokenize(lexer_t *lx, token_list_t *out_tokens, int *num_toke
     lex_status_t status;
     while ((status = lexer_process_one_token(lx)) == LEX_OK)
     {
-        token_t *tok = lexer_pop_first_token(lx);
-        if (token_get_type(tok) == TOKEN_EOF)
+        token_t *tok;
+        while ((tok = lexer_pop_first_token(lx)) != NULL)
         {
-            token_destroy(tok);
-            break;
+            if (token_get_type(tok) == TOKEN_EOF)
+                return LEX_OK;
+            token_list_append(out_tokens, tok);
+            if (num_tokens_read)
+                (*num_tokens_read)++;
         }
-        token_list_append(out_tokens, tok);
-        if (num_tokens_read)
-            (*num_tokens_read)++;
     }
     return status;
 }
@@ -202,18 +220,18 @@ bool lexer_input_starts_with(const lexer_t *lx, const char *str)
     return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
 }
 
-bool lexer_input_has_substring_at(const lexer_t *lexer, const char *str, int position)
+bool lexer_input_has_substring_at(const lexer_t *lx, const char *str, int position)
 {
-    Expects_not_null(lexer);
+    Expects_not_null(lx);
     Expects_not_null(str);
     Expects_ge(position, 0);
     Expects_gt(strlen(str), 0);
 
     int len = strlen(str);
-    if (position + len > string_length(lexer->input))
+    if (lx->pos + position + len > string_length(lx->input))
         return false;
-    const char *input_data = string_data(lexer->input);
-    return (strncmp(&input_data[position], str, len) == 0);
+    const char *input_data = string_data(lx->input) + lx->pos + position;
+    return (strncmp(input_data, str, len) == 0);
 }
 
 bool lexer_input_starts_with_integer(const lexer_t *lx)
