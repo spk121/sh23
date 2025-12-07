@@ -58,7 +58,7 @@ void executor_destroy(executor_t *executor);
  * @param executor The executor context
  * @param root The root AST node to execute
  * 
- * @return EXEC_OK on success, EXEC_ERROR on error
+ * @return EXEC_OK on success, EXEC_ERROR on error, EXEC_NOT_IMPL for unsupported node types
  */
 exec_status_t executor_execute(executor_t *executor, const ast_node_t *root);
 

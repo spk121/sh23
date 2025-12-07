@@ -89,8 +89,8 @@ void ast_node_destroy(ast_node_t *node)
 
     case AST_WHILE_CLAUSE:
     case AST_UNTIL_CLAUSE:
-        ast_node_destroy(node->data.while_clause.condition);
-        ast_node_destroy(node->data.while_clause.body);
+        ast_node_destroy(node->data.loop_clause.condition);
+        ast_node_destroy(node->data.loop_clause.body);
         break;
 
     case AST_FOR_CLAUSE:
@@ -247,16 +247,16 @@ ast_node_t *ast_create_if_clause(ast_node_t *condition, ast_node_t *then_body)
 ast_node_t *ast_create_while_clause(ast_node_t *condition, ast_node_t *body)
 {
     ast_node_t *node = ast_node_create(AST_WHILE_CLAUSE);
-    node->data.while_clause.condition = condition;
-    node->data.while_clause.body = body;
+    node->data.loop_clause.condition = condition;
+    node->data.loop_clause.body = body;
     return node;
 }
 
 ast_node_t *ast_create_until_clause(ast_node_t *condition, ast_node_t *body)
 {
     ast_node_t *node = ast_node_create(AST_UNTIL_CLAUSE);
-    node->data.while_clause.condition = condition;
-    node->data.while_clause.body = body;
+    node->data.loop_clause.condition = condition;
+    node->data.loop_clause.body = body;
     return node;
 }
 
@@ -502,11 +502,11 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         for (int i = 0; i < indent_level + 1; i++)
             string_append_cstr(result, "  ");
         string_append_cstr(result, "condition:\n");
-        ast_node_to_string_helper(node->data.while_clause.condition, result, indent_level + 2);
+        ast_node_to_string_helper(node->data.loop_clause.condition, result, indent_level + 2);
         for (int i = 0; i < indent_level + 1; i++)
             string_append_cstr(result, "  ");
         string_append_cstr(result, "body:\n");
-        ast_node_to_string_helper(node->data.while_clause.body, result, indent_level + 2);
+        ast_node_to_string_helper(node->data.loop_clause.body, result, indent_level + 2);
         break;
 
     case AST_FOR_CLAUSE:

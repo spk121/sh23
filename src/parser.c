@@ -7,6 +7,12 @@
 #include <string.h>
 
 /* ============================================================================
+ * Constants
+ * ============================================================================ */
+
+#define PARSER_ERROR_BUFFER_SIZE 512
+
+/* ============================================================================
  * Parser Lifecycle Functions
  * ============================================================================ */
 
@@ -118,7 +124,7 @@ void parser_set_error(parser_t *parser, const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    char buffer[512];
+    char buffer[PARSER_ERROR_BUFFER_SIZE];
     vsnprintf(buffer, sizeof(buffer), format, args);
 
     va_end(args);
@@ -732,6 +738,15 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
             string_append(var_name, part_get_text(part));
         }
     }
+    
+    // Validate that a non-empty variable name was extracted
+    if (string_length(var_name) == 0)
+    {
+        parser_set_error(parser, "Invalid variable name in for loop");
+        string_destroy(var_name);
+        return PARSE_ERROR;
+    }
+    
     parser_advance(parser);
 
     parser_skip_newlines(parser);

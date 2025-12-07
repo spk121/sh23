@@ -39,10 +39,12 @@ static token_list_t *lex_and_tokenize(const char *input)
 
     if (tok_status != TOK_OK)
     {
+        token_list_destroy(tokens);
         token_list_destroy(output);
         return NULL;
     }
 
+    token_list_destroy(tokens);
     return output;
 }
 
@@ -357,8 +359,8 @@ CTEST(test_parser_while_loop)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, first->type, AST_WHILE_CLAUSE, "is while clause");
-        CTEST_ASSERT_NOT_NULL(ctest, first->data.while_clause.condition, "has condition");
-        CTEST_ASSERT_NOT_NULL(ctest, first->data.while_clause.body, "has body");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.condition, "has condition");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.body, "has body");
         
         ast_node_destroy(ast);
     }

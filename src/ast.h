@@ -179,7 +179,7 @@ struct ast_node_t
         {
             ast_node_t *condition; // condition to test
             ast_node_t *body;      // commands to execute in loop
-        } while_clause;
+        } loop_clause;
 
         /* AST_FOR_CLAUSE */
         struct

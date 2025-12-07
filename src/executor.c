@@ -7,6 +7,12 @@
 #include <string.h>
 
 /* ============================================================================
+ * Constants
+ * ============================================================================ */
+
+#define EXECUTOR_ERROR_BUFFER_SIZE 512
+
+/* ============================================================================
  * Executor Lifecycle Functions
  * ============================================================================ */
 
@@ -67,7 +73,7 @@ void executor_set_error(executor_t *executor, const char *format, ...)
     va_list args;
     va_start(args, format);
 
-    char buffer[512];
+    char buffer[EXECUTOR_ERROR_BUFFER_SIZE];
     vsnprintf(buffer, sizeof(buffer), format, args);
 
     va_end(args);
@@ -350,7 +356,7 @@ exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node
     while (true)
     {
         // Execute condition
-        status = executor_execute(executor, node->data.while_clause.condition);
+        status = executor_execute(executor, node->data.loop_clause.condition);
         if (status != EXEC_OK)
         {
             break;
@@ -364,7 +370,7 @@ exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node
         }
 
         // Execute body
-        status = executor_execute(executor, node->data.while_clause.body);
+        status = executor_execute(executor, node->data.loop_clause.body);
         if (status != EXEC_OK)
         {
             break;
@@ -385,7 +391,7 @@ exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node
     while (true)
     {
         // Execute condition
-        status = executor_execute(executor, node->data.while_clause.condition);
+        status = executor_execute(executor, node->data.loop_clause.condition);
         if (status != EXEC_OK)
         {
             break;
@@ -399,7 +405,7 @@ exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node
         }
 
         // Execute body
-        status = executor_execute(executor, node->data.while_clause.body);
+        status = executor_execute(executor, node->data.loop_clause.body);
         if (status != EXEC_OK)
         {
             break;
@@ -555,11 +561,11 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
 
     case AST_WHILE_CLAUSE:
     case AST_UNTIL_CLAUSE:
-        if (!ast_traverse_helper(node->data.while_clause.condition, visitor, user_data))
+        if (!ast_traverse_helper(node->data.loop_clause.condition, visitor, user_data))
         {
             return false;
         }
-        if (!ast_traverse_helper(node->data.while_clause.body, visitor, user_data))
+        if (!ast_traverse_helper(node->data.loop_clause.body, visitor, user_data))
         {
             return false;
         }
