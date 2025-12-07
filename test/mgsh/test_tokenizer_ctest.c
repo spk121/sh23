@@ -47,6 +47,10 @@ CTEST(test_tokenizer_passthrough_no_aliases)
     // Test that tokenizer passes through tokens unchanged when no aliases
     token_list_t *input = lex_string("echo hello world");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(NULL);
     token_list_t *output = token_list_create();
@@ -92,6 +96,8 @@ CTEST(test_tokenizer_simple_alias)
 
     token_list_t *input = lex_string("ll");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -116,6 +122,8 @@ CTEST(test_tokenizer_alias_with_args)
 
     token_list_t *input = lex_string("ll file.txt");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -140,6 +148,8 @@ CTEST(test_tokenizer_no_alias_when_quoted)
 
     token_list_t *input = lex_string("'ll'");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -164,6 +174,8 @@ CTEST(test_tokenizer_no_alias_not_at_command)
 
     token_list_t *input = lex_string("cat file");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -197,6 +209,8 @@ CTEST(test_tokenizer_alias_trailing_blank)
 
     token_list_t *input = lex_string("nohup bg");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -226,6 +240,8 @@ CTEST(test_tokenizer_prevent_direct_recursion)
 
     token_list_t *input = lex_string("ls");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -252,6 +268,8 @@ CTEST(test_tokenizer_prevent_indirect_recursion)
 
     token_list_t *input = lex_string("a");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -281,6 +299,8 @@ CTEST(test_tokenizer_multiple_commands)
 
     token_list_t *input = lex_string("ll ; ll");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -306,6 +326,8 @@ CTEST(test_tokenizer_alias_in_pipeline)
 
     token_list_t *input = lex_string("ll | grep txt");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();
@@ -335,6 +357,8 @@ CTEST(test_tokenizer_alias_to_multiple_commands)
 
     token_list_t *input = lex_string("update");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
+    if (input == NULL)
+        return;
 
     tokenizer_t *tok = tokenizer_create(aliases);
     token_list_t *output = token_list_create();

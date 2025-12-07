@@ -6,6 +6,7 @@
 #include "token.h"
 #include "xalloc.h"
 #include <ctype.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,8 +40,6 @@ tokenizer_t *tokenizer_create(AliasStore *aliases)
     tok->expanded_aliases_capacity = TOKENIZER_INITIAL_EXPANDED_ALIASES_CAPACITY;
 
     tok->error_msg = NULL;
-    tok->error_line = 0;
-    tok->error_col = 0;
 
     tok->at_command_position = true; // start at command position
 
@@ -91,11 +90,22 @@ void tokenizer_set_error(tokenizer_t *tok, const char *format, ...)
 
     va_list args;
     va_start(args, format);
-    char buffer[512];
-    vsnprintf(buffer, sizeof(buffer), format, args);
+    
+    // Use vasprintf for dynamic allocation to avoid truncation
+    char *buffer = NULL;
+    int len = vasprintf(&buffer, format, args);
     va_end(args);
 
-    string_append_cstr(tok->error_msg, buffer);
+    if (len >= 0 && buffer != NULL)
+    {
+        string_append_cstr(tok->error_msg, buffer);
+        free(buffer);
+    }
+    else
+    {
+        // Allocation failed; append a generic error message
+        string_append_cstr(tok->error_msg, "Error formatting error message");
+    }
 }
 
 const char *tokenizer_get_error(const tokenizer_t *tok)
@@ -127,8 +137,25 @@ void tokenizer_mark_alias_expanded(tokenizer_t *tok, const char *alias_name)
     // Check if we need to grow the array
     if (tok->expanded_aliases_count >= tok->expanded_aliases_capacity)
     {
-        tok->expanded_aliases_capacity *= 2;
-        tok->expanded_aliases = xrealloc(tok->expanded_aliases, tok->expanded_aliases_capacity * sizeof(char *));
+        int new_capacity;
+        // Check for overflow before doubling
+        if (tok->expanded_aliases_capacity > INT_MAX / 2)
+        {
+            // Can't double, set to max or fail
+            new_capacity = INT_MAX;
+            if (tok->expanded_aliases_count >= new_capacity)
+            {
+                // Can't expand further
+                return;
+            }
+        }
+        else
+        {
+            new_capacity = tok->expanded_aliases_capacity * 2;
+        }
+        
+        tok->expanded_aliases = xrealloc(tok->expanded_aliases, new_capacity * sizeof(char *));
+        tok->expanded_aliases_capacity = new_capacity;
     }
 
     // Add the alias name
@@ -302,44 +329,31 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
     }
 
     // Insert the re-lexed tokens into our input stream at the current position
-    // We need to grow the input_tokens array and shift existing tokens
     int num_new_tokens = token_list_size(relexed_tokens);
     
     if (num_new_tokens > 0)
     {
-        // Ensure we have enough capacity
-        int total_needed = token_list_size(tok->input_tokens) + num_new_tokens;
-        if (total_needed > tok->input_tokens->capacity)
+        // Detach tokens from relexed_tokens list
+        int detached_size;
+        token_t **detached_tokens = token_list_detach_tokens(relexed_tokens, &detached_size);
+        
+        // Insert them into input_tokens at current position
+        int result = token_list_insert_range(tok->input_tokens, tok->input_pos, 
+                                              detached_tokens, detached_size);
+        
+        // Free the detached array (tokens are now owned by input_tokens)
+        xfree(detached_tokens);
+        
+        if (result != 0)
         {
-            int new_capacity = tok->input_tokens->capacity * 2;
-            while (new_capacity < total_needed)
-                new_capacity *= 2;
-            tok->input_tokens->tokens = xrealloc(tok->input_tokens->tokens, new_capacity * sizeof(token_t *));
-            tok->input_tokens->capacity = new_capacity;
+            tokenizer_set_error(tok, "Failed to insert re-lexed tokens");
+            token_list_destroy(relexed_tokens);
+            lexer_destroy(lx);
+            return TOK_ERROR;
         }
-
-        // Shift existing tokens to make room
-        for (int i = tok->input_tokens->size - 1; i >= tok->input_pos; i--)
-        {
-            tok->input_tokens->tokens[i + num_new_tokens] = tok->input_tokens->tokens[i];
-        }
-
-        // Insert the new tokens
-        for (int i = 0; i < num_new_tokens; i++)
-        {
-            tok->input_tokens->tokens[tok->input_pos + i] = token_list_get(relexed_tokens, i);
-        }
-        tok->input_tokens->size += num_new_tokens;
-
-        // Clean up the relexed_tokens list structure (but not the tokens themselves)
-        xfree(relexed_tokens->tokens);
-        xfree(relexed_tokens);
     }
-    else
-    {
-        token_list_destroy(relexed_tokens);
-    }
-
+    
+    token_list_destroy(relexed_tokens);
     lexer_destroy(lx);
 
     return TOK_OK;
@@ -379,6 +393,14 @@ tok_status_t tokenizer_expand_alias(tokenizer_t *tok, const char *alias_name)
 
     if (status != TOK_OK)
     {
+        // On error, remove the alias from the expanded list to allow retry
+        if (tok->expanded_aliases_count > 0)
+        {
+            // Remove the last added alias (which should be this one)
+            xfree(tok->expanded_aliases[tok->expanded_aliases_count - 1]);
+            tok->expanded_aliases[tok->expanded_aliases_count - 1] = NULL;
+            tok->expanded_aliases_count--;
+        }
         return status;
     }
 
@@ -483,11 +505,7 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     // Clear the input tokens array without destroying the tokens
     // (they've been transferred to output)
     // This prevents double-free when the caller destroys input_tokens
-    for (int i = 0; i < input_tokens->size; i++)
-    {
-        input_tokens->tokens[i] = NULL;
-    }
-    input_tokens->size = 0;
+    token_list_clear_without_destroy(input_tokens);
 
     // Clean up context
     tok->input_tokens = NULL;

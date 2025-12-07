@@ -46,8 +46,6 @@ typedef struct tokenizer_t
 
     /* Error reporting */
     string_t *error_msg;
-    int error_line;
-    int error_col;
 
     /* Context flags */
     bool at_command_position; // true if next word could be eligible for alias expansion
@@ -111,7 +109,7 @@ bool tokenizer_is_alias_eligible(const tokenizer_t *tok, const token_t *token);
 /**
  * Expand an alias for the given word token.
  * If the alias value contains text, it will be re-lexed and the
- * resulting tokens will be added to the output.
+ * resulting tokens will be inserted into the input stream for re-processing.
  * 
  * @param tok The tokenizer context
  * @param alias_name The name of the alias (extracted from the token)

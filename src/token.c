@@ -1,6 +1,7 @@
 #include "token.h"
 #include "logging.h"
 #include "xalloc.h"
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1005,6 +1006,103 @@ void token_list_reinitialize(token_list_t *list)
     list->tokens = (token_t **)xcalloc(INITIAL_LIST_CAPACITY, sizeof(token_t *));
     list->size = 0;
     list->capacity = INITIAL_LIST_CAPACITY;
+}
+
+void token_list_clear_without_destroy(token_list_t *list)
+{
+    Expects_not_null(list);
+
+    // Clear all token pointers without destroying them
+    for (int i = 0; i < list->size; i++)
+    {
+        list->tokens[i] = NULL;
+    }
+    list->size = 0;
+}
+
+token_t **token_list_detach_tokens(token_list_t *list, int *out_size)
+{
+    Expects_not_null(list);
+
+    if (list->size == 0)
+    {
+        if (out_size)
+            *out_size = 0;
+        return NULL;
+    }
+
+    token_t **tokens = list->tokens;
+    if (out_size)
+        *out_size = list->size;
+
+    // Reset the list to empty state
+    list->tokens = (token_t **)xcalloc(INITIAL_LIST_CAPACITY, sizeof(token_t *));
+    list->size = 0;
+    list->capacity = INITIAL_LIST_CAPACITY;
+
+    return tokens;
+}
+
+int token_list_ensure_capacity(token_list_t *list, int needed_capacity)
+{
+    Expects_not_null(list);
+
+    if (needed_capacity <= list->capacity)
+        return 0;
+
+    // Grow capacity to at least needed_capacity
+    int new_capacity = list->capacity;
+    while (new_capacity < needed_capacity)
+    {
+        // Check for overflow before doubling
+        if (new_capacity > INT_MAX / 2)
+        {
+            // Can't double, try to allocate exactly what's needed
+            if (needed_capacity > INT_MAX)
+                return -1;
+            new_capacity = needed_capacity;
+            break;
+        }
+        new_capacity *= 2;
+    }
+
+    token_t **new_tokens = (token_t **)xrealloc(list->tokens, new_capacity * sizeof(token_t *));
+    if (new_tokens == NULL)
+        return -1;
+
+    list->tokens = new_tokens;
+    list->capacity = new_capacity;
+    return 0;
+}
+
+int token_list_insert_range(token_list_t *list, int index, token_t **tokens, int count)
+{
+    Expects_not_null(list);
+    Expects_not_null(tokens);
+    Expects_le(index, list->size);
+
+    if (count <= 0)
+        return 0;
+
+    // Ensure we have enough capacity
+    int needed_capacity = list->size + count;
+    if (token_list_ensure_capacity(list, needed_capacity) != 0)
+        return -1;
+
+    // Shift existing tokens to make room
+    for (int i = list->size - 1; i >= index; i--)
+    {
+        list->tokens[i + count] = list->tokens[i];
+    }
+
+    // Insert the new tokens
+    for (int i = 0; i < count; i++)
+    {
+        list->tokens[index + i] = tokens[i];
+    }
+    list->size += count;
+
+    return 0;
 }
 
 string_t *token_list_to_string(const token_list_t *list)
