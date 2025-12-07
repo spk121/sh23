@@ -79,33 +79,15 @@ void tokenizer_set_error(tokenizer_t *tok, const char *format, ...)
     Expects_not_null(tok);
     Expects_not_null(format);
 
-    if (tok->error_msg == NULL)
-    {
-        tok->error_msg = string_create_empty(0);
-    }
-    else
+    if (tok->error_msg != NULL)
     {
         string_clear(tok->error_msg);
     }
 
     va_list args;
     va_start(args, format);
-    
-    // Use vasprintf for dynamic allocation to avoid truncation
-    char *buffer = NULL;
-    vasprintf(&buffer, format, args);
+    tok->error_msg = string_vcreate(format, args);
     va_end(args);
-
-    if (buffer != NULL)
-    {
-        string_append_cstr(tok->error_msg, buffer);
-        free(buffer);
-    }
-    else
-    {
-        // Allocation failed; append a generic error message
-        string_append_cstr(tok->error_msg, "Error formatting error message");
-    }
 }
 
 const char *tokenizer_get_error(const tokenizer_t *tok)

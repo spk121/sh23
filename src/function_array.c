@@ -1,76 +1,88 @@
 #include "function_array.h"
-#include <stdlib.h>
+#include "xalloc.h"
 #include <string.h>
 
-struct FunctionArray {
-    Function **data;
-    size_t len;
-    size_t cap;
-    FunctionArrayFreeFunc free_func;
-};
-
-static void *xrealloc(void *p, size_t n) { void *q = realloc(p, n); return q; }
 static size_t grow_cap(size_t cap) { return cap ? cap * 2 : 8; }
 
-FunctionArray *function_array_create(void) {
-    FunctionArray *a = calloc(1, sizeof *a);
+function_array_t *function_array_create(void) {
+    function_array_t *a = xcalloc(1, sizeof *a);
     return a;
 }
-FunctionArray *function_array_create_with_free(FunctionArrayFreeFunc free_func) {
-    FunctionArray *a = function_array_create();
+function_array_t *function_array_create_with_free(function_array_free_func_t free_func) {
+    function_array_t *a = function_array_create();
     if (a) a->free_func = free_func;
     return a;
 }
 
-void function_array_destroy(FunctionArray *array) {
+void function_array_destroy(function_array_t *array) {
     if (!array) return;
     if (array->free_func) {
         for (size_t i = 0; i < array->len; ++i) {
             if (array->data[i]) array->free_func(array->data[i]);
         }
     }
-    free(array->data);
-    free(array);
+    xfree(array->data);
+    xfree(array);
 }
 
-size_t function_array_size(const FunctionArray *array) { return array ? array->len : 0; }
-size_t function_array_capacity(const FunctionArray *array) { return array ? array->cap : 0; }
-Function *function_array_get(const FunctionArray *array, size_t index) {
-    if (!array || index >= array->len) return NULL;
+size_t function_array_size(const function_array_t *array) {
+    Expects_not_null(array);
+    return array->len;
+}
+
+size_t function_array_capacity(const function_array_t *array) {
+    Expects_not_null(array);
+    return array->cap;
+}
+
+function_t *function_array_get(const function_array_t *array, size_t index) {
+    Expects_not_null(array);
+    Expects_lt(index, array->len);
     return array->data[index];
 }
-int function_array_is_empty(const FunctionArray *array) { return array ? (array->len == 0) : 1; }
 
-int function_array_resize(FunctionArray *array, size_t new_capacity) {
-    if (!array) return -1;
-    if (new_capacity < array->len) return -1;
-    Function **newv = xrealloc(array->data, new_capacity * sizeof *newv);
-    if (!newv && new_capacity) return -1;
+int function_array_is_empty(const function_array_t *array) {
+    Expects_not_null(array);
+    return array->len == 0;
+}
+
+void function_array_resize(function_array_t *array, size_t new_capacity) {
+    Expects_not_null(array);
+    Expects(new_capacity >= array->len);
+    
+    function_t **newv;
+    if (array->data == NULL) {
+        // Initial allocation
+        newv = xmalloc(new_capacity * sizeof *newv);
+    } else {
+        // Resize existing allocation
+        newv = xrealloc(array->data, new_capacity * sizeof *newv);
+    }
+    
     array->data = newv;
     array->cap = new_capacity;
-    return 0;
 }
 
-int function_array_append(FunctionArray *array, Function *element) {
-    if (!array) return -1;
+void function_array_append(function_array_t *array, function_t *element) {
+    Expects_not_null(array);
     if (array->len == array->cap) {
-        if (function_array_resize(array, grow_cap(array->cap)) != 0) return -1;
+        function_array_resize(array, grow_cap(array->cap));
     }
     array->data[array->len++] = element;
-    return 0;
 }
 
-int function_array_set(FunctionArray *array, size_t index, Function *element) {
-    if (!array || index >= array->len) return -1;
+void function_array_set(function_array_t *array, size_t index, function_t *element) {
+    Expects_not_null(array);
+    Expects_lt(index, array->len);
     if (array->free_func && array->data[index] && array->data[index] != element) {
         array->free_func(array->data[index]);
     }
     array->data[index] = element;
-    return 0;
 }
 
-int function_array_remove(FunctionArray *array, size_t index) {
-    if (!array || index >= array->len) return -1;
+void function_array_remove(function_array_t *array, size_t index) {
+    Expects_not_null(array);
+    Expects_lt(index, array->len);
     if (array->free_func && array->data[index]) {
         array->free_func(array->data[index]);
     }
@@ -78,29 +90,28 @@ int function_array_remove(FunctionArray *array, size_t index) {
         memmove(&array->data[index], &array->data[index + 1], (array->len - index - 1) * sizeof *array->data);
     }
     array->len--;
-    return 0;
 }
 
-int function_array_clear(FunctionArray *array) {
-    if (!array) return -1;
+void function_array_clear(function_array_t *array) {
+    Expects_not_null(array);
     if (array->free_func) {
         for (size_t i = 0; i < array->len; ++i) {
             if (array->data[i]) array->free_func(array->data[i]);
         }
     }
     array->len = 0;
-    return 0;
 }
 
-void function_array_foreach(FunctionArray *array, FunctionArrayApplyFunc apply_func, void *user_data) {
-    if (!array || !apply_func) return;
+void function_array_foreach(function_array_t *array, function_array_apply_func_t apply_func, void *user_data) {
+    Expects_not_null(array);
+    Expects_not_null(apply_func);
     for (size_t i = 0; i < array->len; ++i) {
         apply_func(array->data[i], user_data);
     }
 }
 
-int function_array_find(FunctionArray *array, Function *element, size_t *index) {
-    if (!array) return -1;
+int function_array_find(function_array_t *array, function_t *element, size_t *index) {
+    Expects_not_null(array);
     for (size_t i = 0; i < array->len; ++i) {
         if (array->data[i] == element) {
             if (index) *index = i;
@@ -110,8 +121,9 @@ int function_array_find(FunctionArray *array, Function *element, size_t *index) 
     return 1;
 }
 
-int function_array_find_with_compare(FunctionArray *array, const void *data, FunctionArrayCompareFunc compare_func, size_t *index) {
-    if (!array || !compare_func) return -1;
+int function_array_find_with_compare(function_array_t *array, const void *data, function_array_compare_func_t compare_func, size_t *index) {
+    Expects_not_null(array);
+    Expects_not_null(compare_func);
     for (size_t i = 0; i < array->len; ++i) {
         if (compare_func(array->data[i], data) == 0) {
             if (index) *index = i;
