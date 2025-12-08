@@ -717,8 +717,7 @@ static ArithmeticResult parse_primary(Parser *parser) {
             assign_type != MATH_TOKEN_OR_ASSIGN) {
             free(var_name);
             // Not an assignment operator - this is an error in current implementation
-            // A proper fix would require more sophisticated parsing
-            return make_error("Expected assignment operator or variable followed by operator");
+            return make_error("Invalid variable assignment: expected assignment operator (=, +=, -=, etc.)");
         }
 
         ArithmeticResult right = parse_comma(parser);

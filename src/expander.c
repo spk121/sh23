@@ -570,11 +570,13 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             // Extract variable name
             string_t *var_name = string_create_empty(32);
             size_t var_start_pos = i;
+            bool found_closing_brace = false;
             while (i < len) {
                 char c = input[i];
                 if (braced) {
                     if (c == '}') {
                         i++;  // Skip the }
+                        found_closing_brace = true;
                         break;
                     }
                     string_append_ascii_char(var_name, c);
@@ -601,7 +603,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             }
             
             // Check for unclosed braced variable expansion
-            if (braced && (i >= len || (i > 0 && input[i-1] != '}'))) {
+            if (braced && !found_closing_brace) {
                 // Unclosed braced expansion - handle error
                 string_destroy(var_name);
                 string_destroy(result);
