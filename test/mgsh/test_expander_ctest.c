@@ -8,6 +8,7 @@
 #include "token.h"
 #include "string_t.h"
 #include "ast.h"
+#include "variable_store.h"
 #include "xalloc.h"
 
 /**
@@ -146,6 +147,81 @@ CTEST(test_expander_expand_ast_stub)
     (void)ctest;
 }
 
+/**
+ * Test arithmetic expansion with simple expression
+ */
+CTEST(test_expander_arithmetic_simple)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Create a variable store and set a variable
+    variable_store_t *vars = variable_store_create("test");
+    expander_set_variable_store(exp, vars);
+    
+    // Create a word token with an arithmetic part: $((1+2))
+    token_t *word = token_create_word();
+    CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
+    
+    string_t *expr = string_create_from_cstr("1+2");
+    token_append_arithmetic(word, expr);
+    string_destroy(expr);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "3"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_get(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "3", "expanded string is '3'");
+    
+    string_list_destroy(result);
+    token_destroy(word);
+    variable_store_destroy(vars);
+    expander_destroy(exp);
+    (void)ctest;
+}
+
+/**
+ * Test arithmetic expansion with variable reference
+ */
+CTEST(test_expander_arithmetic_with_variable)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Create a variable store and set x=10
+    variable_store_t *vars = variable_store_create("test");
+    variable_store_add_cstr(vars, "x", "10", false, false);
+    expander_set_variable_store(exp, vars);
+    
+    // Create a word token with an arithmetic part: $(($x+5))
+    token_t *word = token_create_word();
+    CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
+    
+    string_t *expr = string_create_from_cstr("$x+5");
+    token_append_arithmetic(word, expr);
+    string_destroy(expr);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "15"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_get(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "15", "expanded string is '15'");
+    
+    string_list_destroy(result);
+    token_destroy(word);
+    variable_store_destroy(vars);
+    expander_destroy(exp);
+    (void)ctest;
+}
+
 // Array of test entries
 static CTestEntry test_entries[] = {
     { "test_expander_create_destroy", ctest_func_test_expander_create_destroy, NULL, NULL, false },
@@ -153,6 +229,8 @@ static CTestEntry test_entries[] = {
     { "test_expander_expand_simple_word", ctest_func_test_expander_expand_simple_word, NULL, NULL, false },
     { "test_expander_expand_concatenated_word", ctest_func_test_expander_expand_concatenated_word, NULL, NULL, false },
     { "test_expander_expand_ast_stub", ctest_func_test_expander_expand_ast_stub, NULL, NULL, false },
+    { "test_expander_arithmetic_simple", ctest_func_test_expander_arithmetic_simple, NULL, NULL, false },
+    { "test_expander_arithmetic_with_variable", ctest_func_test_expander_arithmetic_with_variable, NULL, NULL, false },
 };
 
 int main(int argc, char *argv[])

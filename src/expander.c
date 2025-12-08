@@ -6,7 +6,7 @@
  * 1. Tilde expansion - expand ~ to home directory
  * 2. Parameter expansion - expand $VAR to variable value
  * 3. Command substitution - execute $(cmd) and replace with output (stub)
- * 4. Arithmetic expansion - evaluate $((expr)) (stub)
+ * 4. Arithmetic expansion - evaluate $((expr)) and replace with result
  * 5. Field splitting - split words on IFS characters
  * 6. Pathname expansion - glob patterns (not implemented)
  * 7. Quote removal - handled during parsing
@@ -22,6 +22,8 @@
 #include "xalloc.h"
 #include "string_t.h"
 #include "token.h"
+#include "arithmetic.h"
+#include "variable_store.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,13 +31,13 @@
 #include <unistd.h>
 #include <pwd.h>
 #include <sys/types.h>
+#include <stdio.h>
 
 // Internal expander structure
 struct expander_t
 {   
     string_t *ifs;
-    // Variable store can be added here when needed for parameter expansion
-    // variable_store_t *vars;
+    variable_store_t *vars;
 };
 
 // ============================================================================
@@ -46,6 +48,7 @@ expander_t *expander_create(void)
 {
     expander_t *exp = xcalloc(1, sizeof(expander_t));
     exp->ifs = string_create_from_cstr(" \t\n");
+    exp->vars = NULL;
     return exp;
 }
 
@@ -80,6 +83,22 @@ const string_t *expander_get_ifs(const expander_t *exp)
 {
     Expects_not_null(exp);
     return exp->ifs;
+}
+
+// ============================================================================
+// Variable Store Management
+// ============================================================================
+
+void expander_set_variable_store(expander_t *exp, variable_store_t *vars)
+{
+    Expects_not_null(exp);
+    exp->vars = vars;
+}
+
+variable_store_t *expander_get_variable_store(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->vars;
 }
 
 // ============================================================================
@@ -162,20 +181,30 @@ static string_t *expand_tilde(const string_t *text)
 
 /**
  * Perform parameter expansion on a part.
- * Implements basic expansion by reading environment variables.
+ * Implements basic expansion by reading environment variables or variable store.
  * Advanced forms (e.g., ${var:-default}) are not yet supported.
  */
 static string_t *expand_parameter(expander_t *exp, const part_t *part)
 {
-    (void)exp;
     const string_t *param_name = part_get_param_name(part);
     
     if (param_name == NULL)
         return string_create_empty(0);
     
-    // For now, check a few common environment variables
     const char *name = string_data(param_name);
-    const char *value = getenv(name);
+    const char *value = NULL;
+    
+    // First try the variable store if available
+    if (exp->vars != NULL)
+    {
+        value = variable_store_get_value_cstr(exp->vars, name);
+    }
+    
+    // Fall back to environment variables
+    if (value == NULL)
+    {
+        value = getenv(name);
+    }
     
     if (value != NULL)
         return string_create_from_cstr(value);
@@ -199,15 +228,34 @@ static string_t *expand_command_substitution(expander_t *exp, const part_t *part
 
 /**
  * Perform arithmetic expansion.
- * For now, returns "0" (stub for future implementation).
+ * Evaluates the arithmetic expression and returns the result as a string.
  */
 static string_t *expand_arithmetic(expander_t *exp, const part_t *part)
 {
-    (void)exp;
-    (void)part;
+    const string_t *expr_text = part_get_text(part);
     
-    log_debug("expand_arithmetic: arithmetic expansion not yet implemented");
-    return string_create_from_cstr("0");
+    if (expr_text == NULL || string_length(expr_text) == 0)
+    {
+        // Empty expression evaluates to 0
+        return string_create_from_cstr("0");
+    }
+    
+    // Evaluate the arithmetic expression
+    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, string_data(expr_text));
+    
+    if (result.failed)
+    {
+        log_warn("expand_arithmetic: evaluation failed: %s", result.error ? result.error : "unknown error");
+        arithmetic_result_free(&result);
+        return string_create_from_cstr("0");
+    }
+    
+    // Convert result to string
+    char buf[64];
+    snprintf(buf, sizeof(buf), "%ld", result.value);
+    arithmetic_result_free(&result);
+    
+    return string_create_from_cstr(buf);
 }
 
 /**
