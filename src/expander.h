@@ -105,8 +105,8 @@ ast_node_t *expander_expand_ast(expander_t *exp, ast_node_t *node);
  * 
  * @note Quoting is respected:
  *       - Single quotes prevent all expansions
- *       - Double quotes allow expansions but prevent field splitting
- *       - Unquoted expansions undergo field splitting
+ *       - Double quotes allow expansions but suppress field splitting
+ *       - Unquoted words may be split into multiple fields according to IFS
  */
 string_list_t *expander_expand_word(expander_t *exp, token_t *word_token);
 

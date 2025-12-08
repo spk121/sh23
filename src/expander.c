@@ -162,7 +162,8 @@ static string_t *expand_tilde(const string_t *text)
 
 /**
  * Perform parameter expansion on a part.
- * For now, returns empty string (stub for future implementation).
+ * Implements basic expansion by reading environment variables.
+ * Advanced forms (e.g., ${var:-default}) are not yet supported.
  */
 static string_t *expand_parameter(expander_t *exp, const part_t *part)
 {
@@ -261,7 +262,7 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
         return result;
     }
     
-    // If IFS is null (empty), no field splitting
+    // If IFS is NULL or empty, no field splitting
     if (ifs == NULL || string_length(ifs) == 0)
     {
         string_list_clone_append(result, str);
@@ -330,11 +331,9 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
         string_destroy(current_field);
     }
     
-    // If no fields were produced, add an empty field
-    if (string_list_size(result) == 0)
-    {
-        string_list_take_append(result, string_create_empty(0));
-    }
+    // Per POSIX, if no fields were produced and the input was not empty,
+    // return empty list (not a list with one empty field)
+    // The check at line 271-274 already handles truly empty input
     
     return result;
 }
@@ -432,8 +431,8 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
                             string_append(expanded, tilde_expanded);
                             string_destroy(tilde_expanded);
                             
-                            // Tilde expansion is considered an unquoted expansion
-                            has_unquoted_expansion = true;
+                            // Tilde expansion does NOT undergo field splitting per POSIX
+                            // Do NOT set has_unquoted_expansion here
                         }
                         else
                         {
