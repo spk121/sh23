@@ -1197,14 +1197,11 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     default:
         if (current == TOKEN_DLESS || current == TOKEN_DLESSDASH)
         {
+            // TODO: Implement heredoc redirection properly
+            // For now, create a basic redirection node
+            redir_type = (current == TOKEN_DLESS) ? REDIR_HEREDOC : REDIR_HEREDOC_STRIP;
             parser_advance(parser); // consume << or <<-
-
-            // The next WORD is the delimiter (already consumed by lexer)
-            // The lexer has queued the heredoc and will emit TOKEN_END_OF_HEREDOC
-            // So we create a redirection with NULL target — it will be filled later?
-            // Or we can store the delimiter here?
             *out_node = ast_create_redirection(redir_type, io_number, NULL);
-            (*out_node)->heredoc_delimiter = string_clone(delimiter_token->text);
             return PARSE_OK;
         }    
         parser_set_error(parser, "Expected redirection operator");
