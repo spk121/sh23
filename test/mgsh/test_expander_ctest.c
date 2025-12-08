@@ -299,6 +299,44 @@ CTEST(test_expander_arithmetic_empty)
     (void)ctest;
 }
 
+/**
+ * Test arithmetic expansion with nested arithmetic
+ */
+CTEST(test_expander_arithmetic_nested)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Create a variable store
+    variable_store_t *vars = variable_store_create("test");
+    expander_set_variable_store(exp, vars);
+    
+    // Create a word token with nested arithmetic: $((1 + $((1 + 1))))
+    // The inner $((...)) should evaluate to 2, then 1 + 2 = 3
+    token_t *word = token_create_word();
+    CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
+    
+    string_t *expr = string_create_from_cstr("1 + $((1 + 1))");
+    token_append_arithmetic(word, expr);
+    string_destroy(expr);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "3"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_get(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "3", "nested arithmetic evaluates correctly");
+    
+    string_list_destroy(result);
+    token_destroy(word);
+    variable_store_destroy(vars);
+    expander_destroy(exp);
+    (void)ctest;
+}
+
 // Array of test entries
 static CTestEntry test_entries[] = {
     { "test_expander_create_destroy", ctest_func_test_expander_create_destroy, NULL, NULL, false },
@@ -310,6 +348,7 @@ static CTestEntry test_entries[] = {
     { "test_expander_arithmetic_with_variable", ctest_func_test_expander_arithmetic_with_variable, NULL, NULL, false },
     { "test_expander_arithmetic_complex", ctest_func_test_expander_arithmetic_complex, NULL, NULL, false },
     { "test_expander_arithmetic_empty", ctest_func_test_expander_arithmetic_empty, NULL, NULL, false },
+    { "test_expander_arithmetic_nested", ctest_func_test_expander_arithmetic_nested, NULL, NULL, false },
 };
 
 int main(int argc, char *argv[])

@@ -6,6 +6,11 @@
 #include "expander.h"
 #include "variable_store.h"
 #include "xalloc.h"
+#include "lexer.h"
+#include "parser.h"
+#include "tokenizer.h"
+#include "alias_store.h"
+#include "logging.h"
 
 typedef struct {
     const char *input;
@@ -797,18 +802,126 @@ static ArithmeticResult parse_primary(Parser *parser) {
     return make_error("Expected number, variable, or '('");
 }
 
+/**
+ * Recursively expand an arithmetic expression through the full lex-parse-expand chain.
+ * This implements the POSIX-compliant expansion for arithmetic expressions:
+ * 1. Re-lex the expression text
+ * 2. Tokenize (with alias expansion)
+ * 3. Parse into AST  
+ * 4. Expand the AST (parameter expansion, command substitution, quote removal)
+ * 5. Return the fully expanded string
+ */
+static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t *vars, const char *expr_text)
+{
+    // Step 1: Re-lex the raw text inside $(())
+    lexer_t *lx = lexer_create();
+    if (!lx) {
+        log_error("arithmetic_expand_expression: failed to create lexer");
+        return NULL;
+    }
+    
+    lexer_append_input_cstr(lx, expr_text);
+    
+    // Step 2: Tokenize
+    token_list_t *tokens = token_list_create();
+    if (!tokens) {
+        lexer_destroy(lx);
+        log_error("arithmetic_expand_expression: failed to create token list");
+        return NULL;
+    }
+    
+    lex_status_t lex_status = lexer_tokenize(lx, tokens, NULL);
+    if (lex_status != LEX_OK) {
+        log_warn("arithmetic_expand_expression: lexer returned status %d", lex_status);
+        token_list_destroy(tokens);
+        lexer_destroy(lx);
+        // Return the original text as fallback
+        return string_create_from_cstr(expr_text);
+    }
+    
+    // Step 3: Tokenize with alias expansion
+    // For arithmetic expansion, we typically don't need alias expansion,
+    // but we include it for POSIX compliance
+    alias_store_t *aliases = alias_store_create();
+    tokenizer_t *tokenizer = tokenizer_create(aliases);
+    token_list_t *aliased_tokens = token_list_create();
+    
+    if (!tokenizer || !aliased_tokens) {
+        token_list_destroy(aliased_tokens);
+        if (tokenizer) tokenizer_destroy(tokenizer);
+        alias_store_destroy(aliases);
+        token_list_destroy(tokens);
+        lexer_destroy(lx);
+        log_error("arithmetic_expand_expression: failed to create tokenizer");
+        return NULL;
+    }
+    
+    tok_status_t tok_status = tokenizer_process(tokenizer, tokens, aliased_tokens);
+    if (tok_status != TOK_OK) {
+        log_warn("arithmetic_expand_expression: tokenizer returned status %d", tok_status);
+    }
+    
+    // Step 4: Expand each word token
+    // We need to expand parameters, command substitutions, etc.
+    string_t *result = string_create_empty(256);
+    
+    for (int i = 0; i < token_list_size(aliased_tokens); i++) {
+        token_t *tok = token_list_get(aliased_tokens, i);
+        
+        if (token_get_type(tok) == TOKEN_WORD) {
+            // Set the variable store in the expander for this expansion
+            expander_set_variable_store(exp, vars);
+            
+            // Expand the word
+            string_list_t *expanded_words = expander_expand_word(exp, tok);
+            
+            // Concatenate all expanded words
+            for (int j = 0; j < string_list_size(expanded_words); j++) {
+                const string_t *word = string_list_get(expanded_words, j);
+                string_append(result, word);
+                
+                // Add space between words (except for the last one)
+                if (j < string_list_size(expanded_words) - 1) {
+                    string_append_ascii_char(result, ' ');
+                }
+            }
+            
+            string_list_destroy(expanded_words);
+            
+            // Add space between tokens (except after the last token)
+            if (i < token_list_size(aliased_tokens) - 1) {
+                string_append_ascii_char(result, ' ');
+            }
+        }
+        // For non-word tokens, we skip them as arithmetic expressions
+        // should only contain word tokens
+    }
+    
+    // Cleanup
+    token_list_destroy(aliased_tokens);
+    tokenizer_destroy(tokenizer);
+    alias_store_destroy(aliases);
+    token_list_destroy(tokens);
+    lexer_destroy(lx);
+    
+    return result;
+}
+
 // Evaluate arithmetic expression
 ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const char *expression) {
-    // Preprocess: Handle parameter expansion and command substitution
-    char *expanded = expand_string(exp, vars, expression);
-    if (!expanded) {
-        return make_error("Expansion failed");
+    // Step 1-4: Perform full recursive expansion
+    string_t *expanded_str = arithmetic_expand_expression(exp, vars, expression);
+    if (!expanded_str) {
+        return make_error("Failed to expand arithmetic expression");
     }
-
+    
+    const char *expanded = string_data(expanded_str);
+    
+    // Step 5: Parse and evaluate the fully expanded expression
     Parser parser;
     parser_init(&parser, exp, vars, expanded);
     ArithmeticResult result = parse_comma(&parser);
-
+    
     // Check for trailing tokens
     math_token_t token = get_token(&parser);
     if (token.type != MATH_TOKEN_EOF && !result.failed) {
@@ -816,8 +929,8 @@ ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, co
         result = make_error("Unexpected tokens after expression");
     }
     free_token(&token);
-
-    free(expanded);
+    
+    string_destroy(expanded_str);
     return result;
 }
 
