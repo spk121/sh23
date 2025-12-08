@@ -832,11 +832,10 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     
     lex_status_t lex_status = lexer_tokenize(lx, tokens, NULL);
     if (lex_status != LEX_OK) {
-        log_warn("arithmetic_expand_expression: lexer returned status %d", lex_status);
+        log_warn("arithmetic_expand_expression: lexer failed with status %d", lex_status);
         token_list_destroy(tokens);
         lexer_destroy(lx);
-        // Return the original text as fallback
-        return string_create_from_cstr(expr_text);
+        return NULL;
     }
     
     // Step 3: Tokenize with alias expansion
@@ -865,33 +864,24 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     // We need to expand parameters, command substitutions, etc.
     string_t *result = string_create_empty(256);
     
+    // Set the variable store once before the loop
+    expander_set_variable_store(exp, vars);
+    
     for (int i = 0; i < token_list_size(aliased_tokens); i++) {
         token_t *tok = token_list_get(aliased_tokens, i);
         
         if (token_get_type(tok) == TOKEN_WORD) {
-            // Set the variable store in the expander for this expansion
-            expander_set_variable_store(exp, vars);
-            
             // Expand the word
             string_list_t *expanded_words = expander_expand_word(exp, tok);
             
-            // Concatenate all expanded words
+            // Concatenate all expanded words without adding spaces
+            // Arithmetic expressions should not have field splitting
             for (int j = 0; j < string_list_size(expanded_words); j++) {
                 const string_t *word = string_list_get(expanded_words, j);
                 string_append(result, word);
-                
-                // Add space between words (except for the last one)
-                if (j < string_list_size(expanded_words) - 1) {
-                    string_append_ascii_char(result, ' ');
-                }
             }
             
             string_list_destroy(expanded_words);
-            
-            // Add space between tokens (except after the last token)
-            if (i < token_list_size(aliased_tokens) - 1) {
-                string_append_ascii_char(result, ' ');
-            }
         }
         // For non-word tokens, we skip them as arithmetic expressions
         // should only contain word tokens
