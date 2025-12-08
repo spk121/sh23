@@ -47,6 +47,14 @@ set(MGSH_LIB_SOURCES
     src/parser.h
     src/executor.c
     src/executor.h
+    src/expander.c
+    src/expander.h
+    src/variable.c
+    src/variable.h
+    src/variable_array.c
+    src/variable_array.h
+    src/variable_store.c
+    src/variable_store.h
 )
 
 add_library(mgsh_lib STATIC ${MGSH_LIB_SOURCES})
@@ -78,6 +86,7 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_lexer_heredoc_ctest.c
     test/mgsh/test_tokenizer_ctest.c
     test/mgsh/test_ast_ctest.c
+    test/mgsh/test_expander_ctest.c
 )
 
 foreach(test_src ${MGSH_TEST_SOURCES})
