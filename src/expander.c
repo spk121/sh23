@@ -1,3 +1,22 @@
+/**
+ * @file expander.c
+ * @brief POSIX shell word expansion implementation
+ * 
+ * This module implements the word expansion steps according to POSIX:
+ * 1. Tilde expansion - expand ~ to home directory
+ * 2. Parameter expansion - expand $VAR to variable value
+ * 3. Command substitution - execute $(cmd) and replace with output (stub)
+ * 4. Arithmetic expansion - evaluate $((expr)) (stub)
+ * 5. Field splitting - split words on IFS characters
+ * 6. Pathname expansion - glob patterns (not implemented)
+ * 7. Quote removal - handled during parsing
+ * 
+ * The expansion process respects quoting:
+ * - Single quotes prevent all expansions
+ * - Double quotes allow selective expansions but prevent field splitting
+ * - Unquoted expansions undergo field splitting and pathname expansion
+ */
+
 #include "expander.h"
 #include "logging.h"
 #include "xalloc.h"
@@ -404,12 +423,17 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
                     const string_t *text = part_get_text(part);
                     if (text != NULL)
                     {
-                        // Only expand tilde if it's the first part and unquoted
+                        // Tilde expansion occurs at the beginning of a word or after : or =
+                        // For now, only handle beginning of word
+                        // TODO: Handle tilde after : or = in assignments (e.g., PATH=~:~/bin)
                         if (i == 0 && !is_quoted)
                         {
                             string_t *tilde_expanded = expand_tilde(text);
                             string_append(expanded, tilde_expanded);
                             string_destroy(tilde_expanded);
+                            
+                            // Tilde expansion is considered an unquoted expansion
+                            has_unquoted_expansion = true;
                         }
                         else
                         {
