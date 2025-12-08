@@ -36,7 +36,9 @@
  * 
  * - **Command substitution**: ⚠ Stub implementation (returns empty)
  * 
- * - **Arithmetic expansion**: ⚠ Stub implementation (returns "0")
+ * - **Arithmetic expansion**: ✓ Implemented
+ *   - Evaluates arithmetic expressions using the arithmetic evaluator
+ *   - Supports parameter expansion within arithmetic expressions
  * 
  * - **Field splitting**: ✓ Implemented
  *   - Splits unquoted expansions on IFS characters
@@ -76,6 +78,21 @@ void expander_set_ifs(expander_t *exp, const string_t *ifs);
 const string_t *expander_get_ifs(const expander_t *exp);
 
 /**
+ * Set the variable store for the expander.
+ * The expander does not take ownership of the variable store.
+ * @param exp The expander instance
+ * @param vars The variable store to use (can be NULL)
+ */
+void expander_set_variable_store(expander_t *exp, variable_store_t *vars);
+
+/**
+ * Get the variable store from the expander.
+ * @param exp The expander instance
+ * @return The variable store (can be NULL)
+ */
+variable_store_t *expander_get_variable_store(const expander_t *exp);
+
+/**
  * Expand an entire AST node tree.
  * This traverses the AST and expands all words in commands.
  * 
@@ -95,7 +112,7 @@ ast_node_t *expander_expand_ast(expander_t *exp, ast_node_t *node);
  * 1. Tilde expansion (if first part and unquoted)
  * 2. Parameter expansion ($VAR or ${VAR})
  * 3. Command substitution ($(cmd) or `cmd`) - stub
- * 4. Arithmetic expansion ($((expr))) - stub
+ * 4. Arithmetic expansion ($((expr)))
  * 5. Field splitting (on unquoted expansions using IFS)
  * 6. Pathname expansion (globbing) - not yet implemented
  * 
