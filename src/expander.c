@@ -601,7 +601,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             }
             
             // Check for unclosed braced variable expansion
-            if (braced && (i > len || (i > 0 && input[i-1] != '}'))) {
+            if (braced && (i >= len || (i > 0 && input[i-1] != '}'))) {
                 // Unclosed braced expansion - handle error
                 string_destroy(var_name);
                 string_destroy(result);

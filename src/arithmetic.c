@@ -644,6 +644,7 @@ static ArithmeticResult parse_multiplicative(Parser *parser) {
 
 // Unary
 static ArithmeticResult parse_unary(Parser *parser) {
+    size_t saved_pos = parser->pos;
     math_token_t token = get_token(parser);
     if (token.type == MATH_TOKEN_PLUS || token.type == MATH_TOKEN_MINUS ||
         token.type == MATH_TOKEN_BIT_NOT || token.type == MATH_TOKEN_LOGICAL_NOT) {
@@ -659,11 +660,8 @@ static ArithmeticResult parse_unary(Parser *parser) {
         }
         return expr;
     }
-    // Token was not a unary operator, need to rewind and try primary
-    // Note: This rewind is problematic as we've already consumed the token
-    // A proper fix would require get_token to support lookahead
-    // For now, we accept this limitation
-    parser->pos -= 1; // Rewind (imperfect but acceptable for non-unary tokens)
+    // Token was not a unary operator, rewind and try primary
+    parser->pos = saved_pos; // Rewind to start of token
     return parse_primary(parser);
 }
 
