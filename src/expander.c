@@ -43,16 +43,11 @@ void expander_set_ifs(expander_t *exp, const string_t *ifs)
     Expects_not_null(exp);
     Expects_not_null(ifs);
 
-    log_debug("expander_set_ifs: About to destroy old IFS");
     if (exp->ifs != NULL)
     {
-        log_debug("expander_set_ifs: Destroying old IFS at %p", (void *)exp->ifs);
         string_destroy(exp->ifs);
-        log_debug("expander_set_ifs: Old IFS destroyed");
     }
-    log_debug("expander_set_ifs: Cloning new IFS");
     exp->ifs = string_clone(ifs);
-    log_debug("expander_set_ifs: New IFS cloned to %p", (void *)exp->ifs);
 }
 
 const string_t *expander_get_ifs(const expander_t *exp)
