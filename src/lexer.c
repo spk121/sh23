@@ -393,12 +393,13 @@ void lexer_finalize_word(lexer_t *lx)
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
 
+    // FIXME: Not for the lexer to decide whether expansions are needed.
+#if 0
     if (lx->at_command_start)
     {
         token_try_promote_to_reserved_word(lx->current_token, lx->after_case_in);
     }
-
-    // FIXME: there is probably some logic missing for 'case' 'in' patterns
+#endif
 
     token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col, lx->line_no, lx->col_no);
     token_list_append(lx->tokens, lx->current_token);

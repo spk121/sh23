@@ -184,6 +184,7 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
 
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node)
 {
+    Expects_not_null(parser);
     return parser_parse_command_list(parser, out_node);
 }
 
@@ -365,6 +366,10 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
     Expects_not_null(out_node);
 
     token_type_t current = parser_current_token_type(parser);
+
+    // Since we're in command position, we can promote WORD.
+    if (current == TOKEN_WORD)
+        token_try_promote_to_reserved_word(parser_current_token(parser), false);
 
     // Check for compound commands
     if (current == TOKEN_IF || current == TOKEN_WHILE || current == TOKEN_UNTIL ||
@@ -1171,12 +1176,12 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     case TOKEN_DGREAT:
         redir_type = REDIR_APPEND;
         break;
-    case TOKEN_DLESS:
-        redir_type = REDIR_HEREDOC;
-        break;
-    case TOKEN_DLESSDASH:
-        redir_type = REDIR_HEREDOC_STRIP;
-        break;
+    //case TOKEN_DLESS:
+    //    redir_type = REDIR_HEREDOC;
+    //    break;
+    //case TOKEN_DLESSDASH:
+    //    redir_type = REDIR_HEREDOC_STRIP;
+    //    break;
     case TOKEN_LESSAND:
         redir_type = REDIR_DUP_INPUT;
         break;
@@ -1190,6 +1195,18 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
         redir_type = REDIR_CLOBBER;
         break;
     default:
+        if (current == TOKEN_DLESS || current == TOKEN_DLESSDASH)
+        {
+            parser_advance(parser); // consume << or <<-
+
+            // The next WORD is the delimiter (already consumed by lexer)
+            // The lexer has queued the heredoc and will emit TOKEN_END_OF_HEREDOC
+            // So we create a redirection with NULL target — it will be filled later?
+            // Or we can store the delimiter here?
+            *out_node = ast_create_redirection(redir_type, io_number, NULL);
+            (*out_node)->heredoc_delimiter = string_clone(delimiter_token->text);
+            return PARSE_OK;
+        }    
         parser_set_error(parser, "Expected redirection operator");
         return PARSE_ERROR;
     }
@@ -1203,9 +1220,11 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
         return PARSE_ERROR;
     }
 
+    // FIXME: figure out who owns the target token.
     token_t *target = parser_current_token(parser);
     parser_advance(parser);
 
+    // Should ast_create_redirection clone the target token?
     *out_node = ast_create_redirection(redir_type, io_number, target);
     return PARSE_OK;
 }

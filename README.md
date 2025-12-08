@@ -9,3 +9,48 @@ When built in ISO C mode
 - all commands launched in the foreground
 
 
+## Layered Structure
+
+```
+Raw Input
+    ↓
+Lexer → TOKEN_WORD with parts (unexpanded $(), ${}, $(( ))
+    ↓
+Tokenizer → Alias expansion + re-lexing → clean token stream
+    ↓
+Parser → Builds AST (knows about if/then/fi, for/in, function, etc.)
+    ↓
+Expander → Performs:
+    • Parameter expansion
+    • Command substitution $(...) and `...`
+    • Arithmetic expansion $(())
+    • Field splitting
+    • Quote removal
+    • Glob expansion
+    ↓
+Executor
+```
+
+## Lexer
+
+## Tokenizer
+
+Only responsible for alias expansion and re-lexing of alias values.
+It needs to careful with recursion and the blank-following alias rule.
+
+## Parser
+
+Does reserved word recognition: recognizing when strings are keywords. It
+builds the AST.
+
+## Expander
+
+First it does parameter expansion, command substitution, arithmetic expansion.
+
+Then it does field splitting.
+
+Then it does and quote removal and glob expansion.
+
+## Executor
+
+Actually executes the AST and runs the commands.

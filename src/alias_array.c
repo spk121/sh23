@@ -7,16 +7,16 @@
 #define INITIAL_CAPACITY 16
 #define GROW_FACTOR 2
 
-struct AliasArray
+struct alias_array_t
 {
-    Alias **data;
+    alias_t **data;
     size_t size;
     size_t capacity;
-    AliasArrayFreeFunc free_func;
+    alias_array_free_func_t free_func;
 };
 
 // Helper: Ensure capacity
-static void alias_array_ensure_capacity(AliasArray *array, size_t needed)
+static void alias_array_ensure_capacity(alias_array_t *array, size_t needed)
 {
     Expects_not_null(array);
 
@@ -27,22 +27,22 @@ static void alias_array_ensure_capacity(AliasArray *array, size_t needed)
     while (new_capacity < needed)
         new_capacity *= GROW_FACTOR;
 
-    Alias **new_data = xrealloc(array->data, new_capacity * sizeof(Alias *));
+    alias_t **new_data = xrealloc(array->data, new_capacity * sizeof(alias_t *));
     array->data = new_data;
     array->capacity = new_capacity;
 }
 
 // Create and destroy
-AliasArray *alias_array_create(void)
+alias_array_t *alias_array_create(void)
 {
     return alias_array_create_with_free(NULL);
 }
 
-AliasArray *alias_array_create_with_free(AliasArrayFreeFunc free_func)
+alias_array_t *alias_array_create_with_free(alias_array_free_func_t free_func)
 {
-    AliasArray *array = xmalloc(sizeof(AliasArray));
+    alias_array_t *array = xmalloc(sizeof(alias_array_t));
 
-    array->data = xcalloc(INITIAL_CAPACITY, sizeof(Alias *));
+    array->data = xcalloc(INITIAL_CAPACITY, sizeof(alias_t *));
     array->size = 0;
     array->capacity = INITIAL_CAPACITY;
     array->free_func = free_func;
@@ -50,7 +50,7 @@ AliasArray *alias_array_create_with_free(AliasArrayFreeFunc free_func)
     return array;
 }
 
-void alias_array_destroy(AliasArray *array)
+void alias_array_destroy(alias_array_t *array)
 {
     Expects_not_null(array);
 
@@ -70,33 +70,33 @@ void alias_array_destroy(AliasArray *array)
 }
 
 // Accessors
-size_t alias_array_size(const AliasArray *array)
+size_t alias_array_size(const alias_array_t *array)
 {
     Expects_not_null(array);
     return array->size;
 }
 
-size_t alias_array_capacity(const AliasArray *array)
+size_t alias_array_capacity(const alias_array_t *array)
 {
     Expects_not_null(array);
     return array->capacity;
 }
 
-Alias *alias_array_get(const AliasArray *array, size_t index)
+alias_t *alias_array_get(const alias_array_t *array, size_t index)
 {
     Expects_not_null(array);
     Expects(index < array->size);
     return array->data[index];
 }
 
-bool alias_array_is_empty(const AliasArray *array)
+bool alias_array_is_empty(const alias_array_t *array)
 {
     Expects_not_null(array);
     return array->size == 0;
 }
 
 // Modification
-void alias_array_append(AliasArray *array, Alias *element)
+void alias_array_append(alias_array_t *array, alias_t *element)
 {
     Expects_not_null(array);
     alias_array_ensure_capacity(array, array->size + 1);
@@ -105,7 +105,7 @@ void alias_array_append(AliasArray *array, Alias *element)
     array->size++;
 }
 
-void alias_array_set(AliasArray *array, size_t index, Alias *element)
+void alias_array_set(alias_array_t *array, size_t index, alias_t *element)
 {
     Expects_not_null(array);
     Expects(index < array->size);
@@ -117,7 +117,7 @@ void alias_array_set(AliasArray *array, size_t index, Alias *element)
     array->data[index] = element;
 }
 
-void alias_array_remove(AliasArray *array, size_t index)
+void alias_array_remove(alias_array_t *array, size_t index)
 {
     Expects_not_null(array);
     Expects(index < array->size);
@@ -136,7 +136,7 @@ void alias_array_remove(AliasArray *array, size_t index)
     array->data[array->size] = NULL; // Clear the last slot
 }
 
-void alias_array_clear(AliasArray *array)
+void alias_array_clear(alias_array_t *array)
 {
     Expects_not_null(array);
 
@@ -158,7 +158,7 @@ void alias_array_clear(AliasArray *array)
     }
 }
 
-void alias_array_resize(AliasArray *array, size_t new_capacity)
+void alias_array_resize(alias_array_t *array, size_t new_capacity)
 {
     Expects_not_null(array);
 
@@ -189,7 +189,7 @@ void alias_array_resize(AliasArray *array, size_t new_capacity)
 }
 
 // Operations
-void alias_array_foreach(AliasArray *array, AliasArrayApplyFunc apply_func, void *user_data)
+void alias_array_foreach(alias_array_t *array, alias_array_tApplyFunc apply_func, void *user_data)
 {
     Expects_not_null(array);
     Expects_not_null(apply_func);
@@ -200,7 +200,7 @@ void alias_array_foreach(AliasArray *array, AliasArrayApplyFunc apply_func, void
     }
 }
 
-int alias_array_find(AliasArray *array, Alias *element, size_t *index)
+int alias_array_find(alias_array_t *array, alias_t *element, size_t *index)
 {
     Expects_not_null(array);
     Expects_not_null(index);
@@ -216,7 +216,7 @@ int alias_array_find(AliasArray *array, Alias *element, size_t *index)
     return -1;
 }
 
-int alias_array_find_with_compare(AliasArray *array, const void *data, AliasArrayCompareFunc compare_func,
+int alias_array_find_with_compare(alias_array_t *array, const void *data, alias_array_tCompareFunc compare_func,
                                   size_t *index)
 {
     Expects_not_null(array);

@@ -34,20 +34,20 @@ CTEST(test_alias_name_invalid)
     (void)ctest;
 }
 
-// Test AliasStore basic operations
+// Test alias_store_t basic operations
 CTEST(test_alias_store_create_destroy)
 {
-    AliasStore *store = alias_store_create();
+    alias_store_t *store = alias_store_create();
     CTEST_ASSERT_NOT_NULL(ctest, store, "store created");
     CTEST_ASSERT_EQ(ctest, alias_store_size(store), 0, "initial size is 0");
     alias_store_destroy(store);
     (void)ctest;
 }
 
-// Test AliasStore add and get
+// Test alias_store_t add and get
 CTEST(test_alias_store_add_get)
 {
-    AliasStore *store = alias_store_create();
+    alias_store_t *store = alias_store_create();
     alias_store_add_cstr(store, "ls", "ls -la");
     
     CTEST_ASSERT_EQ(ctest, alias_store_size(store), 1, "size is 1 after add");
@@ -61,10 +61,10 @@ CTEST(test_alias_store_add_get)
     (void)ctest;
 }
 
-// Test AliasStore overwrite existing
+// Test alias_store_t overwrite existing
 CTEST(test_alias_store_overwrite)
 {
-    AliasStore *store = alias_store_create();
+    alias_store_t *store = alias_store_create();
     alias_store_add_cstr(store, "ls", "ls -la");
     alias_store_add_cstr(store, "ls", "ls -lah");
     
@@ -77,10 +77,10 @@ CTEST(test_alias_store_overwrite)
     (void)ctest;
 }
 
-// Test AliasStore remove
+// Test alias_store_t remove
 CTEST(test_alias_store_remove)
 {
-    AliasStore *store = alias_store_create();
+    alias_store_t *store = alias_store_create();
     alias_store_add_cstr(store, "ls", "ls -la");
     alias_store_add_cstr(store, "ll", "ls -l");
     
@@ -96,10 +96,10 @@ CTEST(test_alias_store_remove)
     (void)ctest;
 }
 
-// Test AliasStore clear
+// Test alias_store_t clear
 CTEST(test_alias_store_clear)
 {
-    AliasStore *store = alias_store_create();
+    alias_store_t *store = alias_store_create();
     alias_store_add_cstr(store, "ls", "ls -la");
     alias_store_add_cstr(store, "ll", "ls -l");
     
@@ -111,10 +111,10 @@ CTEST(test_alias_store_clear)
     (void)ctest;
 }
 
-// Test Alias creation
+// Test alias_t creation
 CTEST(test_alias_create_destroy)
 {
-    Alias *alias = alias_create_from_cstr("myalias", "echo hello");
+    alias_t *alias = alias_create_from_cstr("myalias", "echo hello");
     CTEST_ASSERT_NOT_NULL(ctest, alias, "alias created");
     
     CTEST_ASSERT_STR_EQ(ctest, alias_get_name_cstr(alias), "myalias", "name matches");
@@ -124,20 +124,20 @@ CTEST(test_alias_create_destroy)
     (void)ctest;
 }
 
-// Test AliasArray operations
+// Test alias_array_t operations
 CTEST(test_alias_array_operations)
 {
-    AliasArray *array = alias_array_create_with_free((AliasArrayFreeFunc)alias_destroy);
+    alias_array_t *array = alias_array_create_with_free((alias_array_free_func_t)alias_destroy);
     
     CTEST_ASSERT_TRUE(ctest, alias_array_is_empty(array), "initially empty");
     
-    Alias *a1 = alias_create_from_cstr("a1", "value1");
+    alias_t *a1 = alias_create_from_cstr("a1", "value1");
     alias_array_append(array, a1);
     
     CTEST_ASSERT_FALSE(ctest, alias_array_is_empty(array), "not empty after append");
     CTEST_ASSERT_EQ(ctest, alias_array_size(array), 1, "size is 1");
     
-    Alias *retrieved = alias_array_get(array, 0);
+    alias_t *retrieved = alias_array_get(array, 0);
     CTEST_ASSERT_EQ(ctest, retrieved, a1, "retrieved same alias");
     
     alias_array_destroy(array);

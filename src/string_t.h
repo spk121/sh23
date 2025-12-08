@@ -12,7 +12,13 @@ typedef struct string_t
     int capacity; // Total allocated bytes (including null terminator)
 } string_t;
 
-// Alias for compatibility
+typedef struct string_list_t {
+    string_t **strings;
+    int size;
+    int capacity;
+} string_list_t;
+
+// alias_t for compatibility
 typedef string_t String;
 
 static const int INITIAL_CAPACITY = 16;
@@ -64,5 +70,13 @@ bool string_contains_glob(const string_t *str);
 int string_utf8_length(const string_t *str);
 bool string_is_valid_utf8(const string_t *str);
 bool string_utf8_char_at(const string_t *str, int char_index, char *buffer, int buffer_size);
+
+string_list_t *string_list_create(void);
+void string_list_destroy(string_list_t *list);
+void string_list_take_append(string_list_t *list, string_t *str);
+void string_list_clone_append(string_list_t *list, const string_t *str);
+int string_list_size(const string_list_t *list);
+const string_t *string_list_get(const string_list_t *list, int index);
+void string_list_take_replace(string_list_t *list, int index, string_t *str);
 
 #endif

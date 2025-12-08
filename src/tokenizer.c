@@ -23,7 +23,7 @@ static const int TOKENIZER_INITIAL_EXPANDED_ALIASES_CAPACITY = 8;
  * Tokenizer Lifecycle Functions
  * ============================================================================ */
 
-tokenizer_t *tokenizer_create(AliasStore *aliases)
+tokenizer_t *tokenizer_create(alias_store_t *aliases)
 {
     tokenizer_t *tok = xcalloc(1, sizeof(tokenizer_t));
 
@@ -174,7 +174,7 @@ void tokenizer_clear_expanded_aliases(tokenizer_t *tok)
 }
 
 /* ============================================================================
- * Alias Expansion Helper Functions
+ * alias_t Expansion Helper Functions
  * ============================================================================ */
 
 bool tokenizer_alias_ends_with_blank(const char *alias_value)
@@ -255,7 +255,7 @@ void tokenizer_update_command_position(tokenizer_t *tok, const token_t *token)
 }
 
 /* ============================================================================
- * Alias Expansion Functions
+ * alias_t Expansion Functions
  * ============================================================================ */
 
 bool tokenizer_is_alias_eligible(const tokenizer_t *tok, const token_t *token)

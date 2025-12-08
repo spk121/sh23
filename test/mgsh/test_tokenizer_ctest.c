@@ -83,13 +83,13 @@ CTEST(test_tokenizer_empty_input)
 }
 
 /* ============================================================================
- * Simple Alias Expansion Tests
+ * Simple alias_t Expansion Tests
  * ============================================================================ */
 
 CTEST(test_tokenizer_simple_alias)
 {
     // Test simple alias: ll -> ls -l
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "ll", "ls -l");
 
     token_list_t *input = lex_string("ll");
@@ -115,7 +115,7 @@ CTEST(test_tokenizer_simple_alias)
 CTEST(test_tokenizer_alias_with_args)
 {
     // Test alias with arguments: ll file.txt -> ls -l file.txt
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "ll", "ls -l");
 
     token_list_t *input = lex_string("ll file.txt");
@@ -141,7 +141,7 @@ CTEST(test_tokenizer_alias_with_args)
 CTEST(test_tokenizer_no_alias_when_quoted)
 {
     // Test that quoted words are not expanded
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "ll", "ls -l");
 
     token_list_t *input = lex_string("'ll'");
@@ -167,7 +167,7 @@ CTEST(test_tokenizer_no_alias_when_quoted)
 CTEST(test_tokenizer_no_alias_not_at_command)
 {
     // Test that aliases are only expanded at command position
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "file", "myfile.txt");
 
     token_list_t *input = lex_string("cat file");
@@ -192,7 +192,7 @@ CTEST(test_tokenizer_no_alias_not_at_command)
 }
 
 /* ============================================================================
- * Alias with Trailing Blank Tests
+ * alias_t with Trailing Blank Tests
  * ============================================================================ */
 
 CTEST(test_tokenizer_alias_trailing_blank)
@@ -201,7 +201,7 @@ CTEST(test_tokenizer_alias_trailing_blank)
     // Example: nohup -> nohup  (with trailing space)
     //          bg -> background_command
     // So "nohup bg" should expand to "nohup background_command"
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "nohup", "nohup ");  // trailing space
     alias_store_add_cstr(aliases, "bg", "background_command");
 
@@ -227,13 +227,13 @@ CTEST(test_tokenizer_alias_trailing_blank)
 }
 
 /* ============================================================================
- * Recursive Alias Prevention Tests
+ * Recursive alias_t Prevention Tests
  * ============================================================================ */
 
 CTEST(test_tokenizer_prevent_direct_recursion)
 {
     // Test that direct recursion is prevented: ls -> ls -l
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "ls", "ls -l");
 
     token_list_t *input = lex_string("ls");
@@ -260,7 +260,7 @@ CTEST(test_tokenizer_prevent_direct_recursion)
 CTEST(test_tokenizer_prevent_indirect_recursion)
 {
     // Test that indirect recursion is prevented: a -> b, b -> a
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "a", "b");
     alias_store_add_cstr(aliases, "b", "a");
 
@@ -292,7 +292,7 @@ CTEST(test_tokenizer_prevent_indirect_recursion)
 CTEST(test_tokenizer_multiple_commands)
 {
     // Test that aliases are expanded separately for each command
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "ll", "ls -l");
 
     token_list_t *input = lex_string("ll ; ll");
@@ -319,7 +319,7 @@ CTEST(test_tokenizer_multiple_commands)
 CTEST(test_tokenizer_alias_in_pipeline)
 {
     // Test alias expansion in pipelines
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "ll", "ls -l");
 
     token_list_t *input = lex_string("ll | grep txt");
@@ -344,13 +344,13 @@ CTEST(test_tokenizer_alias_in_pipeline)
 }
 
 /* ============================================================================
- * Complex Alias Tests
+ * Complex alias_t Tests
  * ============================================================================ */
 
 CTEST(test_tokenizer_alias_to_multiple_commands)
 {
     // Test alias that expands to multiple commands
-    AliasStore *aliases = alias_store_create();
+    alias_store_t *aliases = alias_store_create();
     alias_store_add_cstr(aliases, "update", "apt update && apt upgrade");
 
     token_list_t *input = lex_string("update");

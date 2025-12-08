@@ -24,8 +24,8 @@ typedef enum
 
 typedef struct tokenizer_t
 {
-    /* Alias store for alias expansion */
-    AliasStore *aliases;
+    /* alias_t store for alias expansion */
+    alias_store_t *aliases;
 
     /* Input tokens from lexer */
     token_list_t *input_tokens;
@@ -60,7 +60,7 @@ typedef struct tokenizer_t
  * Create a new tokenizer.
  * If aliases is NULL, no alias expansion will be performed.
  */
-tokenizer_t *tokenizer_create(AliasStore *aliases);
+tokenizer_t *tokenizer_create(alias_store_t *aliases);
 
 /**
  * Destroy a tokenizer and free all associated memory.
@@ -96,7 +96,7 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
 tok_status_t tokenizer_process_one_token(tokenizer_t *tok);
 
 /* ============================================================================
- * Alias Expansion Functions
+ * alias_t Expansion Functions
  * ============================================================================ */
 
 /**

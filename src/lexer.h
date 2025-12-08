@@ -123,7 +123,7 @@ typedef struct lexer_t
     bool at_command_start; // true if next word could be a reserved word
     bool after_case_in;    // special context for case...in patterns
 
-    /* Alias expansion state (if you implement aliases) */
+    /* alias_t expansion state (if you implement aliases) */
     bool check_next_for_alias; // set when alias ends in blank
 
     /* Error reporting */

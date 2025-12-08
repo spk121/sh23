@@ -73,6 +73,8 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
 
 /**
  * Parse a complete program (command list).
+ * The caller is responsible for creating and initializing the parser
+ * and the AST node list.
  */
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node);
 
