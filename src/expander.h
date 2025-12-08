@@ -11,15 +11,37 @@
  * @brief Word expansion module for POSIX shell
  * 
  * The expander performs the word expansion steps according to POSIX:
- * 1. Tilde expansion
- * 2. Parameter expansion
- * 3. Command substitution
- * 4. Arithmetic expansion
- * 5. Field splitting
- * 6. Pathname expansion
- * 7. Quote removal
+ * 1. Tilde expansion - expand ~ to home directory
+ * 2. Parameter expansion - expand $VAR and ${VAR} to variable values
+ * 3. Command substitution - execute $(cmd) and replace with output (stub)
+ * 4. Arithmetic expansion - evaluate $((expr)) and replace with result (stub)
+ * 5. Field splitting - split unquoted expansions on IFS characters
+ * 6. Pathname expansion - glob patterns (not yet implemented)
+ * 7. Quote removal - handled during parsing phase
  * 
  * The expander operates on AST nodes or individual word tokens after parsing.
+ * 
+ * ## Implementation Status
+ * 
+ * - **Tilde expansion**: ✓ Implemented
+ *   - `~` expands to HOME
+ *   - `~+` expands to PWD
+ *   - `~-` expands to OLDPWD
+ *   - `~user` expands to user's home directory
+ * 
+ * - **Parameter expansion**: ✓ Basic implementation
+ *   - `$VAR` and `${VAR}` expand to environment variables
+ *   - Advanced forms (${var:-default}, etc.) not yet implemented
+ * 
+ * - **Command substitution**: ⚠ Stub implementation (returns empty)
+ * 
+ * - **Arithmetic expansion**: ⚠ Stub implementation (returns "0")
+ * 
+ * - **Field splitting**: ✓ Implemented
+ *   - Splits unquoted expansions on IFS characters
+ *   - Respects IFS whitespace vs. non-whitespace behavior
+ * 
+ * - **Pathname expansion**: ✗ Not yet implemented
  */
 
 // Opaque expander type
@@ -58,29 +80,33 @@ const string_t *expander_get_ifs(const expander_t *exp);
  * 
  * @param exp The expander instance
  * @param node The AST node to expand
- * @return The expanded AST (may be the same node or a modified copy)
+ * @return The expanded AST (currently returns the node unchanged)
  * 
- * @note This is a stub implementation that returns the node unchanged.
+ * @note This is currently a stub implementation that returns the node unchanged.
+ *       Full AST traversal and in-place expansion is planned for future development.
  */
 ast_node_t *expander_expand_ast(expander_t *exp, ast_node_t *node);
 
 /**
  * Expand a single word token into a list of strings.
  * 
- * This performs all expansion steps:
- * - Tilde expansion
- * - Parameter expansion
- * - Command substitution  
- * - Arithmetic expansion
- * - Field splitting
- * - Pathname expansion
- * - Quote removal
+ * This performs the following expansion steps in order:
+ * 1. Tilde expansion (if first part and unquoted)
+ * 2. Parameter expansion ($VAR or ${VAR})
+ * 3. Command substitution ($(cmd) or `cmd`) - stub
+ * 4. Arithmetic expansion ($((expr))) - stub
+ * 5. Field splitting (on unquoted expansions using IFS)
+ * 6. Pathname expansion (globbing) - not yet implemented
  * 
  * @param exp The expander instance
- * @param word_token The word token to expand
+ * @param word_token The word token to expand (must be TOKEN_WORD type)
  * @return A list of expanded strings (caller must free with string_list_destroy)
+ *         Returns empty list for non-WORD tokens.
  * 
- * @note This is a stub implementation that only handles literal parts.
+ * @note Quoting is respected:
+ *       - Single quotes prevent all expansions
+ *       - Double quotes allow expansions but prevent field splitting
+ *       - Unquoted expansions undergo field splitting
  */
 string_list_t *expander_expand_word(expander_t *exp, token_t *word_token);
 
