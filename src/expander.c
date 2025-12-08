@@ -526,6 +526,18 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
  * This performs parameter expansion on a raw string by scanning for $VAR
  * and ${VAR} patterns and replacing them with variable values. This is a
  * simplified expansion used by the arithmetic evaluator.
+ * 
+ * Note: This is a basic implementation that only handles simple parameter
+ * expansion. It does not support:
+ * - Special parameters ($?, $#, $$, $@, $*, $1, etc.)
+ * - Command substitution
+ * - Recursive expansion in braced forms (e.g., ${var:-word})
+ * 
+ * @param exp The expander instance (currently unused, reserved for future use)
+ * @param vars The variable store to use for parameter expansion
+ * @param input The input string to expand
+ * @return A newly allocated string with expansions applied (caller must free),
+ *         or NULL on error (e.g., unclosed braced expansion).
  */
 char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
 {
@@ -557,6 +569,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             
             // Extract variable name
             string_t *var_name = string_create_empty(32);
+            size_t var_start_pos = i;
             while (i < len) {
                 char c = input[i];
                 if (braced) {
@@ -567,14 +580,32 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
                     string_append_ascii_char(var_name, c);
                     i++;
                 } else {
-                    // For unbraced variables, accept alphanumeric and underscore
-                    if (isalnum(c) || c == '_') {
-                        string_append_ascii_char(var_name, c);
-                        i++;
+                    // For unbraced variables, first char must be letter/underscore
+                    if (i == var_start_pos) {
+                        if (isalpha(c) || c == '_') {
+                            string_append_ascii_char(var_name, c);
+                            i++;
+                        } else {
+                            break;
+                        }
                     } else {
-                        break;
+                        // Subsequent characters can be alphanumeric or underscore
+                        if (isalnum(c) || c == '_') {
+                            string_append_ascii_char(var_name, c);
+                            i++;
+                        } else {
+                            break;
+                        }
                     }
                 }
+            }
+            
+            // Check for unclosed braced variable expansion
+            if (braced && (i > len || (i > 0 && input[i-1] != '}'))) {
+                // Unclosed braced expansion - handle error
+                string_destroy(var_name);
+                string_destroy(result);
+                return NULL;
             }
             
             // Look up the variable value
@@ -601,7 +632,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
     }
     
     // Convert to C string and free the string_t
-    char *cstr = strdup(string_data(result));
+    char *cstr = xstrdup(string_data(result));
     string_destroy(result);
     
     return cstr;
