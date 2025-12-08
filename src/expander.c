@@ -519,3 +519,90 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     
     return result;
 }
+
+/**
+ * Expand a string directly (for arithmetic evaluation).
+ * 
+ * This performs parameter expansion on a raw string by scanning for $VAR
+ * and ${VAR} patterns and replacing them with variable values. This is a
+ * simplified expansion used by the arithmetic evaluator.
+ */
+char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
+{
+    (void)exp;  // Not currently used, but kept for future extensions
+    
+    if (input == NULL)
+        return NULL;
+    
+    string_t *result = string_create_empty(128);
+    size_t i = 0;
+    size_t len = strlen(input);
+    
+    while (i < len) {
+        if (input[i] == '$') {
+            i++;  // Skip the $
+            
+            if (i >= len) {
+                // Lone $ at end of string
+                string_append_ascii_char(result, '$');
+                break;
+            }
+            
+            // Check for ${VAR} or $VAR
+            bool braced = false;
+            if (input[i] == '{') {
+                braced = true;
+                i++;  // Skip the {
+            }
+            
+            // Extract variable name
+            string_t *var_name = string_create_empty(32);
+            while (i < len) {
+                char c = input[i];
+                if (braced) {
+                    if (c == '}') {
+                        i++;  // Skip the }
+                        break;
+                    }
+                    string_append_ascii_char(var_name, c);
+                    i++;
+                } else {
+                    // For unbraced variables, accept alphanumeric and underscore
+                    if (isalnum(c) || c == '_') {
+                        string_append_ascii_char(var_name, c);
+                        i++;
+                    } else {
+                        break;
+                    }
+                }
+            }
+            
+            // Look up the variable value
+            if (string_length(var_name) > 0) {
+                const char *value = variable_store_get_value_cstr(vars, string_data(var_name));
+                if (value != NULL) {
+                    string_append_cstr(result, value);
+                }
+                // If variable doesn't exist, expand to empty string
+            } else {
+                // Empty variable name: ${}  or $ followed by non-identifier
+                string_append_ascii_char(result, '$');
+                if (braced) {
+                    string_append_cstr(result, "{}");
+                }
+            }
+            
+            string_destroy(var_name);
+        } else {
+            // Regular character
+            string_append_ascii_char(result, input[i]);
+            i++;
+        }
+    }
+    
+    // Convert to C string and free the string_t
+    char *cstr = strdup(string_data(result));
+    string_destroy(result);
+    
+    return cstr;
+}

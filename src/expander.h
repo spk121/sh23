@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "string_t.h"
 #include "token.h"
+#include "variable_store.h"
 #include <stdbool.h>
 
 /**
@@ -109,5 +110,20 @@ ast_node_t *expander_expand_ast(expander_t *exp, ast_node_t *node);
  *       - Unquoted words may be split into multiple fields according to IFS
  */
 string_list_t *expander_expand_word(expander_t *exp, token_t *word_token);
+
+/**
+ * Expand a string directly (for arithmetic evaluation).
+ * 
+ * This performs parameter expansion and command substitution on a raw string,
+ * without field splitting or pathname expansion. This is used by the arithmetic
+ * evaluator to expand variable references within arithmetic expressions.
+ * 
+ * @param exp The expander instance
+ * @param vars The variable store to use for parameter expansion
+ * @param input The input string to expand
+ * @return A newly allocated string with expansions applied (caller must free),
+ *         or NULL on error.
+ */
+char *expand_string(expander_t *exp, variable_store_t *vars, const char *input);
 
 #endif /* EXPANDER_H */
