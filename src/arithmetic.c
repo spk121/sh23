@@ -674,16 +674,32 @@ static ArithmeticResult parse_primary(Parser *parser) {
     }
 
     if (token.type == MATH_TOKEN_VARIABLE) {
-        const char *value = variable_store_get_value_cstr(parser->vars, token.variable);
-        char *endptr;
-        long num = value ? strtol(value, &endptr, 10) : 0;
-        if (value && *endptr == '\0') {
+        // Check if this is a simple variable read (not followed by assignment operator)
+        // We need to peek ahead to see if an assignment operator follows
+        size_t saved_pos = parser->pos;
+        math_token_t next_token = get_token(parser);
+        parser->pos = saved_pos; // Restore position
+        
+        // If not followed by assignment operator, treat as variable read
+        if (next_token.type != MATH_TOKEN_ASSIGN &&
+            next_token.type != MATH_TOKEN_MULTIPLY_ASSIGN &&
+            next_token.type != MATH_TOKEN_DIVIDE_ASSIGN &&
+            next_token.type != MATH_TOKEN_MODULO_ASSIGN &&
+            next_token.type != MATH_TOKEN_PLUS_ASSIGN &&
+            next_token.type != MATH_TOKEN_MINUS_ASSIGN &&
+            next_token.type != MATH_TOKEN_LEFT_SHIFT_ASSIGN &&
+            next_token.type != MATH_TOKEN_RIGHT_SHIFT_ASSIGN &&
+            next_token.type != MATH_TOKEN_AND_ASSIGN &&
+            next_token.type != MATH_TOKEN_XOR_ASSIGN &&
+            next_token.type != MATH_TOKEN_OR_ASSIGN) {
+            // Variable read - get its value
+            const char *value = variable_store_get_value_cstr(parser->vars, token.variable);
+            char *endptr;
+            long num = value ? strtol(value, &endptr, 10) : 0;
             free_token(&token);
             return make_value(num);
         }
-        ArithmeticResult error = make_error("Invalid variable value");
-        free_token(&token);
-        return error;
+        // Otherwise, fall through to handle assignment below
     }
 
     if (token.type == MATH_TOKEN_LPAREN) {
@@ -704,21 +720,8 @@ static ArithmeticResult parse_primary(Parser *parser) {
         token = get_token(parser);
         math_token_type_t assign_type = token.type;
 
-        if (assign_type != MATH_TOKEN_ASSIGN &&
-            assign_type != MATH_TOKEN_MULTIPLY_ASSIGN &&
-            assign_type != MATH_TOKEN_DIVIDE_ASSIGN &&
-            assign_type != MATH_TOKEN_MODULO_ASSIGN &&
-            assign_type != MATH_TOKEN_PLUS_ASSIGN &&
-            assign_type != MATH_TOKEN_MINUS_ASSIGN &&
-            assign_type != MATH_TOKEN_LEFT_SHIFT_ASSIGN &&
-            assign_type != MATH_TOKEN_RIGHT_SHIFT_ASSIGN &&
-            assign_type != MATH_TOKEN_AND_ASSIGN &&
-            assign_type != MATH_TOKEN_XOR_ASSIGN &&
-            assign_type != MATH_TOKEN_OR_ASSIGN) {
-            free(var_name);
-            // Not an assignment operator - this is an error in current implementation
-            return make_error("Invalid variable assignment: expected assignment operator (=, +=, -=, etc.)");
-        }
+        // Note: We've already checked that this is an assignment operator in the lookahead above
+        // So this check should always pass
 
         ArithmeticResult right = parse_comma(parser);
         if (right.failed) {
