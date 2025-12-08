@@ -15,6 +15,8 @@ set(MGSH_LIB_SOURCES
     src/alias_store.h
     src/alias_array.c
     src/alias_array.h
+    src/arithmetic.c
+    src/arithmetic.h
     src/logging.c
     src/logging.h
     src/string_t.c

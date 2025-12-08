@@ -519,3 +519,123 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     
     return result;
 }
+
+/**
+ * Expand a string directly (for arithmetic evaluation).
+ * 
+ * This performs parameter expansion on a raw string by scanning for $VAR
+ * and ${VAR} patterns and replacing them with variable values. This is a
+ * simplified expansion used by the arithmetic evaluator.
+ * 
+ * Note: This is a basic implementation that only handles simple parameter
+ * expansion. It does not support:
+ * - Special parameters ($?, $#, $$, $@, $*, $1, etc.)
+ * - Command substitution
+ * - Recursive expansion in braced forms (e.g., ${var:-word})
+ * 
+ * @param exp The expander instance (currently unused, reserved for future use)
+ * @param vars The variable store to use for parameter expansion
+ * @param input The input string to expand
+ * @return A newly allocated string with expansions applied (caller must free),
+ *         or NULL on error (e.g., unclosed braced expansion).
+ */
+char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
+{
+    (void)exp;  // Not currently used, but kept for future extensions
+    
+    if (input == NULL)
+        return NULL;
+    
+    string_t *result = string_create_empty(128);
+    size_t i = 0;
+    size_t len = strlen(input);
+    
+    while (i < len) {
+        if (input[i] == '$') {
+            i++;  // Skip the $
+            
+            if (i >= len) {
+                // Lone $ at end of string
+                string_append_ascii_char(result, '$');
+                break;
+            }
+            
+            // Check for ${VAR} or $VAR
+            bool braced = false;
+            if (input[i] == '{') {
+                braced = true;
+                i++;  // Skip the {
+            }
+            
+            // Extract variable name
+            string_t *var_name = string_create_empty(32);
+            size_t var_start_pos = i;
+            bool found_closing_brace = false;
+            while (i < len) {
+                char c = input[i];
+                if (braced) {
+                    if (c == '}') {
+                        i++;  // Skip the }
+                        found_closing_brace = true;
+                        break;
+                    }
+                    string_append_ascii_char(var_name, c);
+                    i++;
+                } else {
+                    // For unbraced variables, first char must be letter/underscore
+                    if (i == var_start_pos) {
+                        if (isalpha(c) || c == '_') {
+                            string_append_ascii_char(var_name, c);
+                            i++;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        // Subsequent characters can be alphanumeric or underscore
+                        if (isalnum(c) || c == '_') {
+                            string_append_ascii_char(var_name, c);
+                            i++;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            // Check for unclosed braced variable expansion
+            if (braced && !found_closing_brace) {
+                // Unclosed braced expansion - handle error
+                string_destroy(var_name);
+                string_destroy(result);
+                return NULL;
+            }
+            
+            // Look up the variable value
+            if (string_length(var_name) > 0) {
+                const char *value = variable_store_get_value_cstr(vars, string_data(var_name));
+                if (value != NULL) {
+                    string_append_cstr(result, value);
+                }
+                // If variable doesn't exist, expand to empty string
+            } else {
+                // Empty variable name: ${}  or $ followed by non-identifier
+                string_append_ascii_char(result, '$');
+                if (braced) {
+                    string_append_cstr(result, "{}");
+                }
+            }
+            
+            string_destroy(var_name);
+        } else {
+            // Regular character
+            string_append_ascii_char(result, input[i]);
+            i++;
+        }
+    }
+    
+    // Convert to C string and free the string_t
+    char *cstr = xstrdup(string_data(result));
+    string_destroy(result);
+    
+    return cstr;
+}

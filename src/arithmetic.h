@@ -1,7 +1,8 @@
 #ifndef ARITHMETIC_H
 #define ARITHMETIC_H
 
-#include "executor.h"
+#include "expander.h"
+#include "variable_store.h"
 
 typedef struct {
     long value;       // Result if success
@@ -10,7 +11,7 @@ typedef struct {
 } ArithmeticResult;
 
 // Evaluate an arithmetic expression, handling parameter expansion and command substitution
-ArithmeticResult arithmetic_evaluate(Executor *exec, const char *expression);
+ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const char *expression);
 
 // Free an ArithmeticResult
 void arithmetic_result_free(ArithmeticResult *result);
