@@ -170,6 +170,12 @@ lexer_t *lexer_create(void);
 lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input);
 
 /**
+ * Append text to the lexer's input buffer, normalizing newlines.
+ * Converts \r\n  and \r to \n. Ensures line ends with \n.
+ */
+void lexer_append_input_cstr_normalize_newlines(lexer_t *lx, const char *input);
+
+/**
  * When dropping processed input, consider reallocating
  * if the input string has a large amount of unused capacity.
  */

@@ -28,9 +28,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#ifdef POSIX_API
 #include <unistd.h>
 #include <pwd.h>
 #include <sys/types.h>
+#endif
 #include <stdio.h>
 
 // Internal expander structure
@@ -38,6 +40,7 @@ struct expander_t
 {   
     string_t *ifs;
     variable_store_t *vars;
+    string_t *error_msg;
 };
 
 // ============================================================================
@@ -161,7 +164,7 @@ static string_t *expand_tilde(const string_t *text)
     
     if (name_len == 0)
         return string_clone(text);
-    
+#ifdef POSIX_API    
     char *username = xmalloc(name_len + 1);
     memcpy(username, str + 1, name_len);
     username[name_len] = '\0';
@@ -175,8 +178,13 @@ static string_t *expand_tilde(const string_t *text)
     string_t *result = string_create_from_cstr(pw->pw_dir);
     if (slash != NULL)
         string_append_cstr(result, slash);
-    
     return result;
+#else
+    // FIXME: add real error handling
+    fprintf(stderr, "expand_tilde: ~user expansion not supported on this platform\n");
+    return string_clone(text);
+    // expander error
+#endif
 }
 
 /**

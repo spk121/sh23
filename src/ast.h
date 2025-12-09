@@ -16,6 +16,8 @@
  */
 typedef enum
 {
+    AST_PROGRAM,            // top-level program node
+
     /* Basic command constructs */
     AST_SIMPLE_COMMAND,    // command with arguments and redirections
     AST_PIPELINE,          // sequence of commands connected by pipes
@@ -228,6 +230,8 @@ struct ast_node_t
         } word;
     } data;
 };
+
+typedef struct ast_node_t ast_t;
 
 /* ============================================================================
  * AST Node Lifecycle Functions

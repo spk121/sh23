@@ -17,6 +17,10 @@ set(MGSH_LIB_SOURCES
     src/alias_array.h
     src/arithmetic.c
     src/arithmetic.h
+    src/function_store.c
+    src/function_store.h
+    src/function_array.c
+    src/function_array.h
     src/logging.c
     src/logging.h
     src/string_t.c
@@ -57,6 +61,8 @@ set(MGSH_LIB_SOURCES
     src/variable_array.h
     src/variable_store.c
     src/variable_store.h
+    src/shell.c
+    src/shell.h
 )
 
 add_library(mgsh_lib STATIC ${MGSH_LIB_SOURCES})

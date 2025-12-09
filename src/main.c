@@ -1,82 +1,73 @@
-#include "lexer.h"
-#include "xalloc.h"
 #include <stdio.h>
 #include <string.h>
+#include "lexer.h"
+#include "xalloc.h"
+#include "tokenizer.h"
+#include "shell.h"
 
 int main(void)
 {
     arena_start();
 
-    char line[1024];
-    const char *PS1 = "shell> ";
-    const char *PS2 = "> "; // continuation prompt
+    alias_store_t *initial_aliases = alias_store_create(); // empty for now
+    alias_store_add_cstr(initial_aliases, "ll", "ls -l");
 
-    lexer_t *lx = NULL;
-    token_list_t *tokens = token_list_create();
+    shell_config_t cfg = {
+        .ps1 = "shell> ",
+        .ps2 = "> ",
+        .debug_level = SH_DEBUG,
+        .initial_aliases = initial_aliases,
+        .initial_funcs = NULL,
+        .initial_vars = NULL
+    };
+    
+    shell_t *sh = shell_create(&cfg);
+    alias_store_destroy(initial_aliases);
 
-    while (1)
+    sh_status_t status = SH_OK;
+
+    printf("%s ", shell_get_ps1(sh));
+    while(true)
     {
-        // Use PS1 if no lexer or lexer is in normal mode, PS2 if incomplete
-        if (lx == NULL || lexer_current_mode(lx) == LEX_NORMAL)
-        {
-            printf("%s", PS1);
-        }
-        else
-        {
-            printf("%s", PS2);
-        }
+        char line[1024];
 
         if (!fgets(line, sizeof(line), stdin))
             break;
+        if (strcmp(line, "exit\n") == 0)
+            break;
+        status = shell_feed_line(sh, line);
 
-        if (lx == NULL)
+        switch(status)
         {
-            lx = lexer_create();
-            lexer_append_input_cstr(lx, line);
-        }
-        else
-        {
-            // Append new input to existing lexer state
-            lexer_append_input_cstr(lx, line);
-        }
-
-        int num_tokens_read = 0;
-        lex_status_t status = lexer_tokenize(lx, tokens, &num_tokens_read);
-
-        if (num_tokens_read > 0)
-        {
-            string_t *dbg = token_list_to_string(tokens);
-            printf("%s\n", string_data(dbg));
-            string_destroy(dbg);
-        }
-        if (status == LEX_OK)
-        {
-            // Completed successfully
-            printf("Lexing complete.\n");
-            lexer_destroy(lx);
-            token_list_reinitialize(tokens);
-            lx = NULL; // reset for next line
-        }
-        if (status == LEX_ERROR)
-        {
-            printf("Error: %s\n", lexer_get_error(lx));
-            lexer_destroy(lx);
-            token_list_reinitialize(tokens);
-            lx = NULL;
-        }
-        else if (status == LEX_INCOMPLETE)
-        {
-            // Do not destroy lexer — keep state alive
-            // Next loop iteration will print PS2 and append more input
-            continue;
+            case SH_OK:
+                printf("%s ", shell_get_ps1(sh));
+                break;
+            case SH_INCOMPLETE:
+                printf("%s ", shell_get_ps2(sh));
+                break;
+            case SH_SYNTAX_ERROR:
+                printf("Syntax error: %s\n", shell_last_error(sh));
+                shell_reset_error(sh);
+                printf("%s ", shell_get_ps1(sh));
+                break;
+            case SH_RUNTIME_ERROR:
+                printf("Runtime error: %s\n", shell_last_error(sh));
+                shell_reset_error(sh);
+                printf("%s ", shell_get_ps1(sh));
+                break;
+            case SH_FATAL:
+                printf("Fatal error: %s\n", shell_last_error(sh));
+                shell_reset_error(sh);
+                printf("Reinitializing shell.\n");
+                shell_destroy(sh);
+                sh = shell_create(&cfg);
+                break;
+            default:
+                break;
         }
     }
-    token_list_destroy(tokens);
-    if (lx != NULL)
-    {
-        lexer_destroy(lx);
-    }
 
+    shell_destroy(sh);
     arena_end();
     return 0;
 }

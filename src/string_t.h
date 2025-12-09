@@ -45,6 +45,11 @@ int string_length(const string_t *str);
 int string_capacity(const string_t *str);
 bool string_is_empty(const string_t *str);
 
+char *string_front(string_t *str);
+char string_front_char(const string_t *str);
+char *string_back(string_t *str);
+char string_back_char(const string_t *str);
+
 // Modification
 void string_append_cstr(string_t *str, const char *data);
 void string_append_ascii_char(string_t *str, char c);

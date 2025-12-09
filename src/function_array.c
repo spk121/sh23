@@ -1,6 +1,7 @@
 #include "function_array.h"
 #include "xalloc.h"
 #include <string.h>
+#include "logging.h"
 
 static size_t grow_cap(size_t cap) { return cap ? cap * 2 : 8; }
 

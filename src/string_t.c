@@ -185,6 +185,38 @@ bool string_is_empty(const string_t *str)
     return str->length == 0;
 }
 
+char *string_front(string_t *str)
+{
+    Expects_not_null(str);
+    Expects(str->length > 0);
+
+    return &str->data[0];
+}
+
+char string_front_char(const string_t *str)
+{
+    Expects_not_null(str);
+    Expects(str->length > 0);
+
+    return str->data[0];
+}
+
+char *string_back(string_t *str)
+{
+    Expects_not_null(str);
+    Expects(str->length > 0);
+
+    return &str->data[str->length - 1];
+}
+
+char string_back_char(const string_t *str)
+{
+    Expects_not_null(str);
+    Expects(str->length > 0);
+
+    return str->data[str->length - 1];
+}
+
 // Modification
 void string_append_cstr(string_t *str, const char *data)
 {

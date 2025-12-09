@@ -69,6 +69,41 @@ lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input)
     return lx;
 }
 
+void lexer_append_input_cstr_normalize_newlines(lexer_t *lx, const char *input)
+{
+    Expects_not_null(lx);
+    Expects_not_null(input);
+
+    const char *p = input;
+    while (*p != '\0')
+    {
+        if (*p == '\r')
+        {
+            // Convert \r\n to \n
+            if (*(p + 1) == '\n')
+            {
+                string_append_cstr(lx->input, "\n");
+                p += 2;
+            }
+            else
+            {
+                string_append_cstr(lx->input, "\n");
+                p++;
+            }
+        }
+        else
+        {
+            string_append_cstr(lx->input, (char[]){*p, '\0'});
+            p++;
+        }
+    }
+    if (string_back_char(lx->input) != '\n')
+    {
+        // If input does not end with newline, append one
+        string_append_cstr(lx->input, "\n");
+    }
+}
+
 void lexer_drop_processed_input(lexer_t *lx)
 {
     Expects_not_null(lx);
