@@ -45,7 +45,7 @@ lex_status_t lexer_process_cmd_subst_paren(lexer_t *lx)
                 string_t *cmd_text =
                     string_create_from_range(lx->input, start_pos, lx->pos - start_pos - 1);
                 part_t *part = part_create_command_subst(cmd_text);
-                string_destroy(cmd_text);
+                string_destroy(&cmd_text);
 
                 if (lexer_in_mode(lx, LEX_DOUBLE_QUOTE))
                     part_set_quoted(part, false, true);
@@ -100,7 +100,7 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
     token_list_t *nested = token_list_create();
 
     // Buffer to accumulate raw command text
-    string_t *cmd_text = string_create_empty(64);
+    string_t *cmd_text = string_create();
 
     // Check if we're inside double quotes (affects backslash handling)
     bool in_dquote = lexer_in_mode(lx, LEX_DOUBLE_QUOTE);
@@ -117,7 +117,7 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
 
             // Add command substitution part to current token
             part_t *part = part_create_command_subst(cmd_text);
-            string_destroy(cmd_text);
+            string_destroy(&cmd_text);
 
             // Mark as double-quoted if inside double quotes
             if (in_dquote)
@@ -157,7 +157,7 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
             // These are always escaped in backticks
             if (next == '$' || next == '`' || next == '\\')
             {
-                string_append_ascii_char(cmd_text, next);
+                string_append_char(cmd_text, next);
                 lexer_advance(lx);
                 continue;
             }
@@ -165,25 +165,25 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
             // " is only escaped if NOT in double quotes
             if (next == '"' && !in_dquote)
             {
-                string_append_ascii_char(cmd_text, '"');
+                string_append_char(cmd_text, '"');
                 lexer_advance(lx);
                 continue;
             }
 
             // Otherwise: keep both \ and next
-            string_append_ascii_char(cmd_text, '\\');
-            string_append_ascii_char(cmd_text, next);
+            string_append_char(cmd_text, '\\');
+            string_append_char(cmd_text, next);
             lexer_advance(lx);
             continue;
         }
 
         // All other characters - add to command text
-        string_append_ascii_char(cmd_text, c);
+        string_append_char(cmd_text, c);
         lexer_advance(lx);
     }
 
     // End of input without closing backtick
-    string_destroy(cmd_text);
+    string_destroy(&cmd_text);
     token_list_destroy(nested);
     return LEX_INCOMPLETE;
 }

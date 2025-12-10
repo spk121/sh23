@@ -57,10 +57,10 @@ static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, pa
     Expects_gt(name_len, 0);
 
     // Create the parameter name string
-    string_t *param_name = string_create_empty(name_len);
+    string_t *param_name = string_create();
     for (int i = 0; i < name_len; i++)
     {
-        string_append_ascii_char(param_name, name[i]);
+        string_append_char(param_name, name[i]);
     }
 
     // Create the part
@@ -70,10 +70,10 @@ static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, pa
     // If there's a word (for ${var:-word} style), store it
     if (word != NULL && word_len > 0)
     {
-        part->word = string_create_empty(word_len);
+        part->word = string_create();
         for (int i = 0; i < word_len; i++)
         {
-            string_append_ascii_char(part->word, word[i]);
+            string_append_char(part->word, word[i]);
         }
     }
 
@@ -92,7 +92,7 @@ static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, pa
         lx->current_token->needs_field_splitting = true;
     }
 
-    string_destroy(param_name);
+    string_destroy(&param_name);
 }
 
 lex_status_t lexer_process_param_exp_unbraced(lexer_t *lx)

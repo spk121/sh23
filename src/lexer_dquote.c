@@ -75,7 +75,7 @@ static void lexer_append_dquote_char_to_word(lexer_t *lx, char c)
     part_t *part = part_create_literal(s);
     part_set_quoted(part, false, true); // not single-quoted, double-quoted
     token_add_part(lx->current_token, part);
-    string_destroy(s);
+    string_destroy(&s);
 }
 
 lex_status_t lexer_process_dquote(lexer_t *lx)

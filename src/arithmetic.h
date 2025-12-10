@@ -6,12 +6,12 @@
 
 typedef struct {
     long value;       // Result if success
-    char *error;      // Error message if failed (caller frees)
+    string_t *error;      // Error message if failed (caller frees)
     int failed;       // 1 if error, 0 if success
 } ArithmeticResult;
 
 // Evaluate an arithmetic expression, handling parameter expansion and command substitution
-ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const char *expression);
+ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const string_t *expression);
 
 // Free an ArithmeticResult
 void arithmetic_result_free(ArithmeticResult *result);

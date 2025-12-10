@@ -642,7 +642,7 @@ CTEST(test_ast_to_string)
         CTEST_ASSERT_NOT_NULL(ctest, str, "to_string works");
         CTEST_ASSERT(ctest, string_length(str) > 0, "string is not empty");
         
-        string_destroy(str);
+        string_destroy(&str);
         ast_node_destroy(ast);
     }
     (void)ctest;

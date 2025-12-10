@@ -19,7 +19,7 @@
 parser_t *parser_create(void)
 {
     parser_t *parser = (parser_t *)xcalloc(1, sizeof(parser_t));
-    parser->error_msg = string_create_empty(256);
+    parser->error_msg = string_create();
     parser->allow_in_keyword = false;
     return parser;
 }
@@ -31,7 +31,7 @@ void parser_destroy(parser_t *parser)
 
     if (parser->error_msg != NULL)
     {
-        string_destroy(parser->error_msg);
+        string_destroy(&parser->error_msg);
     }
 
     xfree(parser);
@@ -497,7 +497,7 @@ parse_status_t parser_parse_compound_command(parser_t *parser, ast_node_t **out_
             if (part_get_type(part) == PART_LITERAL)
             {
                 const string_t *text = part_get_text(part);
-                if (strcmp(string_data(text), "{") == 0)
+                if (string_compare_cstr(text, "{") == 0)
                 {
                     token_set_type(tok, TOKEN_LBRACE);
                     current = TOKEN_LBRACE;
@@ -775,7 +775,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
 
     token_t *var_tok = parser_current_token(parser);
     // Extract variable name from token
-    string_t *var_name = string_create_empty(32);
+    string_t *var_name = string_create();
     // For simplicity, assume single literal part
     if (token_part_count(var_tok) == 1)
     {
@@ -790,7 +790,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     if (string_length(var_name) == 0)
     {
         parser_set_error(parser, "Invalid variable name in for loop");
-        string_destroy(var_name);
+        string_destroy(&var_name);
         return PARSE_ERROR;
     }
     
@@ -832,7 +832,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_DO);
     if (status != PARSE_OK)
     {
-        string_destroy(var_name);
+        string_destroy(&var_name);
         if (words != NULL)
             token_list_destroy(words);
         return status;
@@ -845,7 +845,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_parse_command_list(parser, &body);
     if (status != PARSE_OK)
     {
-        string_destroy(var_name);
+        string_destroy(&var_name);
         if (words != NULL)
             token_list_destroy(words);
         return status;
@@ -857,7 +857,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_DONE);
     if (status != PARSE_OK)
     {
-        string_destroy(var_name);
+        string_destroy(&var_name);
         if (words != NULL)
             token_list_destroy(words);
         ast_node_destroy(body);
@@ -865,7 +865,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     }
 
     *out_node = ast_create_for_clause(var_name, words, body);
-    string_destroy(var_name); // ast_create_for_clause clones it
+    string_destroy(&var_name); // ast_create_for_clause clones it
     return PARSE_OK;
 }
 
@@ -1064,7 +1064,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
 
     token_t *name_tok = parser_current_token(parser);
     // Extract function name
-    string_t *func_name = string_create_empty(32);
+    string_t *func_name = string_create();
     if (token_part_count(name_tok) == 1)
     {
         part_t *part = token_get_part(name_tok, 0);
@@ -1078,7 +1078,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
     if (string_length(func_name) == 0)
     {
         parser_set_error(parser, "Invalid function name");
-        string_destroy(func_name);
+        string_destroy(&func_name);
         return PARSE_ERROR;
     }
     
@@ -1088,7 +1088,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
     parse_status_t status = parser_expect(parser, TOKEN_LPAREN);
     if (status != PARSE_OK)
     {
-        string_destroy(func_name);
+        string_destroy(&func_name);
         return status;
     }
 
@@ -1096,7 +1096,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
     status = parser_expect(parser, TOKEN_RPAREN);
     if (status != PARSE_OK)
     {
-        string_destroy(func_name);
+        string_destroy(&func_name);
         return status;
     }
 
@@ -1107,7 +1107,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
     status = parser_parse_compound_command(parser, &body);
     if (status != PARSE_OK)
     {
-        string_destroy(func_name);
+        string_destroy(&func_name);
         return status;
     }
 
@@ -1131,7 +1131,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
             status = parser_parse_redirection(parser, &redir);
             if (status != PARSE_OK)
             {
-                string_destroy(func_name);
+                string_destroy(&func_name);
                 ast_node_destroy(body);
                 ast_node_list_destroy(redirections);
                 return status;
@@ -1142,7 +1142,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
     }
 
     *out_node = ast_create_function_def(func_name, body, redirections);
-    string_destroy(func_name); // ast_create_function_def clones it
+    string_destroy(&func_name); // ast_create_function_def clones it
     return PARSE_OK;
 }
 

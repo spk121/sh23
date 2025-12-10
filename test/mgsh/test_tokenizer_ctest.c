@@ -108,7 +108,7 @@ CTEST(test_tokenizer_simple_alias)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -134,7 +134,7 @@ CTEST(test_tokenizer_alias_with_args)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -160,7 +160,7 @@ CTEST(test_tokenizer_no_alias_when_quoted)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -187,7 +187,7 @@ CTEST(test_tokenizer_no_alias_not_at_command)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -222,7 +222,7 @@ CTEST(test_tokenizer_alias_trailing_blank)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -253,7 +253,7 @@ CTEST(test_tokenizer_prevent_direct_recursion)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -281,7 +281,7 @@ CTEST(test_tokenizer_prevent_indirect_recursion)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -312,7 +312,7 @@ CTEST(test_tokenizer_multiple_commands)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -339,7 +339,7 @@ CTEST(test_tokenizer_alias_in_pipeline)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 
@@ -370,7 +370,7 @@ CTEST(test_tokenizer_alias_to_multiple_commands)
     token_list_destroy(input);
     token_list_destroy(output);
     tokenizer_destroy(tok);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     (void)ctest;
 }
 

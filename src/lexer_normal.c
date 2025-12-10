@@ -139,7 +139,7 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
                 lexer_set_error(lx, "unterminated single-quoted heredoc delimiter");
                 return false;
             }
-            string_append_ascii_char(out_delimiter, c);
+            string_append_char(out_delimiter, c);
             lexer_advance(lx);
         }
         lexer_set_error(lx, "unterminated single-quoted heredoc delimiter");
@@ -174,12 +174,12 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
                 {
                     lexer_advance(lx); // skip backslash
                     if (next != '\n')
-                        string_append_ascii_char(out_delimiter, next);
+                        string_append_char(out_delimiter, next);
                     lexer_advance(lx);
                     continue;
                 }
             }
-            string_append_ascii_char(out_delimiter, c);
+            string_append_char(out_delimiter, c);
             lexer_advance(lx);
         }
         lexer_set_error(lx, "unterminated double-quoted heredoc delimiter");
@@ -210,13 +210,13 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
             {
                 *out_delimiter_quoted = true; // backslash makes it quoted
                 lexer_advance(lx);            // skip <backslash>
-                string_append_ascii_char(out_delimiter, next);
+                string_append_char(out_delimiter, next);
                 lexer_advance(lx);
                 continue;
             }
         }
 
-        string_append_ascii_char(out_delimiter, c);
+        string_append_char(out_delimiter, c);
         lexer_advance(lx);
     }
 
@@ -278,17 +278,17 @@ static void heredoc_check(lexer_t *lx, bool *found_heredoc, bool *error)
     lexer_skip_whitespace(lx);
 
     /* Parse the delimiter word */
-    string_t *delimiter = string_create_empty(32);
+    string_t *delimiter = string_create();
     bool delimiter_quoted = false;
 
     if (!get_heredoc_delimiter(lx, delimiter, &delimiter_quoted))
     {
-        string_destroy(delimiter);
+        string_destroy(&delimiter);
         *error = true;
         return;
     }
     lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
-    string_destroy(delimiter);
+    string_destroy(&delimiter);
     *found_heredoc = true;
 }
 

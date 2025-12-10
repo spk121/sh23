@@ -9,8 +9,8 @@ variable_t *variable_create(const string_t *name, const string_t *value, bool ex
 
     variable_t *variable = xmalloc(sizeof(variable_t));
 
-    variable->name = string_clone(name);
-    variable->value = string_clone(value);
+    variable->name = string_create_from(name);
+    variable->value = string_create_from(value);
     variable->exported = exported;
     variable->read_only = read_only;
     return variable;
@@ -40,8 +40,8 @@ void variable_destroy(variable_t *variable)
                   variable->value ? string_data(variable->value) : "(null)",
                   variable->exported,
                   variable->read_only);
-        string_destroy(variable->name);
-        string_destroy(variable->value);
+        string_destroy(&variable->name);
+        string_destroy(&variable->value);
         xfree(variable);
     }
 }
@@ -89,9 +89,9 @@ int variable_set_name(variable_t *variable, const string_t *name)
     Expects_not_null(variable);
     Expects_not_null(name);
 
-    string_t *new_name = string_clone(name);
+    string_t *new_name = string_create_from(name);
 
-    string_destroy(variable->name);
+    string_destroy(&variable->name);
     variable->name = new_name;
     return 0;
 }
@@ -106,9 +106,9 @@ int variable_set_value(variable_t *variable, const string_t *value)
         return -1;
     }
 
-    string_t *new_value = string_clone(value);
+    string_t *new_value = string_create_from(value);
 
-    string_destroy(variable->value);
+    string_destroy(&variable->value);
     variable->value = new_value;
     return 0;
 }
@@ -120,7 +120,7 @@ int variable_set_name_cstr(variable_t *variable, const char *name)
 
     string_t *new_name = string_create_from_cstr(name);
 
-    string_destroy(variable->name);
+    string_destroy(&variable->name);
     variable->name = new_name;
     return 0;
 }
@@ -137,7 +137,7 @@ int variable_set_value_cstr(variable_t *variable, const char *value)
 
     string_t *new_value = string_create_from_cstr(value);
 
-    string_destroy(variable->value);
+    string_destroy(&variable->value);
     variable->value = new_value;
     return 0;
 }

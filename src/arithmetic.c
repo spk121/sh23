@@ -13,11 +13,11 @@
 #include "logging.h"
 
 typedef struct {
-    const char *input;
-    size_t pos;
+    string_t *input;
+    int pos;
     expander_t *exp;
     variable_store_t *vars;
-} Parser;
+} math_parser_t;
 
 // Token types for arithmetic lexer
 typedef enum {
@@ -65,58 +65,56 @@ typedef enum {
 typedef struct {
     math_token_type_t type;
     long number;    // For MATH_TOKEN_NUMBER
-    char *variable; // For MATH_TOKEN_VARIABLE (caller frees)
+    string_t *variable; // For MATH_TOKEN_VARIABLE (caller frees)
 } math_token_t;
 
+static bool is_alpha_or_underscore(char c) {
+    return isalpha(c) || c == '_';
+}
+
 // Initialize parser
-static void parser_init(Parser *parser, expander_t *exp, variable_store_t *vars, const char *input) {
-    parser->input = input;
+static void parser_init(math_parser_t *parser, expander_t *exp, variable_store_t *vars, const string_t *input) {
+    parser->input = string_create_from(input);
     parser->pos = 0;
     parser->exp = exp;
     parser->vars = vars;
 }
 
 // Skip whitespace
-static void skip_whitespace(Parser *parser) {
-    while (isspace(parser->input[parser->pos])) {
+static void skip_whitespace(math_parser_t *parser) {
+    while (isspace(string_at(parser->input, parser->pos))) {
         parser->pos++;
     }
 }
 
 // Get next token
-static math_token_t get_token(Parser *parser) {
+static math_token_t get_token(math_parser_t *parser) {
     skip_whitespace(parser);
     math_token_t token = {0};
 
-    if (parser->input[parser->pos] == '\0') {
+    if (string_length(parser->input) == parser->pos) {
         token.type = MATH_TOKEN_EOF;
         return token;
     }
 
-    char c = parser->input[parser->pos];
+    char c = string_at(parser->input, parser->pos);
     if (isdigit(c)) {
-        // Parse decimal, octal, or hexadecimal
-        char *endptr;
-        long value = strtol(parser->input + parser->pos, &endptr, 0);
-        if (endptr == parser->input + parser->pos) {
-            token.type = MATH_TOKEN_EOF; // Invalid number
-        } else {
-            token.type = MATH_TOKEN_NUMBER;
-            token.number = value;
-            parser->pos = endptr - parser->input;
-        }
+        // FIXME: need to handle hex, octal?
+        int endpos;
+        long value = string_atol_at(parser->input, parser->pos, &endpos);
+        token.type = MATH_TOKEN_NUMBER;
+        token.number = value;
+        parser->pos = endpos;
         return token;
     }
 
     if (isalpha(c) || c == '_') {
         // Parse variable name
-        string_t *var = string_create_empty(32);
-        while (isalnum(parser->input[parser->pos]) || parser->input[parser->pos] == '_') {
-            string_append_ascii_char(var, parser->input[parser->pos++]);
-        }
+        int endpos = string_find_first_not_of_predicate_at(parser->input, is_alpha_or_underscore, parser->pos);
+        string_t *var = string_substring(parser->input, parser->pos, endpos);
         token.type = MATH_TOKEN_VARIABLE;
-        token.variable = xstrdup(string_data(var));
-        string_destroy(var);
+        token.variable = var;
+        string_destroy(&var);
         return token;
     }
 
@@ -125,7 +123,7 @@ static math_token_t get_token(Parser *parser) {
         case '(': token.type = MATH_TOKEN_LPAREN; break;
         case ')': token.type = MATH_TOKEN_RPAREN; break;
         case '+':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_PLUS_ASSIGN;
                 parser->pos++;
             } else {
@@ -133,7 +131,7 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '-':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_MINUS_ASSIGN;
                 parser->pos++;
             } else {
@@ -141,7 +139,7 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '*':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_MULTIPLY_ASSIGN;
                 parser->pos++;
             } else {
@@ -149,7 +147,7 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '/':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_DIVIDE_ASSIGN;
                 parser->pos++;
             } else {
@@ -157,7 +155,7 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '%':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_MODULO_ASSIGN;
                 parser->pos++;
             } else {
@@ -166,7 +164,7 @@ static math_token_t get_token(Parser *parser) {
             break;
         case '~': token.type = MATH_TOKEN_BIT_NOT; break;
         case '!':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_NOT_EQUAL;
                 parser->pos++;
             } else {
@@ -174,15 +172,15 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '<':
-            if (parser->input[parser->pos] == '<') {
+            if (string_at(parser->input, parser->pos) == '<') {
                 parser->pos++;
-                if (parser->input[parser->pos] == '=') {
+                if (string_at(parser->input, parser->pos) == '=') {
                     token.type = MATH_TOKEN_LEFT_SHIFT_ASSIGN;
                     parser->pos++;
                 } else {
                     token.type = MATH_TOKEN_LEFT_SHIFT;
                 }
-            } else if (parser->input[parser->pos] == '=') {
+            } else if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_LESS_EQUAL;
                 parser->pos++;
             } else {
@@ -190,15 +188,15 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '>':
-            if (parser->input[parser->pos] == '>') {
+            if (string_at(parser->input, parser->pos) == '>') {
                 parser->pos++;
-                if (parser->input[parser->pos] == '=') {
+                if (string_at(parser->input, parser->pos) == '=') {
                     token.type = MATH_TOKEN_RIGHT_SHIFT_ASSIGN;
                     parser->pos++;
                 } else {
                     token.type = MATH_TOKEN_RIGHT_SHIFT;
                 }
-            } else if (parser->input[parser->pos] == '=') {
+            } else if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_GREATER_EQUAL;
                 parser->pos++;
             } else {
@@ -206,7 +204,7 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '=':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_EQUAL;
                 parser->pos++;
             } else {
@@ -214,10 +212,10 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '&':
-            if (parser->input[parser->pos] == '&') {
+            if (string_at(parser->input, parser->pos) == '&') {
                 token.type = MATH_TOKEN_LOGICAL_AND;
                 parser->pos++;
-            } else if (parser->input[parser->pos] == '=') {
+            } else if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_AND_ASSIGN;
                 parser->pos++;
             } else {
@@ -225,7 +223,7 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '^':
-            if (parser->input[parser->pos] == '=') {
+            if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_XOR_ASSIGN;
                 parser->pos++;
             } else {
@@ -233,10 +231,10 @@ static math_token_t get_token(Parser *parser) {
             }
             break;
         case '|':
-            if (parser->input[parser->pos] == '|') {
+            if (string_at(parser->input, parser->pos) == '|') {
                 token.type = MATH_TOKEN_LOGICAL_OR;
                 parser->pos++;
-            } else if (parser->input[parser->pos] == '=') {
+            } else if (string_at(parser->input, parser->pos) == '=') {
                 token.type = MATH_TOKEN_OR_ASSIGN;
                 parser->pos++;
             } else {
@@ -261,26 +259,26 @@ static void free_token(math_token_t *token) {
 }
 
 // Parse and evaluate expression (comma expression)
-static ArithmeticResult parse_comma(Parser *parser);
-static ArithmeticResult parse_ternary(Parser *parser);
-static ArithmeticResult parse_logical_or(Parser *parser);
-static ArithmeticResult parse_logical_and(Parser *parser);
-static ArithmeticResult parse_bit_or(Parser *parser);
-static ArithmeticResult parse_bit_xor(Parser *parser);
-static ArithmeticResult parse_bit_and(Parser *parser);
-static ArithmeticResult parse_equality(Parser *parser);
-static ArithmeticResult parse_comparison(Parser *parser);
-static ArithmeticResult parse_shift(Parser *parser);
-static ArithmeticResult parse_additive(Parser *parser);
-static ArithmeticResult parse_multiplicative(Parser *parser);
-static ArithmeticResult parse_unary(Parser *parser);
-static ArithmeticResult parse_primary(Parser *parser);
+static ArithmeticResult parse_comma(math_parser_t *parser);
+static ArithmeticResult parse_ternary(math_parser_t *parser);
+static ArithmeticResult parse_logical_or(math_parser_t *parser);
+static ArithmeticResult parse_logical_and(math_parser_t *parser);
+static ArithmeticResult parse_bit_or(math_parser_t *parser);
+static ArithmeticResult parse_bit_xor(math_parser_t *parser);
+static ArithmeticResult parse_bit_and(math_parser_t *parser);
+static ArithmeticResult parse_equality(math_parser_t *parser);
+static ArithmeticResult parse_comparison(math_parser_t *parser);
+static ArithmeticResult parse_shift(math_parser_t *parser);
+static ArithmeticResult parse_additive(math_parser_t *parser);
+static ArithmeticResult parse_multiplicative(math_parser_t *parser);
+static ArithmeticResult parse_unary(math_parser_t *parser);
+static ArithmeticResult parse_primary(math_parser_t *parser);
 
 // Helper to create error result
 static ArithmeticResult make_error(const char *msg) {
     ArithmeticResult result = {0};
     result.failed = 1;
-    result.error = strdup(msg);
+    result.error = string_create_from_cstr(msg);
     return result;
 }
 
@@ -293,7 +291,7 @@ static ArithmeticResult make_value(long value) {
 }
 
 // Comma expression (handles assignments)
-static ArithmeticResult parse_comma(Parser *parser) {
+static ArithmeticResult parse_comma(math_parser_t *parser) {
     ArithmeticResult left = parse_ternary(parser);
     if (left.failed) return left;
 
@@ -315,7 +313,7 @@ static ArithmeticResult parse_comma(Parser *parser) {
 }
 
 // Ternary expression
-static ArithmeticResult parse_ternary(Parser *parser) {
+static ArithmeticResult parse_ternary(math_parser_t *parser) {
     ArithmeticResult cond = parse_logical_or(parser);
     if (cond.failed) return cond;
 
@@ -353,7 +351,7 @@ static ArithmeticResult parse_ternary(Parser *parser) {
 }
 
 // Logical OR
-static ArithmeticResult parse_logical_or(Parser *parser) {
+static ArithmeticResult parse_logical_or(math_parser_t *parser) {
     ArithmeticResult left = parse_logical_and(parser);
     if (left.failed) return left;
 
@@ -383,7 +381,7 @@ static ArithmeticResult parse_logical_or(Parser *parser) {
 }
 
 // Logical AND
-static ArithmeticResult parse_logical_and(Parser *parser) {
+static ArithmeticResult parse_logical_and(math_parser_t *parser) {
     ArithmeticResult left = parse_bit_or(parser);
     if (left.failed) return left;
 
@@ -413,7 +411,7 @@ static ArithmeticResult parse_logical_and(Parser *parser) {
 }
 
 // Bitwise OR
-static ArithmeticResult parse_bit_or(Parser *parser) {
+static ArithmeticResult parse_bit_or(math_parser_t *parser) {
     ArithmeticResult left = parse_bit_xor(parser);
     if (left.failed) return left;
 
@@ -438,7 +436,7 @@ static ArithmeticResult parse_bit_or(Parser *parser) {
 }
 
 // Bitwise XOR
-static ArithmeticResult parse_bit_xor(Parser *parser) {
+static ArithmeticResult parse_bit_xor(math_parser_t *parser) {
     ArithmeticResult left = parse_bit_and(parser);
     if (left.failed) return left;
 
@@ -463,7 +461,7 @@ static ArithmeticResult parse_bit_xor(Parser *parser) {
 }
 
 // Bitwise AND
-static ArithmeticResult parse_bit_and(Parser *parser) {
+static ArithmeticResult parse_bit_and(math_parser_t *parser) {
     ArithmeticResult left = parse_equality(parser);
     if (left.failed) return left;
 
@@ -488,7 +486,7 @@ static ArithmeticResult parse_bit_and(Parser *parser) {
 }
 
 // Equality
-static ArithmeticResult parse_equality(Parser *parser) {
+static ArithmeticResult parse_equality(math_parser_t *parser) {
     ArithmeticResult left = parse_comparison(parser);
     if (left.failed) return left;
 
@@ -517,7 +515,7 @@ static ArithmeticResult parse_equality(Parser *parser) {
 }
 
 // Comparison
-static ArithmeticResult parse_comparison(Parser *parser) {
+static ArithmeticResult parse_comparison(math_parser_t *parser) {
     ArithmeticResult left = parse_shift(parser);
     if (left.failed) return left;
 
@@ -549,7 +547,7 @@ static ArithmeticResult parse_comparison(Parser *parser) {
 }
 
 // Shift
-static ArithmeticResult parse_shift(Parser *parser) {
+static ArithmeticResult parse_shift(math_parser_t *parser) {
     ArithmeticResult left = parse_additive(parser);
     if (left.failed) return left;
 
@@ -578,7 +576,7 @@ static ArithmeticResult parse_shift(Parser *parser) {
 }
 
 // Additive
-static ArithmeticResult parse_additive(Parser *parser) {
+static ArithmeticResult parse_additive(math_parser_t *parser) {
     ArithmeticResult left = parse_multiplicative(parser);
     if (left.failed) return left;
 
@@ -607,7 +605,7 @@ static ArithmeticResult parse_additive(Parser *parser) {
 }
 
 // Multiplicative
-static ArithmeticResult parse_multiplicative(Parser *parser) {
+static ArithmeticResult parse_multiplicative(math_parser_t *parser) {
     ArithmeticResult left = parse_unary(parser);
     if (left.failed) return left;
 
@@ -648,7 +646,7 @@ static ArithmeticResult parse_multiplicative(Parser *parser) {
 }
 
 // Unary
-static ArithmeticResult parse_unary(Parser *parser) {
+static ArithmeticResult parse_unary(math_parser_t *parser) {
     size_t saved_pos = parser->pos;
     math_token_t token = get_token(parser);
     if (token.type == MATH_TOKEN_PLUS || token.type == MATH_TOKEN_MINUS ||
@@ -671,7 +669,7 @@ static ArithmeticResult parse_unary(Parser *parser) {
 }
 
 // Primary (number, variable, parenthesized expression, assignment)
-static ArithmeticResult parse_primary(Parser *parser) {
+static ArithmeticResult parse_primary(math_parser_t *parser) {
     math_token_t token = get_token(parser);
 
     if (token.type == MATH_TOKEN_NUMBER) {
@@ -698,9 +696,8 @@ static ArithmeticResult parse_primary(Parser *parser) {
             next_token.type != MATH_TOKEN_XOR_ASSIGN &&
             next_token.type != MATH_TOKEN_OR_ASSIGN) {
             // Variable read - get its value
-            const char *value = variable_store_get_value_cstr(parser->vars, token.variable);
-            char *endptr;
-            long num = value ? strtol(value, &endptr, 10) : 0;
+            const string_t *value = variable_store_get_value(parser->vars, token.variable);
+            long num = value ? string_atol(value) : 0;
             free_token(&token);
             return make_value(num);
         }
@@ -721,7 +718,6 @@ static ArithmeticResult parse_primary(Parser *parser) {
 
     // Handle assignment (e.g., x=5, x+=2)
     if (token.type == MATH_TOKEN_VARIABLE) {
-        char *var_name = token.variable;
         token = get_token(parser);
         math_token_type_t assign_type = token.type;
 
@@ -730,71 +726,60 @@ static ArithmeticResult parse_primary(Parser *parser) {
 
         ArithmeticResult right = parse_comma(parser);
         if (right.failed) {
-            free(var_name);
             return right;
         }
 
         long value = right.value;
+        const string_t *var_value = variable_store_get_value(parser->vars, token.variable);
+        long var_num = var_value ? string_atol(var_value) : 0;        
         switch (assign_type) {
             case MATH_TOKEN_MULTIPLY_ASSIGN:
-                value *= variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0;
+                value *= var_num;
                 break;
             case MATH_TOKEN_DIVIDE_ASSIGN:
                 if (value == 0) {
-                    free(var_name);
                     arithmetic_result_free(&right);
                     return make_error("Division by zero in assignment");
                 }
-                value = (variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0) / value;
+
+                value = var_num / value;
                 break;
             case MATH_TOKEN_MODULO_ASSIGN:
                 if (value == 0) {
-                    free(var_name);
                     arithmetic_result_free(&right);
                     return make_error("Modulo by zero in assignment");
                 }
-                value = (variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0) % value;
+                value = var_num % value;
                 break;
             case MATH_TOKEN_PLUS_ASSIGN:
-                value += variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0;
+                value += var_num;
                 break;
             case MATH_TOKEN_MINUS_ASSIGN:
-                value = (variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0) - value;
+                value = var_num - value;
                 break;
             case MATH_TOKEN_LEFT_SHIFT_ASSIGN:
-                value = (variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0) << value;
+                value = var_num << value;
                 break;
             case MATH_TOKEN_RIGHT_SHIFT_ASSIGN:
-                value = (variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0) >> value;
+                value = var_num >> value;
                 break;
             case MATH_TOKEN_AND_ASSIGN:
-                value &= variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0;
+                value &= var_num;
                 break;
             case MATH_TOKEN_XOR_ASSIGN:
-                value ^= variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0;
+                value ^= var_num;
                 break;
             case MATH_TOKEN_OR_ASSIGN:
-                value |= variable_store_get_value_cstr(parser->vars, var_name) ?
-                         strtol(variable_store_get_value_cstr(parser->vars, var_name), NULL, 10) : 0;
+                value |= var_num;
                 break;
             default:
                 break; // MATH_TOKEN_ASSIGN uses right.value directly
         }
 
         // Update variable
-        char value_str[32];
-        snprintf(value_str, sizeof(value_str), "%ld", value);
-        variable_store_add_cstr(parser->vars, var_name, value_str, false, false);
-        free(var_name);
+        string_t *value_str = string_from_long(value);
+        variable_store_add(parser->vars, token.variable, value_str, false, false);
+        string_destroy(&value_str);
         return right;
     }
 
@@ -811,7 +796,7 @@ static ArithmeticResult parse_primary(Parser *parser) {
  * 4. Expand the AST (parameter expansion, command substitution, quote removal)
  * 5. Return the fully expanded string
  */
-static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t *vars, const char *expr_text)
+static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t *vars, const string_t *expr_text)
 {
     // Step 1: Re-lex the raw text inside $(())
     lexer_t *lx = lexer_create();
@@ -820,7 +805,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
         return NULL;
     }
     
-    lexer_append_input_cstr(lx, expr_text);
+    lexer_append_input(lx, expr_text);
     
     // Step 2: Tokenize
     token_list_t *tokens = token_list_create();
@@ -848,7 +833,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     if (!tokenizer || !aliased_tokens) {
         token_list_destroy(aliased_tokens);
         if (tokenizer) tokenizer_destroy(tokenizer);
-        alias_store_destroy(aliases);
+        alias_store_destroy(&aliases);
         token_list_destroy(tokens);
         lexer_destroy(lx);
         log_error("arithmetic_expand_expression: failed to create tokenizer");
@@ -862,7 +847,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     
     // Step 4: Expand each word token
     // We need to expand parameters, command substitutions, etc.
-    string_t *result = string_create_empty(256);
+    string_t *result = string_create();
     
     // Set the variable store once before the loop
     expander_set_variable_store(exp, vars);
@@ -890,7 +875,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     // Cleanup
     token_list_destroy(aliased_tokens);
     tokenizer_destroy(tokenizer);
-    alias_store_destroy(aliases);
+    alias_store_destroy(&aliases);
     token_list_destroy(tokens);
     lexer_destroy(lx);
     
@@ -898,18 +883,16 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
 }
 
 // Evaluate arithmetic expression
-ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const char *expression) {
+ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const string_t *expression) {
     // Step 1-4: Perform full recursive expansion
     string_t *expanded_str = arithmetic_expand_expression(exp, vars, expression);
     if (!expanded_str) {
         return make_error("Failed to expand arithmetic expression");
     }
     
-    const char *expanded = string_data(expanded_str);
-    
     // Step 5: Parse and evaluate the fully expanded expression
-    Parser parser;
-    parser_init(&parser, exp, vars, expanded);
+    math_parser_t parser;
+    parser_init(&parser, exp, vars, expanded_str);
     ArithmeticResult result = parse_comma(&parser);
     
     // Check for trailing tokens
@@ -920,7 +903,7 @@ ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, co
     }
     free_token(&token);
     
-    string_destroy(expanded_str);
+    string_destroy(&expanded_str);
     return result;
 }
 

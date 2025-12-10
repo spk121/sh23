@@ -61,9 +61,9 @@ void variable_store_destroy(variable_store_t *store)
                   store,
                   variable_array_size(store->variables),
                   variable_array_size(store->positional_params));
-        string_destroy(store->options);
-        string_destroy(store->shell_name);
-        string_destroy(store->status_str);
+        string_destroy(&store->options);
+        string_destroy(&store->shell_name);
+        string_destroy(&store->status_str);
         variable_array_destroy(store->positional_params);
         variable_array_destroy(store->variables);
         xfree(store);
@@ -84,13 +84,13 @@ int variable_store_clear(variable_store_t *store)
     variable_array_clear(store->positional_params);
 
     string_t *new_status = string_create_from_cstr("0");
-    string_destroy(store->status_str);
+    string_destroy(&store->status_str);
     store->status_str = new_status;
 
     store->last_bg_pid = 0;
 
     string_t *new_options = string_create_from_cstr("");
-    string_destroy(store->options);
+    string_destroy(&store->options);
     store->options = new_options;
 
     return 0;
@@ -270,7 +270,7 @@ int variable_store_set_read_only(variable_store_t *store, const string_t *name, 
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
-        log_fatal("variable_store_set_read_only: variable %s not found", string_data(name));
+        log_fatal("variable_store_set_read_only: variable %s not found", string_cstr(name));
         return -1; // Name not found
     }
 
@@ -300,7 +300,7 @@ int variable_store_set_exported(variable_store_t *store, const string_t *name, b
 
     size_t index;
     if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
-        log_fatal("variable_store_set_exported: variable %s not found", string_data(name));
+        log_fatal("variable_store_set_exported: variable %s not found", string_cstr(name));
         return -1; // Name not found
     }
 
@@ -334,7 +334,7 @@ void variable_store_set_positional_params(variable_store_t *store, const string_
         Expects_not_null(params[i]);
         char index_str[32];
         snprintf(index_str, sizeof(index_str), "%zu", i + 1);
-        variable_t *var = variable_create_from_cstr(index_str, string_data(params[i]), false, false);
+        variable_t *var = variable_create_from_cstr(index_str, string_cstr(params[i]), false, false);
         variable_array_append(store->positional_params, var);
     }
 }
@@ -427,9 +427,9 @@ void variable_store_set_status(variable_store_t *store, const string_t *status)
     Expects_not_null(store);
     Expects_not_null(status);
 
-    string_t *new_status = string_clone(status);
+    string_t *new_status =  string_create_from(status);
 
-    string_destroy(store->status_str);
+    string_destroy(&store->status_str);
     store->status_str = new_status;
 }
 
@@ -440,7 +440,7 @@ void variable_store_set_status_cstr(variable_store_t *store, const char *status)
 
     string_t *new_status = string_create_from_cstr(status);
 
-    string_destroy(store->status_str);
+    string_destroy(&store->status_str);
     store->status_str = new_status;
 }
 
@@ -449,9 +449,9 @@ void variable_store_set_shell_name(variable_store_t *store, const string_t *shel
     Expects_not_null(store);
     Expects_not_null(shell_name);
 
-    string_t *new_shell_name = string_clone(shell_name);
+    string_t *new_shell_name = string_create_from(shell_name);
 
-    string_destroy(store->shell_name);
+    string_destroy(&store->shell_name);
     store->shell_name = new_shell_name;
 }
 
@@ -462,7 +462,7 @@ void variable_store_set_shell_name_cstr(variable_store_t *store, const char *she
 
     string_t *new_shell_name = string_create_from_cstr(shell_name);
 
-    string_destroy(store->shell_name);
+    string_destroy(&store->shell_name);
     store->shell_name = new_shell_name;
 }
 
@@ -477,9 +477,9 @@ void variable_store_set_options(variable_store_t *store, const string_t *options
     Expects_not_null(store);
     Expects_not_null(options);
 
-    string_t *new_options = string_clone(options);
+    string_t *new_options = string_create_from(options);
 
-    string_destroy(store->options);
+    string_destroy(&store->options);
     store->options = new_options;
 }
 
@@ -490,7 +490,7 @@ void variable_store_set_options_cstr(variable_store_t *store, const char *option
 
     string_t *new_options = string_create_from_cstr(options);
 
-    string_destroy(store->options);
+    string_destroy(&store->options);
     store->options = new_options;
 }   
 

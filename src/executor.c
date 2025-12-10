@@ -19,7 +19,7 @@
 executor_t *executor_create(void)
 {
     executor_t *executor = (executor_t *)xcalloc(1, sizeof(executor_t));
-    executor->error_msg = string_create_empty(256);
+    executor->error_msg = string_create();
     executor->last_exit_status = 0;
     executor->dry_run = false;
     return executor;
@@ -32,7 +32,7 @@ void executor_destroy(executor_t *executor)
 
     if (executor->error_msg != NULL)
     {
-        string_destroy(executor->error_msg);
+        string_destroy(&executor->error_msg);
     }
 
     xfree(executor);
@@ -278,7 +278,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
                 token_t *tok = token_list_get(node->data.simple_command.words, i);
                 string_t *tok_str = token_to_string(tok);
                 printf("%s ", string_data(tok_str));
-                string_destroy(tok_str);
+                string_destroy(&tok_str);
             }
         }
         printf("\n");

@@ -61,7 +61,7 @@ void expander_destroy(expander_t *expander)
         return;
 
     if (expander->ifs != NULL)
-        string_destroy(expander->ifs);
+        string_destroy(&expander->ifs);
     
     xfree(expander);
 }
@@ -75,11 +75,7 @@ void expander_set_ifs(expander_t *exp, const string_t *ifs)
     Expects_not_null(exp);
     Expects_not_null(ifs);
 
-    if (exp->ifs != NULL)
-    {
-        string_destroy(exp->ifs);
-    }
-    exp->ifs = string_clone(ifs);
+    string_set(exp->ifs, ifs);
 }
 
 const string_t *expander_get_ifs(const expander_t *exp)
@@ -114,75 +110,70 @@ variable_store_t *expander_get_variable_store(const expander_t *exp)
  */
 static string_t *expand_tilde(const string_t *text)
 {
-    const char *str = string_data(text);
-    
-    if (str == NULL || str[0] != '~')
-        return string_clone(text);
+    if (string_length(text) == 0 || string_front(text) != '~')
+        return string_create_from(text);
     
     // ~ alone or ~/...
-    if (str[1] == '/' || str[1] == '\0')
+    if (string_length(text) == 1 || string_at(text, 1) == '/')
     {
         const char *home = getenv("HOME");
         if (home == NULL || home[0] == '\0')
-            return string_clone(text);  // No expansion
+            return string_create_from(text);  // No expansion
         
         string_t *result = string_create_from_cstr(home);
-        if (str[1] == '/')
-            string_append_cstr(result, str + 1);
+        if (string_at(text, 1) == '/')
+            string_append_substring(result, text, 1, string_length(text));
         return result;
     }
     
     // ~+ expands to PWD
-    if (str[1] == '+' && (str[2] == '/' || str[2] == '\0'))
+    if (string_at(text, 1) == '+' && (string_length(text) == 2 || string_at(text, 2) == '/'))
     {
         const char *pwd = getenv("PWD");
         if (pwd == NULL || pwd[0] == '\0')
-            return string_clone(text);
+            return string_create_from(text);
         
         string_t *result = string_create_from_cstr(pwd);
-        if (str[2] == '/')
-            string_append_cstr(result, str + 2);
+        if (string_at(text, 2) == '/')
+            string_append_substring(result, text, 2, string_length(text));
         return result;
     }
     
     // ~- expands to OLDPWD
-    if (str[1] == '-' && (str[2] == '/' || str[2] == '\0'))
+    if (string_at(text, 1) == '-' && (string_length(text) == 2 || string_at(text, 2) == '/'))
     {
         const char *oldpwd = getenv("OLDPWD");
         if (oldpwd == NULL || oldpwd[0] == '\0')
-            return string_clone(text);
+            return string_create_from(text);
         
         string_t *result = string_create_from_cstr(oldpwd);
-        if (str[2] == '/')
-            string_append_cstr(result, str + 2);
+        if (string_at(text, 2) == '/')
+            string_append_substring(result, text, 2, string_length(text));
         return result;
     }
     
     // ~user or ~user/...
-    const char *slash = strchr(str, '/');
-    size_t name_len = slash ? (size_t)(slash - str - 1) : strlen(str + 1);
+    int slash_index = string_find_cstr(text, "/");
+    int name_len = (slash_index == -1) ? string_length(text) : slash_index;
     
     if (name_len == 0)
-        return string_clone(text);
-#ifdef POSIX_API    
-    char *username = xmalloc(name_len + 1);
-    memcpy(username, str + 1, name_len);
-    username[name_len] = '\0';
-    
-    struct passwd *pw = getpwnam(username);
-    xfree(username);
+        return string_create_from(text);
+#ifdef POSIX_API
+    string_t *usrname = string_substring(text, 1, name_len);
+    struct passwd *pw = getpwnam(string_data(usrname));
+    string_destroy(&usrname);
     
     if (pw == NULL || pw->pw_dir == NULL)
-        return string_clone(text);  // No such user
+        return string_create_from(text);  // No such user
     
     string_t *result = string_create_from_cstr(pw->pw_dir);
-    if (slash != NULL)
-        string_append_cstr(result, slash);
+    if (slash_index != -1)
+        string_append_substring(result, text, slash_index, string_length(text));
     return result;
 #else
     // FIXME: add real error handling
     fprintf(stderr, "expand_tilde: ~user expansion not supported on this platform\n");
-    return string_clone(text);
+    return string_create_from(text);
     // expander error
 #endif
 }
@@ -197,28 +188,27 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     const string_t *param_name = part_get_param_name(part);
     
     if (param_name == NULL)
-        return string_create_empty(0);
+        return string_create();
     
-    const char *name = string_data(param_name);
-    const char *value = NULL;
-    
+    string_t *value = NULL;
+    const char *ev = NULL;
+
     // First try the variable store if available
-    if (exp->vars != NULL)
+    if (exp->vars != NULL && variable_store_has_name(exp->vars, param_name))
     {
-        value = variable_store_get_value_cstr(exp->vars, name);
+        value = string_create_from(variable_store_get_value(exp->vars, param_name));
     }
-    
-    // Fall back to environment variables
-    if (value == NULL)
+    else if ( (ev = getenv(string_cstr(param_name))) != NULL )
     {
-        value = getenv(name);
+        value = string_create_from_cstr(ev);
     }
-    
-    if (value != NULL)
-        return string_create_from_cstr(value);
-    
-    // Return empty string for unset variables
-    return string_create_empty(0);
+    else
+    {
+        // Return empty string for unset variables
+        value = string_create();
+    }
+
+    return value;
 }
 
 /**
@@ -231,7 +221,7 @@ static string_t *expand_command_substitution(expander_t *exp, const part_t *part
     (void)part;
     
     log_debug("expand_command_substitution: command substitution not yet implemented");
-    return string_create_empty(0);
+    return string_create();
 }
 
 /**
@@ -249,21 +239,31 @@ static string_t *expand_arithmetic(expander_t *exp, const part_t *part)
     }
     
     // Evaluate the arithmetic expression
-    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, string_data(expr_text));
+    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, expr_text);
     
     if (result.failed)
     {
-        log_warn("expand_arithmetic: evaluation failed: %s", result.error ? result.error : "unknown error");
+        log_warn("expand_arithmetic: evaluation failed: %s", string_cstr(result.error));
         arithmetic_result_free(&result);
         return string_create_from_cstr("0");
     }
     
     // Convert result to string
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%ld", result.value);
+    long val = result.value;
     arithmetic_result_free(&result);
     
-    return string_create_from_cstr(buf);
+    return string_from_long(val);
+}
+
+/**
+ * Check if a character is in IFS.
+ */
+static bool is_ifs_char(char c, const string_t *ifs)
+{
+    const char str[2] = {c, '\0'};
+    if (string_find_cstr(ifs, str) == -1)
+        return false;
+    return true;
 }
 
 /**
@@ -274,33 +274,7 @@ static bool is_ifs_whitespace(char c, const string_t *ifs)
     if (c != ' ' && c != '\t' && c != '\n')
         return false;
     
-    const char *ifs_str = string_data(ifs);
-    int ifs_len = string_length(ifs);
-    
-    for (int i = 0; i < ifs_len; i++)
-    {
-        if (ifs_str[i] == c)
-            return true;
-    }
-    
-    return false;
-}
-
-/**
- * Check if a character is in IFS.
- */
-static bool is_ifs_char(char c, const string_t *ifs)
-{
-    const char *ifs_str = string_data(ifs);
-    int ifs_len = string_length(ifs);
-    
-    for (int i = 0; i < ifs_len; i++)
-    {
-        if (ifs_str[i] == c)
-            return true;
-    }
-    
-    return false;
+    return is_ifs_char(c, ifs);
 }
 
 /**
@@ -314,14 +288,14 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
     // If the word was quoted, no field splitting
     if (was_quoted)
     {
-        string_list_clone_append(result, str);
+        string_list_append(result, str);
         return result;
     }
     
     // If IFS is NULL or empty, no field splitting
     if (ifs == NULL || string_length(ifs) == 0)
     {
-        string_list_clone_append(result, str);
+        string_list_append(result, str);
         return result;
     }
     
@@ -331,9 +305,9 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
         return result;
     }
     
-    const char *data = string_data(str);
+    const char *data = string_cstr(str);
     int len = string_length(str);
-    string_t *current_field = string_create_empty(64);
+    string_t *current_field = string_create();
     
     int i = 0;
     
@@ -354,7 +328,7 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
                 if (string_length(current_field) > 0)
                 {
                     string_list_take_append(result, current_field);
-                    current_field = string_create_empty(64);
+                    current_field = string_create();
                 }
                 
                 // Skip consecutive IFS whitespace
@@ -365,14 +339,14 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
             {
                 // Non-whitespace IFS character: always creates a field boundary
                 string_list_take_append(result, current_field);
-                current_field = string_create_empty(64);
+                current_field = string_create();
                 i++;
             }
         }
         else
         {
             // Regular character: add to current field
-            string_append_ascii_char(current_field, c);
+            string_append_char(current_field, c);
             i++;
         }
     }
@@ -384,7 +358,7 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
     }
     else
     {
-        string_destroy(current_field);
+        string_destroy(&current_field);
     }
     
     // Per POSIX, if no fields were produced and the input was not empty,
@@ -447,7 +421,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     }
     
     // Step 1: Perform expansions and build the expanded string
-    string_t *expanded = string_create_empty(128);
+    string_t *expanded = string_create();
     bool has_unquoted_expansion = false;
     const part_list_t *parts = token_get_parts_const(word_token);
     
@@ -485,7 +459,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
                         {
                             string_t *tilde_expanded = expand_tilde(text);
                             string_append(expanded, tilde_expanded);
-                            string_destroy(tilde_expanded);
+                            string_destroy(&tilde_expanded);
                             
                             // Tilde expansion does NOT undergo field splitting per POSIX
                             // Do NOT set has_unquoted_expansion here
@@ -504,7 +478,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
                     if (param_value != NULL)
                     {
                         string_append(expanded, param_value);
-                        string_destroy(param_value);
+                        string_destroy(&param_value);
                         
                         // Track if this was an unquoted expansion for field splitting
                         if (!is_quoted)
@@ -520,13 +494,13 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
                     {
                         // Remove trailing newlines (POSIX requirement)
                         while (string_length(cmd_output) > 0 && 
-                               string_char_at(cmd_output, string_length(cmd_output) - 1) == '\n')
+                               string_back(cmd_output) == '\n')
                         {
-                            string_drop_back(cmd_output, 1);
+                            string_pop_back(cmd_output);
                         }
                         
                         string_append(expanded, cmd_output);
-                        string_destroy(cmd_output);
+                        string_destroy(&cmd_output);
                         
                         if (!is_quoted)
                             has_unquoted_expansion = true;
@@ -540,7 +514,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
                     if (arith_result != NULL)
                     {
                         string_append(expanded, arith_result);
-                        string_destroy(arith_result);
+                        string_destroy(&arith_result);
                         
                         if (!is_quoted)
                             has_unquoted_expansion = true;
@@ -560,7 +534,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     if (has_unquoted_expansion)
     {
         result = field_split(expanded, exp->ifs, false);
-        string_destroy(expanded);  // field_split clones, so we need to free
+        string_destroy(&expanded);  // field_split clones, so we need to free
     }
     else
     {
@@ -602,7 +576,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
     if (input == NULL)
         return NULL;
     
-    string_t *result = string_create_empty(128);
+    string_t *result = string_create();
     size_t i = 0;
     size_t len = strlen(input);
     
@@ -612,7 +586,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             
             if (i >= len) {
                 // Lone $ at end of string
-                string_append_ascii_char(result, '$');
+                string_append_char(result, '$');
                 break;
             }
             
@@ -624,7 +598,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             }
             
             // Extract variable name
-            string_t *var_name = string_create_empty(32);
+            string_t *var_name = string_create();
             size_t var_start_pos = i;
             bool found_closing_brace = false;
             while (i < len) {
@@ -635,13 +609,13 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
                         found_closing_brace = true;
                         break;
                     }
-                    string_append_ascii_char(var_name, c);
+                    string_append_char(var_name, c);
                     i++;
                 } else {
                     // For unbraced variables, first char must be letter/underscore
                     if (i == var_start_pos) {
                         if (isalpha(c) || c == '_') {
-                            string_append_ascii_char(var_name, c);
+                            string_append_char(var_name, c);
                             i++;
                         } else {
                             break;
@@ -649,7 +623,7 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
                     } else {
                         // Subsequent characters can be alphanumeric or underscore
                         if (isalnum(c) || c == '_') {
-                            string_append_ascii_char(var_name, c);
+                            string_append_char(var_name, c);
                             i++;
                         } else {
                             break;
@@ -661,8 +635,8 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
             // Check for unclosed braced variable expansion
             if (braced && !found_closing_brace) {
                 // Unclosed braced expansion - handle error
-                string_destroy(var_name);
-                string_destroy(result);
+                string_destroy(&var_name);
+                string_destroy(&result);
                 return NULL;
             }
             
@@ -675,23 +649,23 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input)
                 // If variable doesn't exist, expand to empty string
             } else {
                 // Empty variable name: ${}  or $ followed by non-identifier
-                string_append_ascii_char(result, '$');
+                string_append_char(result, '$');
                 if (braced) {
                     string_append_cstr(result, "{}");
                 }
             }
             
-            string_destroy(var_name);
+            string_destroy(&var_name);
         } else {
             // Regular character
-            string_append_ascii_char(result, input[i]);
+            string_append_char(result, input[i]);
             i++;
         }
     }
     
     // Convert to C string and free the string_t
     char *cstr = xstrdup(string_data(result));
-    string_destroy(result);
+    string_destroy(&result);
     
     return cstr;
 }

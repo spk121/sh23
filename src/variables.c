@@ -12,8 +12,8 @@ static Variable *variable_create(const char *name, const char *value) {
     var->name = string_create(16);
     var->value = string_create(16);
     if (!var->name || !var->value) {
-        string_destroy(var->name);
-        string_destroy(var->value);
+        string_destroy(&var->name);
+        string_destroy(&var->value);
         free(var);
         return NULL;
     }
@@ -28,14 +28,14 @@ static Variable *variable_create(const char *name, const char *value) {
 // Free a Variable
 static void variable_free(Variable *var) {
     if (!var) return;
-    string_destroy(var->name);
+    string_destroy(&var->name);
     string_destroy(var->value);
     free(var);
 }
 
-// Free a String
+// Free a string_t
 static void string_free(void *s) {
-    string_destroy((String *)s);
+    string_destroy(&(string_t *)s);
 }
 
 // Find variable by name, return index or -1 if not found
@@ -199,14 +199,14 @@ const char *variable_store_get_variable(VariableStore *self, const char *name) {
     }
     if (strcmp(name, "@") == 0 || strcmp(name, "*") == 0) {
         if (ptr_array_is_empty(self->positional_params)) return "";
-        String *result = string_create(256);
+        string_t *result = string_create(256);
         if (!result) return "";
         for (int i = 0; i < ptr_array_size (self->positional_params); i++) {
             if (i > 0) string_append_char(result, ' ');
             string_append_zstring(result, string_data(ptr_array_get(self->positional_params, i)));
         }
         const char *value = string_data(result);
-        string_destroy(result);
+        string_destroy(&result);
         return value;
     }
     if (strcmp(name, "-") == 0) {
@@ -297,7 +297,7 @@ void variable_store_set_positional_params(VariableStore *self, int argc, char **
     if (!self) return;
     ptr_array_clear(self->positional_params, string_free);
     for (int i = 0; i < argc; i++) {
-        String *param = string_create(16);
+        string_t *param = string_create(16);
         if (!param) continue;
         string_append_zstring(param, argv[i]);
         ptr_array_append(self->positional_params, param);

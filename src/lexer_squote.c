@@ -42,7 +42,7 @@ static void lexer_append_squote_char_to_word(lexer_t *lx, char c)
     part_t *part = part_create_literal(s);
     part_set_quoted(part, true, false); // single-quoted, not double-quoted
     token_add_part(lx->current_token, part);
-    string_destroy(s);
+    string_destroy(&s);
 }
 
 lex_status_t lexer_process_squote(lexer_t *lx)

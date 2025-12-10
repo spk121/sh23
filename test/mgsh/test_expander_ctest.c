@@ -39,13 +39,13 @@ CTEST(test_expander_ifs)
     // Set a custom IFS
     string_t *custom_ifs = string_create_from_cstr(":");
     expander_set_ifs(exp, custom_ifs);
-    string_destroy(custom_ifs);
+    string_destroy(&custom_ifs);
     
     // Verify the IFS was updated
     ifs = expander_get_ifs(exp);
     CTEST_ASSERT_NOT_NULL(ctest, ifs, "IFS not NULL after set");
     CTEST_ASSERT_EQ(ctest, string_length(ifs), 1, "IFS length is 1");
-    CTEST_ASSERT_EQ(ctest, string_char_at(ifs, 0), ':', "IFS is colon");
+    CTEST_ASSERT_EQ(ctest, string_at(ifs, 0), ':', "IFS is colon");
     
     expander_destroy(exp);
     (void)ctest;
@@ -65,7 +65,7 @@ CTEST(test_expander_expand_simple_word)
     
     string_t *text = string_create_from_cstr("hello");
     token_add_literal_part(word, text);
-    string_destroy(text);
+    string_destroy(&text);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -75,7 +75,7 @@ CTEST(test_expander_expand_simple_word)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "hello", "expanded string is 'hello'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "hello", "expanded string is 'hello'");
     
     string_list_destroy(result);
     token_destroy(word);
@@ -97,11 +97,11 @@ CTEST(test_expander_expand_concatenated_word)
     
     string_t *text1 = string_create_from_cstr("hello");
     token_add_literal_part(word, text1);
-    string_destroy(text1);
+    string_destroy(&text1);
     
     string_t *text2 = string_create_from_cstr("world");
     token_add_literal_part(word, text2);
-    string_destroy(text2);
+    string_destroy(&text2);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -111,7 +111,7 @@ CTEST(test_expander_expand_concatenated_word)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "helloworld", "expanded string is 'helloworld'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "helloworld", "expanded string is 'helloworld'");
     
     string_list_destroy(result);
     token_destroy(word);
@@ -132,7 +132,7 @@ CTEST(test_expander_expand_ast_stub)
     token_t *word = token_create_word();
     string_t *text = string_create_from_cstr("test");
     token_add_literal_part(word, text);
-    string_destroy(text);
+    string_destroy(&text);
     
     ast_node_t *node = ast_create_word(word);
     CTEST_ASSERT_NOT_NULL(ctest, node, "AST node created");
@@ -165,7 +165,7 @@ CTEST(test_expander_arithmetic_simple)
     
     string_t *expr = string_create_from_cstr("1+2");
     token_append_arithmetic(word, expr);
-    string_destroy(expr);
+    string_destroy(&expr);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -175,7 +175,7 @@ CTEST(test_expander_arithmetic_simple)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "3", "expanded string is '3'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "3", "expanded string is '3'");
     
     string_list_destroy(result);
     token_destroy(word);
@@ -203,7 +203,7 @@ CTEST(test_expander_arithmetic_with_variable)
     
     string_t *expr = string_create_from_cstr("$x+5");
     token_append_arithmetic(word, expr);
-    string_destroy(expr);
+    string_destroy(&expr);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -213,7 +213,7 @@ CTEST(test_expander_arithmetic_with_variable)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "15", "expanded string is '15'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "15", "expanded string is '15'");
     
     string_list_destroy(result);
     token_destroy(word);
@@ -243,7 +243,7 @@ CTEST(test_expander_arithmetic_complex)
     
     string_t *expr = string_create_from_cstr("$x+$y*3");
     token_append_arithmetic(word, expr);
-    string_destroy(expr);
+    string_destroy(&expr);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -253,7 +253,7 @@ CTEST(test_expander_arithmetic_complex)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "25", "expanded string is '25'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "25", "expanded string is '25'");
     
     string_list_destroy(result);
     token_destroy(word);
@@ -280,7 +280,7 @@ CTEST(test_expander_arithmetic_empty)
     
     string_t *expr = string_create_from_cstr("");
     token_append_arithmetic(word, expr);
-    string_destroy(expr);
+    string_destroy(&expr);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -290,7 +290,7 @@ CTEST(test_expander_arithmetic_empty)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "0", "empty expression evaluates to 0");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "0", "empty expression evaluates to 0");
     
     string_list_destroy(result);
     token_destroy(word);
@@ -318,7 +318,7 @@ CTEST(test_expander_arithmetic_nested)
     
     string_t *expr = string_create_from_cstr("1 + $((1 + 1))");
     token_append_arithmetic(word, expr);
-    string_destroy(expr);
+    string_destroy(&expr);
     
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
@@ -328,7 +328,7 @@ CTEST(test_expander_arithmetic_nested)
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_get(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(expanded), "3", "nested arithmetic evaluates correctly");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "3", "nested arithmetic evaluates correctly");
     
     string_list_destroy(result);
     token_destroy(word);

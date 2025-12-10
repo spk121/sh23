@@ -53,7 +53,7 @@ void tokenizer_destroy(tokenizer_t *tok)
 
     if (tok->error_msg)
     {
-        string_destroy(tok->error_msg);
+        string_destroy(&tok->error_msg);
         tok->error_msg = NULL;
     }
 
@@ -86,7 +86,8 @@ void tokenizer_set_error(tokenizer_t *tok, const char *format, ...)
 
     va_list args;
     va_start(args, format);
-    tok->error_msg = string_vcreate(format, args);
+    tok->error_msg = string_create();
+    string_vprintf(tok->error_msg, format, args);
     va_end(args);
 }
 
@@ -206,7 +207,7 @@ char *tokenizer_extract_word_text(const token_t *token)
     if (text == NULL)
         return NULL;
 
-    return xstrdup(string_data(text));
+    return xstrdup(string_cstr(text));
 }
 
 /* ============================================================================
@@ -318,7 +319,7 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
     {
         // Detach tokens from relexed_tokens list
         int detached_size;
-        token_t **detached_tokens = token_list_detach_tokens(relexed_tokens, &detached_size);
+        token_t **detached_tokens = token_list_release(relexed_tokens, &detached_size);
         
         // Insert them into input_tokens at current position
         int result = token_list_insert_range(tok->input_tokens, tok->input_pos, 
@@ -488,7 +489,7 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     // Clear the input tokens array without destroying the tokens
     // (they've been transferred to output)
     // This prevents double-free when the caller destroys input_tokens
-    token_list_clear_without_destroy(input_tokens);
+    token_list_release_tokens(input_tokens);
 
     // Clean up context
     tok->input_tokens = NULL;

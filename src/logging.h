@@ -43,7 +43,9 @@ extern LogLevel g_log_threshold;
  * Also reads LOG_ABORT_LEVEL to determine if WARN or ERROR should abort.
  * Should be called once at program startup.
  */
-void logging_init(void);
+void log_init(void);
+
+LogLevel log_level(void);
 
 /**
  * @brief Log a debug message

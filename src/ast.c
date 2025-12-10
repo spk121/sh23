@@ -32,7 +32,7 @@ void ast_node_destroy(ast_node_t *node)
         if (node->data.simple_command.words != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_clear_without_destroy(node->data.simple_command.words);
+            token_list_release_tokens(node->data.simple_command.words);
             xfree(node->data.simple_command.words->tokens);
             xfree(node->data.simple_command.words);
         }
@@ -43,7 +43,7 @@ void ast_node_destroy(ast_node_t *node)
         if (node->data.simple_command.assignments != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_clear_without_destroy(node->data.simple_command.assignments);
+            token_list_release_tokens(node->data.simple_command.assignments);
             xfree(node->data.simple_command.assignments->tokens);
             xfree(node->data.simple_command.assignments);
         }
@@ -96,12 +96,12 @@ void ast_node_destroy(ast_node_t *node)
     case AST_FOR_CLAUSE:
         if (node->data.for_clause.variable != NULL)
         {
-            string_destroy(node->data.for_clause.variable);
+            string_destroy(&node->data.for_clause.variable);
         }
         if (node->data.for_clause.words != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_clear_without_destroy(node->data.for_clause.words);
+            token_list_release_tokens(node->data.for_clause.words);
             xfree(node->data.for_clause.words->tokens);
             xfree(node->data.for_clause.words);
         }
@@ -124,7 +124,7 @@ void ast_node_destroy(ast_node_t *node)
         if (node->data.case_item.patterns != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_clear_without_destroy(node->data.case_item.patterns);
+            token_list_release_tokens(node->data.case_item.patterns);
             xfree(node->data.case_item.patterns->tokens);
             xfree(node->data.case_item.patterns);
         }
@@ -134,7 +134,7 @@ void ast_node_destroy(ast_node_t *node)
     case AST_FUNCTION_DEF:
         if (node->data.function_def.name != NULL)
         {
-            string_destroy(node->data.function_def.name);
+            string_destroy(&node->data.function_def.name);
         }
         ast_node_destroy(node->data.function_def.body);
         if (node->data.function_def.redirections != NULL)
@@ -151,7 +151,7 @@ void ast_node_destroy(ast_node_t *node)
         }
         if (node->data.redirection.heredoc_content != NULL)
         {
-            string_destroy(node->data.redirection.heredoc_content);
+            string_destroy(&node->data.redirection.heredoc_content);
         }
         break;
 
@@ -276,7 +276,7 @@ ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words,
                                  ast_node_t *body)
 {
     ast_node_t *node = ast_node_create(AST_FOR_CLAUSE);
-    node->data.for_clause.variable = string_clone(variable);
+    node->data.for_clause.variable = string_create_from(variable);
     node->data.for_clause.words = words;
     node->data.for_clause.body = body;
     return node;
@@ -302,7 +302,7 @@ ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
                                    ast_node_list_t *redirections)
 {
     ast_node_t *node = ast_node_create(AST_FUNCTION_DEF);
-    node->data.function_def.name = string_clone(name);
+    node->data.function_def.name = string_create_from(name);
     node->data.function_def.body = body;
     node->data.function_def.redirections = redirections;
     return node;
@@ -455,7 +455,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_append_cstr(result, "words: ");
             string_t *words_str = token_list_to_string(node->data.simple_command.words);
             string_append(result, words_str);
-            string_destroy(words_str);
+            string_destroy(&words_str);
             string_append_cstr(result, "\n");
         }
         break;
@@ -564,7 +564,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
 
 string_t *ast_node_to_string(const ast_node_t *node)
 {
-    string_t *result = string_create_empty(256);
+    string_t *result = string_create();
     if (node == NULL)
     {
         string_append_cstr(result, "(null)");

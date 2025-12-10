@@ -40,7 +40,7 @@ CTEST(test_alias_store_create_destroy)
     alias_store_t *store = alias_store_create();
     CTEST_ASSERT_NOT_NULL(ctest, store, "store created");
     CTEST_ASSERT_EQ(ctest, alias_store_size(store), 0, "initial size is 0");
-    alias_store_destroy(store);
+    alias_store_destroy(&store);
     (void)ctest;
 }
 
@@ -57,7 +57,7 @@ CTEST(test_alias_store_add_get)
     CTEST_ASSERT_NOT_NULL(ctest, value, "value not null");
     CTEST_ASSERT_STR_EQ(ctest, value, "ls -la", "value matches");
     
-    alias_store_destroy(store);
+    alias_store_destroy(&store);
     (void)ctest;
 }
 
@@ -73,7 +73,7 @@ CTEST(test_alias_store_overwrite)
     const char *value = alias_store_get_value_cstr(store, "ls");
     CTEST_ASSERT_STR_EQ(ctest, value, "ls -lah", "value was overwritten");
     
-    alias_store_destroy(store);
+    alias_store_destroy(&store);
     (void)ctest;
 }
 
@@ -92,7 +92,7 @@ CTEST(test_alias_store_remove)
     CTEST_ASSERT_FALSE(ctest, alias_store_has_name_cstr(store, "ls"), "ls no longer exists");
     CTEST_ASSERT_TRUE(ctest, alias_store_has_name_cstr(store, "ll"), "ll still exists");
     
-    alias_store_destroy(store);
+    alias_store_destroy(&store);
     (void)ctest;
 }
 
@@ -107,7 +107,7 @@ CTEST(test_alias_store_clear)
     
     CTEST_ASSERT_EQ(ctest, alias_store_size(store), 0, "size is 0 after clear");
     
-    alias_store_destroy(store);
+    alias_store_destroy(&store);
     (void)ctest;
 }
 
@@ -120,7 +120,7 @@ CTEST(test_alias_create_destroy)
     CTEST_ASSERT_STR_EQ(ctest, alias_get_name_cstr(alias), "myalias", "name matches");
     CTEST_ASSERT_STR_EQ(ctest, alias_get_value_cstr(alias), "echo hello", "value matches");
     
-    alias_destroy(alias);
+    alias_destroy(&alias);
     (void)ctest;
 }
 
@@ -140,7 +140,7 @@ CTEST(test_alias_array_operations)
     alias_t *retrieved = alias_array_get(array, 0);
     CTEST_ASSERT_EQ(ctest, retrieved, a1, "retrieved same alias");
     
-    alias_array_destroy(array);
+    alias_array_destroy(&array);
     (void)ctest;
 }
 

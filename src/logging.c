@@ -37,7 +37,7 @@ static void log_message(LogLevel level, const char *level_str, const char *forma
 }
 
 // Initialization function checking environment variables
-void logging_init(void)
+void log_init(void)
 {
     // Set logging threshold
     const char *env_level = getenv("LOG_LEVEL");
@@ -68,6 +68,10 @@ void logging_init(void)
             g_log_threshold = LOG_NONE;
         }
     }
+    else
+    {
+        g_log_threshold = LOG_ERROR;
+    }
 
     // Set abort level
     const char *env_abort_level = getenv("LOG_ABORT_LEVEL");
@@ -91,6 +95,15 @@ void logging_init(void)
             g_log_abort_level = LOG_NONE;
         }
     }
+    else
+    {
+        g_log_abort_level = LOG_FATAL;
+    }
+}
+
+LogLevel log_level(void)
+{
+    return g_log_threshold;
 }
 
 // Public logging functions
@@ -151,7 +164,7 @@ int test_function(float fvalue, double dvalue, int ivalue)
 
 int main(void)
 {
-    logging_init();
+    log_init();
 
     test_function(1.5f, 0.5, 5);
 

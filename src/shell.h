@@ -17,18 +17,16 @@ typedef enum {
     SH_INCOMPLETE,    // more input required (multiline)
     SH_SYNTAX_ERROR,
     SH_RUNTIME_ERROR,
+    SH_INTERNAL_ERROR,
     SH_FATAL
 } sh_status_t;
 
-typedef enum {
-    SH_SILENT,
-    SH_ERROR,
-    SH_WARNING,
-    SH_DEBUG,
-    SH_INFO
-} sh_debug_level_t;
-
 typedef struct {
+    // Options
+    bool            noninteractive;   // whether to use prompts and such
+    bool            echo;          // whether to print commands before executing
+    bool            eol_norm; // convert CRLF to LF
+
     // Prompt strings (configurable)
     string_t *ps1;  // "shell> "
     string_t *ps2;  // "> "
@@ -46,15 +44,11 @@ typedef struct {
 
     // Error buffer for top-level reporting
     string_t        *error;       // last error message
-
-    // Debug level
-    sh_debug_level_t debug_level;
 } shell_t;
 
 typedef struct {
     const char      *ps1;
     const char      *ps2;
-    sh_debug_level_t debug_level;
 
     const alias_store_t    *initial_aliases;
     const function_store_t *initial_funcs;
@@ -66,7 +60,8 @@ void     shell_destroy(shell_t *sh);
 
 // Feeds a single line and processes if complete.
 // Returns SH_INCOMPLETE if the shell expects more input.
-sh_status_t shell_feed_line(shell_t *sh, const char *line);
+// If line_num is non-zero, it's used for error reporting.
+sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num);
 
 // If shell_feed_line returns SH_OK and a command is complete,
 // the shell has already executed it. Errors are reported via sh->error.
@@ -81,12 +76,5 @@ sh_status_t shell_run_script(shell_t *sh, const char *script);
 // Various getters/setters and helpers
 const char *shell_get_ps1(const shell_t *sh);
 const char *shell_get_ps2(const shell_t *sh);
-
-// Internal helpers used by shell_feed_line/shell_run_script
-sh_status_t sh_lex(shell_t *sh, token_list_t **out_tokens);
-sh_status_t sh_parse(shell_t *sh, token_list_t *tokens, ast_t **out_ast);
-sh_status_t sh_expand(shell_t *sh, ast_t *ast, ast_t **out_expanded);
-sh_status_t sh_execute(shell_t *sh, ast_t *ast);
-
 
 #endif

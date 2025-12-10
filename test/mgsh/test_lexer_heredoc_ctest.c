@@ -40,7 +40,7 @@ CTEST(test_heredoc_queue)
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[0].delimiter_quoted, false, 
                     "delimiter_quoted is false");
     
-    string_destroy(delim);
+    string_destroy(&delim);
     lexer_destroy(lx);
     (void)ctest;
 }
@@ -55,7 +55,7 @@ CTEST(test_heredoc_queue_strip_tabs)
     
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[0].strip_tabs, true, "strip_tabs is true");
     
-    string_destroy(delim);
+    string_destroy(&delim);
     lexer_destroy(lx);
     (void)ctest;
 }
@@ -71,7 +71,7 @@ CTEST(test_heredoc_queue_quoted)
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[0].delimiter_quoted, true, 
                     "delimiter_quoted is true");
     
-    string_destroy(delim);
+    string_destroy(&delim);
     lexer_destroy(lx);
     (void)ctest;
 }
@@ -97,8 +97,8 @@ CTEST(test_heredoc_multiple_queue)
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[1].delimiter_quoted, true,
                     "second heredoc has delimiter_quoted");
     
-    string_destroy(delim1);
-    string_destroy(delim2);
+    string_destroy(&delim1);
+    string_destroy(&delim2);
     lexer_destroy(lx);
     (void)ctest;
 }
@@ -124,7 +124,7 @@ CTEST(test_heredoc_body_simple)
     // Should complete successfully
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "heredoc body processed successfully");
     
-    string_destroy(delim);
+    string_destroy(&delim);
     lexer_destroy(lx);
     (void)ctest;
 }
@@ -147,7 +147,7 @@ CTEST(test_heredoc_body_strip_tabs)
     
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "heredoc body with tabs processed");
     
-    string_destroy(delim);
+    string_destroy(&delim);
     lexer_destroy(lx);
     (void)ctest;
 }
@@ -169,7 +169,7 @@ CTEST(test_heredoc_incomplete)
     
     CTEST_ASSERT_EQ(ctest, status, LEX_INCOMPLETE, "returns INCOMPLETE when delimiter not found");
     
-    string_destroy(delim);
+    string_destroy(&delim);
     lexer_destroy(lx);
     (void)ctest;
 }

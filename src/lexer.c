@@ -25,7 +25,7 @@ lexer_t *lexer_create(void)
 {
     lexer_t *lx = xcalloc(1, sizeof(lexer_t));
 
-    lx->input = string_create_empty(0);
+    lx->input = string_create();
     lx->pos = 0;
     lx->line_no = 1;
     lx->col_no = 1;
@@ -60,6 +60,60 @@ lexer_t *lexer_create(void)
     return lx;
 }
 
+void lexer_reset(lexer_t *lx)
+{
+    Expects_not_null(lx);
+    Expects_not_null(lx->input);
+
+    string_clear(lx->input);
+    lx->pos = 0;
+    lx->line_no = 1;
+    lx->col_no = 1;
+    lx->tok_start_line = 1;
+    lx->tok_start_col = 1;
+
+    while (lx->mode_stack.size > 0)
+        lexer_pop_mode(lx);
+
+    if (lx->tokens)
+        token_list_clear(lx->tokens);
+
+    if (lx->heredoc_queue.size > 0)
+    {
+        for (int i = 0; i < lx->heredoc_queue.size; i++)
+        {
+            if (lx->heredoc_queue.entries[i].delimiter)
+                string_destroy(&lx->heredoc_queue.entries[i].delimiter);
+        }
+        lx->heredoc_queue.size = 0;
+    }
+
+    lx->in_word = false;
+    lx->escaped = false;
+    lx->at_command_start = true;
+    lx->after_case_in = false;
+    lx->check_next_for_alias = false;
+
+    if (lx->operator_buffer)
+        string_clear(lx->operator_buffer);
+
+    if (lx->error_msg)
+        string_clear(lx->error_msg);
+    lx->error_line = 0;
+    lx->error_col = 0;
+
+    // FIXME: consider shrinking the queues and buffers
+    // if the capacities are too large.
+}
+
+void lexer_append_input(lexer_t *lx, const string_t *input)
+{
+    Expects_not_null(lx);
+    Expects_not_null(input);
+
+    string_append(lx->input, input);
+}
+
 lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input)
 {
     Expects_not_null(lx);
@@ -69,39 +123,11 @@ lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input)
     return lx;
 }
 
-void lexer_append_input_cstr_normalize_newlines(lexer_t *lx, const char *input)
+void lexer_set_line_no(lexer_t *lx, int line_no)
 {
     Expects_not_null(lx);
-    Expects_not_null(input);
-
-    const char *p = input;
-    while (*p != '\0')
-    {
-        if (*p == '\r')
-        {
-            // Convert \r\n to \n
-            if (*(p + 1) == '\n')
-            {
-                string_append_cstr(lx->input, "\n");
-                p += 2;
-            }
-            else
-            {
-                string_append_cstr(lx->input, "\n");
-                p++;
-            }
-        }
-        else
-        {
-            string_append_cstr(lx->input, (char[]){*p, '\0'});
-            p++;
-        }
-    }
-    if (string_back_char(lx->input) != '\n')
-    {
-        // If input does not end with newline, append one
-        string_append_cstr(lx->input, "\n");
-    }
+    lx->line_no = line_no;
+    lx->col_no = 1;
 }
 
 void lexer_drop_processed_input(lexer_t *lx)
@@ -111,7 +137,9 @@ void lexer_drop_processed_input(lexer_t *lx)
 
     if (lx->pos > 0)
     {
-        string_drop_front(lx->input, lx->pos);
+        string_t *new_input = string_substring(lx->input, lx->pos, string_length(lx->input));
+        string_move(lx->input, new_input);
+        string_destroy(&new_input);
         lx->pos = 0;
 
         if (string_capacity(lx->input) - string_length(lx->input) > LEXER_LARGE_UNUSED_INPUT_THRESHOLD)
@@ -128,7 +156,7 @@ void lexer_destroy(lexer_t *lx)
 
     if (lx->input)
     {
-        string_destroy(lx->input);
+        string_destroy(&lx->input);
         lx->input = NULL;
     }
     if (lx->mode_stack.modes)
@@ -138,9 +166,9 @@ void lexer_destroy(lexer_t *lx)
     if (lx->heredoc_queue.entries)
         xfree(lx->heredoc_queue.entries);
     if (lx->operator_buffer)
-        string_destroy(lx->operator_buffer);
+        string_destroy(&lx->operator_buffer);
     if (lx->error_msg)
-        string_destroy(lx->error_msg);
+        string_destroy(&lx->error_msg);
     xfree(lx);
 }
 
@@ -230,7 +258,7 @@ char lexer_peek(const lexer_t *lx)
 
     if (lx->pos >= string_length(lx->input))
         return '\0';
-    return string_char_at(lx->input, lx->pos);
+    return string_at(lx->input, lx->pos);
 }
 
 char lexer_peek_ahead(const lexer_t *lx, int offset)
@@ -240,7 +268,7 @@ char lexer_peek_ahead(const lexer_t *lx, int offset)
 
     if (lx->pos + offset >= string_length(lx->input))
         return '\0';
-    return string_char_at(lx->input, lx->pos + offset);
+    return string_at(lx->input, lx->pos + offset);
 }
 
 bool lexer_input_starts_with(const lexer_t *lx, const char *str)
@@ -276,7 +304,7 @@ bool lexer_input_starts_with_integer(const lexer_t *lx)
 
     if (lx->pos >= string_length(lx->input))
         return false;
-    char c = string_char_at(lx->input, lx->pos);
+    char c = string_at(lx->input, lx->pos);
     return isdigit(c);
 }
 
@@ -291,7 +319,7 @@ int lexer_peek_integer(const lexer_t *lx, int *digit_count)
     int pos = lx->pos;
     while (pos < string_length(lx->input))
     {
-        char c = string_char_at(lx->input, pos);
+        char c = string_at(lx->input, pos);
         if (!isdigit(c))
             break;
         if (value > (INT_MAX - (c - '0')) / 10)
@@ -310,7 +338,7 @@ char lexer_advance(lexer_t *lx)
     Expects_not_null(lx->input);
     Expects_lt(lx->pos, string_length(lx->input));
 
-    char c = string_char_at(lx->input, lx->pos++);
+    char c = string_at(lx->input, lx->pos++);
     if (c == '\n')
     {
         lx->line_no++;
@@ -398,7 +426,7 @@ void lexer_append_literal_char_to_word(lexer_t *lx, char c)
         char buf[2] = {c, '\0'};
         string_t *s = string_create_from_cstr(buf);
         token_add_literal_part(lx->current_token, s);
-        string_destroy(s);
+        string_destroy(&s);
     }
 }
 
@@ -419,7 +447,7 @@ void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str)
         // Create new literal part (unquoted)
         string_t *s = string_create_from_cstr(str);
         token_add_literal_part(lx->current_token, s);
-        string_destroy(s);
+        string_destroy(&s);
     }
 }
 
@@ -500,7 +528,7 @@ void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs
     }
 
     heredoc_entry_t *entry = &lx->heredoc_queue.entries[lx->heredoc_queue.size++];
-    entry->delimiter = string_clone(delimiter);
+    entry->delimiter = string_create_from(delimiter);
     entry->strip_tabs = strip_tabs;
     entry->delimiter_quoted = delimiter_quoted;
     entry->token_index = token_list_size(lx->tokens);
@@ -515,7 +543,7 @@ void lexer_empty_heredoc_queue(lexer_t *lx)
         heredoc_entry_t *entry = &lx->heredoc_queue.entries[i];
         if (entry->delimiter)
         {
-            string_destroy(entry->delimiter);
+            string_destroy(&entry->delimiter);
             entry->delimiter = NULL;
         }
     }
@@ -591,12 +619,13 @@ void lexer_set_error(lexer_t *lx, const char *format, ...)
 
     if (lx->error_msg)
     {
-        string_destroy(lx->error_msg);
+        string_destroy(&lx->error_msg);
         lx->error_msg = NULL;
     }
     va_list args;
     va_start(args, format);
-    lx->error_msg = string_vcreate(format, args);
+    lx->error_msg = string_create();
+    string_vprintf(lx->error_msg, format, args);
     va_end(args);
     lx->error_line = lx->line_no;
     lx->error_col = lx->col_no;
@@ -624,7 +653,7 @@ void lexer_clear_error(lexer_t *lx)
 
     if (lx->error_msg)
     {
-        string_destroy(lx->error_msg);
+        string_destroy(&lx->error_msg);
         lx->error_msg = NULL;
     }
     lx->error_line = 0;
@@ -656,8 +685,8 @@ string_t *lexer_debug_string(const lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    string_t *dbg =
-        string_create_from_format("Lexer(pos=%d, line=%d, col=%d, mode=", (int)lx->pos, lx->line_no, lx->col_no);
+    string_t *dbg = string_create();
+    string_printf(dbg, "Lexer(pos=%d, line=%d, col=%d, mode=", (int)lx->pos, lx->line_no, lx->col_no);
 
     switch (lexer_current_mode(lx))
     {

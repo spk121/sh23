@@ -570,14 +570,14 @@ int token_list_remove(token_list_t *list, int index);
  * Destructively removes all tokens from a list.
  * Resets list to its initial capacity.
  */
-void token_list_reinitialize(token_list_t *list);
+void token_list_clear(token_list_t *list);
 
 /**
  * Clears all token pointers from the list without destroying the tokens.
  * This transfers ownership of all tokens to the caller.
  * The list structure remains valid but empty.
  */
-void token_list_clear_without_destroy(token_list_t *list);
+void token_list_release_tokens(token_list_t *list);
 
 /**
  * Detaches the tokens array from the list and returns it.
@@ -585,7 +585,7 @@ void token_list_clear_without_destroy(token_list_t *list);
  * The list is left in a valid empty state.
  * Returns NULL if the list is empty.
  */
-token_t **token_list_detach_tokens(token_list_t *list, int *out_size);
+token_t **token_list_release(token_list_t *list, int *out_size);
 
 /**
  * Ensure the list has at least the specified capacity.

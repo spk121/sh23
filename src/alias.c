@@ -3,19 +3,19 @@
 
 struct alias_t
 {
-    String *name;
-    String *value;
+    string_t *name;
+    string_t *value;
 };
 
 // Constructors
-alias_t *alias_create(const String *name, const String *value)
+alias_t *alias_create(const string_t *name, const string_t *value)
 {
     Expects_not_null(name);
     Expects_not_null(value);
 
     alias_t *alias = xmalloc(sizeof(alias_t));
-    alias->name = string_clone(name);
-    alias->value = string_clone(value);
+    alias->name = string_create_from(name);
+    alias->value = string_create_from(value);
 
     return alias;
 }
@@ -33,24 +33,29 @@ alias_t *alias_create_from_cstr(const char *name, const char *value)
 }
 
 // Destructor
-void alias_destroy(alias_t *alias)
+void alias_destroy(alias_t **alias)
 {
     Expects_not_null(alias);
-    log_debug("alias_destroy: freeing alias %p, name = %s, value = %s", alias, string_data(alias->name),
-              string_data(alias->value));
-    string_destroy(alias->name);
-    string_destroy(alias->value);
-    xfree(alias);
+    Expects_not_null(*alias);
+
+    alias_t *a = *alias;
+
+    log_debug("alias_destroy: freeing alias %p, name = %s, value = %s", a, string_cstr(a->name),
+              string_cstr(a->value));
+    string_destroy(&(a->name));
+    string_destroy(&(a->value));
+    xfree(a);
+    *alias = NULL;
 }
 
 // Getters
-const String *alias_get_name(const alias_t *alias)
+const string_t *alias_get_name(const alias_t *alias)
 {
     Expects_not_null(alias);
     return alias->name;
 }
 
-const String *alias_get_value(const alias_t *alias)
+const string_t *alias_get_value(const alias_t *alias)
 {
     Expects_not_null(alias);
     return alias->value;
@@ -59,34 +64,30 @@ const String *alias_get_value(const alias_t *alias)
 const char *alias_get_name_cstr(const alias_t *alias)
 {
     Expects_not_null(alias);
-    return string_data(alias->name);
+    return string_cstr(alias->name);
 }
 
 const char *alias_get_value_cstr(const alias_t *alias)
 {
     Expects_not_null(alias);
-    return string_data(alias->value);
+    return string_cstr(alias->value);
 }
 
 // Setters
-void alias_set_name(alias_t *alias, const String *name)
+void alias_set_name(alias_t *alias, const string_t *name)
 {
     Expects_not_null(alias);
     Expects_not_null(name);
 
-    String *new_name = string_clone(name);
-    string_destroy(alias->name);
-    alias->name = new_name;
+    string_set(alias->name, name);
 }
 
-void alias_set_value(alias_t *alias, const String *value)
+void alias_set_value(alias_t *alias, const string_t *value)
 {
     Expects_not_null(alias);
     Expects_not_null(value);
 
-    String *new_value = string_clone(value);
-    string_destroy(alias->value);
-    alias->value = new_value;
+    string_set(alias->value, value);
 }
 
 void alias_set_name_cstr(alias_t *alias, const char *name)
@@ -94,9 +95,7 @@ void alias_set_name_cstr(alias_t *alias, const char *name)
     Expects_not_null(alias);
     Expects_not_null(name);
 
-    String *new_name = string_create_from_cstr(name);
-    string_destroy(alias->name);
-    alias->name = new_name;
+    string_set_cstr(alias->name, name);
 }
 
 void alias_set_value_cstr(alias_t *alias, const char *value)
@@ -104,7 +103,5 @@ void alias_set_value_cstr(alias_t *alias, const char *value)
     Expects_not_null(alias);
     Expects_not_null(value);
 
-    String *new_value = string_create_from_cstr(value);
-    string_destroy(alias->value);
-    alias->value = new_value;
+    string_set_cstr(alias->value, value);
 }

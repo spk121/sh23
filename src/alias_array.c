@@ -7,23 +7,15 @@
 #define INITIAL_CAPACITY 16
 #define GROW_FACTOR 2
 
-struct alias_array_t
-{
-    alias_t **data;
-    size_t size;
-    size_t capacity;
-    alias_array_free_func_t free_func;
-};
-
 // Helper: Ensure capacity
-static void alias_array_ensure_capacity(alias_array_t *array, size_t needed)
+static void alias_array_ensure_capacity(alias_array_t *array, int needed)
 {
     Expects_not_null(array);
 
     if (needed <= array->capacity)
         return;
 
-    size_t new_capacity = array->capacity ? array->capacity : INITIAL_CAPACITY;
+    int new_capacity = array->capacity ? array->capacity : INITIAL_CAPACITY;
     while (new_capacity < needed)
         new_capacity *= GROW_FACTOR;
 
@@ -50,39 +42,41 @@ alias_array_t *alias_array_create_with_free(alias_array_free_func_t free_func)
     return array;
 }
 
-void alias_array_destroy(alias_array_t *array)
+void alias_array_destroy(alias_array_t **array)
 {
     Expects_not_null(array);
+    alias_array_t *a = *array;
 
-    log_debug("alias_array_destroy: freeing array %p, size %zu", array, array->size);
-    if (array->free_func)
+    log_debug("alias_array_destroy: freeing array %p, size %zu", a, a->size);
+    if (a->free_func)
     {
-        for (size_t i = 0; i < array->size; i++)
+        for (int i = (int)a->size - 1; i >= 0; i--)
         {
-            if (array->data[i])
+            if (a->data[i])
             {
-                array->free_func(array->data[i]);
+                a->free_func(&(a->data[i]));
             }
         }
     }
-    xfree(array->data);
-    xfree(array);
+    xfree(a->data);
+    xfree(a);
+    *array = NULL;
 }
 
 // Accessors
-size_t alias_array_size(const alias_array_t *array)
+int alias_array_size(const alias_array_t *array)
 {
     Expects_not_null(array);
     return array->size;
 }
 
-size_t alias_array_capacity(const alias_array_t *array)
+int alias_array_capacity(const alias_array_t *array)
 {
     Expects_not_null(array);
     return array->capacity;
 }
 
-alias_t *alias_array_get(const alias_array_t *array, size_t index)
+alias_t *alias_array_get(const alias_array_t *array, int index)
 {
     Expects_not_null(array);
     Expects(index < array->size);
@@ -105,30 +99,30 @@ void alias_array_append(alias_array_t *array, alias_t *element)
     array->size++;
 }
 
-void alias_array_set(alias_array_t *array, size_t index, alias_t *element)
+void alias_array_set(alias_array_t *array, int index, alias_t *element)
 {
     Expects_not_null(array);
     Expects(index < array->size);
 
     if (array->free_func && array->data[index])
     {
-        array->free_func(array->data[index]);
+        array->free_func(&array->data[index]);
     }
     array->data[index] = element;
 }
 
-void alias_array_remove(alias_array_t *array, size_t index)
+void alias_array_remove(alias_array_t *array, int index)
 {
     Expects_not_null(array);
     Expects(index < array->size);
 
     if (array->free_func && array->data[index])
     {
-        array->free_func(array->data[index]);
+        array->free_func(&array->data[index]);
     }
 
     // Shift elements to fill the gap
-    for (size_t i = index; i < array->size - 1; i++)
+    for (int i = index; i < array->size - 1; i++)
     {
         array->data[i] = array->data[i + 1];
     }
@@ -142,23 +136,23 @@ void alias_array_clear(alias_array_t *array)
 
     if (array->free_func)
     {
-        for (size_t i = 0; i < array->size; i++)
+        for (int i = 0; i < array->size; i++)
         {
             if (array->data[i])
             {
-                array->free_func(array->data[i]);
+                array->free_func(&array->data[i]);
             }
         }
     }
     array->size = 0;
     // Keep capacity and data allocated, just clear pointers
-    for (size_t i = 0; i < array->capacity; i++)
+    for (int i = 0; i < array->capacity; i++)
     {
         array->data[i] = NULL;
     }
 }
 
-void alias_array_resize(alias_array_t *array, size_t new_capacity)
+void alias_array_resize(alias_array_t *array, int new_capacity)
 {
     Expects_not_null(array);
 
@@ -167,11 +161,11 @@ void alias_array_resize(alias_array_t *array, size_t new_capacity)
         // Free elements that won't fit in the new capacity
         if (array->free_func)
         {
-            for (size_t i = new_capacity; i < array->size; i++)
+            for (int i = new_capacity; i < array->size; i++)
             {
                 if (array->data[i])
                 {
-                    array->free_func(array->data[i]);
+                    array->free_func(&array->data[i]);
                 }
             }
         }
@@ -181,7 +175,7 @@ void alias_array_resize(alias_array_t *array, size_t new_capacity)
     alias_array_ensure_capacity(array, new_capacity);
 
     // Clear any newly allocated slots
-    for (size_t i = array->capacity; i < new_capacity; i++)
+    for (int i = array->capacity; i < new_capacity; i++)
     {
         array->data[i] = NULL;
     }
@@ -189,23 +183,23 @@ void alias_array_resize(alias_array_t *array, size_t new_capacity)
 }
 
 // Operations
-void alias_array_foreach(alias_array_t *array, alias_array_tApplyFunc apply_func, void *user_data)
+void alias_array_foreach(alias_array_t *array, alias_array_apply_func_t apply_func, void *user_data)
 {
     Expects_not_null(array);
     Expects_not_null(apply_func);
 
-    for (size_t i = 0; i < array->size; i++)
+    for (int i = 0; i < array->size; i++)
     {
         apply_func(array->data[i], user_data);
     }
 }
 
-int alias_array_find(alias_array_t *array, alias_t *element, size_t *index)
+int alias_array_find(alias_array_t *array, alias_t *element, int *index)
 {
     Expects_not_null(array);
     Expects_not_null(index);
 
-    for (size_t i = 0; i < array->size; i++)
+    for (int i = 0; i < array->size; i++)
     {
         if (array->data[i] == element)
         {
@@ -216,15 +210,15 @@ int alias_array_find(alias_array_t *array, alias_t *element, size_t *index)
     return -1;
 }
 
-int alias_array_find_with_compare(alias_array_t *array, const void *data, alias_array_tCompareFunc compare_func,
-                                  size_t *index)
+int alias_array_find_with_compare(alias_array_t *array, const void *data, alias_array_compare_func_t compare_func,
+                                  int *index)
 {
     Expects_not_null(array);
     Expects_not_null(data);
     Expects_not_null(compare_func);
     Expects_not_null(index);
 
-    for (size_t i = 0; i < array->size; i++)
+    for (int i = 0; i < array->size; i++)
     {
         if (compare_func(array->data[i], data) == 0)
         {

@@ -54,29 +54,29 @@ static bool is_heredoc_escapable(char c)
 
 bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool strip_tabs)
 {
-    const char *d = string_data(delim);
-    int len = string_length(delim);
+    Expects_not_null(lx);
+    Expects_not_null(delim);
+
     int pos = lx->pos;
 
     if (strip_tabs)
     {
-        while (pos < string_length(lx->input) && string_data(lx->input)[pos] == '\t')
-            pos++;
+        int after_tabs = string_find_first_not_of_cstr_at(lx->input, "\t", pos);
+        if (after_tabs != -1)
+            pos = after_tabs;
     }
 
-    if (strncmp(string_data(lx->input) + pos, d, len) != 0)
-        return false;
+    if (string_compare_at(lx->input, pos, delim, 0) != 0)
+        return false;   
 
-    pos += len;
+    pos += string_length(delim);
 
     // Must be followed by newline or EOF
-    if (pos >= string_length(lx->input))
-        return true;
-    char next = string_data(lx->input)[pos];
-    if (next == '\n' || next == '\0')
+    Expects_le(pos, string_length(lx->input));
+    if (string_length(lx->input) == pos || string_at(lx->input, pos) == '\n')
     {
         lx->pos = pos;
-        if (next == '\n')
+        if (string_at(lx->input, pos) == '\n')
         {
             lx->pos++;
             lx->line_no++;
@@ -100,7 +100,7 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
     bool quoted = entry->delimiter_quoted;
 
     // Create a string to hold this heredoc's content
-    string_t *content = string_create_empty(256);
+    string_t *content = string_create();
 
     while (!lexer_at_end(lx))
     {
@@ -144,7 +144,7 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
 
         if (c == '\n')
         {
-            string_append_ascii_char(content, '\n');
+            string_append_char(content, '\n');
             lexer_advance(lx);
             lx->line_no++;
             lx->col_no = 1;
@@ -154,7 +154,7 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
         if (quoted)
         {
             // Fully literal
-            string_append_ascii_char(content, c);
+            string_append_char(content, c);
             lexer_advance(lx);
             continue;
         }
@@ -173,12 +173,12 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
             }
             if (is_heredoc_escapable(next))
             {
-                string_append_ascii_char(content, next);
+                string_append_char(content, next);
                 lexer_advance(lx);
                 lexer_advance(lx);
                 continue;
             }
-            string_append_ascii_char(content, '\\');
+            string_append_char(content, '\\');
             lexer_advance(lx);
             continue;
         }
@@ -186,16 +186,16 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
         if (c == '$' || c == '`')
         {
             // Let nested lexer handle it — just copy raw text
-            string_append_ascii_char(content, c);
+            string_append_char(content, c);
             lexer_advance(lx);
             continue;
         }
 
         // All other characters are literal
-        string_append_ascii_char(content, c);
+        string_append_char(content, c);
         lexer_advance(lx);
     }
 
-    string_destroy(content);
+    string_destroy(&content);
     return LEX_INCOMPLETE;
 }

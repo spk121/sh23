@@ -34,7 +34,7 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
         lexer_start_word(lx);
 
     int paren_depth = 0;
-    string_t *expr_text = string_create_empty(64);
+    string_t *expr_text = string_create();
 
     while (!lexer_at_end(lx))
     {
@@ -58,7 +58,7 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                     lx->current_token->needs_field_splitting = true;
 
                 lexer_pop_mode(lx);
-                string_destroy(expr_text);
+                string_destroy(&expr_text);
                 return LEX_OK;
             }
         }
@@ -75,7 +75,7 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
             char next = lexer_peek_ahead(lx, 1);
             if (next == '$' || next == '`' || next == '\\')
             {
-                string_append_ascii_char(expr_text, next);
+                string_append_char(expr_text, next);
                 lexer_advance(lx); // skip <backslash>
                 lexer_advance(lx); // skip escaped char
                 continue;
@@ -89,7 +89,7 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                 continue;
             }
             // Otherwise: keep both \ and next char
-            string_append_ascii_char(expr_text, '\\');
+            string_append_char(expr_text, '\\');
             lexer_advance(lx);
             continue;
         }
@@ -102,7 +102,7 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
             {
                 // Let nested lexer handle it — just copy the text
                 // This is safe because nested modes will append to the same word
-                string_append_ascii_char(expr_text, '$');
+                string_append_char(expr_text, '$');
                 lexer_advance(lx);
                 continue;
             }
@@ -110,15 +110,15 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
 
         if (c == '`')
         {
-            string_append_ascii_char(expr_text, '`');
+            string_append_char(expr_text, '`');
             lexer_advance(lx);
             continue;
         }
 
-        string_append_ascii_char(expr_text, c);
+        string_append_char(expr_text, c);
         lexer_advance(lx);
     }
 
-    string_destroy(expr_text);
+    string_destroy(&expr_text);
     return LEX_INCOMPLETE;
 }

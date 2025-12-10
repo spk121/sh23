@@ -162,6 +162,9 @@ struct builder_stack_t
  */
 lexer_t *lexer_create(void);
 
+void lexer_reset(lexer_t *lx);
+
+void lexer_append_input(lexer_t *lx, const string_t *input);
 /**
  * Append text to the lexer's input buffer.
  * The lexer does not take ownership of the input string.
@@ -169,11 +172,8 @@ lexer_t *lexer_create(void);
  */
 lexer_t *lexer_append_input_cstr(lexer_t *lx, const char *input);
 
-/**
- * Append text to the lexer's input buffer, normalizing newlines.
- * Converts \r\n  and \r to \n. Ensures line ends with \n.
- */
-void lexer_append_input_cstr_normalize_newlines(lexer_t *lx, const char *input);
+// Also sets the column number to 1.
+void lexer_set_line_no(lexer_t *lx, int line_no);
 
 /**
  * When dropping processed input, consider reallocating

@@ -44,19 +44,19 @@ void token_destroy(token_t *token)
 
     if (token->heredoc_delimiter != NULL)
     {
-        string_destroy(token->heredoc_delimiter);
+        string_destroy(&token->heredoc_delimiter);
         token->heredoc_delimiter = NULL;
     }
 
     if (token->heredoc_content != NULL)
     {
-        string_destroy(token->heredoc_content);
+        string_destroy(&token->heredoc_content);
         token->heredoc_content = NULL;
     }
 
     if (token->assignment_name != NULL)
     {
-        string_destroy(token->assignment_name);
+        string_destroy(&token->assignment_name);
         token->assignment_name = NULL;
     }
 
@@ -213,6 +213,16 @@ void token_append_tilde(token_t *token, const string_t *text)
     token->needs_expansion = true;
 }
 
+static bool string_contains_glob(const string_t *str)
+{
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+
+    return (string_find_cstr(str, "*") != -1 ||
+            string_find_cstr(str, "?") != -1 ||
+            string_find_cstr(str, "[") != -1);
+}
+
 void token_recompute_expansion_flags(token_t *token)
 {
     Expects_not_null(token);
@@ -277,7 +287,7 @@ void token_append_char_to_last_literal_part(token_t *token, char c)
     Expects_not_null(last_part);
     Expects_eq(last_part->type, PART_LITERAL);
 
-    string_append_ascii_char(last_part->text, c);
+    string_append_char(last_part->text, c);
 }
 
 void token_append_cstr_to_last_literal_part(token_t *token, const char *str)
@@ -480,7 +490,7 @@ string_t *token_to_string(const token_t *token)
 {
     Expects_not_null(token);
 
-    string_t *result = string_create_empty(128);
+    string_t *result = string_create();
 
     string_append_cstr(result, "Token(");
     string_append_cstr(result, token_type_to_string(token->type));
@@ -496,7 +506,7 @@ string_t *token_to_string(const token_t *token)
             }
             string_t *part_str = part_to_string(token->parts->parts[i]);
             string_append(result, part_str);
-            string_destroy(part_str);
+            string_destroy(&part_str);
         }
         string_append_cstr(result, "]");
     }
@@ -622,7 +632,7 @@ part_t *part_create_literal(const string_t *text)
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
 
     part->type = PART_LITERAL;
-    part->text = string_clone(text);
+    part->text = string_create_from(text);
     return part;
 }
 
@@ -632,7 +642,7 @@ part_t *part_create_parameter(const string_t *param_name)
 
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
     part->type = PART_PARAMETER;
-    part->param_name = string_clone(param_name);
+    part->param_name = string_create_from(param_name);
 
     return part;
 }
@@ -643,7 +653,7 @@ part_t *part_create_command_subst(const string_t *expr_text)
 
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
     part->type = PART_COMMAND_SUBST;
-    part->text = string_clone(expr_text);
+    part->text = string_create_from(expr_text);
     return part;
 }
 
@@ -654,7 +664,7 @@ part_t *part_create_arithmetic(const string_t *expr_text)
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
 
     part->type = PART_ARITHMETIC;
-    part->text = string_clone(expr_text);
+    part->text = string_create_from(expr_text);
     return part;
 }
 
@@ -664,7 +674,7 @@ part_t *part_create_tilde(const string_t *text)
 
     part_t *part = (part_t *)xcalloc(1, sizeof(part_t));
     part->type = PART_TILDE;
-    part->text = string_clone(text);
+    part->text = string_create_from(text);
     return part;
 }
 
@@ -674,17 +684,17 @@ void part_destroy(part_t *part)
 
     if (part->word != NULL)
     {
-        string_destroy(part->word);
+        string_destroy(&part->word);
         part->word = NULL;
     }
     if (part->text != NULL)
     {
-        string_destroy(part->text);
+        string_destroy(&part->text);
         part->text = NULL;
     }
     if (part->param_name != NULL)
     {
-        string_destroy(part->param_name);
+        string_destroy(&part->param_name);
         part->param_name = NULL;
     }
     if (part->nested != NULL)
@@ -770,7 +780,7 @@ string_t *part_to_string(const part_t *part)
 {
     Expects_not_null(part);
 
-    string_t *result = string_create_empty(64);
+    string_t *result = string_create();
     string_append_cstr(result, part_type_to_string(part->type));
     string_append_cstr(result, "(");
 
@@ -992,7 +1002,7 @@ token_t *token_list_get_last(const token_list_t *list)
     return list->tokens[list->size - 1];
 }
 
-void token_list_reinitialize(token_list_t *list)
+void token_list_clear(token_list_t *list)
 {
     Expects_not_null(list);
 
@@ -1012,7 +1022,7 @@ void token_list_reinitialize(token_list_t *list)
     list->capacity = INITIAL_LIST_CAPACITY;
 }
 
-void token_list_clear_without_destroy(token_list_t *list)
+void token_list_release_tokens(token_list_t *list)
 {
     Expects_not_null(list);
 
@@ -1024,7 +1034,7 @@ void token_list_clear_without_destroy(token_list_t *list)
     list->size = 0;
 }
 
-token_t **token_list_detach_tokens(token_list_t *list, int *out_size)
+token_t **token_list_release(token_list_t *list, int *out_size)
 {
     Expects_not_null(list);
 
@@ -1117,14 +1127,14 @@ string_t *token_list_to_string(const token_list_t *list)
 {
     Expects_not_null(list);
 
-    string_t *result = string_create_empty(256);
+    string_t *result = string_create();
     string_append_cstr(result, "TokenList[\n");
     for (int i = 0; i < list->size; i++)
     {
         string_append_cstr(result, "  ");
         string_t *token_str = token_to_string(list->tokens[i]);
         string_append(result, token_str);
-        string_destroy(token_str);
+        string_destroy(&token_str);
         if (i + 1 < list->size)
             string_append_cstr(result, ",\n");
         else
