@@ -776,6 +776,57 @@ const char *part_type_to_string(part_type_t type)
     }
 }
 
+static char c0ctl[32][4] = {
+    "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "HT", "LF", "VT",
+    "FF", "CR", "SO", "SI", "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB",
+    "CAN", "EM", "SUB", "ESC"
+};
+
+static void string_append_escaped_string(string_t *str, const string_t *text)
+{
+    Expects_not_null(str);
+    Expects_not_null(text);
+
+    for (int i = 0; i < string_length(text); i++)
+    {
+        char c = string_at(text, i);
+        switch (c)
+        {
+        case '\n':
+            string_append_cstr(str, "\\n");
+            break;
+        case '\t':
+            string_append_cstr(str, "\\t");
+            break;
+        case '\r':
+            string_append_cstr(str, "\\r");
+            break;
+        case '\b':
+            string_append_cstr(str, "\\b");
+            break;
+        case '\a':
+            string_append_cstr(str, "\\a");
+            break;
+        case '\f':
+            string_append_cstr(str, "\\f");
+            break;
+        case '\\':
+            string_append_cstr(str, "\\\\");
+            break;
+        default:
+            if (c < ' ')
+            {
+                string_append_char(str, '<');
+                string_append_cstr(str, c0ctl[(int)c]);
+                string_append_char(str, '>');
+            }
+            else
+            string_append_char(str, c);
+            break;
+        }
+    }
+}
+
 string_t *part_to_string(const part_t *part)
 {
     Expects_not_null(part);
@@ -791,15 +842,16 @@ string_t *part_to_string(const part_t *part)
         if (part->text != NULL)
         {
             string_append_cstr(result, "\"");
-            string_append(result, part->text);
+            string_append_escaped_string(result, part->text);
             string_append_cstr(result, "\"");
         }
         break;
     case PART_PARAMETER:
         if (part->param_name != NULL)
         {
-            string_append_cstr(result, "$");
-            string_append(result, part->param_name);
+            string_append_cstr(result, "${");
+            string_append_escaped_string(result, part->param_name);
+            string_append_cstr(result, "}");
         }
         break;
     case PART_COMMAND_SUBST:

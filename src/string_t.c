@@ -725,9 +725,37 @@ int string_compare_cstr(const string_t *str, const char *cstr)
     return strcmp(str->data, cstr);
 }
 
+
+int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2)
+{
+    Expects_not_null(str);
+    Expects_not_null(cstr);
+    Expects(pos1 >= 0);
+    Expects(pos1 <= str->length);
+    Expects(pos2 >= 0);
+
+    const char *data1 = str->data + pos1;
+    const char *data2 = cstr + pos2;
+
+    return strcmp(data1, data2);
+}
+
+int string_compare_substring(const string_t *str1, int begin1, const string_t *str2, int begin2, int end2)
+{
+    Expects_not_null(str1);
+    Expects_not_null(str2);
+    Expects(begin1 >= 0);
+    Expects(begin1 <= str1->length);
+    Expects(begin2 >= 0);
+    Expects(end2 >= begin2);
+    Expects(end2 <= str2->length);
+
+    int len2 = end2 - begin2;
+
+    return strncmp(str1->data + begin1, str2->data + begin2, len2);
+}
+
 #if 0
-int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2);
-int string_compare_substring(const string_t *str1, int pos1, const string_t *str2, int begin2, int end2);
 int string_compare_cstr_substring(const string_t *str, int pos, const char *cstr, int begin2, int end2);
 bool string_starts_with(const string_t *str, const string_t *prefix);
 bool string_starts_with_cstr(const string_t *str, const char *prefix);

@@ -64,9 +64,9 @@ bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool stri
         int after_tabs = string_find_first_not_of_cstr_at(lx->input, "\t", pos);
         if (after_tabs != -1)
             pos = after_tabs;
-    }
+    }   
 
-    if (string_compare_at(lx->input, pos, delim, 0) != 0)
+    if (string_compare_substring(lx->input, pos, delim, 0, string_length(delim)) != 0)
         return false;   
 
     pos += string_length(delim);
@@ -99,7 +99,13 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
     bool strip_tabs = entry->strip_tabs;
     bool quoted = entry->delimiter_quoted;
 
-    // Create a string to hold this heredoc's content
+    // Create a place to hold this heredoc's content
+    if (lx->current_token == NULL)
+    {
+        log_debug("lexer_process_heredoc_body: creating new word token for heredoc content");
+        lx->current_token = token_create_word();
+        lx->current_token->heredoc_content = string_create();
+    }
     string_t *content = string_create();
 
     while (!lexer_at_end(lx))
@@ -115,17 +121,19 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
         if (lexer_check_heredoc_delimiter(lx, delim, strip_tabs))
         {
             // Found delimiter — finish this heredoc
-            token_t *target = token_list_get(lx->tokens, entry->token_index);
-            if (!target)
-                target = lx->current_token; // fallback
+            string_append(lx->current_token->heredoc_content, content);
+            string_destroy(&content);
 
-            part_t *part = part_create_literal(content); // takes ownership
+            part_t *part = part_create_literal(lx->current_token->heredoc_content);
+            string_destroy(&lx->current_token->heredoc_content);
+
             part_set_quoted(part, false, true);          // behaves like double-quoted
             if (quoted)
                 part_set_quoted(part, true, false); // fully literal
 
-            token_add_part(target, part);
-            target->needs_expansion = !quoted;
+            token_add_part(lx->current_token, part);
+            lx->current_token->needs_expansion = !quoted;
+            lexer_finalize_word(lx);
 
             lexer_emit_token(lx, TOKEN_END_OF_HEREDOC);
 
@@ -196,6 +204,7 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
         lexer_advance(lx);
     }
 
+    string_append(lx->current_token->heredoc_content, content);
     string_destroy(&content);
     return LEX_INCOMPLETE;
 }

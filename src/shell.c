@@ -10,6 +10,7 @@
 #include "expander.h"
 #include "executor.h"
 #include "ast.h"
+#include "tokenizer.h"
 
 // Internal helpers used by shell_feed_line/shell_run_script
 static sh_status_t sh_lex(shell_t *sh, token_list_t **out_tokens);
@@ -180,7 +181,25 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     // Got a complete input, so reset the lexer and
     // continue with the tokenizer.
     lexer_reset(sh->lexer);
+
+    token_list_t *out_tokens = token_list_create();
+    tok_status_t tok_status;
+    tokenizer_t *tokenizer = tokenizer_create(sh->aliases);
+    tok_status = tokenizer_process(tokenizer, tokens, out_tokens);
+    if (tok_status != TOK_OK)
+    {
+        string_set_cstr(sh->error, tokenizer_get_error(tokenizer));
+        token_list_destroy(out_tokens);
+        token_list_destroy(tokens);
+        tokenizer_destroy(tokenizer);
+        return SH_SYNTAX_ERROR;
+    }
+
+    tokenizer_destroy(tokenizer);
     token_list_destroy(tokens);
+
+    // Tokenize into AST
+    ast_t *ast = NULL;
 
 #if 0
     // Tokenize
