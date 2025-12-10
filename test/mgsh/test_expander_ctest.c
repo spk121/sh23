@@ -73,11 +73,11 @@ CTEST(test_expander_expand_simple_word)
     
     // Should get back a list with one string "hello"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "hello", "expanded string is 'hello'");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     expander_destroy(exp);
     (void)ctest;
@@ -109,11 +109,11 @@ CTEST(test_expander_expand_concatenated_word)
     
     // Should get back a list with one string "helloworld"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "helloworld", "expanded string is 'helloworld'");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     expander_destroy(exp);
     (void)ctest;
@@ -173,11 +173,11 @@ CTEST(test_expander_arithmetic_simple)
     
     // Should get back "3"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "3", "expanded string is '3'");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     variable_store_destroy(vars);
     expander_destroy(exp);
@@ -211,11 +211,11 @@ CTEST(test_expander_arithmetic_with_variable)
     
     // Should get back "15"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "15", "expanded string is '15'");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     variable_store_destroy(vars);
     expander_destroy(exp);
@@ -251,11 +251,11 @@ CTEST(test_expander_arithmetic_complex)
     
     // Should get back "25"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "25", "expanded string is '25'");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     variable_store_destroy(vars);
     expander_destroy(exp);
@@ -288,11 +288,11 @@ CTEST(test_expander_arithmetic_empty)
     
     // Should get back "0" for empty expression
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "0", "empty expression evaluates to 0");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     variable_store_destroy(vars);
     expander_destroy(exp);
@@ -326,11 +326,11 @@ CTEST(test_expander_arithmetic_nested)
     
     // Should get back "3"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
-    const string_t *expanded = string_list_get(result, 0);
+    const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "3", "nested arithmetic evaluates correctly");
     
-    string_list_destroy(result);
+    string_list_destroy(&result);
     token_destroy(word);
     variable_store_destroy(vars);
     expander_destroy(exp);

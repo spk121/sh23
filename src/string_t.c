@@ -515,6 +515,7 @@ void string_append_char(string_t *str, char c)
     str->data[str->length] = '\0';
 }
 
+
 #if 0
 void string_replace(string_t *str, int pos, int len, const string_t *other);
 void string_replace_substring(string_t *str, int pos, int len, const string_t *other, int begin2, int end2);
@@ -890,21 +891,22 @@ string_list_t *string_list_create(void)
     return list;
 }
 
-void string_list_destroy(string_list_t *list)
+void string_list_destroy(string_list_t **list)
 {
     if (list == NULL)
         return;
     
-    for (int i = 0; i < list->size; i++)
+    for (int i = 0; i < (*list)->size; i++)
     {
-        string_destroy(&list->strings[i]);
+        string_destroy(&(*list)->strings[i]);
     }
     
-    xfree(list->strings);
+    xfree((*list)->strings);
     xfree(list);
+    list = NULL;
 }
 
-void string_list_take_append(string_list_t *list, string_t *str)
+void string_list_move_push_back(string_list_t *list, string_t *str)
 {
     Expects_not_null(list);
     Expects_not_null(str);
@@ -918,13 +920,13 @@ void string_list_take_append(string_list_t *list, string_t *str)
     list->strings[list->size++] = str;
 }
 
-void string_list_append(string_list_t *list, const string_t *str)
+void string_list_push_back(string_list_t *list, const string_t *str)
 {
     Expects_not_null(list);
     Expects_not_null(str);
     
     string_t *cloned = string_create_from(str);
-    string_list_take_append(list, cloned);
+    string_list_move_push_back(list, cloned);
 }
 
 int string_list_size(const string_list_t *list)
@@ -933,7 +935,7 @@ int string_list_size(const string_list_t *list)
     return list->size;
 }
 
-const string_t *string_list_get(const string_list_t *list, int index)
+const string_t *string_list_at(const string_list_t *list, int index)
 {
     return_val_if_null(list, NULL);
     return_val_if_lt(index, 0, NULL);
@@ -942,13 +944,12 @@ const string_t *string_list_get(const string_list_t *list, int index)
     return list->strings[index];
 }
 
-void string_list_take_replace(string_list_t *list, int index, string_t *str)
+void string_list_assign(string_list_t *list, int index, const string_t *str)
 {
     Expects_not_null(list);
     Expects_not_null(str);
     Expects_ge(index, 0);
     Expects_lt(index, list->size);
     
-    string_destroy(&list->strings[index]);
-    list->strings[index] = str;
+    string_set(list->strings[index], str);
 }

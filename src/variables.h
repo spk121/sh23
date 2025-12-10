@@ -7,8 +7,8 @@
 #include "variable_array.h"
 
 typedef struct {
-    String *name;
-    String *value;
+    string_t *name;
+    string_t *value;
     bool exported; // true if exported, false otherwise
     bool read_only; // true if value cannot be, false if value can be modified
 } Variable;
@@ -16,11 +16,11 @@ typedef struct {
 typedef struct {
     VariableArray *variables;      // Regular variables
     VariableArray *positional_params; // $1, $2, ...
-    String *status_str;       // $?
+    string_t *status_str;       // $?
     long pid;                 // $$ - really a pid_t
-    String *shell_name;       // $0
+    string_t *shell_name;       // $0
     long last_bg_pid;         // $! - really a pid_t
-    String *options;          // $-
+    string_t *options;          // $-
 } VariableStore;
 
 VariableStore *variable_store_create(const char *shell_name);

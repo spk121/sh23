@@ -288,14 +288,14 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
     // If the word was quoted, no field splitting
     if (was_quoted)
     {
-        string_list_append(result, str);
+        string_list_push_back(result, str);
         return result;
     }
     
     // If IFS is NULL or empty, no field splitting
     if (ifs == NULL || string_length(ifs) == 0)
     {
-        string_list_append(result, str);
+        string_list_push_back(result, str);
         return result;
     }
     
@@ -327,7 +327,7 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
                 // IFS whitespace: finish current field if non-empty
                 if (string_length(current_field) > 0)
                 {
-                    string_list_take_append(result, current_field);
+                    string_list_move_push_back(result, current_field);
                     current_field = string_create();
                 }
                 
@@ -338,7 +338,7 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
             else
             {
                 // Non-whitespace IFS character: always creates a field boundary
-                string_list_take_append(result, current_field);
+                string_list_move_push_back(result, current_field);
                 current_field = string_create();
                 i++;
             }
@@ -354,7 +354,7 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
     // Add final field if non-empty
     if (string_length(current_field) > 0)
     {
-        string_list_take_append(result, current_field);
+        string_list_move_push_back(result, current_field);
     }
     else
     {
@@ -540,7 +540,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     {
         // No field splitting needed
         result = string_list_create();
-        string_list_take_append(result, expanded);
+        string_list_move_push_back(result, expanded);
         // Ownership transferred to result
     }
     

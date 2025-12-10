@@ -862,11 +862,11 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
             // Concatenate all expanded words without adding spaces
             // Arithmetic expressions should not have field splitting
             for (int j = 0; j < string_list_size(expanded_words); j++) {
-                const string_t *word = string_list_get(expanded_words, j);
+                const string_t *word = string_list_at(expanded_words, j);
                 string_append(result, word);
             }
             
-            string_list_destroy(expanded_words);
+            string_list_destroy(&expanded_words);
         }
         // For non-word tokens, we skip them as arithmetic expressions
         // should only contain word tokens

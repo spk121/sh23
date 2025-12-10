@@ -174,11 +174,11 @@ string_t *string_from_double(double value);
 uint32_t string_hash(const string_t *str);
 
 string_list_t *string_list_create(void);
-void string_list_destroy(string_list_t *list);
-void string_list_take_append(string_list_t *list, string_t *str);
-void string_list_append(string_list_t *list, const string_t *str);
+void string_list_destroy(string_list_t **list);
+void string_list_move_push_back(string_list_t *list, string_t *str);
+void string_list_push_back(string_list_t *list, const string_t *str);
 int string_list_size(const string_list_t *list);
-const string_t *string_list_get(const string_list_t *list, int index);
-void string_list_take_replace(string_list_t *list, int index, string_t *str);
+const string_t *string_list_at(const string_list_t *list, int index);
+void string_list_assign(string_list_t *list, int index, const string_t *str);
 
 #endif
