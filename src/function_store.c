@@ -30,10 +30,14 @@ function_store_t *function_store_create(void) {
     return store;
 }
 
-void function_store_destroy(function_store_t *store) {
+void function_store_destroy(function_store_t **store) {
     if (!store) return;
-    function_array_destroy(store->functions); // frees elements via function_free
-    xfree(store);
+    function_store_t *s = *store;
+    
+    if (!s) return;
+    function_array_destroy(&s->functions); // frees elements via function_free
+    xfree(s);
+    *store = NULL;
 }
 
 int function_store_set(function_store_t *store, const char *name, ast_node_t *body) {

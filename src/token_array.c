@@ -62,23 +62,27 @@ token_array_t *token_array_create_with_free(token_array_tFreeFunc free_func)
     return array;
 }
 
-void token_array_destroy(token_array_t *array)
+void token_array_destroy(token_array_t **array)
 {
-    if (array)
+    if (!array) return;
+    token_array_t *a = *array;
+    
+    if (a)
     {
-        log_debug("token_array_destroy: freeing array %p, size %zu", array, array->size);
-        if (array->free_func)
+        log_debug("token_array_destroy: freeing array %p, size %zu", a, a->size);
+        if (a->free_func)
         {
-            for (size_t i = 0; i < array->size; i++)
+            for (size_t i = 0; i < a->size; i++)
             {
-                if (array->data[i])
+                if (a->data[i])
                 {
-                    array->free_func(array->data[i]);
+                    a->free_func(&a->data[i]);
                 }
             }
         }
-        free(array->data);
-        free(array);
+        free(a->data);
+        free(a);
+        *array = NULL;
     }
 }
 
@@ -130,7 +134,7 @@ int token_array_set(token_array_t *array, size_t index, token_t *element)
 
     if (array->free_func && array->data[index])
     {
-        array->free_func(array->data[index]);
+        array->free_func(&array->data[index]);
     }
     array->data[index] = element;
     return 0;
@@ -143,7 +147,7 @@ int token_array_remove(token_array_t *array, size_t index)
 
     if (array->free_func && array->data[index])
     {
-        array->free_func(array->data[index]);
+        array->free_func(&array->data[index]);
     }
 
     // Shift elements to fill the gap
@@ -166,7 +170,7 @@ int token_array_clear(token_array_t *array)
         {
             if (array->data[i])
             {
-                array->free_func(array->data[i]);
+                array->free_func(&array->data[i]);
             }
         }
     }
@@ -193,7 +197,7 @@ int token_array_resize(token_array_t *array, size_t new_capacity)
             {
                 if (array->data[i])
                 {
-                    array->free_func(array->data[i]);
+                    array->free_func(&array->data[i]);
                 }
             }
         }

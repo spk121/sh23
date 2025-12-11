@@ -7,7 +7,7 @@
 typedef struct function_t function_t;
 
 // Optional element free function signature
-typedef void (*function_array_free_func_t)(function_t *element);
+typedef void (*function_array_free_func_t)(function_t **element);
 
 // Type-specific dynamic array of function_t*
 typedef struct function_array_t {

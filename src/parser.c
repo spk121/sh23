@@ -24,17 +24,21 @@ parser_t *parser_create(void)
     return parser;
 }
 
-void parser_destroy(parser_t *parser)
+void parser_destroy(parser_t **parser)
 {
-    if (parser == NULL)
+    if (!parser) return;
+    parser_t *p = *parser;
+    
+    if (p == NULL)
         return;
 
-    if (parser->error_msg != NULL)
+    if (p->error_msg != NULL)
     {
-        string_destroy(&parser->error_msg);
+        string_destroy(&p->error_msg);
     }
 
-    xfree(parser);
+    xfree(p);
+    *parser = NULL;
 }
 
 /* ============================================================================

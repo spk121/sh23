@@ -13,7 +13,7 @@ typedef struct token_array_t
 } token_array_t;
 
 // Function pointer types
-typedef void (*TokenArrayFreeFunc)(token_t *element);
+typedef void (*TokenArrayFreeFunc)(token_t **element);
 typedef void (*TokenArrayApplyFunc)(token_t *element, void *user_data);
 typedef int (*TokenArrayCompareFunc)(const token_t *element, const void *user_data);
 

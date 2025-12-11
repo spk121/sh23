@@ -46,28 +46,32 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     return tok;
 }
 
-void tokenizer_destroy(tokenizer_t *tok)
+void tokenizer_destroy(tokenizer_t **tok)
 {
-    if (tok == NULL)
+    if (!tok) return;
+    tokenizer_t *t = *tok;
+    
+    if (t == NULL)
         return;
 
-    if (tok->error_msg)
+    if (t->error_msg)
     {
-        string_destroy(&tok->error_msg);
-        tok->error_msg = NULL;
+        string_destroy(&t->error_msg);
+        t->error_msg = NULL;
     }
 
     // Free the expanded_aliases tracking array
-    if (tok->expanded_aliases)
+    if (t->expanded_aliases)
     {
-        for (int i = 0; i < tok->expanded_aliases_count; i++)
+        for (int i = 0; i < t->expanded_aliases_count; i++)
         {
-            xfree(tok->expanded_aliases[i]);
+            xfree(t->expanded_aliases[i]);
         }
-        xfree(tok->expanded_aliases);
+        xfree(t->expanded_aliases);
     }
 
-    xfree(tok);
+    xfree(t);
+    *tok = NULL;
 }
 
 /* ============================================================================
