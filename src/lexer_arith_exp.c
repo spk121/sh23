@@ -66,7 +66,10 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
             else if (lx->pos + 1 >= string_length(lx->input))
             {
                 // At EOF after single ) - need more input
-                // Fall through to return INCOMPLETE at end of function
+                // Consume the ) so we advance past it, then exit loop to return INCOMPLETE
+                string_append_char(expr_text, c);
+                lexer_advance(lx);
+                break;
             }
             else
             {
