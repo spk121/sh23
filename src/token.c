@@ -32,41 +32,45 @@ token_t *token_create_word(void)
     return token_create(TOKEN_WORD);
 }
 
-void token_destroy(token_t *token)
+void token_destroy(token_t **token)
 {
     Expects_not_null(token);
+    token_t *t = *token;
+    
+    if (!t) return;
 
-    if (token->parts != NULL)
+    if (t->parts != NULL)
     {
-        part_list_destroy(token->parts);
-        token->parts = NULL;
+        part_list_destroy(&t->parts);
+        t->parts = NULL;
     }
 
-    if (token->heredoc_delimiter != NULL)
+    if (t->heredoc_delimiter != NULL)
     {
-        string_destroy(&token->heredoc_delimiter);
-        token->heredoc_delimiter = NULL;
+        string_destroy(&t->heredoc_delimiter);
+        t->heredoc_delimiter = NULL;
     }
 
-    if (token->heredoc_content != NULL)
+    if (t->heredoc_content != NULL)
     {
-        string_destroy(&token->heredoc_content);
-        token->heredoc_content = NULL;
+        string_destroy(&t->heredoc_content);
+        t->heredoc_content = NULL;
     }
 
-    if (token->assignment_name != NULL)
+    if (t->assignment_name != NULL)
     {
-        string_destroy(&token->assignment_name);
-        token->assignment_name = NULL;
+        string_destroy(&t->assignment_name);
+        t->assignment_name = NULL;
     }
 
-    if (token->assignment_value != NULL)
+    if (t->assignment_value != NULL)
     {
-        part_list_destroy(token->assignment_value);
-        token->assignment_value = NULL;
+        part_list_destroy(&t->assignment_value);
+        t->assignment_value = NULL;
     }
 
-    xfree(token);
+    xfree(t);
+    *token = NULL;
 }
 
 /* ============================================================================
@@ -695,32 +699,36 @@ part_t *part_create_tilde(const string_t *text)
     return part;
 }
 
-void part_destroy(part_t *part)
+void part_destroy(part_t **part)
 {
     Expects_not_null(part);
+    part_t *p = *part;
+    
+    if (!p) return;
 
-    if (part->word != NULL)
+    if (p->word != NULL)
     {
-        string_destroy(&part->word);
-        part->word = NULL;
+        string_destroy(&p->word);
+        p->word = NULL;
     }
-    if (part->text != NULL)
+    if (p->text != NULL)
     {
-        string_destroy(&part->text);
-        part->text = NULL;
+        string_destroy(&p->text);
+        p->text = NULL;
     }
-    if (part->param_name != NULL)
+    if (p->param_name != NULL)
     {
-        string_destroy(&part->param_name);
-        part->param_name = NULL;
+        string_destroy(&p->param_name);
+        p->param_name = NULL;
     }
-    if (part->nested != NULL)
+    if (p->nested != NULL)
     {
-        token_list_destroy(part->nested);
-        part->nested = NULL;
+        token_list_destroy(&p->nested);
+        p->nested = NULL;
     }
 
-    xfree(part);
+    xfree(p);
+    *part = NULL;
 }
 
 /* ============================================================================
@@ -898,19 +906,23 @@ part_list_t *part_list_create(void)
     return list;
 }
 
-void part_list_destroy(part_list_t *list)
+void part_list_destroy(part_list_t **list)
 {
     Expects_not_null(list);
-    Expects_not_null(list->parts);
+    part_list_t *l = *list;
+    
+    if (!l) return;
+    Expects_not_null(l->parts);
 
-    for (int i = 0; i < list->size; i++)
+    for (int i = 0; i < l->size; i++)
     {
-        part_destroy(list->parts[i]);
+        part_destroy(&l->parts[i]);
     }
 
-    xfree(list->parts);
-    list->parts = NULL;
-    xfree(list);
+    xfree(l->parts);
+    l->parts = NULL;
+    xfree(l);
+    *list = NULL;
 }
 
 int part_list_append(part_list_t *list, part_t *part)
@@ -951,7 +963,7 @@ int part_list_remove(part_list_t *list, int index)
     Expects_not_null(list->parts);
     Expects_lt(index, list->size);
 
-    part_destroy(list->parts[index]);
+    part_destroy(&list->parts[index]);
     // Shift remaining parts down
     for (int i = index; i < list->size - 1; i++)
     {
@@ -969,7 +981,7 @@ void part_list_reinitialize(part_list_t *list)
     // Destroy all existing parts
     for (int i = 0; i < list->size; i++)
     {
-        part_destroy(list->parts[i]);
+        part_destroy(&list->parts[i]);
     }
 
     // Free the old backing array
@@ -996,19 +1008,23 @@ token_list_t *token_list_create(void)
     return list;
 }
 
-void token_list_destroy(token_list_t *list)
+void token_list_destroy(token_list_t **list)
 {
     Expects_not_null(list);
-    Expects_not_null(list->tokens);
+    token_list_t *l = *list;
+    
+    if (!l) return;
+    Expects_not_null(l->tokens);
 
-    for (int i = 0; i < list->size; i++)
+    for (int i = 0; i < l->size; i++)
     {
-        token_destroy(list->tokens[i]);
+        token_destroy(&l->tokens[i]);
     }
 
-    xfree(list->tokens);
-    list->tokens = NULL;
-    xfree(list);
+    xfree(l->tokens);
+    l->tokens = NULL;
+    xfree(l);
+    *list = NULL;
 }
 
 int token_list_append(token_list_t *list, token_t *token)
@@ -1050,7 +1066,7 @@ int token_list_remove(token_list_t *list, int index)
     Expects_not_null(list->tokens);
     Expects_lt(index, list->size);
 
-    token_destroy(list->tokens[index]);
+    token_destroy(&list->tokens[index]);
 
     // Shift remaining tokens down
     for (int i = index; i < list->size - 1; i++)
@@ -1078,7 +1094,7 @@ void token_list_clear(token_list_t *list)
     // Destroy all existing tokens
     for (int i = 0; i < list->size; i++)
     {
-        token_destroy(list->tokens[i]);
+        token_destroy(&list->tokens[i]);
     }
 
     // Free the old backing array

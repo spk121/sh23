@@ -86,33 +86,37 @@ shell_t *shell_create(const shell_config_t *cfg)
     return sh;
 }
 
-void shell_destroy(shell_t *sh)
+void shell_destroy(shell_t **sh)
 {
-    if (sh == NULL)
+    Expects_not_null(sh);
+    shell_t *s = *sh;
+    
+    if (s == NULL)
         return;
 
-    if (sh->ps1 != NULL)
-        string_destroy(&sh->ps1);
-    if (sh->ps2 != NULL)
-        string_destroy(&sh->ps2);
-    if (sh->lexer != NULL)
-        lexer_destroy(sh->lexer);
-    if (sh->parser != NULL)
-        parser_destroy(sh->parser);
-    if (sh->expander != NULL)
-        expander_destroy(sh->expander);
-    if (sh->executor != NULL)
-        executor_destroy(sh->executor);
-    if (sh->aliases != NULL)
-        alias_store_destroy(&sh->aliases);
-    if (sh->funcs != NULL)
-        function_store_destroy(sh->funcs);
-    if (sh->vars != NULL)
-        variable_store_destroy(sh->vars);
-    if (sh->error != NULL)
-        string_destroy(&sh->error);
+    if (s->ps1 != NULL)
+        string_destroy(&s->ps1);
+    if (s->ps2 != NULL)
+        string_destroy(&s->ps2);
+    if (s->lexer != NULL)
+        lexer_destroy(&s->lexer);
+    if (s->parser != NULL)
+        parser_destroy(&s->parser);
+    if (s->expander != NULL)
+        expander_destroy(&s->expander);
+    if (s->executor != NULL)
+        executor_destroy(&s->executor);
+    if (s->aliases != NULL)
+        alias_store_destroy(&s->aliases);
+    if (s->funcs != NULL)
+        function_store_destroy(&s->funcs);
+    if (s->vars != NULL)
+        variable_store_destroy(&s->vars);
+    if (s->error != NULL)
+        string_destroy(&s->error);
 
-    xfree(sh);
+    xfree(s);
+    *sh = NULL;
 }
 
 sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
@@ -149,7 +153,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     if (lex_status == LEX_ERROR)
     {
         string_set_cstr(sh->error, lexer_get_error(sh->lexer));
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_SYNTAX_ERROR;
     }
     else if (lex_status == LEX_INCOMPLETE)
@@ -161,20 +165,20 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         // For now, we'll just return SH_INCOMPLETE
         // and start over next time.
         log_debug("shell_feed_line: lexer returned LEX_INCOMPLETE");
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_INCOMPLETE;
     }
     else if (lex_status == LEX_NEED_HEREDOC)
     {
         // Handle heredoc
         log_debug("shell_feed_line: lexer returned LEX_NEED_HEREDOC");
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_INCOMPLETE;
     }
     else if (lex_status != LEX_OK)
     {
         log_error("shell_feed_line: unexpected lexer status: %d", lex_status);
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_INTERNAL_ERROR;
     }
 
@@ -195,14 +199,14 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     if (tok_status != TOK_OK)
     {
         string_set_cstr(sh->error, tokenizer_get_error(tokenizer));
-        token_list_destroy(out_tokens);
-        token_list_destroy(tokens);
-        tokenizer_destroy(tokenizer);
+        token_list_destroy(&out_tokens);
+        token_list_destroy(&tokens);
+        tokenizer_destroy(&tokenizer);
         return SH_SYNTAX_ERROR;
     }
 
-    tokenizer_destroy(tokenizer);
-    token_list_destroy(tokens);
+    tokenizer_destroy(&tokenizer);
+    token_list_destroy(&tokens);
 
     // Tokenize into AST
     // The shell has a parser.
@@ -211,13 +215,13 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     if (parse_status == PARSE_ERROR)
     {
         string_set_cstr(sh->error, parser_get_error(sh->parser));
-        token_list_destroy(out_tokens);
+        token_list_destroy(&out_tokens);
         return SH_SYNTAX_ERROR;
     }
     else if (parse_status != PARSE_OK)
     {
         log_error("shell_feed_line: unexpected parser status: %d", parse_status);
-        token_list_destroy(out_tokens);
+        token_list_destroy(&out_tokens);
         return SH_INTERNAL_ERROR;
     }
  
@@ -226,7 +230,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     {
         ast_print(ast);
     }
-    ast_node_destroy(ast);
+    ast_node_destroy(&ast);
 
 #if 0
     // Tokenize
@@ -237,13 +241,13 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     if (lex_status == LEX_ERROR)
     {
         string_set_cstr(sh->error, lexer_get_error(sh->lexer));
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_SYNTAX_ERROR;
     }
 
     if (lex_status == LEX_INCOMPLETE)
     {
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_INCOMPLETE;
     }
 
@@ -253,15 +257,15 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     if (parse_status == PARSE_SYNTAX_ERROR)
     {
         string_set_cstr(sh->error, parser_get_error(sh->parser));
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return SH_SYNTAX_ERROR;
     }
     // TBD: Execute AST here
 
     // Cleanup
     if (ast != NULL)
-        ast_destroy(ast);
-    token_list_destroy(tokens);
+        ast_node_destroy(&ast);
+    token_list_destroy(&tokens);
 #endif
     return SH_OK;
 }

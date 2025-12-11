@@ -31,18 +31,22 @@ variable_t *variable_create_from_cstr(const char *name, const char *value, bool 
 }
 
 // Destructor
-void variable_destroy(variable_t *variable)
+void variable_destroy(variable_t **variable)
 {
-    if (variable) {
+    Expects_not_null(variable);
+    variable_t *v = *variable;
+    
+    if (v) {
         log_debug("variable_destroy: freeing variable %p, name = %s, value = %s, exported = %d, read_only = %d",
-                  variable,
-                  variable->name ? string_data(variable->name) : "(null)",
-                  variable->value ? string_data(variable->value) : "(null)",
-                  variable->exported,
-                  variable->read_only);
-        string_destroy(&variable->name);
-        string_destroy(&variable->value);
-        xfree(variable);
+                  v,
+                  v->name ? string_data(v->name) : "(null)",
+                  v->value ? string_data(v->value) : "(null)",
+                  v->exported,
+                  v->read_only);
+        string_destroy(&v->name);
+        string_destroy(&v->value);
+        xfree(v);
+        *variable = NULL;
     }
 }
 

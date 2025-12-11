@@ -15,15 +15,19 @@ variable_array_t *variable_array_create_with_free(variable_array_free_func_t fre
     return a;
 }
 
-void variable_array_destroy(variable_array_t *array) {
-    if (!array) return;
-    if (array->free_func) {
-        for (size_t i = 0; i < array->len; ++i) {
-            if (array->data[i]) array->free_func(array->data[i]);
+void variable_array_destroy(variable_array_t **array) {
+    Expects_not_null(array);
+    variable_array_t *a = *array;
+    
+    if (!a) return;
+    if (a->free_func) {
+        for (size_t i = 0; i < a->len; ++i) {
+            if (a->data[i]) a->free_func(&a->data[i]);
         }
     }
-    xfree(array->data);
-    xfree(array);
+    xfree(a->data);
+    xfree(a);
+    *array = NULL;
 }
 
 size_t variable_array_size(const variable_array_t *array) {
@@ -77,7 +81,7 @@ void variable_array_set(variable_array_t *array, size_t index, variable_t *eleme
     Expects_not_null(array);
     Expects(index < array->len);
     if (array->free_func && array->data[index] && array->data[index] != element) {
-        array->free_func(array->data[index]);
+        array->free_func(&array->data[index]);
     }
     array->data[index] = element;
 }
@@ -86,7 +90,7 @@ void variable_array_remove(variable_array_t *array, size_t index) {
     Expects_not_null(array);
     Expects(index < array->len);
     if (array->free_func && array->data[index]) {
-        array->free_func(array->data[index]);
+        array->free_func(&array->data[index]);
     }
     if (index + 1 < array->len) {
         memmove(&array->data[index], &array->data[index + 1],
@@ -99,7 +103,7 @@ void variable_array_clear(variable_array_t *array) {
     Expects_not_null(array);
     if (array->free_func) {
         for (size_t i = 0; i < array->len; ++i) {
-            if (array->data[i]) array->free_func(array->data[i]);
+            if (array->data[i]) array->free_func(&array->data[i]);
         }
     }
     array->len = 0;

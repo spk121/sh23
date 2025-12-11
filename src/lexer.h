@@ -197,7 +197,7 @@ void lexer_drop_processed_input(lexer_t *lx);
  * Destroy a lexer and free all associated memory.
  * Safe to call with NULL.
  */
-void lexer_destroy(lexer_t *lexer);
+void lexer_destroy(lexer_t **lexer);
 
 /* ============================================================================
  * Main Lexing Function

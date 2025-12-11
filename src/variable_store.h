@@ -22,7 +22,7 @@ variable_store_t *variable_store_create(const char *shell_name);
 variable_store_t *variable_store_create_from_envp(const char *shell_name, char **envp);
 
 // Destructor
-void variable_store_destroy(variable_store_t *store);
+void variable_store_destroy(variable_store_t **store);
 
 // Clear all variables and parameters
 int variable_store_clear(variable_store_t *store);

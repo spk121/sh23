@@ -5,7 +5,7 @@
 #include "variable.h"
 
 // Optional element free function signature
-typedef void (*variable_array_free_func_t)(variable_t *element);
+typedef void (*variable_array_free_func_t)(variable_t **element);
 
 // Type-specific dynamic array of variable_t*
 typedef struct variable_array_t {
@@ -22,7 +22,7 @@ typedef int  (*variable_array_compare_func_t)(const variable_t *element, const v
 // Create/destroy
 variable_array_t *variable_array_create(void);
 variable_array_t *variable_array_create_with_free(variable_array_free_func_t free_func);
-void variable_array_destroy(variable_array_t *array);
+void variable_array_destroy(variable_array_t **array);
 
 // Accessors
 size_t   variable_array_size(const variable_array_t *array);

@@ -24,7 +24,7 @@ typedef int  (*function_array_compare_func_t)(const function_t *element, const v
 // Create/destroy
 function_array_t *function_array_create(void);
 function_array_t *function_array_create_with_free(function_array_free_func_t free_func);
-void function_array_destroy(function_array_t *array);
+void function_array_destroy(function_array_t **array);
 
 // Accessors
 size_t   function_array_size(const function_array_t *array);

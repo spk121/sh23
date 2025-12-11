@@ -20,7 +20,7 @@ typedef struct function_store_t {
 // Create and destroy
 function_store_t *function_store_create(void);
 // Destroys the store and all contained function_t entries, including their AST bodies.
-void function_store_destroy(function_store_t *store);
+void function_store_destroy(function_store_t **store);
 
 // Add or update a function.
 // Ownership: the store takes ownership of 'body' and will destroy any

@@ -17,7 +17,7 @@ variable_t *variable_create(const string_t *name, const string_t *value, bool ex
 variable_t *variable_create_from_cstr(const char *name, const char *value, bool exported, bool read_only);
 
 // Destructor
-void variable_destroy(variable_t *variable);
+void variable_destroy(variable_t **variable);
 
 // Getters
 const string_t *variable_get_name(const variable_t *variable);

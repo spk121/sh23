@@ -46,7 +46,7 @@ executor_t *executor_create(void);
  * Destroy an executor and free all associated memory.
  * Safe to call with NULL.
  */
-void executor_destroy(executor_t *executor);
+void executor_destroy(executor_t **executor);
 
 /* ============================================================================
  * Execution Functions

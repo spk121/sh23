@@ -20,7 +20,7 @@ typedef int (*TokenArrayCompareFunc)(const token_t *element, const void *user_da
 // Create and destroy
 token_array_t *token_array_create(void);
 token_array_t *token_array_create_with_free(TokenArrayFreeFunc free_func);
-void token_array_destroy(token_array_t *array);
+void token_array_destroy(token_array_t **array);
 
 // Accessors
 size_t token_array_size(const token_array_t *array);

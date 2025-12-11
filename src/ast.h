@@ -248,7 +248,7 @@ ast_node_t *ast_node_create(ast_node_type_t type);
  * Safe to call with NULL.
  * Recursively destroys child nodes.
  */
-void ast_node_destroy(ast_node_t *node);
+void ast_node_destroy(ast_node_t **node);
 
 /* ============================================================================
  * AST Node Accessors
@@ -364,7 +364,7 @@ ast_node_list_t *ast_node_list_create(void);
  * Destroy an AST node list and all contained nodes.
  * Safe to call with NULL.
  */
-void ast_node_list_destroy(ast_node_list_t *list);
+void ast_node_list_destroy(ast_node_list_t **list);
 
 /**
  * Append an AST node to a list.

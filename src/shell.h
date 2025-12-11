@@ -56,7 +56,7 @@ typedef struct {
 } shell_config_t;
 
 shell_t *shell_create(const shell_config_t *cfg);
-void     shell_destroy(shell_t *sh);
+void     shell_destroy(shell_t **sh);
 
 // Feeds a single line and processes if complete.
 // Returns SH_INCOMPLETE if the shell expects more input.
