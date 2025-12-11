@@ -61,6 +61,14 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                 string_destroy(&expr_text);
                 return LEX_OK;
             }
+            else if (lexer_peek_ahead(lx, 1) != '\0')
+            {
+                // Single ) at depth 0 not followed by ) and not at EOF is an error
+                string_destroy(&expr_text);
+                lexer_set_error(lx, "Unbalanced parentheses in arithmetic expansion");
+                return LEX_ERROR;
+            }
+            // If peek_ahead is \0, we're at EOF - fall through and will return INCOMPLETE
         }
 
         // Count parentheses
