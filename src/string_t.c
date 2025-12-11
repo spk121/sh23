@@ -128,7 +128,9 @@ void string_destroy(string_t **str)
 {
     Expects_not_null(str);
     string_t *s = *str;
-    Expects_not_null(s);
+    
+    if (!s) return;
+    
     Expects(s->length >= 0);
     Expects(s->capacity >= 0);
     Expects(s->data != NULL);
@@ -930,8 +932,8 @@ void string_list_destroy(string_list_t **list)
     }
     
     xfree((*list)->strings);
-    xfree(list);
-    list = NULL;
+    xfree(*list);
+    *list = NULL;
 }
 
 void string_list_move_push_back(string_list_t *list, string_t *str)

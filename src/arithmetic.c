@@ -818,8 +818,8 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     lex_status_t lex_status = lexer_tokenize(lx, tokens, NULL);
     if (lex_status != LEX_OK) {
         log_warn("arithmetic_expand_expression: lexer failed with status %d", lex_status);
-        token_list_destroy(tokens);
-        lexer_destroy(lx);
+        token_list_destroy(&tokens);
+        lexer_destroy(&lx);
         return NULL;
     }
     
@@ -831,11 +831,11 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     token_list_t *aliased_tokens = token_list_create();
     
     if (!tokenizer || !aliased_tokens) {
-        token_list_destroy(aliased_tokens);
-        if (tokenizer) tokenizer_destroy(tokenizer);
+        token_list_destroy(&aliased_tokens);
+        if (tokenizer) tokenizer_destroy(&tokenizer);
         alias_store_destroy(&aliases);
-        token_list_destroy(tokens);
-        lexer_destroy(lx);
+        token_list_destroy(&tokens);
+        lexer_destroy(&lx);
         log_error("arithmetic_expand_expression: failed to create tokenizer");
         return NULL;
     }
@@ -873,11 +873,11 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     }
     
     // Cleanup
-    token_list_destroy(aliased_tokens);
-    tokenizer_destroy(tokenizer);
+    token_list_destroy(&aliased_tokens);
+    tokenizer_destroy(&tokenizer);
     alias_store_destroy(&aliases);
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     
     return result;
 }

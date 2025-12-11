@@ -78,7 +78,7 @@ CTEST(test_expander_expand_simple_word)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "hello", "expanded string is 'hello'");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     expander_destroy(exp);
     (void)ctest;
 }
@@ -114,7 +114,7 @@ CTEST(test_expander_expand_concatenated_word)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "helloworld", "expanded string is 'helloworld'");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     expander_destroy(exp);
     (void)ctest;
 }
@@ -178,7 +178,7 @@ CTEST(test_expander_arithmetic_simple)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "3", "expanded string is '3'");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     variable_store_destroy(vars);
     expander_destroy(exp);
     (void)ctest;
@@ -216,7 +216,7 @@ CTEST(test_expander_arithmetic_with_variable)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "15", "expanded string is '15'");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     variable_store_destroy(vars);
     expander_destroy(exp);
     (void)ctest;
@@ -256,7 +256,7 @@ CTEST(test_expander_arithmetic_complex)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "25", "expanded string is '25'");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     variable_store_destroy(vars);
     expander_destroy(exp);
     (void)ctest;
@@ -293,7 +293,7 @@ CTEST(test_expander_arithmetic_empty)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "0", "empty expression evaluates to 0");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     variable_store_destroy(vars);
     expander_destroy(exp);
     (void)ctest;
@@ -331,7 +331,7 @@ CTEST(test_expander_arithmetic_nested)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "3", "nested arithmetic evaluates correctly");
     
     string_list_destroy(&result);
-    token_destroy(word);
+    token_destroy(&word);
     variable_store_destroy(vars);
     expander_destroy(exp);
     (void)ctest;

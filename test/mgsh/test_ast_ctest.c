@@ -21,11 +21,11 @@ static token_list_t *lex_and_tokenize(const char *input)
     token_list_t *tokens = token_list_create();
     lex_status_t lex_status = lexer_tokenize(lx, tokens, NULL);
 
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
 
     if (lex_status != LEX_OK)
     {
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return NULL;
     }
 
@@ -39,12 +39,12 @@ static token_list_t *lex_and_tokenize(const char *input)
 
     if (tok_status != TOK_OK)
     {
-        token_list_destroy(tokens);
-        token_list_destroy(output);
+        token_list_destroy(&tokens);
+        token_list_destroy(&output);
         return NULL;
     }
 
-    token_list_destroy(tokens);
+    token_list_destroy(&tokens);
     return output;
 }
 
@@ -69,8 +69,8 @@ static ast_node_t *parse_string(const char *input)
         printf("Parse error for input '%s': %s\n", input, err ? err : "unknown");
     }
     
-    parser_destroy(parser);
-    token_list_destroy(tokens);
+    parser_destroy(&parser);
+    token_list_destroy(&tokens);
 
     if (status != PARSE_OK)
     {
@@ -162,7 +162,7 @@ CTEST(test_parser_create_destroy)
 {
     parser_t *parser = parser_create();
     CTEST_ASSERT_NOT_NULL(ctest, parser, "parser created");
-    parser_destroy(parser);
+    parser_destroy(&parser);
     (void)ctest;
 }
 

@@ -19,11 +19,11 @@ static token_list_t *lex_string(const char *input)
     token_list_t *tokens = token_list_create();
     lex_status_t status = lexer_tokenize(lx, tokens, NULL);
 
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
 
     if (status != LEX_OK)
     {
-        token_list_destroy(tokens);
+        token_list_destroy(&tokens);
         return NULL;
     }
 
@@ -58,8 +58,8 @@ CTEST(test_tokenizer_passthrough_no_aliases)
     CTEST_ASSERT_EQ(ctest, status, TOK_OK, "tokenizer status is TOK_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 3, "three tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     (void)ctest;
 }
@@ -76,8 +76,8 @@ CTEST(test_tokenizer_empty_input)
     CTEST_ASSERT_EQ(ctest, status, TOK_OK, "tokenizer status is TOK_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 0, "no tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     (void)ctest;
 }
@@ -105,8 +105,8 @@ CTEST(test_tokenizer_simple_alias)
     CTEST_ASSERT_EQ(ctest, status, TOK_OK, "tokenizer status is TOK_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 2, "two tokens in output (ls -l)");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -131,8 +131,8 @@ CTEST(test_tokenizer_alias_with_args)
     CTEST_ASSERT_EQ(ctest, status, TOK_OK, "tokenizer status is TOK_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 3, "three tokens in output (ls -l file.txt)");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -157,8 +157,8 @@ CTEST(test_tokenizer_no_alias_when_quoted)
     CTEST_ASSERT_EQ(ctest, status, TOK_OK, "tokenizer status is TOK_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 1, "one token in output (ll not expanded)");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -184,8 +184,8 @@ CTEST(test_tokenizer_no_alias_not_at_command)
     // 'cat' is not expanded (not an alias), 'file' is not expanded (not at command position)
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 2, "two tokens in output (cat file)");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -219,8 +219,8 @@ CTEST(test_tokenizer_alias_trailing_blank)
     // Should expand to "nohup background_command"
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 2, "two tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -250,8 +250,8 @@ CTEST(test_tokenizer_prevent_direct_recursion)
     // Should expand to "ls -l" but not recurse on the first 'ls'
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 2, "two tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -278,8 +278,8 @@ CTEST(test_tokenizer_prevent_indirect_recursion)
     // Should expand a -> b, then b -> a, then stop (a already expanded)
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 1, "one token in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -309,8 +309,8 @@ CTEST(test_tokenizer_multiple_commands)
     // Should expand to "ls -l ; ls -l" = 5 tokens (ls, -l, ;, ls, -l)
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 5, "five tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -336,8 +336,8 @@ CTEST(test_tokenizer_alias_in_pipeline)
     // Should expand to "ls -l | grep txt" = 5 tokens
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 5, "five tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;
@@ -367,8 +367,8 @@ CTEST(test_tokenizer_alias_to_multiple_commands)
     // Should expand to "apt update && apt upgrade" = 5 tokens
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 5, "five tokens in output");
 
-    token_list_destroy(input);
-    token_list_destroy(output);
+    token_list_destroy(&input);
+    token_list_destroy(&output);
     tokenizer_destroy(tok);
     alias_store_destroy(&aliases);
     (void)ctest;

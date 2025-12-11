@@ -311,8 +311,8 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
     if (status != LEX_OK)
     {
         tokenizer_set_error(tok, "Failed to re-lex alias expansion: %s", lexer_get_error(lx));
-        token_list_destroy(relexed_tokens);
-        lexer_destroy(lx);
+        token_list_destroy(&relexed_tokens);
+        lexer_destroy(&lx);
         return TOK_ERROR;
     }
 
@@ -335,14 +335,14 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
         if (result != 0)
         {
             tokenizer_set_error(tok, "Failed to insert re-lexed tokens");
-            token_list_destroy(relexed_tokens);
-            lexer_destroy(lx);
+            token_list_destroy(&relexed_tokens);
+            lexer_destroy(&lx);
             return TOK_ERROR;
         }
     }
     
-    token_list_destroy(relexed_tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&relexed_tokens);
+    lexer_destroy(&lx);
 
     return TOK_OK;
 }
