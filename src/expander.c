@@ -55,15 +55,19 @@ expander_t *expander_create(void)
     return exp;
 }
 
-void expander_destroy(expander_t *expander)
+void expander_destroy(expander_t **expander)
 {
-    if (expander == NULL)
+    if (!expander) return;
+    expander_t *e = *expander;
+    
+    if (e == NULL)
         return;
 
-    if (expander->ifs != NULL)
-        string_destroy(&expander->ifs);
+    if (e->ifs != NULL)
+        string_destroy(&e->ifs);
     
-    xfree(expander);
+    xfree(e);
+    *expander = NULL;
 }
 
 // ============================================================================

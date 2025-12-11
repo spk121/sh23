@@ -30,8 +30,8 @@ CTEST(test_param_unbraced_simple)
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_PARAMETER, "part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "var", "param name is 'var'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -50,8 +50,8 @@ CTEST(test_param_unbraced_underscore)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "my_var", "param name is 'my_var'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -70,8 +70,8 @@ CTEST(test_param_unbraced_with_digits)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "var123", "param name is 'var123'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -90,8 +90,8 @@ CTEST(test_param_unbraced_positional)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "1", "param name is '1'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -110,8 +110,8 @@ CTEST(test_param_unbraced_special_question)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "?", "param name is '?'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -130,8 +130,8 @@ CTEST(test_param_unbraced_special_dollar)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "$", "param name is '$'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -150,8 +150,8 @@ CTEST(test_param_unbraced_special_at)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "@", "param name is '@'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -170,8 +170,8 @@ CTEST(test_param_unbraced_special_star)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "*", "param name is '*'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -190,8 +190,8 @@ CTEST(test_param_unbraced_special_hash)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "#", "param name is '#'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -218,8 +218,8 @@ CTEST(test_param_unbraced_with_suffix)
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_LITERAL, "second part is LITERAL");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), ".txt", "literal is '.txt'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -244,8 +244,8 @@ CTEST(test_param_braced_simple)
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_PARAMETER, "part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "var", "param name is 'var'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -270,8 +270,8 @@ CTEST(test_param_braced_with_suffix)
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "suffix", "literal is 'suffix'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -291,8 +291,8 @@ CTEST(test_param_braced_length)
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "var", "param name is 'var'");
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_LENGTH, "kind is PARAM_LENGTH");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -312,8 +312,8 @@ CTEST(test_param_braced_special_hash)
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "#", "param name is '#'");
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_PLAIN, "kind is PARAM_PLAIN");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -335,8 +335,8 @@ CTEST(test_param_braced_use_default)
     CTEST_ASSERT_NOT_NULL(ctest, part->word, "word is set");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "default", "word is 'default'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -356,8 +356,8 @@ CTEST(test_param_braced_assign_default)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_ASSIGN_DEFAULT, "kind is PARAM_ASSIGN_DEFAULT");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "value", "word is 'value'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -377,8 +377,8 @@ CTEST(test_param_braced_error_if_unset)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_ERROR_IF_UNSET, "kind is PARAM_ERROR_IF_UNSET");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "error", "word is 'error'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -398,8 +398,8 @@ CTEST(test_param_braced_use_alternate)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_USE_ALTERNATE, "kind is PARAM_USE_ALTERNATE");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "alternate", "word is 'alternate'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -419,8 +419,8 @@ CTEST(test_param_braced_remove_small_suffix)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_SMALL_SUFFIX, "kind is PARAM_REMOVE_SMALL_SUFFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "*.txt", "word is '*.txt'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -440,8 +440,8 @@ CTEST(test_param_braced_remove_large_suffix)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_LARGE_SUFFIX, "kind is PARAM_REMOVE_LARGE_SUFFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "*.txt", "word is '*.txt'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -461,8 +461,8 @@ CTEST(test_param_braced_remove_small_prefix)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_SMALL_PREFIX, "kind is PARAM_REMOVE_SMALL_PREFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "*/", "word is '*/'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -482,8 +482,8 @@ CTEST(test_param_braced_remove_large_prefix)
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_LARGE_PREFIX, "kind is PARAM_REMOVE_LARGE_PREFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "*/", "word is '*/'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -498,8 +498,8 @@ CTEST(test_param_braced_unclosed)
     
     CTEST_ASSERT_EQ(ctest, status, LEX_INCOMPLETE, "unclosed brace returns INCOMPLETE");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -514,8 +514,8 @@ CTEST(test_param_braced_empty)
     
     CTEST_ASSERT_EQ(ctest, status, LEX_ERROR, "empty braces returns ERROR");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -544,8 +544,8 @@ CTEST(test_param_in_dquote)
     CTEST_ASSERT_TRUE(ctest, part_was_double_quoted(part), "part was double-quoted");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "var", "param name is 'var'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -565,8 +565,8 @@ CTEST(test_param_braced_in_dquote)
     CTEST_ASSERT_TRUE(ctest, part_was_double_quoted(part), "part was double-quoted");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part)), "var", "param name is 'var'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -596,8 +596,8 @@ CTEST(test_param_mixed_in_dquote)
     CTEST_ASSERT_EQ(ctest, part_get_type(part3), PART_LITERAL, "third part is LITERAL");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part3)), "suffix", "third part is 'suffix'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -633,8 +633,8 @@ CTEST(test_param_two_braced_with_space)
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "param name is 'bar'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -662,8 +662,8 @@ CTEST(test_param_two_braced_consecutive)
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "second param is 'bar'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -691,8 +691,8 @@ CTEST(test_param_two_unbraced_consecutive)
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "second param is 'bar'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -720,8 +720,8 @@ CTEST(test_param_unbraced_then_braced)
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "second param is 'bar'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -750,8 +750,8 @@ CTEST(test_param_followed_by_squote)
     CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part2), "second part was single-quoted");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "bar", "literal is 'bar'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -780,8 +780,8 @@ CTEST(test_squote_followed_by_param)
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_PARAMETER, "second part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_param_name(part2)), "bar", "param is 'bar'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -809,8 +809,8 @@ CTEST(test_param_in_word_of_braced)
     CTEST_ASSERT_NOT_NULL(ctest, part->word, "word is set");
     CTEST_ASSERT_STR_EQ(ctest, string_data(part->word), "$HOME", "word is '$HOME'");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 

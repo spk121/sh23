@@ -25,17 +25,21 @@ executor_t *executor_create(void)
     return executor;
 }
 
-void executor_destroy(executor_t *executor)
+void executor_destroy(executor_t **executor)
 {
-    if (executor == NULL)
+    if (!executor) return;
+    executor_t *e = *executor;
+    
+    if (e == NULL)
         return;
 
-    if (executor->error_msg != NULL)
+    if (e->error_msg != NULL)
     {
-        string_destroy(&executor->error_msg);
+        string_destroy(&e->error_msg);
     }
 
-    xfree(executor);
+    xfree(e);
+    *executor = NULL;
 }
 
 /* ============================================================================

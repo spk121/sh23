@@ -151,26 +151,30 @@ void lexer_drop_processed_input(lexer_t *lx)
     }
 }
 
-void lexer_destroy(lexer_t *lx)
+void lexer_destroy(lexer_t **lx)
 {
     Expects_not_null(lx);
+    lexer_t *l = *lx;
+    
+    if (!l) return;
 
-    if (lx->input)
+    if (l->input)
     {
-        string_destroy(&lx->input);
-        lx->input = NULL;
+        string_destroy(&l->input);
+        l->input = NULL;
     }
-    if (lx->mode_stack.modes)
-        xfree(lx->mode_stack.modes);
-    if (lx->tokens)
-        token_list_destroy(lx->tokens);
-    if (lx->heredoc_queue.entries)
-        xfree(lx->heredoc_queue.entries);
-    if (lx->operator_buffer)
-        string_destroy(&lx->operator_buffer);
-    if (lx->error_msg)
-        string_destroy(&lx->error_msg);
-    xfree(lx);
+    if (l->mode_stack.modes)
+        xfree(l->mode_stack.modes);
+    if (l->tokens)
+        token_list_destroy(&l->tokens);
+    if (l->heredoc_queue.entries)
+        xfree(l->heredoc_queue.entries);
+    if (l->operator_buffer)
+        string_destroy(&l->operator_buffer);
+    if (l->error_msg)
+        string_destroy(&l->error_msg);
+    xfree(l);
+    *lx = NULL;
 }
 
 /* ============================================================================

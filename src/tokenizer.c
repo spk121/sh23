@@ -46,28 +46,27 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     return tok;
 }
 
-void tokenizer_destroy(tokenizer_t *tok)
+void tokenizer_destroy(tokenizer_t **tok)
 {
-    if (tok == NULL)
-        return;
+    Expects_not_null(tok);
+    tokenizer_t *t = *tok;
+    Expects_not_null(t);
 
-    if (tok->error_msg)
-    {
-        string_destroy(&tok->error_msg);
-        tok->error_msg = NULL;
-    }
+    if (t->error_msg)
+        string_destroy(&t->error_msg);
 
     // Free the expanded_aliases tracking array
-    if (tok->expanded_aliases)
+    if (t->expanded_aliases)
     {
-        for (int i = 0; i < tok->expanded_aliases_count; i++)
+        for (int i = 0; i < t->expanded_aliases_count; i++)
         {
-            xfree(tok->expanded_aliases[i]);
+            xfree(t->expanded_aliases[i]);
         }
-        xfree(tok->expanded_aliases);
+        xfree(t->expanded_aliases);
     }
 
-    xfree(tok);
+    xfree(t);
+    *tok = NULL;
 }
 
 /* ============================================================================
@@ -307,8 +306,8 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
     if (status != LEX_OK)
     {
         tokenizer_set_error(tok, "Failed to re-lex alias expansion: %s", lexer_get_error(lx));
-        token_list_destroy(relexed_tokens);
-        lexer_destroy(lx);
+        token_list_destroy(&relexed_tokens);
+        lexer_destroy(&lx);
         return TOK_ERROR;
     }
 
@@ -331,14 +330,14 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
         if (result != 0)
         {
             tokenizer_set_error(tok, "Failed to insert re-lexed tokens");
-            token_list_destroy(relexed_tokens);
-            lexer_destroy(lx);
+            token_list_destroy(&relexed_tokens);
+            lexer_destroy(&lx);
             return TOK_ERROR;
         }
     }
     
-    token_list_destroy(relexed_tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&relexed_tokens);
+    lexer_destroy(&lx);
 
     return TOK_OK;
 }

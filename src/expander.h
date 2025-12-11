@@ -61,7 +61,7 @@ expander_t *expander_create(void);
  * Safe to call with NULL.
  * @param exp The expander to destroy
  */
-void expander_destroy(expander_t *exp);
+void expander_destroy(expander_t **exp);
 
 /**
  * Set the IFS (Internal Field Separator) value.

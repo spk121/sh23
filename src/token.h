@@ -211,7 +211,7 @@ token_t *token_create_word(void);
  * Destroy a token and free all associated memory.
  * Safe to call with NULL.
  */
-void token_destroy(token_t *token);
+void token_destroy(token_t **token);
 
 /* ============================================================================
  * Token Accessors
@@ -420,7 +420,7 @@ part_t *part_create_tilde(const string_t *text);
  * Destroy a part and free all associated memory.
  * Safe to call with NULL.
  */
-void part_destroy(part_t *part);
+void part_destroy(part_t **part);
 
 /* ============================================================================
  * Part Accessors
@@ -493,7 +493,7 @@ part_list_t *part_list_create(void);
  * Destroy a part list and all contained parts.
  * Safe to call with NULL.
  */
-void part_list_destroy(part_list_t *list);
+void part_list_destroy(part_list_t **list);
 
 /**
  * Append a part to a part list.
@@ -539,7 +539,7 @@ token_list_t *token_list_create(void);
  * Destroy a token list and all contained tokens.
  * Safe to call with NULL.
  */
-void token_list_destroy(token_list_t *list);
+void token_list_destroy(token_list_t **list);
 
 /**
  * Append a token to a token list.

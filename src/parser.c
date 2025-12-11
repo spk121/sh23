@@ -24,17 +24,21 @@ parser_t *parser_create(void)
     return parser;
 }
 
-void parser_destroy(parser_t *parser)
+void parser_destroy(parser_t **parser)
 {
-    if (parser == NULL)
+    if (!parser) return;
+    parser_t *p = *parser;
+    
+    if (p == NULL)
         return;
 
-    if (parser->error_msg != NULL)
+    if (p->error_msg != NULL)
     {
-        string_destroy(&parser->error_msg);
+        string_destroy(&p->error_msg);
     }
 
-    xfree(parser);
+    xfree(p);
+    *parser = NULL;
 }
 
 /* ============================================================================
@@ -441,9 +445,9 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
             parse_status_t status = parser_parse_redirection(parser, &redir);
             if (status != PARSE_OK)
             {
-                token_list_destroy(words);
-                ast_node_list_destroy(redirections);
-                token_list_destroy(assignments);
+                token_list_destroy(&words);
+                ast_node_list_destroy(&redirections);
+                token_list_destroy(&assignments);
                 return status;
             }
             ast_node_list_append(redirections, redir);
@@ -469,9 +473,9 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         token_list_size(words) == 0 &&
         ast_node_list_size(redirections) == 0)
     {
-        token_list_destroy(words);
-        ast_node_list_destroy(redirections);
-        token_list_destroy(assignments);
+        token_list_destroy(&words);
+        ast_node_list_destroy(&redirections);
+        token_list_destroy(&assignments);
         parser_set_error(parser, "Expected command");
         return PARSE_ERROR;
     }
@@ -834,7 +838,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     {
         string_destroy(&var_name);
         if (words != NULL)
-            token_list_destroy(words);
+            token_list_destroy(&words);
         return status;
     }
 
@@ -847,7 +851,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     {
         string_destroy(&var_name);
         if (words != NULL)
-            token_list_destroy(words);
+            token_list_destroy(&words);
         return status;
     }
 
@@ -859,8 +863,8 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     {
         string_destroy(&var_name);
         if (words != NULL)
-            token_list_destroy(words);
-        ast_node_destroy(body);
+            token_list_destroy(&words);
+        ast_node_destroy(&body);
         return status;
     }
 
@@ -921,8 +925,8 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
             if (parser_current_token_type(parser) == TOKEN_ESAC)
                 break;
             parser_set_error(parser, "Expected pattern in case");
-            ast_node_destroy(case_node);
-            token_list_destroy(patterns);
+            ast_node_destroy(&case_node);
+            token_list_destroy(&patterns);
             return PARSE_ERROR;
         }
 
@@ -940,8 +944,8 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
         status = parser_expect(parser, TOKEN_RPAREN);
         if (status != PARSE_OK)
         {
-            ast_node_destroy(case_node);
-            token_list_destroy(patterns);
+            ast_node_destroy(&case_node);
+            token_list_destroy(&patterns);
             return status;
         }
 
@@ -955,8 +959,8 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
             status = parser_parse_command_list(parser, &item_body);
             if (status != PARSE_OK)
             {
-                ast_node_destroy(case_node);
-                token_list_destroy(patterns);
+                ast_node_destroy(&case_node);
+                token_list_destroy(&patterns);
                 return status;
             }
         }

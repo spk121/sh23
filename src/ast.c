@@ -21,145 +21,148 @@ ast_node_t *ast_node_create(ast_node_type_t type)
     return node;
 }
 
-void ast_node_destroy(ast_node_t *node)
+void ast_node_destroy(ast_node_t **node)
 {
-    if (node == NULL)
+    if (!node) return;
+    ast_node_t *n = *node;
+    
+    if (n == NULL)
         return;
 
-    switch (node->type)
+    switch (n->type)
     {
     case AST_SIMPLE_COMMAND:
-        if (node->data.simple_command.words != NULL)
+        if (n->data.simple_command.words != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(node->data.simple_command.words);
-            xfree(node->data.simple_command.words->tokens);
-            xfree(node->data.simple_command.words);
+            token_list_release_tokens(n->data.simple_command.words);
+            xfree(n->data.simple_command.words->tokens);
+            xfree(n->data.simple_command.words);
         }
-        if (node->data.simple_command.redirections != NULL)
+        if (n->data.simple_command.redirections != NULL)
         {
-            ast_node_list_destroy(node->data.simple_command.redirections);
+            ast_node_list_destroy(&n->data.simple_command.redirections);
         }
-        if (node->data.simple_command.assignments != NULL)
+        if (n->data.simple_command.assignments != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(node->data.simple_command.assignments);
-            xfree(node->data.simple_command.assignments->tokens);
-            xfree(node->data.simple_command.assignments);
+            token_list_release_tokens(n->data.simple_command.assignments);
+            xfree(n->data.simple_command.assignments->tokens);
+            xfree(n->data.simple_command.assignments);
         }
         break;
 
     case AST_PIPELINE:
-        if (node->data.pipeline.commands != NULL)
+        if (n->data.pipeline.commands != NULL)
         {
-            ast_node_list_destroy(node->data.pipeline.commands);
+            ast_node_list_destroy(&n->data.pipeline.commands);
         }
         break;
 
     case AST_AND_OR_LIST:
-        ast_node_destroy(node->data.andor_list.left);
-        ast_node_destroy(node->data.andor_list.right);
+        ast_node_destroy(&n->data.andor_list.left);
+        ast_node_destroy(&n->data.andor_list.right);
         break;
 
     case AST_COMMAND_LIST:
-        if (node->data.command_list.items != NULL)
+        if (n->data.command_list.items != NULL)
         {
-            ast_node_list_destroy(node->data.command_list.items);
+            ast_node_list_destroy(&n->data.command_list.items);
         }
-        if (node->data.command_list.separators != NULL)
+        if (n->data.command_list.separators != NULL)
         {
-            xfree(node->data.command_list.separators);
+            xfree(n->data.command_list.separators);
         }
         break;
 
     case AST_SUBSHELL:
     case AST_BRACE_GROUP:
-        ast_node_destroy(node->data.compound.body);
+        ast_node_destroy(&n->data.compound.body);
         break;
 
     case AST_IF_CLAUSE:
-        ast_node_destroy(node->data.if_clause.condition);
-        ast_node_destroy(node->data.if_clause.then_body);
-        if (node->data.if_clause.elif_list != NULL)
+        ast_node_destroy(&n->data.if_clause.condition);
+        ast_node_destroy(&n->data.if_clause.then_body);
+        if (n->data.if_clause.elif_list != NULL)
         {
-            ast_node_list_destroy(node->data.if_clause.elif_list);
+            ast_node_list_destroy(&n->data.if_clause.elif_list);
         }
-        ast_node_destroy(node->data.if_clause.else_body);
+        ast_node_destroy(&n->data.if_clause.else_body);
         break;
 
     case AST_WHILE_CLAUSE:
     case AST_UNTIL_CLAUSE:
-        ast_node_destroy(node->data.loop_clause.condition);
-        ast_node_destroy(node->data.loop_clause.body);
+        ast_node_destroy(&n->data.loop_clause.condition);
+        ast_node_destroy(&n->data.loop_clause.body);
         break;
 
     case AST_FOR_CLAUSE:
-        if (node->data.for_clause.variable != NULL)
+        if (n->data.for_clause.variable != NULL)
         {
-            string_destroy(&node->data.for_clause.variable);
+            string_destroy(&n->data.for_clause.variable);
         }
-        if (node->data.for_clause.words != NULL)
+        if (n->data.for_clause.words != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(node->data.for_clause.words);
-            xfree(node->data.for_clause.words->tokens);
-            xfree(node->data.for_clause.words);
+            token_list_release_tokens(n->data.for_clause.words);
+            xfree(n->data.for_clause.words->tokens);
+            xfree(n->data.for_clause.words);
         }
-        ast_node_destroy(node->data.for_clause.body);
+        ast_node_destroy(&n->data.for_clause.body);
         break;
 
     case AST_CASE_CLAUSE:
-        if (node->data.case_clause.word != NULL)
+        if (n->data.case_clause.word != NULL)
         {
             // Don't destroy token - it's owned by the parser's token list
-            node->data.case_clause.word = NULL;
+            n->data.case_clause.word = NULL;
         }
-        if (node->data.case_clause.case_items != NULL)
+        if (n->data.case_clause.case_items != NULL)
         {
-            ast_node_list_destroy(node->data.case_clause.case_items);
+            ast_node_list_destroy(&n->data.case_clause.case_items);
         }
         break;
 
     case AST_CASE_ITEM:
-        if (node->data.case_item.patterns != NULL)
+        if (n->data.case_item.patterns != NULL)
         {
             // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(node->data.case_item.patterns);
-            xfree(node->data.case_item.patterns->tokens);
-            xfree(node->data.case_item.patterns);
+            token_list_release_tokens(n->data.case_item.patterns);
+            xfree(n->data.case_item.patterns->tokens);
+            xfree(n->data.case_item.patterns);
         }
-        ast_node_destroy(node->data.case_item.body);
+        ast_node_destroy(&n->data.case_item.body);
         break;
 
     case AST_FUNCTION_DEF:
-        if (node->data.function_def.name != NULL)
+        if (n->data.function_def.name != NULL)
         {
-            string_destroy(&node->data.function_def.name);
+            string_destroy(&n->data.function_def.name);
         }
-        ast_node_destroy(node->data.function_def.body);
-        if (node->data.function_def.redirections != NULL)
+        ast_node_destroy(&n->data.function_def.body);
+        if (n->data.function_def.redirections != NULL)
         {
-            ast_node_list_destroy(node->data.function_def.redirections);
+            ast_node_list_destroy(&n->data.function_def.redirections);
         }
         break;
 
     case AST_REDIRECTION:
-        if (node->data.redirection.target != NULL)
+        if (n->data.redirection.target != NULL)
         {
             // Don't destroy token - it's owned by the parser's token list
-            node->data.redirection.target = NULL;
+            n->data.redirection.target = NULL;
         }
-        if (node->data.redirection.heredoc_content != NULL)
+        if (n->data.redirection.heredoc_content != NULL)
         {
-            string_destroy(&node->data.redirection.heredoc_content);
+            string_destroy(&n->data.redirection.heredoc_content);
         }
         break;
 
     case AST_WORD:
-        if (node->data.word.token != NULL)
+        if (n->data.word.token != NULL)
         {
             // Don't destroy token - it's owned by the parser's token list
-            node->data.word.token = NULL;
+            n->data.word.token = NULL;
         }
         break;
 
@@ -167,7 +170,8 @@ void ast_node_destroy(ast_node_t *node)
         break;
     }
 
-    xfree(node);
+    xfree(n);
+    *node = NULL;
 }
 
 /* ============================================================================
@@ -339,18 +343,22 @@ ast_node_list_t *ast_node_list_create(void)
     return list;
 }
 
-void ast_node_list_destroy(ast_node_list_t *list)
+void ast_node_list_destroy(ast_node_list_t **list)
 {
-    if (list == NULL)
+    if (!list) return;
+    ast_node_list_t *l = *list;
+    
+    if (l == NULL)
         return;
 
-    for (int i = 0; i < list->size; i++)
+    for (int i = 0; i < l->size; i++)
     {
-        ast_node_destroy(list->nodes[i]);
+        ast_node_destroy(&l->nodes[i]);
     }
 
-    xfree(list->nodes);
-    xfree(list);
+    xfree(l->nodes);
+    xfree(l);
+    *list = NULL;
 }
 
 int ast_node_list_append(ast_node_list_t *list, ast_node_t *node)

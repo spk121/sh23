@@ -61,7 +61,7 @@ int main(void)
                 printf("Fatal error: %s\n", shell_last_error(sh));
                 shell_reset_error(sh);
                 printf("Reinitializing shell.\n");
-                shell_destroy(sh);
+                shell_destroy(&sh);
                 sh = shell_create(&cfg);
                 break;
             default:
@@ -69,7 +69,7 @@ int main(void)
         }
     }
 
-    shell_destroy(sh);
+    shell_destroy(&sh);
     arena_end();
     return 0;
 }

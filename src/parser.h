@@ -52,7 +52,7 @@ parser_t *parser_create(void);
  * Safe to call with NULL.
  * Does not destroy the token list (caller retains ownership).
  */
-void parser_destroy(parser_t *parser);
+void parser_destroy(parser_t **parser);
 
 /* ============================================================================
  * Main Parsing Functions

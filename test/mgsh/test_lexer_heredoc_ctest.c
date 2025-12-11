@@ -19,7 +19,7 @@ CTEST(test_heredoc_mode_exists)
     CTEST_ASSERT_NOT_NULL(ctest, lx, "lexer created successfully");
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.size, 0, "heredoc queue starts empty");
     
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -41,7 +41,7 @@ CTEST(test_heredoc_queue)
                     "delimiter_quoted is false");
     
     string_destroy(&delim);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -56,7 +56,7 @@ CTEST(test_heredoc_queue_strip_tabs)
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[0].strip_tabs, true, "strip_tabs is true");
     
     string_destroy(&delim);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -72,7 +72,7 @@ CTEST(test_heredoc_queue_quoted)
                     "delimiter_quoted is true");
     
     string_destroy(&delim);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -99,7 +99,7 @@ CTEST(test_heredoc_multiple_queue)
     
     string_destroy(&delim1);
     string_destroy(&delim2);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -125,7 +125,7 @@ CTEST(test_heredoc_body_simple)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "heredoc body processed successfully");
     
     string_destroy(&delim);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -148,7 +148,7 @@ CTEST(test_heredoc_body_strip_tabs)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "heredoc body with tabs processed");
     
     string_destroy(&delim);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -170,7 +170,7 @@ CTEST(test_heredoc_incomplete)
     CTEST_ASSERT_EQ(ctest, status, LEX_INCOMPLETE, "returns INCOMPLETE when delimiter not found");
     
     string_destroy(&delim);
-    lexer_destroy(lx);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -193,8 +193,8 @@ CTEST(test_heredoc_integration_unquoted)
     token_t *tok1 = token_list_get(tokens, 1);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_DLESS, "second token is DLESS");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -213,8 +213,8 @@ CTEST(test_heredoc_integration_strip_tabs)
     token_t *tok1 = token_list_get(tokens, 1);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_DLESSDASH, "second token is DLESSDASH");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -230,8 +230,8 @@ CTEST(test_heredoc_integration_quoted_delimiter)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
     CTEST_ASSERT_TRUE(ctest, token_list_size(tokens) >= 2, "at least 2 tokens produced");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 
@@ -246,8 +246,8 @@ CTEST(test_heredoc_integration_dquoted_delimiter)
     
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
     
-    token_list_destroy(tokens);
-    lexer_destroy(lx);
+    token_list_destroy(&tokens);
+    lexer_destroy(&lx);
     (void)ctest;
 }
 

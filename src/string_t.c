@@ -930,8 +930,8 @@ void string_list_destroy(string_list_t **list)
     }
     
     xfree((*list)->strings);
-    xfree(list);
-    list = NULL;
+    xfree(*list);
+    *list = NULL;
 }
 
 void string_list_move_push_back(string_list_t *list, string_t *str)

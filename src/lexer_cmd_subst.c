@@ -184,6 +184,6 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
 
     // End of input without closing backtick
     string_destroy(&cmd_text);
-    token_list_destroy(nested);
+    token_list_destroy(&nested);
     return LEX_INCOMPLETE;
 }

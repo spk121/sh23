@@ -54,20 +54,23 @@ variable_store_t *variable_store_create_from_envp(const char *shell_name, char *
 }
 
 // Destructor
-void variable_store_destroy(variable_store_t *store)
+void variable_store_destroy(variable_store_t **store)
 {
-    if (store) {
-        log_debug("variable_store_destroy: freeing store %p, variables %zu, params %zu",
-                  store,
-                  variable_array_size(store->variables),
-                  variable_array_size(store->positional_params));
-        string_destroy(&store->options);
-        string_destroy(&store->shell_name);
-        string_destroy(&store->status_str);
-        variable_array_destroy(store->positional_params);
-        variable_array_destroy(store->variables);
-        xfree(store);
-    }
+    Expects_not_null(store);
+    variable_store_t *s = *store;
+    Expects_not_null(s);
+
+    log_debug("variable_store_destroy: freeing store %p, variables %zu, params %zu",
+              s,
+              variable_array_size(s->variables),
+              variable_array_size(s->positional_params));
+    string_destroy(&s->options);
+    string_destroy(&s->shell_name);
+    string_destroy(&s->status_str);
+    variable_array_destroy(&s->positional_params);
+    variable_array_destroy(&s->variables);
+    xfree(s);
+    *store = NULL;
 }
 
 // Clear all variables and parameters

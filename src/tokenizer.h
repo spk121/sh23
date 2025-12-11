@@ -67,7 +67,7 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases);
  * Safe to call with NULL.
  * Does not destroy the alias store (caller retains ownership).
  */
-void tokenizer_destroy(tokenizer_t *tok);
+void tokenizer_destroy(tokenizer_t **tok);
 
 /* ============================================================================
  * Main Tokenization Function
