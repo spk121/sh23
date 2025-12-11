@@ -43,8 +43,10 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
         // Closing ))
         if (c == ')' && paren_depth == 0)
         {
-            if (lexer_peek_ahead(lx, 1) == ')')
+            char next_char = lexer_peek_ahead(lx, 1);
+            if (next_char == ')')
             {
+                // Valid closing: ))
                 lexer_advance(lx); // consume first )
                 lexer_advance(lx); // consume second )
 
@@ -60,6 +62,21 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                 lexer_pop_mode(lx);
                 string_destroy(&expr_text);
                 return LEX_OK;
+            }
+            else if (lx->pos + 1 >= string_length(lx->input))
+            {
+                // At EOF after single ) - need more input
+                // Consume the ) so we advance past it, then exit loop to return INCOMPLETE
+                string_append_char(expr_text, c);
+                lexer_advance(lx);
+                break;
+            }
+            else
+            {
+                // Single ) followed by something other than ) - syntax error
+                string_destroy(&expr_text);
+                lexer_set_error(lx, "Unbalanced parentheses in arithmetic expansion");
+                return LEX_ERROR;
             }
         }
 

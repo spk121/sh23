@@ -340,7 +340,7 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
     if (part_get_type(first_part) != PART_LITERAL)
         return false;
 
-    const char *word = string_data(first_part->text);
+    const char *word = string_cstr(first_part->text);
     struct reserved_word_entry *p;
     token_type_t new_type = TOKEN_WORD;
     for (p = reserved_words; p->word != NULL; p++)
