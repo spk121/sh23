@@ -351,7 +351,7 @@ CTEST(test_tokenizer_alias_to_multiple_commands)
 {
     // Test alias that expands to multiple commands
     alias_store_t *aliases = alias_store_create();
-    alias_store_add_cstr(aliases, "update", "apt update & apt upgrade");
+    alias_store_add_cstr(aliases, "update", "apt update && apt upgrade");
 
     token_list_t *input = lex_string("update");
     CTEST_ASSERT_NOT_NULL(ctest, input, "lexing succeeded");
@@ -364,7 +364,7 @@ CTEST(test_tokenizer_alias_to_multiple_commands)
     tok_status_t status = tokenizer_process(tok, input, output);
 
     CTEST_ASSERT_EQ(ctest, status, TOK_OK, "tokenizer status is TOK_OK");
-    // Should expand to "apt update & apt upgrade" = 5 tokens
+    // Should expand to "apt update && apt upgrade" = 5 tokens
     CTEST_ASSERT_EQ(ctest, token_list_size(output), 5, "five tokens in output");
 
     token_list_destroy(&input);

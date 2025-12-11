@@ -48,17 +48,12 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
 
 void tokenizer_destroy(tokenizer_t **tok)
 {
-    if (!tok) return;
+    Expects_not_null(tok);
     tokenizer_t *t = *tok;
-    
-    if (t == NULL)
-        return;
+    Expects_not_null(t);
 
     if (t->error_msg)
-    {
         string_destroy(&t->error_msg);
-        t->error_msg = NULL;
-    }
 
     // Free the expanded_aliases tracking array
     if (t->expanded_aliases)

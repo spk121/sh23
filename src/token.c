@@ -36,38 +36,22 @@ void token_destroy(token_t **token)
 {
     Expects_not_null(token);
     token_t *t = *token;
-    
-    if (!t) return;
+    Expects_not_null(t);
 
     if (t->parts != NULL)
-    {
         part_list_destroy(&t->parts);
-        t->parts = NULL;
-    }
 
     if (t->heredoc_delimiter != NULL)
-    {
         string_destroy(&t->heredoc_delimiter);
-        t->heredoc_delimiter = NULL;
-    }
 
     if (t->heredoc_content != NULL)
-    {
         string_destroy(&t->heredoc_content);
-        t->heredoc_content = NULL;
-    }
 
     if (t->assignment_name != NULL)
-    {
         string_destroy(&t->assignment_name);
-        t->assignment_name = NULL;
-    }
 
     if (t->assignment_value != NULL)
-    {
         part_list_destroy(&t->assignment_value);
-        t->assignment_value = NULL;
-    }
 
     xfree(t);
     *token = NULL;
@@ -703,29 +687,16 @@ void part_destroy(part_t **part)
 {
     Expects_not_null(part);
     part_t *p = *part;
-    
-    if (!p) return;
+    Expects_not_null(p);
 
     if (p->word != NULL)
-    {
         string_destroy(&p->word);
-        p->word = NULL;
-    }
     if (p->text != NULL)
-    {
         string_destroy(&p->text);
-        p->text = NULL;
-    }
     if (p->param_name != NULL)
-    {
         string_destroy(&p->param_name);
-        p->param_name = NULL;
-    }
     if (p->nested != NULL)
-    {
         token_list_destroy(&p->nested);
-        p->nested = NULL;
-    }
 
     xfree(p);
     *part = NULL;
@@ -910,8 +881,7 @@ void part_list_destroy(part_list_t **list)
 {
     Expects_not_null(list);
     part_list_t *l = *list;
-    
-    if (!l) return;
+    Expects_not_null(l);
     Expects_not_null(l->parts);
 
     for (int i = 0; i < l->size; i++)
@@ -920,7 +890,6 @@ void part_list_destroy(part_list_t **list)
     }
 
     xfree(l->parts);
-    l->parts = NULL;
     xfree(l);
     *list = NULL;
 }
@@ -1012,8 +981,7 @@ void token_list_destroy(token_list_t **list)
 {
     Expects_not_null(list);
     token_list_t *l = *list;
-    
-    if (!l) return;
+    Expects_not_null(l);
     Expects_not_null(l->tokens);
 
     for (int i = 0; i < l->size; i++)
@@ -1022,7 +990,6 @@ void token_list_destroy(token_list_t **list)
     }
 
     xfree(l->tokens);
-    l->tokens = NULL;
     xfree(l);
     *list = NULL;
 }

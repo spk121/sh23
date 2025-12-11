@@ -128,9 +128,7 @@ void string_destroy(string_t **str)
 {
     Expects_not_null(str);
     string_t *s = *str;
-    
-    if (!s) return;
-    
+    Expects_not_null(s);
     Expects(s->length >= 0);
     Expects(s->capacity >= 0);
     Expects(s->data != NULL);

@@ -58,20 +58,19 @@ void variable_store_destroy(variable_store_t **store)
 {
     Expects_not_null(store);
     variable_store_t *s = *store;
-    
-    if (s) {
-        log_debug("variable_store_destroy: freeing store %p, variables %zu, params %zu",
-                  s,
-                  variable_array_size(s->variables),
-                  variable_array_size(s->positional_params));
-        string_destroy(&s->options);
-        string_destroy(&s->shell_name);
-        string_destroy(&s->status_str);
-        variable_array_destroy(&s->positional_params);
-        variable_array_destroy(&s->variables);
-        xfree(s);
-        *store = NULL;
-    }
+    Expects_not_null(s);
+
+    log_debug("variable_store_destroy: freeing store %p, variables %zu, params %zu",
+              s,
+              variable_array_size(s->variables),
+              variable_array_size(s->positional_params));
+    string_destroy(&s->options);
+    string_destroy(&s->shell_name);
+    string_destroy(&s->status_str);
+    variable_array_destroy(&s->positional_params);
+    variable_array_destroy(&s->variables);
+    xfree(s);
+    *store = NULL;
 }
 
 // Clear all variables and parameters

@@ -35,19 +35,18 @@ void variable_destroy(variable_t **variable)
 {
     Expects_not_null(variable);
     variable_t *v = *variable;
-    
-    if (v) {
-        log_debug("variable_destroy: freeing variable %p, name = %s, value = %s, exported = %d, read_only = %d",
-                  v,
-                  v->name ? string_data(v->name) : "(null)",
-                  v->value ? string_data(v->value) : "(null)",
-                  v->exported,
-                  v->read_only);
-        string_destroy(&v->name);
-        string_destroy(&v->value);
-        xfree(v);
-        *variable = NULL;
-    }
+    Expects_not_null(v);
+
+    log_debug("variable_destroy: freeing variable %p, name = %s, value = %s, exported = %d, read_only = %d",
+              v,
+              v->name ? string_data(v->name) : "(null)",
+              v->value ? string_data(v->value) : "(null)",
+              v->exported,
+              v->read_only);
+    string_destroy(&v->name);
+    string_destroy(&v->value);
+    xfree(v);
+    *variable = NULL;
 }
 
 // Getters
