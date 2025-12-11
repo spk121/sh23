@@ -510,6 +510,23 @@ string_t *token_to_string(const token_t *token)
         }
         string_append_cstr(result, "]");
     }
+    if (token->type == TOKEN_ASSIGNMENT_WORD)
+    {
+        string_append_cstr(result, ", name=");
+        string_append(result, token->assignment_name);
+        string_append_cstr(result, ", value=[");
+        for (int i = 0; i < token->assignment_value->size; i++)
+        {
+            if (i > 0)
+            {
+                string_append_cstr(result, ", ");
+            }
+            string_t *part_str = part_to_string(token->assignment_value->parts[i]);
+            string_append(result, part_str);
+            string_destroy(&part_str);
+        }
+        string_append_cstr(result, "]");
+    }
 
     string_append_cstr(result, ")");
     return result;

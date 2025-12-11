@@ -405,4 +405,5 @@ string_t *ast_node_to_string(const ast_node_t *node);
  */
 string_t *ast_tree_to_string(const ast_node_t *root);
 
+void ast_print(const ast_node_t *root);
 #endif /* AST_H */

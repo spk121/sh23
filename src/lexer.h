@@ -352,6 +352,8 @@ void lexer_finalize_word(lexer_t *lexer);
  */
 void lexer_emit_token(lexer_t *lexer, token_type_t type);
 void lexer_emit_io_number_token(lexer_t *lexer, int io_number);
+void lexer_emit_io_location_token(lexer_t *lx, const char *io_location);
+
 /* ============================================================================
  * Operator Recognition Functions
  * ============================================================================ */

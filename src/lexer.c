@@ -102,6 +102,7 @@ void lexer_reset(lexer_t *lx)
     lx->error_line = 0;
     lx->error_col = 0;
 
+    log_debug("lexer_reset: Lexer %p reset to initial state.", (void *)lx);
     // FIXME: consider shrinking the queues and buffers
     // if the capacities are too large.
 }
@@ -451,6 +452,59 @@ void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str)
     }
 }
 
+
+// Gotta search this word for assignments. There's an assignment
+// if
+// - the first part is a literal that starts with a valid name
+// - has an equals sign in a non-initial position which was found before
+//   an escape had been found
+// - the equals is followed by more text in the literal part or there
+//   are other parts that follow.
+//
+// If that is true,
+// - The current word is promoted to an ASSIGNMENT_WORD
+// - The text before the equals is moved to the token->assignment_name
+// - The text that follows the equals is moved into a separate LITERAL
+//   part placed at the beginning of the token->assignment_parts
+// - The remaining parts are appended to the token->assignment_value
+static bool try_promote_to_assignment(token_t *tok) {
+    if (!tok->has_equals_before_quote)
+        return false;
+    if (part_list_size(tok->parts) == 0)
+        return false;
+    part_list_t *parts = tok->parts;
+    part_t *first_part = part_list_get(parts, 0);
+    if (first_part->type != PART_LITERAL)
+        return false;
+    int idx;
+    idx = string_find_cstr(first_part->text, "=");
+    if (idx < 1)
+        return false;
+    bool equals_at_end = (idx == string_length(first_part->text) - 1);
+    if (equals_at_end && part_list_size(parts) == 1)
+        return false;
+    
+    // OK, can promote to assignment.
+    tok->type = TOKEN_ASSIGNMENT_WORD;
+    tok->assignment_name = string_substring(first_part->text, 0, idx);
+    tok->assignment_value = part_list_create();
+    if (!equals_at_end) {
+        string_t *after_eq = string_substring(first_part->text, idx + 1, string_length(first_part->text));
+        part_t *part_after_eq = part_create_literal(after_eq);
+        part_list_append(tok->assignment_value, part_after_eq);
+        string_destroy(&after_eq);
+    }
+    for (int i = 1; i < part_list_size(parts); ++i) {
+        part_t *p = part_list_get(parts, i);
+        part_list_append(tok->assignment_value, p);
+    }
+    // Ownership of the parts has been transferred to assignment_value.
+    // So clear but don't destroy the original parts list.
+    tok->parts->size = 0;
+    return true;
+}
+
+
 void lexer_finalize_word(lexer_t *lx)
 {
     Expects_not_null(lx);
@@ -463,8 +517,10 @@ void lexer_finalize_word(lexer_t *lx)
         token_try_promote_to_reserved_word(lx->current_token, lx->after_case_in);
     }
 #endif
-
+    try_promote_to_assignment(lx->current_token);
     token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col, lx->line_no, lx->col_no);
+
+
     token_list_append(lx->tokens, lx->current_token);
     lx->current_token = NULL;
     lx->in_word = false;
@@ -495,6 +551,17 @@ void lexer_emit_io_number_token(lexer_t *lx, int io_number)
 
     token_t *tok = token_create(TOKEN_IO_NUMBER);
     tok->io_number = io_number;
+    token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
+    token_list_append(lx->tokens, tok);
+}
+
+void lexer_emit_io_location_token(lexer_t *lx, const char *io_location)
+{
+    Expects_not_null(lx);
+    Expects_not_null(io_location);
+
+    token_t *tok = token_create(TOKEN_IO_LOCATION);
+    tok->io_location = string_create_from_cstr(io_location);
     token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
     token_list_append(lx->tokens, tok);
 }

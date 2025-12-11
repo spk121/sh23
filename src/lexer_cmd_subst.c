@@ -43,7 +43,7 @@ lex_status_t lexer_process_cmd_subst_paren(lexer_t *lx)
                 lexer_advance(lx); // consume )
 
                 string_t *cmd_text =
-                    string_create_from_range(lx->input, start_pos, lx->pos - start_pos - 1);
+                    string_create_from_range(lx->input, start_pos, lx->pos);
                 part_t *part = part_create_command_subst(cmd_text);
                 string_destroy(&cmd_text);
 

@@ -58,6 +58,7 @@ typedef enum
     /* Special tokens used only internally by the lexer / parser */
     TOKEN_NEWLINE,         // logical newline
     TOKEN_IO_NUMBER,       // bare number before < or >, e.g. 2>file
+    TOKEN_IO_LOCATION,     // {2} or {var} before < or >, e.g. {2}>file
     TOKEN_ASSIGNMENT_WORD, // name=value that appears where an assignment is allowed
 
     /* Optional but extremely useful for clean parser design */
@@ -159,6 +160,9 @@ struct token_t
     /* For TOKEN_IO_NUMBER: the actual number value (e.g., 2 in "2>file") */
     int io_number;
 
+    /* For TOKEN_IO_LOCATION: the actual location string (e.g., "{2}>") */
+    string_t *io_location;
+
     /* For heredoc handling */
     string_t *heredoc_delimiter; // the delimiter string
     string_t *heredoc_content;   // the body content
@@ -173,6 +177,7 @@ struct token_t
     bool needs_field_splitting;    // has unquoted expansions
     bool needs_pathname_expansion; // has unquoted glob characters
     bool was_quoted;               // entire word was quoted
+    bool has_equals_before_quote;               // has an equals sign before a quoted character
 };
 
 /* ============================================================================

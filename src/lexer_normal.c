@@ -14,6 +14,7 @@ static const char normal_mode_operators[TOKEN_TYPE_COUNT][4] = {
 };
 
 static bool try_emit_io_number(lexer_t *lx);
+static bool try_emit_braced_io_location(lexer_t *lx);
 
 static bool is_delimiter_char(char c)
 {
@@ -27,7 +28,7 @@ static bool is_special_param_char(char c)
             c == '*' || c == '_');
 }
 
-static bool is_word_start_char(char c)
+static bool is_word_char(char c)
 {
     return !(is_delimiter_char(c) || c == '\0');
 }
@@ -351,6 +352,12 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
             continue;
         }
 
+        // Braced IO location detection
+        if (try_emit_braced_io_location(lx))
+        {
+            continue;
+        }
+
         // Heredoc detection
         bool found_heredoc = false;
         bool error = false;
@@ -443,7 +450,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
                     lexer_advance(lx); // consume (
                     return LEX_INCOMPLETE;
                 }
-                else if (is_word_start_char(c2) || is_special_param_char(c2))
+                else if (is_word_char(c2) || is_special_param_char(c2))
                 {
                     lexer_push_mode(lx, LEX_PARAM_EXP_UNBRACED);
                     lexer_advance(lx);
@@ -461,11 +468,15 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
                 }
             }
         }
-        if (is_word_start_char(c) && c != '#')
+        if (is_word_char(c) && c != '#')
         {
             if (!lx->in_word)
             {
                 lexer_start_word(lx);
+            }
+            if (c == '=' && !lx->current_token->was_quoted)
+            {
+                lx->current_token->has_equals_before_quote = true;
             }
             lexer_append_literal_char_to_word(lx, lexer_advance(lx));
             continue;
@@ -497,9 +508,8 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
     }
     else if (lx->current_token != NULL)
     {
-        // Finalize any partially built token.
-        // Is there any difference between in_word and current_token here?
-        lexer_finalize_word(lx);
+        lexer_set_error(lx, "Unexpected end of input");
+        return LEX_ERROR;
     }
     lexer_emit_token(lx, TOKEN_EOF);
     return LEX_OK;
@@ -557,4 +567,37 @@ static bool try_emit_io_number(lexer_t *lx)
 
     // Do NOT advance over the redirection operator — let normal operator matching handle it
     return true;
+}
+
+static bool try_emit_braced_io_location(lexer_t *lx)
+{
+    Expects_not_null(lx);
+    char c, c2;
+
+    if (lexer_peek(lx) != '{')
+        return false;
+
+    c = lexer_peek_ahead(lx, 1);
+    if (!isalpha(c) && c != '_')
+        return false;
+    
+    int n = 2;
+    while (lexer_peek_ahead(lx, n) != '\0' && lexer_peek_ahead(lx, n) != '\n')
+    {
+        c = lexer_peek_ahead(lx, n);
+
+        if (c != '}' && !isalnum(c) && c != '_')
+            return false;
+        
+        c2 = lexer_peek_ahead(lx, n + 1);
+        if (c == '}' && (c2 == '<' || c2 == '>'))
+        {
+            n++;
+            string_t *io_location = string_create_from_cstr_len(string_data(lx->input) + lx->pos, n);
+            lexer_emit_io_location_token(lx, string_cstr(io_location));
+            string_destroy(&io_location);
+        }
+        n++;
+    }
+    return false;
 }

@@ -182,9 +182,15 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     // continue with the tokenizer.
     lexer_reset(sh->lexer);
 
+    // The tokenizer doesn't need persistent state, so
+    // we can create a new one each line.
     token_list_t *out_tokens = token_list_create();
     tok_status_t tok_status;
     tokenizer_t *tokenizer = tokenizer_create(sh->aliases);
+
+    // The tokenizer process will spawn a new internal
+    // lexer to re-lex the input. TODO: decide if I should
+    // just use the existing lexer and reset it instead.
     tok_status = tokenizer_process(tokenizer, tokens, out_tokens);
     if (tok_status != TOK_OK)
     {
@@ -199,7 +205,28 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     token_list_destroy(tokens);
 
     // Tokenize into AST
-    ast_t *ast = NULL;
+    // The shell has a parser.
+    ast_node_t *ast = NULL;
+    parse_status_t parse_status = parser_parse(sh->parser, out_tokens, &ast);
+    if (parse_status == PARSE_ERROR)
+    {
+        string_set_cstr(sh->error, parser_get_error(sh->parser));
+        token_list_destroy(out_tokens);
+        return SH_SYNTAX_ERROR;
+    }
+    else if (parse_status != PARSE_OK)
+    {
+        log_error("shell_feed_line: unexpected parser status: %d", parse_status);
+        token_list_destroy(out_tokens);
+        return SH_INTERNAL_ERROR;
+    }
+ 
+    // Step through AST, printing each node and their children.
+    if (log_level() == LOG_DEBUG)
+    {
+        ast_print(ast);
+    }
+    ast_node_destroy(ast);
 
 #if 0
     // Tokenize

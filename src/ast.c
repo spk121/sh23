@@ -579,3 +579,10 @@ string_t *ast_tree_to_string(const ast_node_t *root)
 {
     return ast_node_to_string(root);
 }
+
+void ast_print(const ast_node_t *root)
+{
+    string_t *str = ast_tree_to_string(root);
+    puts(string_cstr(str));
+    string_destroy(&str);
+}
