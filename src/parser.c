@@ -209,7 +209,7 @@ parse_status_t parser_parse_command_list(parser_t *parser, ast_node_t **out_node
 
         if (status != PARSE_OK)
         {
-            ast_node_destroy(list);
+            ast_node_destroy(&list);
             return status;
         }
 
@@ -296,7 +296,7 @@ parse_status_t parser_parse_andor_list(parser_t *parser, ast_node_t **out_node)
 
         if (status != PARSE_OK)
         {
-            ast_node_destroy(left);
+            ast_node_destroy(&left);
             return status;
         }
 
@@ -312,6 +312,11 @@ parse_status_t parser_parse_pipeline(parser_t *parser, ast_node_t **out_node)
     Expects_not_null(parser);
     Expects_not_null(out_node);
 
+    // You can only promote a TOKEN_WORD to TOKEN_BANG when it is
+    // the first token in a pipeline.
+    token_t *tok = parser_current_token(parser);
+    token_try_promote_to_bang(tok);
+
     // Check for ! prefix
     bool is_negated = parser_accept(parser, TOKEN_BANG);
 
@@ -323,7 +328,7 @@ parse_status_t parser_parse_pipeline(parser_t *parser, ast_node_t **out_node)
 
     if (status != PARSE_OK)
     {
-        ast_node_list_destroy(commands);
+        ast_node_list_destroy(&commands);
         return status;
     }
 
@@ -340,7 +345,7 @@ parse_status_t parser_parse_pipeline(parser_t *parser, ast_node_t **out_node)
 
         if (status != PARSE_OK)
         {
-            ast_node_list_destroy(commands);
+            ast_node_list_destroy(&commands);
             return status;
         }
 
@@ -353,7 +358,7 @@ parse_status_t parser_parse_pipeline(parser_t *parser, ast_node_t **out_node)
         ast_node_t *single_cmd = ast_node_list_get(commands, 0);
         // Remove from list without destroying
         commands->nodes[0] = NULL;
-        ast_node_list_destroy(commands);
+        ast_node_list_destroy(&commands);
         *out_node = single_cmd;
     }
     else
@@ -373,7 +378,8 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
 
     // Since we're in command position, we can promote WORD.
     if (current == TOKEN_WORD)
-        token_try_promote_to_reserved_word(parser_current_token(parser), false);
+        if (token_try_promote_to_reserved_word(parser_current_token(parser), false))
+            current = parser_current_token_type(parser);
 
     // Check for compound commands
     if (current == TOKEN_IF || current == TOKEN_WHILE || current == TOKEN_UNTIL ||
@@ -425,6 +431,14 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
     {
         token_type_t current = parser_current_token_type(parser);
 
+        if (log_level() == LOG_DEBUG)
+        {
+            string_t *dbg_str = string_create();
+            dbg_str = token_to_string(parser_current_token(parser));
+            log_debug("parser_parse_simple_command: current token type: %s", string_cstr(dbg_str));
+            string_destroy(&dbg_str);
+        }
+
         // Check for assignment (only before command word)
         if (!has_command && current == TOKEN_ASSIGNMENT_WORD)
         {
@@ -473,6 +487,10 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         token_list_size(words) == 0 &&
         ast_node_list_size(redirections) == 0)
     {
+        log_debug("parser_parse_simple_command: No command found: %d words, %d redirs, %d assigns",
+                  token_list_size(words),
+                  ast_node_list_size(redirections),
+                  token_list_size(assignments));
         token_list_destroy(&words);
         ast_node_list_destroy(&redirections);
         token_list_destroy(&assignments);
@@ -491,23 +509,9 @@ parse_status_t parser_parse_compound_command(parser_t *parser, ast_node_t **out_
 
     token_type_t current = parser_current_token_type(parser);
 
-    // Try to promote { from WORD to TOKEN_LBRACE if needed
-    if (current == TOKEN_WORD)
+    if (token_try_promote_to_lbrace(parser_current_token(parser)))
     {
-        token_t *tok = parser_current_token(parser);
-        if (tok != NULL && token_part_count(tok) == 1)
-        {
-            part_t *part = token_get_part(tok, 0);
-            if (part_get_type(part) == PART_LITERAL)
-            {
-                const string_t *text = part_get_text(part);
-                if (string_compare_cstr(text, "{") == 0)
-                {
-                    token_set_type(tok, TOKEN_LBRACE);
-                    current = TOKEN_LBRACE;
-                }
-            }
-        }
+        current = TOKEN_LBRACE;
     }
 
     switch (current)
@@ -556,7 +560,7 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_THEN);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
+        ast_node_destroy(&condition);
         return status;
     }
 
@@ -567,7 +571,7 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_parse_command_list(parser, &then_body);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
+        ast_node_destroy(&condition);
         return status;
     }
 
@@ -585,7 +589,7 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
         status = parser_parse_command_list(parser, &elif_condition);
         if (status != PARSE_OK)
         {
-            ast_node_destroy(if_node);
+            ast_node_destroy(&if_node);
             return status;
         }
 
@@ -595,8 +599,8 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
         status = parser_expect(parser, TOKEN_THEN);
         if (status != PARSE_OK)
         {
-            ast_node_destroy(if_node);
-            ast_node_destroy(elif_condition);
+            ast_node_destroy(&if_node);
+            ast_node_destroy(&elif_condition);
             return status;
         }
 
@@ -607,8 +611,8 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
         status = parser_parse_command_list(parser, &elif_body);
         if (status != PARSE_OK)
         {
-            ast_node_destroy(if_node);
-            ast_node_destroy(elif_condition);
+            ast_node_destroy(&if_node);
+            ast_node_destroy(&elif_condition);
             return status;
         }
 
@@ -632,7 +636,7 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
         status = parser_parse_command_list(parser, &else_body);
         if (status != PARSE_OK)
         {
-            ast_node_destroy(if_node);
+            ast_node_destroy(&if_node);
             return status;
         }
 
@@ -644,7 +648,7 @@ parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_FI);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(if_node);
+        ast_node_destroy(&if_node);
         return status;
     }
 
@@ -676,7 +680,7 @@ parse_status_t parser_parse_while_clause(parser_t *parser, ast_node_t **out_node
     status = parser_expect(parser, TOKEN_DO);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
+        ast_node_destroy(&condition);
         return status;
     }
 
@@ -687,7 +691,7 @@ parse_status_t parser_parse_while_clause(parser_t *parser, ast_node_t **out_node
     status = parser_parse_command_list(parser, &body);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
+        ast_node_destroy(&condition);
         return status;
     }
 
@@ -697,8 +701,8 @@ parse_status_t parser_parse_while_clause(parser_t *parser, ast_node_t **out_node
     status = parser_expect(parser, TOKEN_DONE);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
-        ast_node_destroy(body);
+        ast_node_destroy(&condition);
+        ast_node_destroy(&body);
         return status;
     }
 
@@ -730,7 +734,7 @@ parse_status_t parser_parse_until_clause(parser_t *parser, ast_node_t **out_node
     status = parser_expect(parser, TOKEN_DO);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
+        ast_node_destroy(&condition);
         return status;
     }
 
@@ -741,7 +745,7 @@ parse_status_t parser_parse_until_clause(parser_t *parser, ast_node_t **out_node
     status = parser_parse_command_list(parser, &body);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
+        ast_node_destroy(&condition);
         return status;
     }
 
@@ -751,8 +755,8 @@ parse_status_t parser_parse_until_clause(parser_t *parser, ast_node_t **out_node
     status = parser_expect(parser, TOKEN_DONE);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(condition);
-        ast_node_destroy(body);
+        ast_node_destroy(&condition);
+        ast_node_destroy(&body);
         return status;
     }
 
@@ -982,7 +986,7 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_ESAC);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(case_node);
+        ast_node_destroy(&case_node);
         return status;
     }
 
@@ -1014,7 +1018,7 @@ parse_status_t parser_parse_subshell(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_RPAREN);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(body);
+        ast_node_destroy(&body);
         return status;
     }
 
@@ -1046,7 +1050,7 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
     status = parser_expect(parser, TOKEN_RBRACE);
     if (status != PARSE_OK)
     {
-        ast_node_destroy(body);
+        ast_node_destroy(&body);
         return status;
     }
 
@@ -1136,8 +1140,8 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
             if (status != PARSE_OK)
             {
                 string_destroy(&func_name);
-                ast_node_destroy(body);
-                ast_node_list_destroy(redirections);
+                ast_node_destroy(&body);
+                ast_node_list_destroy(&redirections);
                 return status;
             }
             ast_node_list_append(redirections, redir);

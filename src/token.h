@@ -326,6 +326,13 @@ void token_append_cstr_to_last_literal_part(token_t *token, const char *str);
  */
 bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in);
 
+/**
+ * Try to convert a TOKEN_WORD to TOKEN_BANG.
+ * Returns true if conversion was done, false otherwise.
+ */
+bool token_try_promote_to_bang(token_t *tok);
+
+bool token_try_promote_to_lbrace(token_t *tok);
 /* ============================================================================
  * Token Location Tracking
  * ============================================================================ */

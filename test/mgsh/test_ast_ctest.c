@@ -7,6 +7,7 @@
 #include "token.h"
 #include "tokenizer.h"
 #include "xalloc.h"
+#include "logging.h"
 
 /* ============================================================================
  * Helper Functions
@@ -35,7 +36,7 @@ static token_list_t *lex_and_tokenize(const char *input)
     
     tok_status_t tok_status = tokenizer_process(tok, tokens, output);
     
-    tokenizer_destroy(tok);
+    tokenizer_destroy(&tok);
 
     if (tok_status != TOK_OK)
     {
@@ -89,7 +90,7 @@ CTEST(test_ast_node_create)
     ast_node_t *node = ast_node_create(AST_SIMPLE_COMMAND);
     CTEST_ASSERT_NOT_NULL(ctest, node, "AST node created");
     CTEST_ASSERT_EQ(ctest, ast_node_get_type(node), AST_SIMPLE_COMMAND, "node type is correct");
-    ast_node_destroy(node);
+    ast_node_destroy(&node);
     (void)ctest;
 }
 
@@ -99,7 +100,7 @@ CTEST(test_ast_simple_command_create)
     ast_node_t *node = ast_create_simple_command(words, NULL, NULL);
     CTEST_ASSERT_NOT_NULL(ctest, node, "simple command created");
     CTEST_ASSERT_EQ(ctest, node->type, AST_SIMPLE_COMMAND, "node type is correct");
-    ast_node_destroy(node);
+    ast_node_destroy(&node);
     (void)ctest;
 }
 
@@ -109,7 +110,7 @@ CTEST(test_ast_pipeline_create)
     ast_node_t *node = ast_create_pipeline(commands, false);
     CTEST_ASSERT_NOT_NULL(ctest, node, "pipeline created");
     CTEST_ASSERT_EQ(ctest, node->type, AST_PIPELINE, "node type is correct");
-    ast_node_destroy(node);
+    ast_node_destroy(&node);
     (void)ctest;
 }
 
@@ -120,7 +121,7 @@ CTEST(test_ast_if_clause_create)
     ast_node_t *node = ast_create_if_clause(condition, then_body);
     CTEST_ASSERT_NOT_NULL(ctest, node, "if clause created");
     CTEST_ASSERT_EQ(ctest, node->type, AST_IF_CLAUSE, "node type is correct");
-    ast_node_destroy(node);
+    ast_node_destroy(&node);
     (void)ctest;
 }
 
@@ -133,7 +134,7 @@ CTEST(test_ast_node_list_create)
     ast_node_list_t *list = ast_node_list_create();
     CTEST_ASSERT_NOT_NULL(ctest, list, "node list created");
     CTEST_ASSERT_EQ(ctest, ast_node_list_size(list), 0, "list is initially empty");
-    ast_node_list_destroy(list);
+    ast_node_list_destroy(&list);
     (void)ctest;
 }
 
@@ -150,7 +151,7 @@ CTEST(test_ast_node_list_append)
     CTEST_ASSERT_EQ(ctest, ast_node_list_get(list, 0)->type, AST_SIMPLE_COMMAND, "first node type");
     CTEST_ASSERT_EQ(ctest, ast_node_list_get(list, 1)->type, AST_PIPELINE, "second node type");
     
-    ast_node_list_destroy(list);
+    ast_node_list_destroy(&list);
     (void)ctest;
 }
 
@@ -180,7 +181,7 @@ CTEST(test_parser_simple_command)
         CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "first item is simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(first->data.simple_command.words), 2, "two words");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -196,7 +197,7 @@ CTEST(test_parser_simple_command_with_args)
         CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(first->data.simple_command.words), 3, "three words");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -216,7 +217,7 @@ CTEST(test_parser_pipeline)
         CTEST_ASSERT_EQ(ctest, first->type, AST_PIPELINE, "is pipeline");
         CTEST_ASSERT_EQ(ctest, first->data.pipeline.commands->size, 2, "two commands in pipeline");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -232,7 +233,7 @@ CTEST(test_parser_pipeline_negated)
         CTEST_ASSERT_EQ(ctest, first->type, AST_PIPELINE, "is pipeline");
         CTEST_ASSERT(ctest, first->data.pipeline.is_negated, "pipeline is negated");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -252,7 +253,7 @@ CTEST(test_parser_and_list)
         CTEST_ASSERT_EQ(ctest, first->type, AST_AND_OR_LIST, "is and/or list");
         CTEST_ASSERT_EQ(ctest, first->data.andor_list.op, ANDOR_OP_AND, "operator is AND");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -268,7 +269,7 @@ CTEST(test_parser_or_list)
         CTEST_ASSERT_EQ(ctest, first->type, AST_AND_OR_LIST, "is and/or list");
         CTEST_ASSERT_EQ(ctest, first->data.andor_list.op, ANDOR_OP_OR, "operator is OR");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -287,7 +288,7 @@ CTEST(test_parser_sequential_commands)
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "is command list");
         CTEST_ASSERT_EQ(ctest, ast->data.command_list.items->size, 2, "two commands");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -304,7 +305,7 @@ CTEST(test_parser_background_command)
         CTEST_ASSERT_EQ(ctest, ast->data.command_list.separators[0], LIST_SEP_BACKGROUND, 
                        "separator is background");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -325,7 +326,7 @@ CTEST(test_parser_if_then_fi)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.condition, "has condition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.then_body, "has then body");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -341,7 +342,7 @@ CTEST(test_parser_if_else)
         CTEST_ASSERT_EQ(ctest, first->type, AST_IF_CLAUSE, "is if clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.else_body, "has else body");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -362,7 +363,7 @@ CTEST(test_parser_while_loop)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.condition, "has condition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.body, "has body");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -377,7 +378,7 @@ CTEST(test_parser_until_loop)
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, first->type, AST_UNTIL_CLAUSE, "is until clause");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -398,7 +399,7 @@ CTEST(test_parser_for_loop)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.for_clause.variable, "has variable");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.for_clause.body, "has body");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -424,7 +425,7 @@ CTEST(test_parser_case_statement)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.case_items, "has case items");
         CTEST_ASSERT(ctest, first->data.case_clause.case_items->size >= 2, "has at least 2 case items");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -447,7 +448,7 @@ CTEST(test_parser_function_def)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
         CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_BRACE_GROUP, "body is brace group");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -463,7 +464,7 @@ CTEST(test_parser_function_def_with_subshell)
         CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_SUBSHELL, "body is subshell");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -483,7 +484,7 @@ CTEST(test_parser_subshell)
         CTEST_ASSERT_EQ(ctest, first->type, AST_SUBSHELL, "is subshell");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.compound.body, "has body");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -499,7 +500,7 @@ CTEST(test_parser_brace_group)
         CTEST_ASSERT_EQ(ctest, first->type, AST_BRACE_GROUP, "is brace group");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.compound.body, "has body");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -520,7 +521,7 @@ CTEST(test_parser_output_redirection)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         CTEST_ASSERT(ctest, first->data.simple_command.redirections->size > 0, "has at least one redirection");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -537,7 +538,7 @@ CTEST(test_parser_input_redirection)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         CTEST_ASSERT(ctest, first->data.simple_command.redirections->size > 0, "has at least one redirection");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -553,7 +554,7 @@ CTEST(test_parser_append_redirection)
         CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -567,7 +568,7 @@ CTEST(test_executor_create_destroy)
     executor_t *executor = executor_create();
     CTEST_ASSERT_NOT_NULL(ctest, executor, "executor created");
     CTEST_ASSERT_EQ(ctest, executor_get_exit_status(executor), 0, "initial exit status is 0");
-    executor_destroy(executor);
+    executor_destroy(&executor);
     (void)ctest;
 }
 
@@ -584,8 +585,8 @@ CTEST(test_executor_dry_run)
         exec_status_t status = executor_execute(executor, ast);
         CTEST_ASSERT_EQ(ctest, status, EXEC_OK, "dry run execution succeeded");
         
-        executor_destroy(executor);
-        ast_node_destroy(ast);
+        executor_destroy(&executor);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -614,7 +615,7 @@ CTEST(test_ast_traverse)
         CTEST_ASSERT(ctest, result, "traversal completed");
         CTEST_ASSERT(ctest, count > 0, "visited at least one node");
         
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -643,7 +644,7 @@ CTEST(test_ast_to_string)
         CTEST_ASSERT(ctest, string_length(str) > 0, "string is not empty");
         
         string_destroy(&str);
-        ast_node_destroy(ast);
+        ast_node_destroy(&ast);
     }
     (void)ctest;
 }
@@ -655,6 +656,8 @@ CTEST(test_ast_to_string)
 int main(void)
 {
     arena_start();
+    log_init();
+    
 
     CTestEntry *suite[] = {
         // AST Node Creation Tests

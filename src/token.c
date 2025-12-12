@@ -352,6 +352,59 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
     return false;
 }
 
+bool token_try_promote_to_bang(token_t *tok)
+{
+    Expects_not_null(tok);
+    Expects_eq(token_get_type(tok), TOKEN_WORD);
+
+    // A reserved word must be a single literal part
+    // and not quoted.
+    if (token_was_quoted(tok) || token_part_count(tok) != 1)
+        return false;
+
+    const part_t *first_part = tok->parts->parts[0];
+
+    // Only literal parts can be reserved words
+    if (part_get_type(first_part) != PART_LITERAL)
+        return false;
+
+    const char *word = string_cstr(first_part->text);
+    if (strcmp(word, "!") == 0)
+    {
+        tok->type = TOKEN_BANG;
+        part_list_destroy(&tok->parts);
+        return true;
+    }
+    return false;
+}
+
+bool token_try_promote_to_lbrace(token_t *tok)
+{
+    Expects_not_null(tok);
+    Expects_eq(token_get_type(tok), TOKEN_WORD);
+
+    // A reserved word must be a single literal part
+    // and not quoted.
+    if (token_was_quoted(tok) || token_part_count(tok) != 1)
+        return false;
+
+    const part_t *first_part = tok->parts->parts[0];
+
+    // Only literal parts can be reserved words
+    if (part_get_type(first_part) != PART_LITERAL)
+        return false;
+
+    const char *word = string_cstr(first_part->text);
+    if (strcmp(word, "{") == 0)
+    {
+        tok->type = TOKEN_LBRACE;
+        part_list_destroy(&tok->parts);
+        return true;
+    }
+    return false;
+}
+
+
 /* ============================================================================
  * Token Location Tracking
  * ============================================================================ */
