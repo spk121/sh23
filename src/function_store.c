@@ -17,11 +17,16 @@ static int is_valid_name_cstr(const char *s) {
     return 1;
 }
 
-static void function_free(function_t *func) {
-    if (!func) return;
-    xfree(func->name);
-    if (func->body) ast_node_destroy(func->body);
+static void function_free(function_t **func) {
+    Expects_not_null(func);
+    function_t *f = *func;
+    Expects_not_null(f);
+
+    xfree(f->name);
+    if (f->body)
+    ast_node_destroy(&f->body);
     xfree(func);
+    func = NULL;
 }
 
 function_store_t *function_store_create(void) {
@@ -55,7 +60,7 @@ int function_store_set(function_store_t *store, const char *name, ast_node_t *bo
     for (size_t i = 0; i < n; ++i) {
         function_t *func = function_array_get(store->functions, i);
         if (func && strcmp(func->name, name) == 0) {
-            if (func->body) ast_node_destroy(func->body);
+            if (func->body) ast_node_destroy(&func->body);
             func->body = body;
             return 0;
         }

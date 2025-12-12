@@ -19,7 +19,7 @@ CTEST(test_expander_create_destroy)
     expander_t *exp = expander_create();
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
-    expander_destroy(exp);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -47,7 +47,7 @@ CTEST(test_expander_ifs)
     CTEST_ASSERT_EQ(ctest, string_length(ifs), 1, "IFS length is 1");
     CTEST_ASSERT_EQ(ctest, string_at(ifs, 0), ':', "IFS is colon");
     
-    expander_destroy(exp);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -79,7 +79,7 @@ CTEST(test_expander_expand_simple_word)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    expander_destroy(exp);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -115,7 +115,7 @@ CTEST(test_expander_expand_concatenated_word)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    expander_destroy(exp);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -142,8 +142,8 @@ CTEST(test_expander_expand_ast_stub)
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
     CTEST_ASSERT_EQ(ctest, result, node, "result is same node");
     
-    ast_node_destroy(node);
-    expander_destroy(exp);
+    ast_node_destroy(&node);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -179,8 +179,8 @@ CTEST(test_expander_arithmetic_simple)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    variable_store_destroy(vars);
-    expander_destroy(exp);
+    variable_store_destroy(&vars);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -217,8 +217,8 @@ CTEST(test_expander_arithmetic_with_variable)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    variable_store_destroy(vars);
-    expander_destroy(exp);
+    variable_store_destroy(&vars);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -257,8 +257,8 @@ CTEST(test_expander_arithmetic_complex)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    variable_store_destroy(vars);
-    expander_destroy(exp);
+    variable_store_destroy(&vars);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -294,8 +294,8 @@ CTEST(test_expander_arithmetic_empty)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    variable_store_destroy(vars);
-    expander_destroy(exp);
+    variable_store_destroy(&vars);
+    expander_destroy(&exp);
     (void)ctest;
 }
 
@@ -332,8 +332,8 @@ CTEST(test_expander_arithmetic_nested)
     
     string_list_destroy(&result);
     token_destroy(&word);
-    variable_store_destroy(vars);
-    expander_destroy(exp);
+    variable_store_destroy(&vars);
+    expander_destroy(&exp);
     (void)ctest;
 }
 

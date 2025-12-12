@@ -28,7 +28,7 @@ CTEST(test_arith_exp_basic)
     
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "1+2", "expression text is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1+2", "expression text is correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -102,7 +102,7 @@ CTEST(test_arith_exp_with_spaces)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), " 1 + 2 ", "expression text preserves spaces");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " 1 + 2 ", "expression text preserves spaces");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -127,7 +127,7 @@ CTEST(test_arith_exp_nested_parens)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), " (1+2)*3 ", "nested parens preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " (1+2)*3 ", "nested parens preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -148,7 +148,7 @@ CTEST(test_arith_exp_deeply_nested_parens)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), " ((1+2)) ", "deeply nested parens preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " ((1+2)) ", "deeply nested parens preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -173,7 +173,7 @@ CTEST(test_arith_exp_with_variable)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "x+1", "variable reference preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "x+1", "variable reference preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -194,7 +194,7 @@ CTEST(test_arith_exp_with_dollar_variable)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "$x+1", "$variable reference preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "$x+1", "$variable reference preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -215,7 +215,7 @@ CTEST(test_arith_exp_with_braced_param)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "${x}+1", "braced param preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "${x}+1", "braced param preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -239,7 +239,7 @@ CTEST(test_arith_exp_operators)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "1+2-3*4/5%6", "operators preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1+2-3*4/5%6", "operators preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -259,7 +259,7 @@ CTEST(test_arith_exp_comparison_operators)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "x<y", "comparison operators preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "x<y", "comparison operators preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -279,7 +279,7 @@ CTEST(test_arith_exp_ternary_operator)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "x?1:0", "ternary operator preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "x?1:0", "ternary operator preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -307,15 +307,15 @@ CTEST(test_arith_exp_in_word)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_LITERAL, "first part is literal");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "prefix", "prefix is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "prefix", "prefix is correct");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_ARITHMETIC, "second part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "1+2", "expression is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "1+2", "expression is correct");
     
     part_t *part3 = token_get_part(tok, 2);
     CTEST_ASSERT_EQ(ctest, part_get_type(part3), PART_LITERAL, "third part is literal");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part3)), "suffix", "suffix is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part3)), "suffix", "suffix is correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -364,11 +364,11 @@ CTEST(test_arith_exp_multiple)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_ARITHMETIC, "first part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "1", "first expression correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "1", "first expression correct");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_ARITHMETIC, "second part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "2", "second expression correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "2", "second expression correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -450,7 +450,7 @@ CTEST(test_arith_exp_with_squote)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "'1'+2", "single quotes preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "'1'+2", "single quotes preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -471,7 +471,7 @@ CTEST(test_arith_exp_with_backslash)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "1\\+2", "backslash preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1\\+2", "backslash preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -493,7 +493,7 @@ CTEST(test_arith_exp_paren_not_closing)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "1+(2)", "nested parens handled correctly");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1+(2)", "nested parens handled correctly");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);

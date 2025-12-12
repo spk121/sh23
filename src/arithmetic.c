@@ -810,7 +810,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     // Step 2: Tokenize
     token_list_t *tokens = token_list_create();
     if (!tokens) {
-        lexer_destroy(lx);
+        lexer_destroy(&lx);
         log_error("arithmetic_expand_expression: failed to create token list");
         return NULL;
     }
