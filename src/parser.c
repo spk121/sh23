@@ -216,7 +216,7 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
         ast_node_list_append(list->data.command_list.items, item);
 
         // Check for separator
-        list_separator_t separator = LIST_SEP_SEQUENTIAL;
+        cmd_separator_t separator = LIST_SEP_SEQUENTIAL;
         if (parser_accept(parser, TOKEN_AMPER))
         {
             separator = LIST_SEP_BACKGROUND;
@@ -231,18 +231,7 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
         }
 
         // Store separator
-        if (list->data.command_list.separator_count == 0)
-        {
-            list->data.command_list.separators = 
-                (list_separator_t *)xmalloc(sizeof(list_separator_t));
-        }
-        else
-        {
-            list->data.command_list.separators = 
-                (list_separator_t *)xrealloc(list->data.command_list.separators,
-                    (list->data.command_list.separator_count + 1) * sizeof(list_separator_t));
-        }
-        list->data.command_list.separators[list->data.command_list.separator_count++] = separator;
+        cmd_separator_list_add(list->data.command_list.separators, separator);
 
         // Skip additional newlines
         parser_skip_newlines(parser);

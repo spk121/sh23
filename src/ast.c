@@ -65,14 +65,9 @@ void ast_node_destroy(ast_node_t **node)
         break;
 
     case AST_COMMAND_LIST:
-        if (n->data.command_list.items != NULL)
-        {
-            ast_node_list_destroy(&n->data.command_list.items);
-        }
-        if (n->data.command_list.separators != NULL)
-        {
-            xfree(n->data.command_list.separators);
-        }
+        ast_node_list_destroy(&n->data.command_list.items);
+        cmd_separator_list_destroy(&(*node)->data.command_list.separators);
+
         break;
 
     case AST_SUBSHELL:
@@ -231,8 +226,7 @@ ast_node_t *ast_create_command_list(void)
 {
     ast_node_t *node = ast_node_create(AST_COMMAND_LIST);
     node->data.command_list.items = ast_node_list_create();
-    node->data.command_list.separators = NULL;
-    node->data.command_list.separator_count = 0;
+    node->data.command_list.separators = cmd_separator_list_create(); // Allocate here
     return node;
 }
 
@@ -390,6 +384,36 @@ ast_node_t *ast_node_list_get(const ast_node_list_t *list, int index)
     Expects_not_null(list);
     Expects_lt(index, list->size);
     return list->nodes[index];
+}
+
+bool ast_node_command_list_has_separators(const ast_node_t *node)
+{
+    Expects_not_null(node);
+    if (node->type != AST_COMMAND_LIST)
+    {
+        return false;
+    }
+    return node->data.command_list.separators != NULL &&
+           node->data.command_list.separators->len > 0;
+}
+
+int ast_node_command_list_separator_count(const ast_node_t *node)
+{
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_COMMAND_LIST);
+    if (node->data.command_list.separators == NULL)
+    {
+        return 0;
+    }
+    return node->data.command_list.separators->len;
+}
+
+cmd_separator_t ast_node_command_list_get_separator(const ast_node_t *node, int index)
+{
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_COMMAND_LIST);
+    Expects_lt(index, ast_node_command_list_separator_count(node));
+    return node->data.command_list.separators->separators[index];
 }
 
 /* ============================================================================
@@ -593,4 +617,40 @@ void ast_print(const ast_node_t *root)
     string_t *str = ast_tree_to_string(root);
     puts(string_cstr(str));
     string_destroy(&str);
+}
+
+cmd_separator_list_t *cmd_separator_list_create(void)
+{
+    cmd_separator_list_t *list = (cmd_separator_list_t *)xmalloc(sizeof(cmd_separator_list_t));
+    list->separators = (cmd_separator_t *)xmalloc(INITIAL_LIST_CAPACITY * sizeof(cmd_separator_t ));
+    list->len = 0;
+    list->capacity = INITIAL_LIST_CAPACITY;
+    return list;
+}
+
+void cmd_separator_list_destroy(cmd_separator_list_t **list)
+{
+    if (!list || !*list) return;
+    cmd_separator_list_t *l = *list;
+    xfree(l->separators);
+    xfree(l);
+    *list = NULL;
+}
+
+void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep)
+{
+    Expects_not_null(list);
+    if (list->len >= list->capacity) {
+        int new_capacity = list->capacity * 2;
+        list->separators = (cmd_separator_t *)xrealloc(list->separators, new_capacity * sizeof(cmd_separator_t));
+        list->capacity = new_capacity;
+    }
+    list->separators[list->len++] = sep;
+}
+
+cmd_separator_t cmd_separator_list_get(const cmd_separator_list_t *list, int index)
+{
+    Expects_not_null(list);
+    Expects_lt(index, list->len);
+    return list->separators[index];
 }

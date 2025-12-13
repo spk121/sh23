@@ -172,9 +172,9 @@ exec_status_t executor_execute_command_list(executor_t *executor, const ast_node
         }
 
         // Check separator - if background, don't wait
-        if (i < node->data.command_list.separator_count)
+        if (i < ast_node_command_list_separator_count(node))
         {
-            list_separator_t sep = node->data.command_list.separators[i];
+            cmd_separator_t sep = ast_node_command_list_get_separator(node, i);
             if (sep == LIST_SEP_BACKGROUND)
             {
                 // Background execution - in a real shell, fork and don't wait

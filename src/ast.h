@@ -71,7 +71,15 @@ typedef enum
 {
     LIST_SEP_SEQUENTIAL, // ; or newline
     LIST_SEP_BACKGROUND, // &
-} list_separator_t;
+} cmd_separator_t;
+
+/* Command separator list structure */
+typedef struct
+{
+    cmd_separator_t *separators;
+    int len;
+    int capacity;
+} cmd_separator_list_t;
 
 /**
  * Redirection types
@@ -158,8 +166,7 @@ struct ast_node_t
         struct
         {
             ast_node_list_t *items;       // list of commands/pipelines
-            list_separator_t *separators; // separator after each item
-            int separator_count;
+            cmd_separator_list_t *separators; // separator after each item
         } command_list;
 
         /* AST_SUBSHELL, AST_BRACE_GROUP */
@@ -384,6 +391,11 @@ int ast_node_list_size(const ast_node_list_t *list);
  */
 ast_node_t *ast_node_list_get(const ast_node_list_t *list, int index);
 
+
+bool ast_node_command_list_has_separators(const ast_node_t *node);
+int ast_node_command_list_separator_count(const ast_node_t *node);
+cmd_separator_t ast_node_command_list_get_separator(const ast_node_t *node, int index);
+
 /* ============================================================================
  * AST Utility Functions
  * ============================================================================ */
@@ -406,4 +418,13 @@ string_t *ast_node_to_string(const ast_node_t *node);
 string_t *ast_tree_to_string(const ast_node_t *root);
 
 void ast_print(const ast_node_t *root);
+
+/* ============================================================================
+ * Command Separator List Functions
+ * ============================================================================ */
+cmd_separator_list_t *cmd_separator_list_create(void);
+void cmd_separator_list_destroy(cmd_separator_list_t **list);
+void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep);
+cmd_separator_t cmd_separator_list_get(const cmd_separator_list_t *list, int index);
+
 #endif /* AST_H */

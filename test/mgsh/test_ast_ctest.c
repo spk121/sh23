@@ -99,7 +99,7 @@ CTEST(test_ast_simple_command_create)
     token_list_t *words = token_list_create();
     ast_node_t *node = ast_create_simple_command(words, NULL, NULL);
     CTEST_ASSERT_NOT_NULL(ctest, node, "simple command created");
-    CTEST_ASSERT_EQ(ctest, node->type, AST_SIMPLE_COMMAND, "node type is correct");
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(node), AST_SIMPLE_COMMAND, "node type is correct");
     ast_node_destroy(&node);
     (void)ctest;
 }
@@ -109,7 +109,7 @@ CTEST(test_ast_pipeline_create)
     ast_node_list_t *commands = ast_node_list_create();
     ast_node_t *node = ast_create_pipeline(commands, false);
     CTEST_ASSERT_NOT_NULL(ctest, node, "pipeline created");
-    CTEST_ASSERT_EQ(ctest, node->type, AST_PIPELINE, "node type is correct");
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(node), AST_PIPELINE, "node type is correct");
     ast_node_destroy(&node);
     (void)ctest;
 }
@@ -120,7 +120,7 @@ CTEST(test_ast_if_clause_create)
     ast_node_t *then_body = ast_create_command_list();
     ast_node_t *node = ast_create_if_clause(condition, then_body);
     CTEST_ASSERT_NOT_NULL(ctest, node, "if clause created");
-    CTEST_ASSERT_EQ(ctest, node->type, AST_IF_CLAUSE, "node type is correct");
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(node), AST_IF_CLAUSE, "node type is correct");
     ast_node_destroy(&node);
     (void)ctest;
 }
@@ -148,8 +148,8 @@ CTEST(test_ast_node_list_append)
     ast_node_list_append(list, node2);
     
     CTEST_ASSERT_EQ(ctest, ast_node_list_size(list), 2, "list has 2 nodes");
-    CTEST_ASSERT_EQ(ctest, ast_node_list_get(list, 0)->type, AST_SIMPLE_COMMAND, "first node type");
-    CTEST_ASSERT_EQ(ctest, ast_node_list_get(list, 1)->type, AST_PIPELINE, "second node type");
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast_node_list_get(list, 0)), AST_SIMPLE_COMMAND, "first node type");
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast_node_list_get(list, 1)), AST_PIPELINE, "second node type");
     
     ast_node_list_destroy(&list);
     (void)ctest;
@@ -174,11 +174,11 @@ CTEST(test_parser_simple_command)
     
     if (ast != NULL)
     {
-        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "root is command list");
         CTEST_ASSERT(ctest, ast->data.command_list.items->size > 0, "has items");
         
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "first item is simple command");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "first item is simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(first->data.simple_command.words), 2, "two words");
         
         ast_node_destroy(&ast);
@@ -194,7 +194,7 @@ CTEST(test_parser_simple_command_with_args)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "is simple command");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(first->data.simple_command.words), 3, "three words");
         
         ast_node_destroy(&ast);
@@ -214,7 +214,7 @@ CTEST(test_parser_pipeline)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_PIPELINE, "is pipeline");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_PIPELINE, "is pipeline");
         CTEST_ASSERT_EQ(ctest, first->data.pipeline.commands->size, 2, "two commands in pipeline");
         
         ast_node_destroy(&ast);
@@ -230,7 +230,7 @@ CTEST(test_parser_pipeline_negated)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_PIPELINE, "is pipeline");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_PIPELINE, "is pipeline");
         CTEST_ASSERT(ctest, first->data.pipeline.is_negated, "pipeline is negated");
         
         ast_node_destroy(&ast);
@@ -250,7 +250,7 @@ CTEST(test_parser_and_list)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_AND_OR_LIST, "is and/or list");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_AND_OR_LIST, "is and/or list");
         CTEST_ASSERT_EQ(ctest, first->data.andor_list.op, ANDOR_OP_AND, "operator is AND");
         
         ast_node_destroy(&ast);
@@ -266,7 +266,7 @@ CTEST(test_parser_or_list)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_AND_OR_LIST, "is and/or list");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_AND_OR_LIST, "is and/or list");
         CTEST_ASSERT_EQ(ctest, first->data.andor_list.op, ANDOR_OP_OR, "operator is OR");
         
         ast_node_destroy(&ast);
@@ -285,7 +285,7 @@ CTEST(test_parser_sequential_commands)
     
     if (ast != NULL)
     {
-        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "is command list");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "is command list");
         CTEST_ASSERT_EQ(ctest, ast->data.command_list.items->size, 2, "two commands");
         
         ast_node_destroy(&ast);
@@ -300,9 +300,9 @@ CTEST(test_parser_background_command)
     
     if (ast != NULL)
     {
-        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "is command list");
-        CTEST_ASSERT(ctest, ast->data.command_list.separator_count > 0, "has separator");
-        CTEST_ASSERT_EQ(ctest, ast->data.command_list.separators[0], LIST_SEP_BACKGROUND, 
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "is command list");
+        CTEST_ASSERT(ctest, ast_node_command_list_has_separators(ast), "has separator");
+        CTEST_ASSERT_EQ(ctest, ast_node_command_list_get_separator(ast, 0), LIST_SEP_BACKGROUND,
                        "separator is background");
         
         ast_node_destroy(&ast);
@@ -322,7 +322,7 @@ CTEST(test_parser_if_then_fi)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_IF_CLAUSE, "is if clause");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_IF_CLAUSE, "is if clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.condition, "has condition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.then_body, "has then body");
         
@@ -339,7 +339,7 @@ CTEST(test_parser_if_else)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_IF_CLAUSE, "is if clause");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_IF_CLAUSE, "is if clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.else_body, "has else body");
         
         ast_node_destroy(&ast);
@@ -359,7 +359,7 @@ CTEST(test_parser_while_loop)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_WHILE_CLAUSE, "is while clause");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_WHILE_CLAUSE, "is while clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.condition, "has condition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.body, "has body");
         
@@ -376,7 +376,7 @@ CTEST(test_parser_until_loop)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_UNTIL_CLAUSE, "is until clause");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_UNTIL_CLAUSE, "is until clause");
         
         ast_node_destroy(&ast);
     }
@@ -395,7 +395,7 @@ CTEST(test_parser_for_loop)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_FOR_CLAUSE, "is for clause");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FOR_CLAUSE, "is for clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.for_clause.variable, "has variable");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.for_clause.body, "has body");
         
@@ -420,7 +420,7 @@ CTEST(test_parser_case_statement)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_CASE_CLAUSE, "is case clause");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_CASE_CLAUSE, "is case clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.word, "has word to match");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.case_items, "has case items");
         CTEST_ASSERT(ctest, first->data.case_clause.case_items->size >= 2, "has at least 2 case items");
@@ -443,10 +443,10 @@ CTEST(test_parser_function_def)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.name, "has function name");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
-        CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_BRACE_GROUP, "body is brace group");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first->data.function_def.body), AST_BRACE_GROUP, "body is brace group");
         
         ast_node_destroy(&ast);
     }
@@ -461,8 +461,8 @@ CTEST(test_parser_function_def_with_subshell)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
-        CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_SUBSHELL, "body is subshell");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first->data.function_def.body), AST_SUBSHELL, "body is subshell");
         
         ast_node_destroy(&ast);
     }
@@ -477,7 +477,7 @@ CTEST(test_parser_function_def_with_redirections)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.redirections, "has redirections");
         CTEST_ASSERT_EQ(ctest, first->data.function_def.redirections->size, 1, "has one redirection");
         
@@ -494,9 +494,9 @@ CTEST(test_parser_function_def_empty_body)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
-        CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_BRACE_GROUP, "body is brace group");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first->data.function_def.body), AST_BRACE_GROUP, "body is brace group");
         
         ast_node_destroy(&ast);
     }
@@ -536,7 +536,7 @@ CTEST(test_parser_subshell)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_SUBSHELL, "is subshell");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SUBSHELL, "is subshell");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.compound.body, "has body");
         
         ast_node_destroy(&ast);
@@ -552,7 +552,7 @@ CTEST(test_parser_brace_group)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_BRACE_GROUP, "is brace group");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_BRACE_GROUP, "is brace group");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.compound.body, "has body");
         
         ast_node_destroy(&ast);
@@ -572,7 +572,7 @@ CTEST(test_parser_output_redirection)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "is simple command");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         CTEST_ASSERT(ctest, first->data.simple_command.redirections->size > 0, "has at least one redirection");
         
@@ -589,7 +589,7 @@ CTEST(test_parser_input_redirection)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "is simple command");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         CTEST_ASSERT(ctest, first->data.simple_command.redirections->size > 0, "has at least one redirection");
         
@@ -606,7 +606,7 @@ CTEST(test_parser_append_redirection)
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, first->type, AST_SIMPLE_COMMAND, "is simple command");
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         
         ast_node_destroy(&ast);
