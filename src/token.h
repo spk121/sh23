@@ -333,6 +333,19 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in);
 bool token_try_promote_to_bang(token_t *tok);
 
 bool token_try_promote_to_lbrace(token_t *tok);
+
+bool token_try_promote_to_elif(token_t *tok);
+bool token_try_promote_to_else(token_t *tok);
+bool token_try_promote_to_then(token_t *tok);
+bool token_try_promote_to_fi(token_t *tok);
+bool token_try_promote_to_else(token_t *tok);
+bool token_try_promote_to_rbrace(token_t *tok);
+bool token_try_promote_to_do(token_t *tok);
+bool token_try_promote_to_done(token_t *tok);
+bool token_try_promote_to_esac(token_t *tok);
+bool token_try_promote_to_rbrace(token_t *tok);
+bool token_try_promote_to_in(token_t *tok);
+
 /* ============================================================================
  * Token Location Tracking
  * ============================================================================ */

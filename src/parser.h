@@ -1,5 +1,5 @@
-#ifndef PARSER_H
-#define PARSER_H
+#ifndef PARSER_T_H
+#define PARSER_T_H
 
 #include "ast.h"
 #include "string_t.h"
@@ -78,10 +78,24 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
  */
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node);
 
+typedef enum {
+    PARSE_COMMAND_TOP_LEVEL,
+    PARSE_COMMAND_IN_IF,
+    PARSE_COMMAND_IN_ELIF,
+    PARSE_COMMAND_IN_ELSE,
+    PARSE_COMMAND_IN_THEN,
+    PARSE_COMMAND_IN_DO,
+    PARSE_COMMAND_IN_WHILE,
+    PARSE_COMMAND_IN_UNTIL,
+    PARSE_COMMAND_IN_FOR,
+    PARSE_COMMAND_IN_CASE,
+    PARSE_COMMAND_IN_SUBSHELL,
+    PARSE_COMMAND_IN_BRACE_GROUP,
+} parser_command_context_t;
 /**
  * Parse a command list (commands separated by ; or & or newlines).
  */
-parse_status_t parser_parse_command_list(parser_t *parser, ast_node_t **out_node);
+parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context, ast_node_t **out_node);
 
 /**
  * Parse an and_or list (commands connected by && or ||).
@@ -219,4 +233,4 @@ const char *parser_get_error(const parser_t *parser);
  */
 void parser_clear_error(parser_t *parser);
 
-#endif /* PARSER_H */
+#endif /* PARSER_T_H */

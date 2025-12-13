@@ -28,7 +28,7 @@ CTEST(test_cmd_subst_paren_basic)
     
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "echo hello", "command text is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo hello", "command text is correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -86,7 +86,7 @@ CTEST(test_cmd_subst_paren_nested_parens)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "echo (foo)", "nested parens preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo (foo)", "nested parens preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -110,15 +110,15 @@ CTEST(test_cmd_subst_paren_in_word)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_LITERAL, "first part is literal");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "prefix", "prefix is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "prefix", "prefix is correct");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_COMMAND_SUBST, "second part is command subst");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "cmd", "command is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "cmd", "command is correct");
     
     part_t *part3 = token_get_part(tok, 2);
     CTEST_ASSERT_EQ(ctest, part_get_type(part3), PART_LITERAL, "third part is literal");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part3)), "suffix", "suffix is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part3)), "suffix", "suffix is correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -163,7 +163,7 @@ CTEST(test_cmd_subst_paren_with_squotes)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "echo 'hello world'", "single quotes preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo 'hello world'", "single quotes preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -192,7 +192,7 @@ CTEST(test_cmd_subst_backtick_basic)
     
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "echo hello", "command text is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo hello", "command text is correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -251,7 +251,7 @@ CTEST(test_cmd_subst_backtick_escaped)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // Backslash escapes $, `, and backslash: \$ -> $, \` -> `, \\ -> single backslash
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "echo $VAR ` \\", "escape sequences resolved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo $VAR ` \\", "escape sequences resolved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -272,7 +272,7 @@ CTEST(test_cmd_subst_backtick_literal_backslash)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "echo \\n", "backslash+n literal");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo \\n", "backslash+n literal");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -296,15 +296,15 @@ CTEST(test_cmd_subst_backtick_in_word)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_LITERAL, "first part is literal");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "prefix", "prefix is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "prefix", "prefix is correct");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_COMMAND_SUBST, "second part is command subst");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "cmd", "command is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "cmd", "command is correct");
     
     part_t *part3 = token_get_part(tok, 2);
     CTEST_ASSERT_EQ(ctest, part_get_type(part3), PART_LITERAL, "third part is literal");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part3)), "suffix", "suffix is correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part3)), "suffix", "suffix is correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -357,11 +357,11 @@ CTEST(test_cmd_subst_multiple)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_COMMAND_SUBST, "first part is command subst");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "cmd1", "first command correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "cmd1", "first command correct");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_EQ(ctest, part_get_type(part2), PART_COMMAND_SUBST, "second part is command subst");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "cmd2", "second command correct");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "cmd2", "second command correct");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -421,7 +421,7 @@ CTEST(test_cmd_subst_backtick_nested)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
     // The escaped backticks become literal backticks in the command text
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "`ls`", "nested backticks preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "`ls`", "nested backticks preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -450,7 +450,7 @@ CTEST(test_cmd_subst_paren_not_arithmetic)
     // Should be COMMAND_SUBST, not ARITHMETIC
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution, not arithmetic");
     // The command text should contain the subshell expression
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), " (ls) ", "subshell parens preserved in command");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " (ls) ", "subshell parens preserved in command");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);

@@ -31,7 +31,7 @@ CTEST(test_squote_basic)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_LITERAL, "part is literal");
     CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part), "part was single-quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "hello", "text is 'hello'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "hello", "text is 'hello'");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -53,7 +53,7 @@ CTEST(test_squote_special_chars)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     const char *expected = "$VAR `cmd` \\n \"quoted\"";
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), expected, "special chars are literal");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), expected, "special chars are literal");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -73,7 +73,7 @@ CTEST(test_squote_with_newline)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "line1\nline2", "newline is preserved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "line1\nline2", "newline is preserved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -135,11 +135,11 @@ CTEST(test_squote_with_suffix)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part1), "first part single-quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "hello", "first part is 'hello'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "hello", "first part is 'hello'");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_FALSE(ctest, part_was_single_quoted(part2), "second part not quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "world", "second part is 'world'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "world", "second part is 'world'");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -170,7 +170,7 @@ CTEST(test_dquote_basic)
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_LITERAL, "part is literal");
     CTEST_ASSERT_TRUE(ctest, part_was_double_quoted(part), "part was double-quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "hello", "text is 'hello'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "hello", "text is 'hello'");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -192,7 +192,7 @@ CTEST(test_dquote_escapes)
     part_t *part = token_get_part(tok, 0);
     // \$ -> $, \` -> `, \" -> ", \\ -> \  (becomes a$b`c"d\e)
     const char *expected = "a$b`c\"d\\e";
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), expected, "escape sequences resolved");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), expected, "escape sequences resolved");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -213,7 +213,7 @@ CTEST(test_dquote_literal_backslash)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // \n is NOT escapable in double quotes, so both \ and n are kept
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "a\\nb", "backslash+n literal");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "a\\nb", "backslash+n literal");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -234,7 +234,7 @@ CTEST(test_dquote_line_continuation)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // \<newline> is consumed entirely
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "helloworld", "line continuation removed");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "helloworld", "line continuation removed");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -291,7 +291,7 @@ CTEST(test_dquote_literal_metachars)
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // Metacharacters are literal inside double quotes
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "a|b;c&d", "metacharacters are literal");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "a|b;c&d", "metacharacters are literal");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -311,7 +311,7 @@ CTEST(test_dquote_with_squote)
     
     token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part)), "it's", "single quote literal in dquote");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "it's", "single quote literal in dquote");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -339,11 +339,11 @@ CTEST(test_mixed_quotes)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part1), "first part single-quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "single", "first is 'single'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "single", "first is 'single'");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_TRUE(ctest, part_was_double_quoted(part2), "second part double-quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "double", "second is 'double'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "double", "second is 'double'");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);
@@ -367,15 +367,15 @@ CTEST(test_quoted_unquoted_mix)
     
     part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_FALSE(ctest, part_was_single_quoted(part1), "first part not quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part1)), "pre", "first is 'pre'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part1)), "pre", "first is 'pre'");
     
     part_t *part2 = token_get_part(tok, 1);
     CTEST_ASSERT_TRUE(ctest, part_was_single_quoted(part2), "middle part single-quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part2)), "mid", "middle is 'mid'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part2)), "mid", "middle is 'mid'");
     
     part_t *part3 = token_get_part(tok, 2);
     CTEST_ASSERT_FALSE(ctest, part_was_single_quoted(part3), "last part not quoted");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(part_get_text(part3)), "post", "last is 'post'");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part3)), "post", "last is 'post'");
     
     token_list_destroy(&tokens);
     lexer_destroy(&lx);

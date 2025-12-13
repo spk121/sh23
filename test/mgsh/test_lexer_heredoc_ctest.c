@@ -34,7 +34,7 @@ CTEST(test_heredoc_queue)
     
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.size, 1, "heredoc was queued");
     CTEST_ASSERT_NOT_NULL(ctest, lx->heredoc_queue.entries[0].delimiter, "delimiter was stored");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(lx->heredoc_queue.entries[0].delimiter), "EOF", 
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(lx->heredoc_queue.entries[0].delimiter), "EOF", 
                         "delimiter is correct");
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[0].strip_tabs, false, "strip_tabs is false");
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[0].delimiter_quoted, false, 
@@ -88,9 +88,9 @@ CTEST(test_heredoc_multiple_queue)
     lexer_queue_heredoc(lx, delim2, true, true);
     
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.size, 2, "two heredocs queued");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(lx->heredoc_queue.entries[0].delimiter), "EOF1",
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(lx->heredoc_queue.entries[0].delimiter), "EOF1",
                         "first delimiter is correct");
-    CTEST_ASSERT_STR_EQ(ctest, string_data(lx->heredoc_queue.entries[1].delimiter), "EOF2",
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(lx->heredoc_queue.entries[1].delimiter), "EOF2",
                         "second delimiter is correct");
     CTEST_ASSERT_EQ(ctest, lx->heredoc_queue.entries[1].strip_tabs, true, 
                     "second heredoc has strip_tabs");

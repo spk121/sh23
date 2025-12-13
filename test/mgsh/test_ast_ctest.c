@@ -1,8 +1,8 @@
 #include "ctest.h"
+#include "parser.h"
 #include "ast.h"
 #include "executor.h"
 #include "lexer.h"
-#include "parser.h"
 #include "string_t.h"
 #include "token.h"
 #include "tokenizer.h"
@@ -71,7 +71,7 @@ static ast_node_t *parse_string(const char *input)
     }
     
     parser_destroy(&parser);
-    token_list_destroy(&tokens);
+    // token_list_destroy(&tokens);
 
     if (status != PARSE_OK)
     {
@@ -469,6 +469,61 @@ CTEST(test_parser_function_def_with_subshell)
     (void)ctest;
 }
 
+CTEST(test_parser_function_def_with_redirections)
+{
+    ast_node_t *ast = parse_string("myfunc() { echo hello; } > output.txt");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+    
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.redirections, "has redirections");
+        CTEST_ASSERT_EQ(ctest, first->data.function_def.redirections->size, 1, "has one redirection");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_function_def_empty_body)
+{
+    ast_node_t *ast = parse_string("myfunc() { }");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+    
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, first->type, AST_FUNCTION_DEF, "is function definition");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
+        CTEST_ASSERT_EQ(ctest, first->data.function_def.body->type, AST_BRACE_GROUP, "body is brace group");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_function_def_missing_rbrace)
+{
+    ast_node_t *ast = parse_string("myfunc() { echo hello");
+    CTEST_ASSERT_NULL(ctest, ast, "parsing failed for missing }");
+    (void)ctest;
+}
+
+CTEST(test_parser_function_def_missing_lbrace)
+{
+    ast_node_t *ast = parse_string("myfunc() echo hello }");
+    CTEST_ASSERT_NULL(ctest, ast, "parsing failed for missing {");
+    (void)ctest;
+}
+
+CTEST(test_parser_function_def_reserved_word_name)
+{
+    ast_node_t *ast = parse_string("if() { echo hello }");
+    CTEST_ASSERT_NULL(ctest, ast, "parsing failed for reserved word as function name");
+    (void)ctest;
+}
+
 /* ============================================================================
  * Parser Tests - Subshells and Brace Groups
  * ============================================================================ */
@@ -597,6 +652,7 @@ CTEST(test_executor_dry_run)
 
 static bool count_visitor(const ast_node_t *node, void *user_data)
 {
+    (void)node;
     int *count = (int *)user_data;
     (*count)++;
     return true;
@@ -705,6 +761,11 @@ int main(void)
         // Parser Tests - Function Definitions
         CTEST_ENTRY(test_parser_function_def),
         CTEST_ENTRY(test_parser_function_def_with_subshell),
+        CTEST_ENTRY(test_parser_function_def_with_redirections),
+        CTEST_ENTRY(test_parser_function_def_empty_body),
+        CTEST_ENTRY(test_parser_function_def_missing_rbrace),
+		CTEST_ENTRY(test_parser_function_def_missing_lbrace),
+		CTEST_ENTRY(test_parser_function_def_reserved_word_name),
 
         // Parser Tests - Subshells and Brace Groups
         CTEST_ENTRY(test_parser_subshell),

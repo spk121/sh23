@@ -352,7 +352,7 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
     return false;
 }
 
-bool token_try_promote_to_bang(token_t *tok)
+static bool token_try_promote_to_word_str_to_token(token_t *tok, const char* target_word, token_type_t target_type)
 {
     Expects_not_null(tok);
     Expects_eq(token_get_type(tok), TOKEN_WORD);
@@ -369,42 +369,69 @@ bool token_try_promote_to_bang(token_t *tok)
         return false;
 
     const char *word = string_cstr(first_part->text);
-    if (strcmp(word, "!") == 0)
+    if (strcmp(word, target_word) == 0)
     {
-        tok->type = TOKEN_BANG;
+        tok->type = target_type;
         part_list_destroy(&tok->parts);
         return true;
     }
     return false;
+}
+
+bool token_try_promote_to_bang(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "!", TOKEN_BANG);
 }
 
 bool token_try_promote_to_lbrace(token_t *tok)
 {
-    Expects_not_null(tok);
-    Expects_eq(token_get_type(tok), TOKEN_WORD);
-
-    // A reserved word must be a single literal part
-    // and not quoted.
-    if (token_was_quoted(tok) || token_part_count(tok) != 1)
-        return false;
-
-    const part_t *first_part = tok->parts->parts[0];
-
-    // Only literal parts can be reserved words
-    if (part_get_type(first_part) != PART_LITERAL)
-        return false;
-
-    const char *word = string_cstr(first_part->text);
-    if (strcmp(word, "{") == 0)
-    {
-        tok->type = TOKEN_LBRACE;
-        part_list_destroy(&tok->parts);
-        return true;
-    }
-    return false;
+    return token_try_promote_to_word_str_to_token(tok, "{", TOKEN_LBRACE);
 }
 
+bool token_try_promote_to_elif(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "elif", TOKEN_ELIF);
+}
 
+bool token_try_promote_to_else(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "else", TOKEN_ELSE);
+}
+
+bool token_try_promote_to_then(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "then", TOKEN_THEN);
+}
+
+bool token_try_promote_to_fi(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "fi", TOKEN_FI);
+}
+
+bool token_try_promote_to_do(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "do", TOKEN_DO);
+}
+
+bool token_try_promote_to_in(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "in", TOKEN_IN);
+}
+
+bool token_try_promote_to_done(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "done", TOKEN_DONE);
+}
+
+bool token_try_promote_to_esac(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "esac", TOKEN_ESAC);
+}
+
+bool token_try_promote_to_rbrace(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "}", TOKEN_RBRACE);
+}
 /* ============================================================================
  * Token Location Tracking
  * ============================================================================ */
@@ -943,7 +970,9 @@ void part_list_destroy(part_list_t **list)
     }
 
     xfree(l->parts);
+    l->parts = NULL;
     xfree(l);
+    l = NULL;
     *list = NULL;
 }
 
@@ -960,7 +989,8 @@ int part_list_append(part_list_t *list, part_t *part)
         list->capacity = new_capacity;
     }
 
-    list->parts[list->size++] = part;
+    list->parts[list->size] = part;
+    list->size++;
     return 0;
 }
 
@@ -1047,6 +1077,7 @@ void token_list_destroy(token_list_t **list)
     *list = NULL;
 }
 
+// List takes ownership of the token.
 int token_list_append(token_list_t *list, token_t *token)
 {
     Expects_not_null(list);
