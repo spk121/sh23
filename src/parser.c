@@ -1090,6 +1090,14 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
         string_destroy(&var_name);
         return PARSE_ERROR;
     }
+
+    // Reject reserved words as loop variables for compatibility
+    if (token_is_reserved_word(string_cstr(var_name)))
+    {
+        parser_set_error(parser, "Reserved word '%s' cannot be used as for loop variable", string_cstr(var_name));
+        string_destroy(&var_name);
+        return PARSE_ERROR;
+    }
     
     parser_advance(parser);
 
