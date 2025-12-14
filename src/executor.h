@@ -83,6 +83,11 @@ exec_status_t executor_execute_pipeline(executor_t *executor, const ast_node_t *
 exec_status_t executor_execute_simple_command(executor_t *executor, const ast_node_t *node);
 
 /**
+ * Execute a redirected command wrapper.
+ */
+exec_status_t executor_execute_redirected_command(executor_t *executor, const ast_node_t *node);
+
+/**
  * Execute an if clause.
  */
 exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t *node);

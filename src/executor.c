@@ -139,6 +139,8 @@ exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
         return executor_execute_case_clause(executor, root);
     case AST_FUNCTION_DEF:
         return executor_execute_function_def(executor, root);
+    case AST_REDIRECTED_COMMAND:
+        return executor_execute_redirected_command(executor, root);
     default:
         executor_set_error(executor, "Unsupported AST node type: %s",
                           ast_node_type_to_string(root->type));
@@ -298,6 +300,26 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // For now, we just mark as not implemented for actual execution
     executor_set_error(executor, "Actual command execution not yet implemented");
     return EXEC_NOT_IMPL;
+}
+
+exec_status_t executor_execute_redirected_command(executor_t *executor, const ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_REDIRECTED_COMMAND);
+
+    if (executor->dry_run)
+    {
+        int redir_count = node->data.redirected_command.redirections == NULL
+                              ? 0
+                              : ast_node_list_size(node->data.redirected_command.redirections);
+        printf("[DRY RUN] Redirected command (%d redirection%s)\n",
+               redir_count,
+               (redir_count == 1) ? "" : "s");
+    }
+
+    // TODO: apply redirections before executing the wrapped command
+    return executor_execute(executor, node->data.redirected_command.command);
 }
 
 exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t *node)
@@ -630,6 +652,23 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
             for (int i = 0; i < node->data.function_def.redirections->size; i++)
             {
                 if (!ast_traverse_helper(node->data.function_def.redirections->nodes[i], visitor, user_data))
+                {
+                    return false;
+                }
+            }
+        }
+        break;
+
+    case AST_REDIRECTED_COMMAND:
+        if (!ast_traverse_helper(node->data.redirected_command.command, visitor, user_data))
+        {
+            return false;
+        }
+        if (node->data.redirected_command.redirections != NULL)
+        {
+            for (int i = 0; i < node->data.redirected_command.redirections->size; i++)
+            {
+                if (!ast_traverse_helper(node->data.redirected_command.redirections->nodes[i], visitor, user_data))
                 {
                     return false;
                 }

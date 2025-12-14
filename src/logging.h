@@ -412,7 +412,7 @@ void log_fatal(const char *format, ...);
     {                                                                                                                  \
         if ((ptr) == NULL)                                                                                             \
         {                                                                                                              \
-            log_fatal("Contract violation at %s:%d - %s is NULL", __func__, __LINE__, #ptr);                           \
+            log_fatal("Contract violation at %s:%d - %s is NULL", __func__, __LINE__, #ptr);\
         }                                                                                                              \
     } while (0)
 

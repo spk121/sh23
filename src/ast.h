@@ -33,6 +33,7 @@ typedef enum
     AST_FOR_CLAUSE,        // for/in/do/done
     AST_CASE_CLAUSE,       // case/in/esac
     AST_FUNCTION_DEF,      // name() compound-command [redirections]
+    AST_REDIRECTED_COMMAND, // generic wrapper: command + trailing redirections
 
     /* Auxiliary nodes */
     AST_REDIRECTION,       // I/O redirection
@@ -233,6 +234,13 @@ struct ast_node_t
             ast_node_list_t *redirections; // optional redirections
         } function_def;
 
+        /* AST_REDIRECTED_COMMAND */
+        struct
+        {
+            ast_node_t *command;           // wrapped command (compound/simple/function/etc.)
+            ast_node_list_t *redirections; // trailing redirections applied to the command
+        } redirected_command;
+
         /* AST_REDIRECTION */
         struct
         {
@@ -379,6 +387,11 @@ ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body);
  */
 ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
                                    ast_node_list_t *redirections);
+
+/**
+ * Create a redirected command wrapper node.
+ */
+ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *redirections);
 
 /**
  * Create a redirection node.

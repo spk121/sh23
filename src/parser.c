@@ -7,6 +7,11 @@
 #include <string.h>
 #include <ctype.h>
 
+// Forward declarations
+static int is_valid_name_cstr(const char *s);
+static parse_status_t parser_parse_trailing_redirections(parser_t *parser,
+                                                         ast_node_list_t **out_redirections);
+
 /* ============================================================================
  * Constants
  * ============================================================================ */
@@ -114,6 +119,74 @@ void parser_skip_newlines(parser_t *parser)
     {
         // Just skip
     }
+}
+
+static bool is_redirection_token(token_type_t type)
+{
+    return type == TOKEN_LESS || type == TOKEN_GREATER ||
+           type == TOKEN_DLESS || type == TOKEN_DGREAT ||
+           type == TOKEN_LESSAND || type == TOKEN_GREATAND ||
+           type == TOKEN_LESSGREAT || type == TOKEN_DLESSDASH ||
+           type == TOKEN_CLOBBER || type == TOKEN_IO_NUMBER;
+}
+
+static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
+                                                  ast_node_t **pending_heredocs,
+                                                  int pending_count)
+{
+    Expects_not_null(parser);
+
+    for (int i = 0; i < pending_count; i++)
+    {
+        // Allow optional newlines before heredoc body tokens
+        parser_skip_newlines(parser);
+
+        if (parser_current_token_type(parser) != TOKEN_WORD)
+        {
+            parser_set_error(parser, "Expected here-document body");
+            return PARSE_ERROR;
+        }
+
+        token_t *body_tok = parser_current_token(parser);
+
+        // Extract literal text from heredoc body token
+        string_t *body = string_create();
+        int nparts = token_part_count(body_tok);
+        for (int p = 0; p < nparts; p++)
+        {
+            part_t *part = token_get_part(body_tok, p);
+            if (part_get_type(part) == PART_LITERAL || part_get_type(part) == PART_TILDE)
+            {
+                const string_t *txt = part_get_text(part);
+                if (txt)
+                    string_append(body, txt);
+            }
+            else
+            {
+                // Heredoc lexer should produce only literal content; treat other parts as literal fallback
+                const string_t *txt = part_get_text(part);
+                if (txt)
+                    string_append(body, txt);
+            }
+        }
+
+        // Attach to corresponding redirection node
+        ast_node_t *redir_node = pending_heredocs[i];
+        if (redir_node->data.redirection.heredoc_content != NULL)
+        {
+            string_destroy(&redir_node->data.redirection.heredoc_content);
+        }
+        redir_node->data.redirection.heredoc_content = body;
+
+        // Consume the body WORD and the END_OF_HEREDOC marker
+        parser_advance(parser);
+        if (parser_expect(parser, TOKEN_END_OF_HEREDOC) != PARSE_OK)
+        {
+            return PARSE_ERROR;
+        }
+    }
+
+    return PARSE_OK;
 }
 
 /* ============================================================================
@@ -439,7 +512,26 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
         current == TOKEN_FOR || current == TOKEN_CASE ||
         current == TOKEN_LPAREN || current == TOKEN_LBRACE)
     {
-        return parser_parse_compound_command(parser, out_node);
+        ast_node_t *compound = NULL;
+        parse_status_t status = parser_parse_compound_command(parser, &compound);
+        if (status != PARSE_OK)
+            return status;
+
+        ast_node_list_t *redirections = NULL;
+        status = parser_parse_trailing_redirections(parser, &redirections);
+        if (status != PARSE_OK)
+        {
+            ast_node_destroy(&compound);
+            return status;
+        }
+
+        if (redirections != NULL)
+        {
+            compound = ast_create_redirected_command(compound, redirections);
+        }
+
+        *out_node = compound;
+        return PARSE_OK;
     }
 
     // Check for function definition: WORD followed by ()
@@ -506,11 +598,7 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         }
 
         // Check for redirection
-        if (current == TOKEN_LESS || current == TOKEN_GREATER ||
-            current == TOKEN_DLESS || current == TOKEN_DGREAT ||
-            current == TOKEN_LESSAND || current == TOKEN_GREATAND ||
-            current == TOKEN_LESSGREAT || current == TOKEN_DLESSDASH ||
-            current == TOKEN_CLOBBER || current == TOKEN_IO_NUMBER)
+        if (is_redirection_token(current))
         {
             ast_node_t *redir = NULL;
             if (log_level() == LOG_DEBUG)
@@ -588,73 +676,97 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         return PARSE_ERROR;
     }
 
-    // If there are pending heredocs, read and attach their bodies now
-    for (int i = 0; i < pending_count; i++)
-    {
-        // Allow optional newlines before heredoc body tokens
-        parser_skip_newlines(parser);
-
-        if (parser_current_token_type(parser) != TOKEN_WORD)
-        {
-            // Clean up local tracking array before erroring
-            if (pending_heredocs)
-                xfree(pending_heredocs);
-            token_list_destroy(&words);
-            ast_node_list_destroy(&redirections);
-            token_list_destroy(&assignments);
-            parser_set_error(parser, "Expected here-document body");
-            return PARSE_ERROR;
-        }
-
-        token_t *body_tok = parser_current_token(parser);
-
-        // Extract literal text from heredoc body token
-        string_t *body = string_create();
-        int nparts = token_part_count(body_tok);
-        for (int p = 0; p < nparts; p++)
-        {
-            part_t *part = token_get_part(body_tok, p);
-            if (part_get_type(part) == PART_LITERAL || part_get_type(part) == PART_TILDE)
-            {
-                const string_t *txt = part_get_text(part);
-                if (txt)
-                    string_append(body, txt);
-            }
-            else
-            {
-                // Heredoc lexer should produce only literal content; treat other parts as literal fallback
-                const string_t *txt = part_get_text(part);
-                if (txt)
-                    string_append(body, txt);
-            }
-        }
-
-        // Attach to corresponding redirection node
-        ast_node_t *redir_node = pending_heredocs[i];
-        if (redir_node->data.redirection.heredoc_content != NULL)
-        {
-            string_destroy(&redir_node->data.redirection.heredoc_content);
-        }
-        redir_node->data.redirection.heredoc_content = body;
-
-        // Consume the body WORD and the END_OF_HEREDOC marker
-        parser_advance(parser);
-        if (parser_expect(parser, TOKEN_END_OF_HEREDOC) != PARSE_OK)
-        {
-            if (pending_heredocs)
-                xfree(pending_heredocs);
-            token_list_destroy(&words);
-            ast_node_list_destroy(&redirections);
-            token_list_destroy(&assignments);
-            return PARSE_ERROR;
-        }
-    }
-
+    parse_status_t heredoc_status = parser_attach_heredoc_bodies(parser, pending_heredocs, pending_count);
     if (pending_heredocs)
         xfree(pending_heredocs);
+    if (heredoc_status != PARSE_OK)
+    {
+        token_list_destroy(&words);
+        ast_node_list_destroy(&redirections);
+        token_list_destroy(&assignments);
+        return heredoc_status;
+    }
 
     *out_node = ast_create_simple_command(words, redirections, assignments);
     return PARSE_OK;
+}
+
+static parse_status_t parser_parse_trailing_redirections(parser_t *parser,
+                                                         ast_node_list_t **out_redirections)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_redirections);
+
+    *out_redirections = NULL;
+
+    if (!is_redirection_token(parser_current_token_type(parser)))
+    {
+        return PARSE_OK;
+    }
+
+    ast_node_list_t *redirections = ast_node_list_create();
+    ast_node_t **pending_heredocs = NULL;
+    int pending_count = 0;
+    int pending_capacity = 0;
+    parse_status_t status = PARSE_OK;
+
+    while (is_redirection_token(parser_current_token_type(parser)))
+    {
+        ast_node_t *redir = NULL;
+        status = parser_parse_redirection(parser, &redir);
+        if (status != PARSE_OK)
+        {
+            goto error;
+        }
+
+        ast_node_list_append(redirections, redir);
+
+        if (redir != NULL && redir->type == AST_REDIRECTION)
+        {
+            redirection_type_t rt = redir->data.redirection.redir_type;
+            if (rt == REDIR_HEREDOC || rt == REDIR_HEREDOC_STRIP)
+            {
+                if (pending_count >= pending_capacity)
+                {
+                    int newcap = (pending_capacity == 0) ? 4 : pending_capacity * 2;
+                    pending_heredocs = xrealloc(pending_heredocs, newcap * sizeof(ast_node_t *));
+                    pending_capacity = newcap;
+                }
+                pending_heredocs[pending_count++] = redir;
+            }
+        }
+    }
+
+    status = parser_attach_heredoc_bodies(parser, pending_heredocs, pending_count);
+    if (status != PARSE_OK)
+    {
+        if (pending_heredocs)
+        {
+            xfree(pending_heredocs);
+            pending_heredocs = NULL;
+        }
+        goto error;
+    }
+    if (pending_heredocs)
+    {
+        xfree(pending_heredocs);
+        pending_heredocs = NULL;
+    }
+
+    if (ast_node_list_size(redirections) == 0)
+    {
+        ast_node_list_destroy(&redirections);
+        redirections = NULL;
+    }
+
+    *out_redirections = redirections;
+    return PARSE_OK;
+
+error:
+    if (pending_heredocs)
+        xfree(pending_heredocs);
+    ast_node_list_destroy(&redirections);
+    return status;
 }
 
 parse_status_t parser_parse_compound_command(parser_t *parser, ast_node_t **out_node)
@@ -932,20 +1044,30 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     }
 
     token_t *var_tok = parser_current_token(parser);
-    // Extract variable name from token
-    string_t *var_name = string_create();
-    // For simplicity, assume single literal part
-    if (token_part_count(var_tok) == 1)
+    // Extract and validate variable name from token
+    // Reject quoted names and any expansions; only literal parts are allowed
+    if (token_was_quoted(var_tok))
     {
-        part_t *part = token_get_part(var_tok, 0);
-        if (part_get_type(part) == PART_LITERAL)
-        {
-            string_append(var_name, part_get_text(part));
-        }
+        parser_set_error(parser, "Invalid variable name in for loop");
+        return PARSE_ERROR;
     }
-    
-    // Validate that a non-empty variable name was extracted
-    if (string_length(var_name) == 0)
+
+    string_t *var_name = string_create();
+    int nparts = token_part_count(var_tok);
+    for (int i = 0; i < nparts; i++)
+    {
+        part_t *part = token_get_part(var_tok, i);
+        if (part_get_type(part) != PART_LITERAL)
+        {
+            parser_set_error(parser, "Invalid variable name in for loop");
+            string_destroy(&var_name);
+            return PARSE_ERROR;
+        }
+        string_append(var_name, part_get_text(part));
+    }
+
+    // Validate that a non-empty, valid shell name was extracted
+    if (string_length(var_name) == 0 || !is_valid_name_cstr(string_cstr(var_name)))
     {
         parser_set_error(parser, "Invalid variable name in for loop");
         string_destroy(&var_name);
@@ -1359,34 +1481,14 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
         return status;
     }
 
-    // Parse optional redirections
+    // Parse optional redirections (including heredocs)
     ast_node_list_t *redirections = NULL;
-    token_type_t current = parser_current_token_type(parser);
-    if (current == TOKEN_LESS || current == TOKEN_GREATER ||
-        current == TOKEN_DLESS || current == TOKEN_DGREAT ||
-        current == TOKEN_LESSAND || current == TOKEN_GREATAND ||
-        current == TOKEN_LESSGREAT || current == TOKEN_DLESSDASH ||
-        current == TOKEN_CLOBBER || current == TOKEN_IO_NUMBER)
+    status = parser_parse_trailing_redirections(parser, &redirections);
+    if (status != PARSE_OK)
     {
-        redirections = ast_node_list_create();
-        while (current == TOKEN_LESS || current == TOKEN_GREATER ||
-               current == TOKEN_DLESS || current == TOKEN_DGREAT ||
-               current == TOKEN_LESSAND || current == TOKEN_GREATAND ||
-               current == TOKEN_LESSGREAT || current == TOKEN_DLESSDASH ||
-               current == TOKEN_CLOBBER || current == TOKEN_IO_NUMBER)
-        {
-            ast_node_t *redir = NULL;
-            status = parser_parse_redirection(parser, &redir);
-            if (status != PARSE_OK)
-            {
-                string_destroy(&func_name);
-                ast_node_destroy(&body);
-                ast_node_list_destroy(&redirections);
-                return status;
-            }
-            ast_node_list_append(redirections, redir);
-            current = parser_current_token_type(parser);
-        }
+        string_destroy(&func_name);
+        ast_node_destroy(&body);
+        return status;
     }
 
     *out_node = ast_create_function_def(func_name, body, redirections);

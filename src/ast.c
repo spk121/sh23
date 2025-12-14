@@ -133,6 +133,14 @@ void ast_node_destroy(ast_node_t **node)
         }
         break;
 
+    case AST_REDIRECTED_COMMAND:
+        ast_node_destroy(&n->data.redirected_command.command);
+        if (n->data.redirected_command.redirections != NULL)
+        {
+            ast_node_list_destroy(&n->data.redirected_command.redirections);
+        }
+        break;
+
     case AST_REDIRECTION:
         if (n->data.redirection.target != NULL)
         {
@@ -301,6 +309,14 @@ ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
     return node;
 }
 
+ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *redirections)
+{
+    ast_node_t *node = ast_node_create(AST_REDIRECTED_COMMAND);
+    node->data.redirected_command.command = command;
+    node->data.redirected_command.redirections = redirections;
+    return node;
+}
+
 /* ============================================================================
  * AST Node List Functions
  * ============================================================================ */
@@ -429,6 +445,8 @@ const char *ast_node_type_to_string(ast_node_type_t type)
         return "REDIRECTION";
     case AST_CASE_ITEM:
         return "CASE_ITEM";
+    case AST_REDIRECTED_COMMAND:
+        return "REDIRECTED_COMMAND";
     default:
         return "UNKNOWN";
     }
@@ -613,6 +631,28 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_append_cstr(result, "\n");
         }
         ast_node_to_string_helper(node->data.function_def.body, result, indent_level + 1);
+        break;
+
+    case AST_REDIRECTED_COMMAND:
+        if (node->data.redirected_command.command != NULL)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "command:\n");
+            ast_node_to_string_helper(node->data.redirected_command.command, result, indent_level + 2);
+        }
+        if (node->data.redirected_command.redirections != NULL &&
+            ast_node_list_size(node->data.redirected_command.redirections) > 0)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "redirections:\n");
+            for (int i = 0; i < ast_node_list_size(node->data.redirected_command.redirections); i++)
+            {
+                ast_node_t *redir = ast_node_list_get(node->data.redirected_command.redirections, i);
+                ast_node_to_string_helper(redir, result, indent_level + 2);
+            }
+        }
         break;
 
     case AST_REDIRECTION:
