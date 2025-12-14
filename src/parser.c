@@ -1215,7 +1215,10 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
         {
             // Allow empty case items or ESAC
             if (parser_current_token_type(parser) == TOKEN_ESAC)
+            {
+                token_list_destroy(&patterns);
                 break;
+            }
             parser_set_error(parser, "Expected pattern in case");
             ast_node_destroy(&case_node);
             token_list_destroy(&patterns);
@@ -1328,7 +1331,7 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
 
     // Check for empty brace groups
     token_t *tok = parser_current_token(parser);
-    if (token_get_type(tok) == TOKEN_WORD)
+    if (tok != NULL && token_get_type(tok) == TOKEN_WORD)
         token_try_promote_to_rbrace(tok);
 
     ast_node_t *body = NULL;
