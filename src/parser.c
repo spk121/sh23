@@ -684,7 +684,8 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
        break;
     }
 
-    // A simple command must have either assignments, words, or redirections
+    // A simple command must have at least one of: assignments, words, or redirections
+    // POSIX allows assignment-only or redirection-only commands
     if (token_list_size(assignments) == 0 &&
         token_list_size(words) == 0 &&
         ast_node_list_size(redirections) == 0)

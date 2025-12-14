@@ -64,21 +64,36 @@ static ast_node_t *parse_string(const char *input)
     
     parse_status_t status = parser_parse(parser, tokens, &ast);
     
+    // Get error message before destroying parser
+    const char *err = NULL;
     if (status != PARSE_OK)
     {
-        const char *err = parser_get_error(parser);
-        printf("Parse error for input '%s': %s\n", input, err ? err : "unknown");
-        parser_destroy(&parser);
-        token_list_destroy(&tokens);
-        return NULL;
+        err = parser_get_error(parser);
+        if (err)
+        {
+            // Duplicate the error string since parser_destroy will free it
+            size_t len = strlen(err);
+            char *err_copy = xmalloc(len + 1);
+            memcpy(err_copy, err, len + 1);
+            err = err_copy;
+        }
     }
     
     parser_destroy(&parser);
     
-    // AST now owns the tokens - release them from the list without destroying
+    // AST may have taken ownership of some tokens during parsing (even on error).
+    // Release them from the list without destroying, then free the list structure.
     token_list_release_tokens(tokens);
     xfree(tokens->tokens);
     xfree(tokens);
+    
+    if (status != PARSE_OK)
+    {
+        printf("Parse error for input '%s': %s\n", input, err ? err : "unknown");
+        if (err)
+            xfree((void *)err);
+        return NULL;
+    }
 
     return ast;
 }
@@ -727,6 +742,161 @@ CTEST(test_ast_to_string)
 }
 
 /* ============================================================================
+ * Advanced Parser Tests
+ * ============================================================================ */
+
+CTEST(test_parser_assignment_only)
+{
+    ast_node_t *ast = parse_string("VAR=value");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "assignment-only command parsed");
+    
+    if (ast != NULL)
+    {
+        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        CTEST_ASSERT_EQ(ctest, ast_node_list_size(ast->data.command_list.items), 1, "one command");
+        
+        ast_node_t *cmd = ast_node_list_get(ast->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, cmd->type, AST_SIMPLE_COMMAND, "simple command");
+        CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.words), 0, "no words");
+        CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.assignments), 1, "one assignment");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_redirection_only)
+{
+    ast_node_t *ast = parse_string(">output.txt");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "redirection-only command parsed");
+    
+    if (ast != NULL)
+    {
+        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        CTEST_ASSERT_EQ(ctest, ast_node_list_size(ast->data.command_list.items), 1, "one command");
+        
+        ast_node_t *cmd = ast_node_list_get(ast->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, cmd->type, AST_SIMPLE_COMMAND, "simple command");
+        CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.words), 0, "no words");
+        CTEST_ASSERT_EQ(ctest, ast_node_list_size(cmd->data.simple_command.redirections), 1, "one redirection");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_command_with_assignment)
+{
+    ast_node_t *ast = parse_string("VAR=1 echo $VAR");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "command with assignment parsed");
+    
+    if (ast != NULL)
+    {
+        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        CTEST_ASSERT_EQ(ctest, ast_node_list_size(ast->data.command_list.items), 1, "one command");
+        
+        ast_node_t *cmd = ast_node_list_get(ast->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, cmd->type, AST_SIMPLE_COMMAND, "simple command");
+        CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.words), 2, "two words");
+        CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.assignments), 1, "one assignment");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_nested_if)
+{
+    const char *input = "if true; then\n"
+                       "  if false; then\n"
+                       "    echo no\n"
+                       "  else\n"
+                       "    echo yes\n"
+                       "  fi\n"
+                       "fi";
+    ast_node_t *ast = parse_string(input);
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "nested if parsed");
+    
+    if (ast != NULL)
+    {
+        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        ast_node_t *outer_if = ast_node_list_get(ast->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, outer_if->type, AST_IF_CLAUSE, "outer if clause");
+        
+        // Check that then_body contains another if
+        ast_node_t *then_body = outer_if->data.if_clause.then_body;
+        CTEST_ASSERT_NOT_NULL(ctest, then_body, "then body exists");
+        CTEST_ASSERT_EQ(ctest, then_body->type, AST_COMMAND_LIST, "then body is command list");
+        
+        ast_node_t *inner_if = ast_node_list_get(then_body->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, inner_if->type, AST_IF_CLAUSE, "inner if clause");
+        CTEST_ASSERT_NOT_NULL(ctest, inner_if->data.if_clause.else_body, "inner if has else");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_nested_loops)
+{
+    const char *input = "while true; do\n"
+                       "  for i in 1 2 3; do\n"
+                       "    echo $i\n"
+                       "  done\n"
+                       "done";
+    ast_node_t *ast = parse_string(input);
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "nested loops parsed");
+    
+    if (ast != NULL)
+    {
+        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        ast_node_t *while_loop = ast_node_list_get(ast->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, while_loop->type, AST_WHILE_CLAUSE, "while loop");
+        
+        // Check that body contains for loop
+        ast_node_t *while_body = while_loop->data.loop_clause.body;
+        CTEST_ASSERT_NOT_NULL(ctest, while_body, "while body exists");
+        CTEST_ASSERT_EQ(ctest, while_body->type, AST_COMMAND_LIST, "while body is command list");
+        
+        ast_node_t *for_loop = ast_node_list_get(while_body->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, for_loop->type, AST_FOR_CLAUSE, "for loop inside while");
+        CTEST_ASSERT_NOT_NULL(ctest, for_loop->data.for_clause.words, "for loop has word list");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_complex_case)
+{
+    const char *input = "case $x in\n"
+                       "  a|b) echo ab ;;\n"
+                       "  c) echo c ;;\n"
+                       "  *) echo other ;;\n"
+                       "esac";
+    ast_node_t *ast = parse_string(input);
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "complex case parsed");
+    
+    if (ast != NULL)
+    {
+        CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
+        ast_node_t *case_stmt = ast_node_list_get(ast->data.command_list.items, 0);
+        CTEST_ASSERT_EQ(ctest, case_stmt->type, AST_CASE_CLAUSE, "case statement");
+        
+        // Check that we have 3 case items
+        CTEST_ASSERT_EQ(ctest, ast_node_list_size(case_stmt->data.case_clause.case_items), 3, "three case items");
+        
+        // First item should have 2 patterns (a|b)
+        ast_node_t *first_item = ast_node_list_get(case_stmt->data.case_clause.case_items, 0);
+        CTEST_ASSERT_EQ(ctest, first_item->type, AST_CASE_ITEM, "first case item");
+        CTEST_ASSERT_EQ(ctest, token_list_size(first_item->data.case_item.patterns), 2, "two patterns in first item");
+        
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+/* ============================================================================
  * Main Test Runner
  * ============================================================================ */
 
@@ -807,6 +977,14 @@ int main(void)
         // AST Utility Tests
         CTEST_ENTRY(test_ast_node_type_to_string),
         CTEST_ENTRY(test_ast_to_string),
+
+        // Advanced Parser Tests
+        CTEST_ENTRY(test_parser_assignment_only),
+        CTEST_ENTRY(test_parser_redirection_only),
+        CTEST_ENTRY(test_parser_command_with_assignment),
+        CTEST_ENTRY(test_parser_nested_if),
+        CTEST_ENTRY(test_parser_nested_loops),
+        CTEST_ENTRY(test_parser_complex_case),
 
         NULL
     };
