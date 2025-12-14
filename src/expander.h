@@ -103,6 +103,50 @@ void expander_set_last_exit_status(expander_t *exp, int status);
 int expander_get_last_exit_status(const expander_t *exp);
 
 /**
+ * Set the process ID available to parameter expansion ($$).
+ * @param exp The expander instance
+ * @param pid The process ID of the shell
+ */
+#ifdef POSIX_API
+void expander_set_pid(expander_t *exp, pid_t pid);
+#else
+void expander_set_pid(expander_t *exp, int pid);
+#endif
+
+/**
+ * Get the process ID tracked by the expander (for $$ expansion).
+ * @param exp The expander instance
+ * @return The process ID of the shell
+ */
+#ifdef POSIX_API
+pid_t expander_get_pid(const expander_t *exp);
+#else
+int expander_get_pid(const expander_t *exp);
+#endif
+
+/**
+ * Set the background process ID available to parameter expansion ($!).
+ * @param exp The expander instance
+ * @param pid The process ID of the last background command
+ */
+#ifdef POSIX_API
+void expander_set_background_pid(expander_t *exp, pid_t pid);
+#else
+void expander_set_background_pid(expander_t *exp, int pid);
+#endif
+
+/**
+ * Get the background process ID tracked by the expander (for $! expansion).
+ * @param exp The expander instance
+ * @return The process ID of the last background command
+ */
+#ifdef POSIX_API
+pid_t expander_get_background_pid(const expander_t *exp);
+#else
+int expander_get_background_pid(const expander_t *exp);
+#endif
+
+/**
  * Expand an entire AST node tree.
  * This traverses the AST and expands all words in commands.
  * 
@@ -157,5 +201,21 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token);
  *         or NULL on error (e.g., unclosed braced expansion).
  */
 char *expand_string(expander_t *exp, variable_store_t *vars, const char *input);
+
+/**
+ * Set positional parameters (argv-like) on the expander.
+ * The expander will clone the provided array.
+ * @param exp The expander instance
+ * @param argc Number of arguments
+ * @param argv Array of C strings (size >= argc)
+ */
+void expander_set_positionals(expander_t *exp, int argc, const char **argv);
+
+/**
+ * Clear positional parameters.
+ * @param exp The expander instance
+ */
+void expander_clear_positionals(expander_t *exp);
+
 
 #endif /* EXPANDER_H */

@@ -23,6 +23,7 @@
 #include "string_t.h"
 #include "token.h"
 #include "arithmetic.h"
+#include "positional_params.h"
 #include "variable_store.h"
 #include <stdbool.h>
 #include <stdlib.h>
@@ -42,6 +43,16 @@ struct expander_t
     variable_store_t *vars;
     string_t *error_msg;
     int last_exit_status;
+#ifdef POSIX_API
+    pid_t pid;
+    pid_t background_pid;
+#else
+    int pid;
+    int background_pid;
+#endif
+    bool pid_set;
+    bool background_pid_set;
+    positional_params_stack_t *pos_stack;
 };
 
 // ============================================================================
@@ -54,6 +65,7 @@ expander_t *expander_create(void)
     exp->ifs = string_create_from_cstr(" \t\n");
     exp->vars = NULL;
     exp->last_exit_status = 0;
+    exp->pos_stack = positional_params_stack_create();
     return exp;
 }
 
@@ -67,6 +79,7 @@ void expander_destroy(expander_t **expander)
 
     if (e->ifs != NULL)
         string_destroy(&e->ifs);
+    positional_params_stack_destroy(&e->pos_stack);
     
     xfree(e);
     *expander = NULL;
@@ -117,6 +130,94 @@ int expander_get_last_exit_status(const expander_t *exp)
     Expects_not_null(exp);
     return exp->last_exit_status;
 }
+
+void expander_set_positionals(expander_t *exp, int argc, const char **argv)
+{
+    Expects_not_null(exp);
+    Expects(argc >= 0);
+    // $0 is argv[0]; positional set is argv[1..]
+    if (argc > 0 && argv)
+    {
+        string_t *tmp0 = string_create_from_cstr(argv[0] ? argv[0] : "");
+        positional_params_set_zero(exp->pos_stack, tmp0);
+        string_destroy(&tmp0);
+    }
+    int count = (argc > 0) ? (argc - 1) : 0;
+    string_t **params = NULL;
+    if (count > 0)
+    {
+        params = xcalloc((size_t)count, sizeof(string_t *));
+        for (int i = 0; i < count; i++)
+        {
+            const char *src = argv[i + 1] ? argv[i + 1] : "";
+            params[i] = string_create_from_cstr(src);
+        }
+    }
+    positional_params_replace(exp->pos_stack, params, count);
+}
+
+void expander_clear_positionals(expander_t *exp)
+{
+    Expects_not_null(exp);
+    positional_params_replace(exp->pos_stack, NULL, 0);
+    string_t *empty = string_create();
+    positional_params_set_zero(exp->pos_stack, empty);
+    string_destroy(&empty);
+}
+
+#ifdef POSIX_API
+void expander_set_pid(expander_t *exp, pid_t pid)
+{
+    Expects_not_null(exp);
+    exp->pid = pid;
+    exp->pid_set = true;
+}
+
+pid_t expander_get_pid(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->pid;
+}
+
+void expander_set_background_pid(expander_t *exp, pid_t pid)
+{
+    Expects_not_null(exp);
+    exp->background_pid = pid;
+    exp->background_pid_set = true;
+}
+
+pid_t expander_get_background_pid(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->background_pid;
+}
+#else
+void expander_set_pid(expander_t *exp, int pid)
+{
+    Expects_not_null(exp);
+    exp->pid = pid;
+    exp->pid_set = true;
+}
+
+int expander_get_pid(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->pid;
+}
+
+void expander_set_background_pid(expander_t *exp, int pid)
+{
+    Expects_not_null(exp);
+    exp->background_pid = pid;
+    exp->background_pid_set = true;
+}
+
+int expander_get_background_pid(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->background_pid;
+}
+#endif
 
 // ============================================================================
 // Helper Functions for Expansion
@@ -213,6 +314,84 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     {
         return string_from_long(exp->last_exit_status);
     }
+
+    // Special parameter: $$
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '$')
+    {
+        if (exp->pid_set)
+        {
+#ifdef POSIX_API
+            return string_from_long((long)exp->pid);
+#else /* UCRT_API and for testing. Not valid ISO_C_API. */
+            return string_from_int(exp->pid);
+#endif
+        }
+        else
+        {
+            // FIXME: need to decide on default behavior if PID not
+            // supported or set.
+            return string_create_from_cstr("$$");
+        }
+
+    }
+
+    // Special parameter: $!
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '!')
+    {
+        if (exp->background_pid_set)
+        {
+#ifdef POSIX_API
+            return string_from_long((long)exp->background_pid);
+#else /* UCRT_API and for testing. Not valid ISO_C_API. */
+            return string_from_int(exp->background_pid);
+#endif
+        }
+        else
+        {
+            // When no background job has been started, return literal $!
+            return string_create_from_cstr("$!");
+        }
+    }
+
+    // Special parameter: $# (number of positionals)
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '#')
+    {
+        int count = positional_params_count(exp->pos_stack);
+        return string_from_long((long)count);
+    }
+
+    // Special parameter: $0
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '0')
+    {
+        const string_t *z = positional_params_get_zero(exp->pos_stack);
+        return (z != NULL) ? string_create_from(z) : string_create();
+    }
+
+    // Positional parameters $1..$N
+    if (string_length(param_name) >= 1 && isdigit((unsigned char)string_at(param_name, 0)))
+    {
+        // Parse decimal index
+        long idx = 0;
+        for (int i = 0; i < (int)string_length(param_name); i++)
+        {
+            char c = string_at(param_name, (int)i);
+            if (!isdigit((unsigned char)c)) { idx = -1; break; }
+            idx = idx * 10 + (c - '0');
+            if (idx > INT_MAX) { idx = -1; break; }
+        }
+        if (idx == 0)
+        {
+            const string_t *z = positional_params_get_zero(exp->pos_stack);
+            return (z != NULL) ? string_create_from(z) : string_create();
+        }
+        if (idx > 0)
+        {
+            const string_t *v = positional_params_get(exp->pos_stack, (int)idx);
+            return (v != NULL) ? string_create_from(v) : string_create();
+        }
+        // Unset positional -> empty string
+        return string_create();
+    }
     
     string_t *value = NULL;
     const char *ev = NULL;
@@ -246,6 +425,114 @@ static string_t *expand_command_substitution(expander_t *exp, const part_t *part
     
     log_debug("expand_command_substitution: command substitution not yet implemented");
     return string_create();
+}
+
+// Part-level expansion helpers
+static void expand_word_part_literal(const part_t *part, string_t *expanded)
+{
+    const string_t *text = part_get_text(part);
+    if (text != NULL)
+    {
+        string_append(expanded, text);
+    }
+}
+
+static void expand_word_part_tilde(const part_t *part, string_t *expanded, bool is_quoted, bool at_word_start)
+{
+    const string_t *text = part_get_text(part);
+    if (text == NULL)
+        return;
+
+    if (at_word_start && !is_quoted)
+    {
+        string_t *tilde_expanded = expand_tilde(text);
+        string_append(expanded, tilde_expanded);
+        string_destroy(&tilde_expanded);
+        return;
+    }
+
+    string_append(expanded, text);
+}
+
+static bool expand_word_part_parameter(expander_t *exp, const part_t *part, string_t *expanded, bool is_quoted)
+{
+    bool produced_unquoted_expansion = false;
+
+    const string_t *pname = part_get_param_name(part);
+    bool is_at = (pname && string_length(pname) == 1 && string_at(pname, 0) == '@');
+    bool is_star = (pname && string_length(pname) == 1 && string_at(pname, 0) == '*');
+
+    if (!is_quoted && (is_at || is_star))
+    {
+        char sep = ' ';
+        if (exp->ifs && string_length(exp->ifs) > 0)
+            sep = string_at(exp->ifs, 0);
+
+        int pcount = positional_params_count(exp->pos_stack);
+        for (int ai = 0; ai < pcount; ai++)
+        {
+            if (ai > 0)
+                string_append_char(expanded, sep);
+            const string_t *pv = positional_params_get(exp->pos_stack, ai + 1);
+            if (pv)
+                string_append(expanded, pv);
+        }
+
+        if (is_at)
+            produced_unquoted_expansion = true;  // $@ triggers field splitting
+    }
+    else
+    {
+        string_t *param_value = expand_parameter(exp, part);
+        if (param_value != NULL)
+        {
+            string_append(expanded, param_value);
+            string_destroy(&param_value);
+            if (!is_quoted)
+                produced_unquoted_expansion = true;
+        }
+    }
+
+    return produced_unquoted_expansion;
+}
+
+static bool expand_word_part_command_subst(expander_t *exp, const part_t *part, string_t *expanded, bool is_quoted)
+{
+    bool produced_unquoted_expansion = false;
+
+    string_t *cmd_output = expand_command_substitution(exp, part);
+    if (cmd_output != NULL)
+    {
+        while (string_length(cmd_output) > 0 && string_back(cmd_output) == '\n')
+        {
+            string_pop_back(cmd_output);
+        }
+
+        string_append(expanded, cmd_output);
+        string_destroy(&cmd_output);
+
+        if (!is_quoted)
+            produced_unquoted_expansion = true;
+    }
+
+    return produced_unquoted_expansion;
+}
+
+static bool expand_word_part_arithmetic(expander_t *exp, const part_t *part, string_t *expanded, bool is_quoted)
+{
+    bool produced_unquoted_expansion = false;
+
+    string_t *arith_result = expand_arithmetic(exp, part);
+    if (arith_result != NULL)
+    {
+        string_append(expanded, arith_result);
+        string_destroy(&arith_result);
+
+        if (!is_quoted)
+            produced_unquoted_expansion = true;
+    }
+
+    return produced_unquoted_expansion;
 }
 
 /**
@@ -458,98 +745,37 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
             part_t *part = part_list_get(parts, i);
             part_type_t type = part_get_type(part);
             bool is_quoted = part_was_single_quoted(part) || part_was_double_quoted(part);
+            bool part_unquoted_expansion = false;
             
             switch (type)
             {
                 case PART_LITERAL:
-                {
-                    const string_t *text = part_get_text(part);
-                    if (text != NULL)
-                    {
-                        string_append(expanded, text);
-                    }
+                    expand_word_part_literal(part, expanded);
                     break;
-                }
                 
                 case PART_TILDE:
-                {
-                    const string_t *text = part_get_text(part);
-                    if (text != NULL)
-                    {
-                        // Tilde expansion occurs at the beginning of a word or after : or =
-                        // For now, only handle beginning of word
-                        // TODO: Handle tilde after : or = in assignments (e.g., PATH=~:~/bin)
-                        if (i == 0 && !is_quoted)
-                        {
-                            string_t *tilde_expanded = expand_tilde(text);
-                            string_append(expanded, tilde_expanded);
-                            string_destroy(&tilde_expanded);
-                            
-                            // Tilde expansion does NOT undergo field splitting per POSIX
-                            // Do NOT set has_unquoted_expansion here
-                        }
-                        else
-                        {
-                            string_append(expanded, text);
-                        }
-                    }
+                    expand_word_part_tilde(part, expanded, is_quoted, i == 0);
                     break;
-                }
                 
                 case PART_PARAMETER:
-                {
-                    string_t *param_value = expand_parameter(exp, part);
-                    if (param_value != NULL)
-                    {
-                        string_append(expanded, param_value);
-                        string_destroy(&param_value);
-                        
-                        // Track if this was an unquoted expansion for field splitting
-                        if (!is_quoted)
-                            has_unquoted_expansion = true;
-                    }
+                    part_unquoted_expansion = expand_word_part_parameter(exp, part, expanded, is_quoted);
                     break;
-                }
                 
                 case PART_COMMAND_SUBST:
-                {
-                    string_t *cmd_output = expand_command_substitution(exp, part);
-                    if (cmd_output != NULL)
-                    {
-                        // Remove trailing newlines (POSIX requirement)
-                        while (string_length(cmd_output) > 0 && 
-                               string_back(cmd_output) == '\n')
-                        {
-                            string_pop_back(cmd_output);
-                        }
-                        
-                        string_append(expanded, cmd_output);
-                        string_destroy(&cmd_output);
-                        
-                        if (!is_quoted)
-                            has_unquoted_expansion = true;
-                    }
+                    part_unquoted_expansion = expand_word_part_command_subst(exp, part, expanded, is_quoted);
                     break;
-                }
                 
                 case PART_ARITHMETIC:
-                {
-                    string_t *arith_result = expand_arithmetic(exp, part);
-                    if (arith_result != NULL)
-                    {
-                        string_append(expanded, arith_result);
-                        string_destroy(&arith_result);
-                        
-                        if (!is_quoted)
-                            has_unquoted_expansion = true;
-                    }
+                    part_unquoted_expansion = expand_word_part_arithmetic(exp, part, expanded, is_quoted);
                     break;
-                }
                 
                 default:
                     log_warn("expander_expand_word: unknown part type %d", type);
                     break;
             }
+
+            if (part_unquoted_expansion)
+                has_unquoted_expansion = true;
         }
     }
     

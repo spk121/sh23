@@ -437,6 +437,293 @@ CTEST(test_expander_special_param_braced)
     (void)ctest;
 }
 
+/**
+ * Test $$ special parameter expansion with PID set
+ */
+CTEST(test_expander_special_param_pid)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Set a test PID
+    expander_set_pid(exp, 12345);
+    
+    // Create a word token with $$ parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("$");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "12345"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "12345", "expanded $$ is '12345'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test $$ special parameter expansion with braced form
+ */
+CTEST(test_expander_special_param_pid_braced)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Set a test PID
+    expander_set_pid(exp, 99999);
+    
+    // Create a word token with ${$} parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("$");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "99999"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "99999", "expanded ${$} is '99999'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test $$ special parameter expansion when PID is not set (returns literal $$)
+ */
+CTEST(test_expander_special_param_pid_default)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Don't set a PID, should return literal "$$"
+    
+    // Create a word token with $$ parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("$");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "$$" (literal)
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "$$", "expanded $$ is '$$' when not set");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test $! special parameter expansion with background PID set
+ */
+CTEST(test_expander_special_param_background_pid)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Set a test background PID
+    expander_set_background_pid(exp, 54321);
+    
+    // Create a word token with $! parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("!");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "54321"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "54321", "expanded $! is '54321'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test $! special parameter expansion with braced form
+ */
+CTEST(test_expander_special_param_background_pid_braced)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Set a test background PID
+    expander_set_background_pid(exp, 11111);
+    
+    // Create a word token with ${!} parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("!");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "11111"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "11111", "expanded ${!} is '11111'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test $! special parameter expansion when background PID is not set (returns literal $!)
+ */
+CTEST(test_expander_special_param_background_pid_default)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Don't set a background PID, should return literal "$!"
+    
+    // Create a word token with $! parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("!");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "$!" (literal)
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "$!", "expanded $! is '$!' when not set");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test positional parameters: set argv and verify $#, $0, $1, $2
+ */
+CTEST(test_expander_positionals_basic)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    const char *argv[] = { "mgsh", "one", "two" };
+    expander_set_positionals(exp, 3, argv);
+
+    // $# should be 2 (excluding $0)
+    token_t *w_hash = token_create_word();
+    string_t *ph = string_create_from_cstr("#");
+    token_append_parameter(w_hash, ph);
+    string_destroy(&ph);
+    string_list_t *r_hash = expander_expand_word(exp, w_hash);
+    CTEST_ASSERT_EQ(ctest, string_list_size(r_hash), 1, "one field for $#");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r_hash,0)), "2", "$# == 2");
+    string_list_destroy(&r_hash);
+    token_destroy(&w_hash);
+
+    // $0
+    token_t *w0 = token_create_word();
+    string_t *p0 = string_create_from_cstr("0");
+    token_append_parameter(w0, p0);
+    string_destroy(&p0);
+    string_list_t *r0 = expander_expand_word(exp, w0);
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r0,0)), "mgsh", "$0 == mgsh");
+    string_list_destroy(&r0);
+    token_destroy(&w0);
+
+    // $1
+    token_t *w1 = token_create_word();
+    string_t *p1 = string_create_from_cstr("1");
+    token_append_parameter(w1, p1);
+    string_destroy(&p1);
+    string_list_t *r1 = expander_expand_word(exp, w1);
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r1,0)), "one", "$1 == one");
+    string_list_destroy(&r1);
+    token_destroy(&w1);
+
+    // $2
+    token_t *w2 = token_create_word();
+    string_t *p2 = string_create_from_cstr("2");
+    token_append_parameter(w2, p2);
+    string_destroy(&p2);
+    string_list_t *r2 = expander_expand_word(exp, w2);
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r2,0)), "two", "$2 == two");
+    string_list_destroy(&r2);
+    token_destroy(&w2);
+
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test $@ and $* behavior
+ */
+CTEST(test_expander_positionals_at_star)
+{
+    expander_t *exp = expander_create();
+    const char *argv[] = { "mgsh", "a", "b", "c" };
+    expander_set_positionals(exp, 4, argv);
+
+    // $@ unquoted -> separate fields a b c
+    token_t *wat = token_create_word();
+    string_t *pat = string_create_from_cstr("@");
+    token_append_parameter(wat, pat);
+    string_destroy(&pat);
+    string_list_t *rat = expander_expand_word(exp, wat);
+    CTEST_ASSERT_EQ(ctest, string_list_size(rat), 3, "$@ expands to 3 fields");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rat,0)), "a", "first field");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rat,1)), "b", "second field");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rat,2)), "c", "third field");
+    string_list_destroy(&rat);
+    token_destroy(&wat);
+
+    // $* unquoted -> single word joined by first IFS (space by default)
+    token_t *wst = token_create_word();
+    string_t *pst = string_create_from_cstr("*");
+    token_append_parameter(wst, pst);
+    string_destroy(&pst);
+    string_list_t *rst = expander_expand_word(exp, wst);
+    CTEST_ASSERT_EQ(ctest, string_list_size(rst), 1, "$* expands to single field");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rst,0)), "a b c", "joined by space");
+    string_list_destroy(&rst);
+    token_destroy(&wst);
+
+    expander_destroy(&exp);
+    (void)ctest;
+}
 // Array of test entries
 static CTestEntry test_entries[] = {
     { "test_expander_create_destroy", ctest_func_test_expander_create_destroy, NULL, NULL, false },
@@ -452,6 +739,14 @@ static CTestEntry test_entries[] = {
     { "test_expander_special_param_exit_status", ctest_func_test_expander_special_param_exit_status, NULL, NULL, false },
     { "test_expander_special_param_exit_zero", ctest_func_test_expander_special_param_exit_zero, NULL, NULL, false },
     { "test_expander_special_param_braced", ctest_func_test_expander_special_param_braced, NULL, NULL, false },
+    { "test_expander_special_param_pid", ctest_func_test_expander_special_param_pid, NULL, NULL, false },
+    { "test_expander_special_param_pid_braced", ctest_func_test_expander_special_param_pid_braced, NULL, NULL, false },
+    { "test_expander_special_param_pid_default", ctest_func_test_expander_special_param_pid_default, NULL, NULL, false },
+    { "test_expander_special_param_background_pid", ctest_func_test_expander_special_param_background_pid, NULL, NULL, false },
+    { "test_expander_special_param_background_pid_braced", ctest_func_test_expander_special_param_background_pid_braced, NULL, NULL, false },
+    { "test_expander_special_param_background_pid_default", ctest_func_test_expander_special_param_background_pid_default, NULL, NULL, false },
+    { "test_expander_positionals_basic", ctest_func_test_expander_positionals_basic, NULL, NULL, false },
+    { "test_expander_positionals_at_star", ctest_func_test_expander_positionals_at_star, NULL, NULL, false },
 };
 
 int main(int argc, char *argv[])
