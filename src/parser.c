@@ -216,6 +216,10 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
         ast_node_list_append(list->data.command_list.items, item);
 
         // Check for separator
+        // DESIGN: We store a separator for EVERY command, including the last one.
+        // The last command gets LIST_SEP_EOL if there's no actual separator token.
+        // This maintains the invariant: items.size == separators.len
+        // Benefits: simpler indexing and executor logic
         cmd_separator_t separator = LIST_SEP_SEQUENTIAL;
         if (parser_accept(parser, TOKEN_AMPER))
         {
@@ -231,10 +235,11 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
         }
         else
         {
+            // No separator token found - this is the last command in the list
             separator = LIST_SEP_EOL;
         }
 
-        // Store separator
+        // Store separator (always, even for last command)
         cmd_separator_list_add(list->data.command_list.separators, separator);
 
         // Skip additional newlines

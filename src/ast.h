@@ -65,13 +65,24 @@ typedef enum
 } andor_operator_t;
 
 /**
- * List separators
+ * Command list separators.
+ * 
+ * DESIGN DECISION: Each command in a command_list has an associated separator,
+ * including the last command (which gets LIST_SEP_EOL). This ensures:
+ *   - items.size == separators.len (1:1 correspondence)
+ *   - Simpler indexing: separator[i] describes what follows command[i]
+ *   - Executor can easily determine if a command should run in background
+ * 
+ * Example: "echo foo; echo bar; echo baz"
+ *   Command 0: "echo foo"  -> separator: LIST_SEP_SEQUENTIAL
+ *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL  
+ *   Command 2: "echo baz"  -> separator: LIST_SEP_EOL (no actual token)
  */
 typedef enum
 {
-    LIST_SEP_SEQUENTIAL, // ; or newline
-    LIST_SEP_BACKGROUND, // &
-    LIST_SEP_EOL
+    LIST_SEP_SEQUENTIAL, // ; or newline - execute next command after this one
+    LIST_SEP_BACKGROUND, // & - run this command in background, then execute next
+    LIST_SEP_EOL         // End of list - no separator token, this is the last command
 } cmd_separator_t;
 
 /* Command separator list structure */
@@ -410,9 +421,27 @@ int ast_node_list_size(const ast_node_list_t *list);
  */
 ast_node_t *ast_node_list_get(const ast_node_list_t *list, int index);
 
+/* ============================================================================
+ * Command List Separator Access Functions
+ * ============================================================================ */
 
+/**
+ * Check if a command list node has any separators.
+ * INVARIANT: For command lists, separator_count() == item_count()
+ */
 bool ast_node_command_list_has_separators(const ast_node_t *node);
+
+/**
+ * Get the number of separators in a command list.
+ * INVARIANT: Returns the same value as ast_node_list_size() for the items.
+ */
 int ast_node_command_list_separator_count(const ast_node_t *node);
+
+/**
+ * Get a separator by index.
+ * The separator at index i describes what follows command i.
+ * The last command will have LIST_SEP_EOL if no separator token was present.
+ */
 cmd_separator_t ast_node_command_list_get_separator(const ast_node_t *node, int index);
 
 /* ============================================================================
