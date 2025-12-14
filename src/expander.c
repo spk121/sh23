@@ -41,6 +41,7 @@ struct expander_t
     string_t *ifs;
     variable_store_t *vars;
     string_t *error_msg;
+    int last_exit_status;
 };
 
 // ============================================================================
@@ -52,6 +53,7 @@ expander_t *expander_create(void)
     expander_t *exp = xcalloc(1, sizeof(expander_t));
     exp->ifs = string_create_from_cstr(" \t\n");
     exp->vars = NULL;
+    exp->last_exit_status = 0;
     return exp;
 }
 
@@ -102,6 +104,18 @@ variable_store_t *expander_get_variable_store(const expander_t *exp)
 {
     Expects_not_null(exp);
     return exp->vars;
+}
+
+void expander_set_last_exit_status(expander_t *exp, int status)
+{
+    Expects_not_null(exp);
+    exp->last_exit_status = status;
+}
+
+int expander_get_last_exit_status(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->last_exit_status;
 }
 
 // ============================================================================
@@ -193,6 +207,12 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     
     if (param_name == NULL)
         return string_create();
+
+    // Special parameter: $?
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '?')
+    {
+        return string_from_long(exp->last_exit_status);
+    }
     
     string_t *value = NULL;
     const char *ev = NULL;

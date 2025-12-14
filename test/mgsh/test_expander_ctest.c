@@ -337,6 +337,106 @@ CTEST(test_expander_arithmetic_nested)
     (void)ctest;
 }
 
+/**
+ * Test expansion of special parameter $? (exit status)
+ */
+CTEST(test_expander_special_param_exit_status)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Set exit status to 42
+    expander_set_last_exit_status(exp, 42);
+    CTEST_ASSERT_EQ(ctest, expander_get_last_exit_status(exp), 42, "exit status set");
+    
+    // Create a word token with $? parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("?");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "42"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "expanded $? is '42'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test expansion of $? with exit status 0
+ */
+CTEST(test_expander_special_param_exit_zero)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Default exit status is 0
+    CTEST_ASSERT_EQ(ctest, expander_get_last_exit_status(exp), 0, "default exit status is 0");
+    
+    // Create a word token with $? parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("?");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "0"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "0", "expanded $? is '0'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Test braced form ${?} expands to exit status
+ */
+CTEST(test_expander_special_param_braced)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+    
+    // Set exit status to 127
+    expander_set_last_exit_status(exp, 127);
+    
+    // Create a word token with ${?} parameter
+    token_t *word = token_create_word();
+    string_t *param = string_create_from_cstr("?");
+    token_append_parameter(word, param);
+    string_destroy(&param);
+    
+    // Expand the word
+    string_list_t *result = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
+    
+    // Should get back "127"
+    CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
+    const string_t *expanded = string_list_at(result, 0);
+    CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "127", "expanded $? is '127'");
+    
+    string_list_destroy(&result);
+    token_destroy(&word);
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
 // Array of test entries
 static CTestEntry test_entries[] = {
     { "test_expander_create_destroy", ctest_func_test_expander_create_destroy, NULL, NULL, false },
@@ -349,6 +449,9 @@ static CTestEntry test_entries[] = {
     { "test_expander_arithmetic_complex", ctest_func_test_expander_arithmetic_complex, NULL, NULL, false },
     { "test_expander_arithmetic_empty", ctest_func_test_expander_arithmetic_empty, NULL, NULL, false },
     { "test_expander_arithmetic_nested", ctest_func_test_expander_arithmetic_nested, NULL, NULL, false },
+    { "test_expander_special_param_exit_status", ctest_func_test_expander_special_param_exit_status, NULL, NULL, false },
+    { "test_expander_special_param_exit_zero", ctest_func_test_expander_special_param_exit_zero, NULL, NULL, false },
+    { "test_expander_special_param_braced", ctest_func_test_expander_special_param_braced, NULL, NULL, false },
 };
 
 int main(int argc, char *argv[])

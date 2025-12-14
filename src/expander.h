@@ -93,6 +93,16 @@ void expander_set_variable_store(expander_t *exp, variable_store_t *vars);
 variable_store_t *expander_get_variable_store(const expander_t *exp);
 
 /**
+ * Set the last exit status available to parameter expansion ($?).
+ */
+void expander_set_last_exit_status(expander_t *exp, int status);
+
+/**
+ * Get the last exit status tracked by the expander.
+ */
+int expander_get_last_exit_status(const expander_t *exp);
+
+/**
  * Expand an entire AST node tree.
  * This traverses the AST and expands all words in commands.
  * 
