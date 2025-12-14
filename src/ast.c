@@ -442,21 +442,32 @@ const char *ast_node_type_to_string(ast_node_type_t type)
     }
 }
 
-// TODO: Implement a full AST to string function for debugging
-#if 0
-static void ast_print_redirection(ast_node_t *redir, int indent_level, string_t *result)
+const char *redirection_type_to_string(redirection_type_t type)
 {
-    for (int i = 0; i < indent_level + 1; i++)
-        string_append_cstr(result, "  ");
-    string_append_cstr(result, "words: ");
-    string_t *words_str = token_list_to_string(redir->data.);
-    string_append(result, words_str);
-    string_destroy(&words_str);
-    string_append_cstr(result, "\n");
-
-    fprintf(stderr, "redirection: %s\n", ast_node_type_to_string(redir->type));
+    switch (type)
+    {
+    case REDIR_INPUT:
+        return "<";
+    case REDIR_OUTPUT:
+        return ">";
+    case REDIR_APPEND:
+        return ">>";
+    case REDIR_HEREDOC:
+        return "<<";
+    case REDIR_HEREDOC_STRIP:
+        return "<<-";
+    case REDIR_DUP_INPUT:
+        return "<&";
+    case REDIR_DUP_OUTPUT:
+        return ">&";
+    case REDIR_READWRITE:
+        return "<>";
+    case REDIR_CLOBBER:
+        return ">|";
+    default:
+        return "UNKNOWN";
+    }
 }
-#endif
 
 static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
                                      int indent_level)
@@ -479,7 +490,19 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     switch (node->type)
     {
     case AST_SIMPLE_COMMAND:
-        if (node->data.simple_command.words != NULL)
+        if (node->data.simple_command.assignments != NULL &&
+            node->data.simple_command.assignments->size > 0)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "assignments: ");
+            string_t *assignments_str = token_list_to_string(node->data.simple_command.assignments);
+            string_append(result, assignments_str);
+            string_destroy(&assignments_str);
+            string_append_cstr(result, "\n");
+        }
+        if (node->data.simple_command.words != NULL &&
+            node->data.simple_command.words->size > 0)
         {
             for (int i = 0; i < indent_level + 1; i++)
                 string_append_cstr(result, "  ");
@@ -489,20 +512,18 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_destroy(&words_str);
             string_append_cstr(result, "\n");
         }
-        // TODO: implement redirections printing.
-#if 0
         if (node->data.simple_command.redirections != NULL &&
             ast_node_list_size(node->data.simple_command.redirections) > 0)
         {
-            fprintf(stderr, "    redirections:\n");
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "redirections:\n");
             for (int i = 0; i < ast_node_list_size(node->data.simple_command.redirections); i++)
             {
                 ast_node_t *redir = ast_node_list_get(node->data.simple_command.redirections, i);
-                ast_print_redirection(
-                    redir, indent + 2); // Assuming a helper function exists or add inline printing
+                ast_node_to_string_helper(redir, result, indent_level + 2);
             }
         }
-#endif
         break;
 
     case AST_PIPELINE:
@@ -600,6 +621,42 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_append_cstr(result, "\n");
         }
         ast_node_to_string_helper(node->data.function_def.body, result, indent_level + 1);
+        break;
+
+    case AST_REDIRECTION:
+        for (int i = 0; i < indent_level + 1; i++)
+            string_append_cstr(result, "  ");
+        string_append_cstr(result, "type: ");
+        string_append_cstr(result, redirection_type_to_string(node->data.redirection.redir_type));
+        string_append_cstr(result, "\n");
+        if (node->data.redirection.io_number >= 0)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "io_number: ");
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d", node->data.redirection.io_number);
+            string_append_cstr(result, buf);
+            string_append_cstr(result, "\n");
+        }
+        if (node->data.redirection.target != NULL)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "target: ");
+            string_t *target_str = token_to_string(node->data.redirection.target);
+            string_append(result, target_str);
+            string_destroy(&target_str);
+            string_append_cstr(result, "\n");
+        }
+        if (node->data.redirection.heredoc_content != NULL)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "heredoc_content: ");
+            string_append(result, node->data.redirection.heredoc_content);
+            string_append_cstr(result, "\n");
+        }
         break;
 
     default:

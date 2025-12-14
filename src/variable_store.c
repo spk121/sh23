@@ -1,6 +1,6 @@
 #include "variable_store.h"
 #include "xalloc.h"
-#ifdef POSIX_C
+#ifdef POSIX_API
 #include <unistd.h>
 #endif
 #include <string.h>
@@ -26,7 +26,11 @@ variable_store_t *variable_store_create(const char *shell_name)
     store->variables = variable_array_create_with_free((variable_array_free_func_t)variable_destroy);
     store->positional_params = variable_array_create_with_free((variable_array_free_func_t)variable_destroy);
     store->status_str = string_create_from_cstr("0");
+#ifdef POSIX_API    
     store->pid = (long)getpid();
+#else
+    store->pid = 0;
+#endif
     store->shell_name = string_create_from_cstr(shell_name);
     store->last_bg_pid = 0;
     store->options = string_create_from_cstr("");

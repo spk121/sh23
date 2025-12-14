@@ -58,7 +58,7 @@ static ast_node_t *parse_string(const char *input)
         printf("Failed to lex/tokenize: %s\n", input);
         return NULL;
     }
-
+    
     parser_t *parser = parser_create();
     ast_node_t *ast = NULL;
     
