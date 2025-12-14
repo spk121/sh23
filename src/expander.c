@@ -53,6 +53,8 @@ struct expander_t
     bool pid_set;
     bool background_pid_set;
     positional_params_stack_t *pos_stack;
+    command_subst_callback_t cmd_subst_callback;
+    void *cmd_subst_user_data;
 };
 
 // ============================================================================
@@ -66,6 +68,8 @@ expander_t *expander_create(void)
     exp->vars = NULL;
     exp->last_exit_status = 0;
     exp->pos_stack = positional_params_stack_create();
+    exp->cmd_subst_callback = NULL;
+    exp->cmd_subst_user_data = NULL;
     return exp;
 }
 
@@ -218,6 +222,19 @@ int expander_get_background_pid(const expander_t *exp)
     return exp->background_pid;
 }
 #endif
+
+void expander_set_command_subst_callback(expander_t *exp, command_subst_callback_t callback, void *user_data)
+{
+    Expects_not_null(exp);
+    exp->cmd_subst_callback = callback;
+    exp->cmd_subst_user_data = user_data;
+}
+
+command_subst_callback_t expander_get_command_subst_callback(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->cmd_subst_callback;
+}
 
 // ============================================================================
 // Helper Functions for Expansion
@@ -416,15 +433,64 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
 
 /**
  * Perform command substitution.
- * For now, returns empty string (stub for future implementation).
+ * Invokes the callback if set, otherwise returns empty string.
  */
 static string_t *expand_command_substitution(expander_t *exp, const part_t *part)
 {
-    (void)exp;
-    (void)part;
+    if (exp->cmd_subst_callback == NULL)
+    {
+        log_debug("expand_command_substitution: no callback set, returning empty");
+        return string_create();
+    }
     
-    log_debug("expand_command_substitution: command substitution not yet implemented");
-    return string_create();
+    const string_t *command = part_get_text(part);
+    if (command == NULL || string_length(command) == 0)
+    {
+        log_debug("expand_command_substitution: empty command");
+        return string_create();
+    }
+    
+    log_debug("expand_command_substitution: invoking callback for command: %s", string_cstr(command));
+    string_t *result = exp->cmd_subst_callback(command, exp->cmd_subst_user_data);
+    
+    if (result == NULL)
+    {
+        log_warn("expand_command_substitution: callback returned NULL, treating as empty");
+        return string_create();
+    }
+    
+    return result;
+}
+
+/**
+ * Perform arithmetic expansion.
+ * Evaluates the arithmetic expression and returns the result as a string.
+ */
+static string_t *expand_arithmetic(expander_t *exp, const part_t *part)
+{
+    const string_t *expr_text = part_get_text(part);
+    
+    if (expr_text == NULL || string_length(expr_text) == 0)
+    {
+        // Empty expression evaluates to 0
+        return string_create_from_cstr("0");
+    }
+    
+    // Evaluate the arithmetic expression
+    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, expr_text);
+    
+    if (result.failed)
+    {
+        log_warn("expand_arithmetic: evaluation failed: %s", string_cstr(result.error));
+        arithmetic_result_free(&result);
+        return string_create_from_cstr("0");
+    }
+    
+    // Convert result to string
+    long val = result.value;
+    arithmetic_result_free(&result);
+    
+    return string_from_long(val);
 }
 
 // Part-level expansion helpers
@@ -533,37 +599,6 @@ static bool expand_word_part_arithmetic(expander_t *exp, const part_t *part, str
     }
 
     return produced_unquoted_expansion;
-}
-
-/**
- * Perform arithmetic expansion.
- * Evaluates the arithmetic expression and returns the result as a string.
- */
-static string_t *expand_arithmetic(expander_t *exp, const part_t *part)
-{
-    const string_t *expr_text = part_get_text(part);
-    
-    if (expr_text == NULL || string_length(expr_text) == 0)
-    {
-        // Empty expression evaluates to 0
-        return string_create_from_cstr("0");
-    }
-    
-    // Evaluate the arithmetic expression
-    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, expr_text);
-    
-    if (result.failed)
-    {
-        log_warn("expand_arithmetic: evaluation failed: %s", string_cstr(result.error));
-        arithmetic_result_free(&result);
-        return string_create_from_cstr("0");
-    }
-    
-    // Convert result to string
-    long val = result.value;
-    arithmetic_result_free(&result);
-    
-    return string_from_long(val);
 }
 
 /**

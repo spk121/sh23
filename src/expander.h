@@ -51,6 +51,16 @@
 typedef struct expander_t expander_t;
 
 /**
+ * Command substitution callback function type.
+ * 
+ * @param command The command string to execute
+ * @param user_data User-provided context data
+ * @return The output of the command as a newly allocated string_t (caller must free),
+ *         or NULL on error
+ */
+typedef string_t *(*command_subst_callback_t)(const string_t *command, void *user_data);
+
+/**
  * Create a new expander instance.
  * @return A new expander, or NULL on allocation failure.
  */
@@ -145,6 +155,22 @@ pid_t expander_get_background_pid(const expander_t *exp);
 #else
 int expander_get_background_pid(const expander_t *exp);
 #endif
+
+/**
+ * Set the command substitution callback function.
+ * This callback is invoked when the expander needs to execute a command substitution.
+ * @param exp The expander instance
+ * @param callback The callback function pointer (can be NULL to disable command substitution)
+ * @param user_data User-provided context data to pass to the callback
+ */
+void expander_set_command_subst_callback(expander_t *exp, command_subst_callback_t callback, void *user_data);
+
+/**
+ * Get the current command substitution callback.
+ * @param exp The expander instance
+ * @return The current callback function pointer (may be NULL)
+ */
+command_subst_callback_t expander_get_command_subst_callback(const expander_t *exp);
 
 /**
  * Expand an entire AST node tree.
