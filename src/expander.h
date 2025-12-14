@@ -61,6 +61,16 @@ typedef struct expander_t expander_t;
 typedef string_t *(*command_subst_callback_t)(const string_t *command, void *user_data);
 
 /**
+ * Pathname expansion (glob) callback function type.
+ * 
+ * @param pattern The glob pattern to expand
+ * @param user_data User-provided context data
+ * @return A list of matching filenames as string_t objects (caller must free with string_list_destroy),
+ *         or NULL if no matches (pattern should be left unexpanded)
+ */
+typedef string_list_t *(*pathname_expansion_callback_t)(const string_t *pattern, void *user_data);
+
+/**
  * Create a new expander instance.
  * @return A new expander, or NULL on allocation failure.
  */
@@ -171,6 +181,22 @@ void expander_set_command_subst_callback(expander_t *exp, command_subst_callback
  * @return The current callback function pointer (may be NULL)
  */
 command_subst_callback_t expander_get_command_subst_callback(const expander_t *exp);
+
+/**
+ * Set the pathname expansion (glob) callback function.
+ * This callback is invoked when the expander needs to perform glob pattern matching.
+ * @param exp The expander instance
+ * @param callback The callback function pointer (can be NULL to disable pathname expansion)
+ * @param user_data User-provided context data to pass to the callback
+ */
+void expander_set_pathname_expansion_callback(expander_t *exp, pathname_expansion_callback_t callback, void *user_data);
+
+/**
+ * Get the current pathname expansion callback.
+ * @param exp The expander instance
+ * @return The current callback function pointer (may be NULL)
+ */
+pathname_expansion_callback_t expander_get_pathname_expansion_callback(const expander_t *exp);
 
 /**
  * Expand an entire AST node tree.

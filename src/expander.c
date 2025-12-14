@@ -55,6 +55,8 @@ struct expander_t
     positional_params_stack_t *pos_stack;
     command_subst_callback_t cmd_subst_callback;
     void *cmd_subst_user_data;
+    pathname_expansion_callback_t pathname_expansion_callback;
+    void *pathname_expansion_user_data;
 };
 
 // ============================================================================
@@ -70,6 +72,8 @@ expander_t *expander_create(void)
     exp->pos_stack = positional_params_stack_create();
     exp->cmd_subst_callback = NULL;
     exp->cmd_subst_user_data = NULL;
+    exp->pathname_expansion_callback = NULL;
+    exp->pathname_expansion_user_data = NULL;
     return exp;
 }
 
@@ -234,6 +238,19 @@ command_subst_callback_t expander_get_command_subst_callback(const expander_t *e
 {
     Expects_not_null(exp);
     return exp->cmd_subst_callback;
+}
+
+void expander_set_pathname_expansion_callback(expander_t *exp, pathname_expansion_callback_t callback, void *user_data)
+{
+    Expects_not_null(exp);
+    exp->pathname_expansion_callback = callback;
+    exp->pathname_expansion_user_data = user_data;
+}
+
+pathname_expansion_callback_t expander_get_pathname_expansion_callback(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->pathname_expansion_callback;
 }
 
 // ============================================================================
@@ -829,8 +846,60 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
         // Ownership transferred to result
     }
     
-    // Step 3: Pathname expansion (globbing) would go here
-    // For now, we skip it
+    // Step 3: Pathname expansion (globbing)
+    if (exp->pathname_expansion_callback != NULL)
+    {
+        string_list_t *globbed = string_list_create();
+        int field_count = string_list_size(result);
+        
+        for (int i = 0; i < field_count; i++)
+        {
+            const string_t *field = string_list_at(result, i);
+            
+            // Check if the field contains glob metacharacters
+            bool has_glob_chars = false;
+            for (int j = 0; j < (int)string_length(field); j++)
+            {
+                char c = string_at(field, j);
+                if (c == '*' || c == '?' || c == '[' || c == ']')
+                {
+                    has_glob_chars = true;
+                    break;
+                }
+            }
+            
+            if (has_glob_chars)
+            {
+                // Invoke callback to expand the pattern
+                string_list_t *matches = exp->pathname_expansion_callback(field, exp->pathname_expansion_user_data);
+                
+                if (matches != NULL && string_list_size(matches) > 0)
+                {
+                    // Add all matches
+                    for (int m = 0; m < string_list_size(matches); m++)
+                    {
+                        string_list_push_back(globbed, string_list_at(matches, m));
+                    }
+                    string_list_destroy(&matches);
+                }
+                else
+                {
+                    // No matches - keep the pattern literal (POSIX behavior)
+                    string_list_push_back(globbed, field);
+                    if (matches != NULL)
+                        string_list_destroy(&matches);
+                }
+            }
+            else
+            {
+                // No glob characters - keep as-is
+                string_list_push_back(globbed, field);
+            }
+        }
+        
+        string_list_destroy(&result);
+        result = globbed;
+    }
     
     return result;
 }
