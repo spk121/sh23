@@ -102,6 +102,20 @@ part_t *token_get_part(const token_t *token, int index)
     return token->parts->parts[index];
 }
 
+int token_get_io_number(const token_t *token)
+{
+    Expects_not_null(token);
+    if (token->type != TOKEN_IO_NUMBER)
+        return -1;
+    return token->io_number;
+}
+
+void token_set_io_number(token_t *token, int io_number)
+{
+    Expects_not_null(token);
+    token->io_number = io_number;
+}
+
 bool token_is_last_part_literal(const token_t *token)
 {
     Expects_not_null(token);

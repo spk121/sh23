@@ -251,6 +251,17 @@ int token_part_count(const token_t *token);
 part_t *token_get_part(const token_t *token, int index);
 
 /**
+ * Get the IO number from a TOKEN_IO_NUMBER token.
+ * Returns -1 for non-IO_NUMBER tokens.
+ */
+int token_get_io_number(const token_t *token);
+
+/**
+ * Set the IO number for a TOKEN_IO_NUMBER token.
+ */
+void token_set_io_number(token_t *token, int io_number);
+
+/**
  * Check if the last part of a TOKEN_WORD is a PART_LITERAL.
  */
 bool token_is_last_part_literal(const token_t *token);

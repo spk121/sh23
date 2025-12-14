@@ -554,7 +554,7 @@ void lexer_emit_io_number_token(lexer_t *lx, int io_number)
     Expects_ge(io_number, 0);
 
     token_t *tok = token_create(TOKEN_IO_NUMBER);
-    tok->io_number = io_number;
+    token_set_io_number(tok, io_number);
     token_set_location(tok, lx->line_no, lx->col_no, lx->line_no, lx->col_no);
     token_list_append(lx->tokens, tok);
 }

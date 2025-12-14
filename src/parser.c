@@ -1305,7 +1305,7 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     if (parser_current_token_type(parser) == TOKEN_IO_NUMBER)
     {
         token_t *num_tok = parser_current_token(parser);
-        io_number = num_tok->io_number;
+        io_number = token_get_io_number(num_tok);
         parser_advance(parser);
     }
 
