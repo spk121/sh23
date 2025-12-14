@@ -9,17 +9,11 @@
 
 typedef struct variable_store_t {
     variable_array_t *variables;
-    variable_array_t *positional_params;
-    string_t *status_str;
-    long pid;
-    string_t *shell_name;
-    long last_bg_pid;
-    string_t *options;
 } variable_store_t;
 
 // Constructors
-variable_store_t *variable_store_create(const char *shell_name);
-variable_store_t *variable_store_create_from_envp(const char *shell_name, char **envp);
+variable_store_t *variable_store_create(void);
+variable_store_t *variable_store_create_from_envp(char **envp);
 
 // Destructor
 void variable_store_destroy(variable_store_t **store);
@@ -47,30 +41,11 @@ int variable_store_set_read_only_cstr(variable_store_t *store, const char *name,
 int variable_store_set_exported(variable_store_t *store, const string_t *name, bool exported);
 int variable_store_set_exported_cstr(variable_store_t *store, const char *name, bool exported);
 
-// Positional parameters
-void variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count);
-void variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count);
-const variable_t *variable_store_get_positional_param(const variable_store_t *store, size_t index);
-const char *variable_store_get_positional_param_cstr(const variable_store_t *store, size_t index);
-size_t variable_store_positional_param_count(const variable_store_t *store);
-
-// Special parameter getters
-const string_t *variable_store_get_status(const variable_store_t *store);
-long variable_store_get_pid(const variable_store_t *store);
-const string_t *variable_store_get_shell_name(const variable_store_t *store);
-long variable_store_get_last_bg_pid(const variable_store_t *store);
-const string_t *variable_store_get_options(const variable_store_t *store);
-const char *variable_store_get_status_cstr(const variable_store_t *store);
-const char *variable_store_get_shell_name_cstr(const variable_store_t *store);
-const char *variable_store_get_options_cstr(const variable_store_t *store);
-
-// Special parameter setters
-void variable_store_set_status(variable_store_t *store, const string_t *status);
-void variable_store_set_status_cstr(variable_store_t *store, const char *status);
-void variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name);
-void variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name);
-void variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid);
-void variable_store_set_options(variable_store_t *store, const string_t *options);
-void variable_store_set_options_cstr(variable_store_t *store, const char *options);
+// Value helper wrappers
+int variable_store_get_variable_length(const variable_store_t *store, const string_t *name);
+string_t *variable_store_get_value_removing_smallest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern);
+string_t *variable_store_get_value_removing_largest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern);
+string_t *variable_store_get_value_removing_smallest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern);
+string_t *variable_store_get_value_removing_largest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern);
 
 #endif

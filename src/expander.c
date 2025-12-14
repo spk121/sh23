@@ -25,6 +25,7 @@
 #include "arithmetic.h"
 #include "positional_params.h"
 #include "variable_store.h"
+#include "pattern_removal.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -463,6 +464,7 @@ static string_t *expand_tilde(const string_t *text)
 static string_t *expand_parameter(expander_t *exp, const part_t *part)
 {
     const string_t *param_name = part_get_param_name(part);
+    param_subtype_t param_kind = part_get_param_kind(part);
     
     if (param_name == NULL)
         return string_create();
@@ -478,11 +480,7 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     {
         if (exp->pid_set)
         {
-#ifdef POSIX_API
             return string_from_long((long)exp->pid);
-#else /* UCRT_API and for testing. Not valid ISO_C_API. */
-            return string_from_int(exp->pid);
-#endif
         }
         else
         {
@@ -498,11 +496,7 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     {
         if (exp->background_pid_set)
         {
-#ifdef POSIX_API
             return string_from_long((long)exp->background_pid);
-#else /* UCRT_API and for testing. Not valid ISO_C_API. */
-            return string_from_int(exp->background_pid);
-#endif
         }
         else
         {
@@ -569,25 +563,203 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
         return result ? result : string_create();
     }
 
+    // Get variable value (or NULL if unset)
     string_t *value = NULL;
     const char *ev = NULL;
+    bool in_store = false;
+    bool in_env = false;
+    bool is_set = false;
 
     // First try the variable store if available
     if (exp->vars != NULL && variable_store_has_name(exp->vars, param_name))
     {
         value = string_create_from(variable_store_get_value(exp->vars, param_name));
+        in_store = true;
+        is_set = true;
     }
     else if ( (ev = getenv(string_cstr(param_name))) != NULL )
     {
         value = string_create_from_cstr(ev);
+        in_env = true;
+        is_set = true;
     }
-    else
+    
+    // Handle advanced parameter expansion forms
+    switch (param_kind)
     {
-        // Return empty string for unset variables
-        value = string_create();
+        case PARAM_PLAIN:
+            // Simple ${var} or $var
+            return is_set ? value : string_create();
+            
+        case PARAM_LENGTH:
+            // ${#var} - return length of value
+            if (is_set)
+            {
+                int len = string_length(value);
+                string_destroy(&value);
+                return string_from_long((long)len);
+            }
+            else
+            {
+                // Unset variable has length 0
+                string_destroy(&value);
+                return string_create_from_cstr("0");
+            }
+            
+        case PARAM_USE_DEFAULT:
+        {
+            // ${var:-word} - use word if var is unset or null
+            if (is_set && value != NULL && string_length(value) > 0)
+            {
+                return value;
+            }
+            else
+            {
+                string_destroy(&value);
+                const string_t *word = part_get_word(part);
+                return word ? string_create_from(word) : string_create();
+            }
+        }
+        
+        case PARAM_ASSIGN_DEFAULT:
+        {
+            // ${var:=word} - assign word to var if unset or null
+            if (is_set && value != NULL && string_length(value) > 0)
+            {
+                return value;
+            }
+            else
+            {
+                string_destroy(&value);
+                const string_t *word = part_get_word(part);
+                string_t *default_val = word ? string_create_from(word) : string_create();
+                
+                // Assign the default value to the variable
+                if (exp->vars != NULL)
+                {
+                    variable_store_add(exp->vars, param_name, default_val, false, false);
+                }
+                
+                return default_val;
+            }
+        }
+        
+        case PARAM_ERROR_IF_UNSET:
+        {
+            // ${var:?word} - error if var is unset or null
+            if (is_set && value != NULL && string_length(value) > 0)
+            {
+                return value;
+            }
+            else
+            {
+                string_destroy(&value);
+                const string_t *word = part_get_word(part);
+                
+                // Set error message
+                if (word != NULL && string_length(word) > 0)
+                {
+                    expander_set_error(exp, string_cstr(word));
+                }
+                else
+                {
+                    char err_msg[256];
+                    snprintf(err_msg, sizeof(err_msg), "%s: parameter not set", string_cstr(param_name));
+                    expander_set_error(exp, err_msg);
+                }
+                
+                return string_create();
+            }
+        }
+        
+        case PARAM_USE_ALTERNATE:
+        {
+            // ${var:+word} - use word if var is set and non-null
+            if (is_set && value != NULL && string_length(value) > 0)
+            {
+                string_destroy(&value);
+                const string_t *word = part_get_word(part);
+                return word ? string_create_from(word) : string_create();
+            }
+            else
+            {
+                string_destroy(&value);
+                return string_create();
+            }
+        }
+        
+        case PARAM_REMOVE_SMALL_SUFFIX:
+        {
+            // ${var%pattern} - remove smallest matching suffix
+            if (!is_set || value == NULL)
+            {
+                return string_create();
+            }
+            const string_t *pattern = part_get_word(part);
+            if (pattern != NULL)
+            {
+                string_t *result = remove_suffix_smallest(value, pattern);
+                string_destroy(&value);
+                return result ? result : string_create();
+            }
+            return value;
+        }
+        
+        case PARAM_REMOVE_LARGE_SUFFIX:
+        {
+            // ${var%%pattern} - remove largest matching suffix
+            if (!is_set || value == NULL)
+            {
+                return string_create();
+            }
+            const string_t *pattern = part_get_word(part);
+            if (pattern != NULL)
+            {
+                string_t *result = remove_suffix_largest(value, pattern);
+                string_destroy(&value);
+                return result ? result : string_create();
+            }
+            return value;
+        }
+        
+        case PARAM_REMOVE_SMALL_PREFIX:
+        {
+            // ${var#pattern} - remove smallest matching prefix
+            if (!is_set || value == NULL)
+            {
+                return string_create();
+            }
+            const string_t *pattern = part_get_word(part);
+            if (pattern != NULL)
+            {
+                string_t *result = remove_prefix_smallest(value, pattern);
+                string_destroy(&value);
+                return result ? result : string_create();
+            }
+            return value;
+        }
+        
+        case PARAM_REMOVE_LARGE_PREFIX:
+        {
+            // ${var##pattern} - remove largest matching prefix
+            if (!is_set || value == NULL)
+            {
+                return string_create();
+            }
+            const string_t *pattern = part_get_word(part);
+            if (pattern != NULL)
+            {
+                string_t *result = remove_prefix_largest(value, pattern);
+                string_destroy(&value);
+                return result ? result : string_create();
+            }
+            return value;
+        }
+        
+        default:
+            // Unsupported expansion form - return value as-is
+            return is_set ? value : string_create();
     }
-
-    return value;
 }
 
 /**

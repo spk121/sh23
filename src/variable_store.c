@@ -1,8 +1,5 @@
 #include "variable_store.h"
 #include "xalloc.h"
-#ifdef POSIX_API
-#include <unistd.h>
-#endif
 #include <string.h>
 
 // Comparison function for finding variable_t by name
@@ -17,30 +14,16 @@ static int compare_variable_name_cstr(const variable_t *variable, const void *na
 }
 
 // Constructors
-variable_store_t *variable_store_create(const char *shell_name)
+variable_store_t *variable_store_create(void)
 {
-    Expects_not_null(shell_name);
-
     variable_store_t *store = xmalloc(sizeof(variable_store_t));
-
     store->variables = variable_array_create_with_free((variable_array_free_func_t)variable_destroy);
-    store->positional_params = variable_array_create_with_free((variable_array_free_func_t)variable_destroy);
-    store->status_str = string_create_from_cstr("0");
-#ifdef POSIX_API    
-    store->pid = (long)getpid();
-#else
-    store->pid = 0;
-#endif
-    store->shell_name = string_create_from_cstr(shell_name);
-    store->last_bg_pid = 0;
-    store->options = string_create_from_cstr("");
-
     return store;
 }
 
-variable_store_t *variable_store_create_from_envp(const char *shell_name, char **envp)
+variable_store_t *variable_store_create_from_envp(char **envp)
 {
-    variable_store_t *store = variable_store_create(shell_name);
+    variable_store_t *store = variable_store_create();
 
     if (envp) {
         for (char **env = envp; *env; env++) {
@@ -66,14 +49,9 @@ void variable_store_destroy(variable_store_t **store)
     variable_store_t *s = *store;
     Expects_not_null(s);
 
-    log_debug("variable_store_destroy: freeing store %p, variables %zu, params %zu",
+    log_debug("variable_store_destroy: freeing store %p, variables %zu",
               s,
-              variable_array_size(s->variables),
-              variable_array_size(s->positional_params));
-    string_destroy(&s->options);
-    string_destroy(&s->shell_name);
-    string_destroy(&s->status_str);
-    variable_array_destroy(&s->positional_params);
+              variable_array_size(s->variables));
     variable_array_destroy(&s->variables);
     xfree(s);
     *store = NULL;
@@ -84,24 +62,11 @@ int variable_store_clear(variable_store_t *store)
 {
     Expects_not_null(store);
 
-    log_debug("variable_store_clear: clearing store %p, variables %zu, params %zu",
+    log_debug("variable_store_clear: clearing store %p, variables %zu",
               store,
-              variable_array_size(store->variables),
-              variable_array_size(store->positional_params));
+              variable_array_size(store->variables));
 
     variable_array_clear(store->variables);
-    variable_array_clear(store->positional_params);
-
-    string_t *new_status = string_create_from_cstr("0");
-    string_destroy(&store->status_str);
-    store->status_str = new_status;
-
-    store->last_bg_pid = 0;
-
-    string_t *new_options = string_create_from_cstr("");
-    string_destroy(&store->options);
-    store->options = new_options;
-
     return 0;
 }
 
@@ -332,174 +297,63 @@ int variable_store_set_exported_cstr(variable_store_t *store, const char *name, 
     return variable_set_exported(var, exported);
 }
 
-// Positional parameters
-void variable_store_set_positional_params(variable_store_t *store, const string_t *params[], size_t count)
+// Value helper wrappers
+int variable_store_get_variable_length(const variable_store_t *store, const string_t *name)
 {
     Expects_not_null(store);
-
-    variable_array_clear(store->positional_params);
-
-    for (size_t i = 0; i < count; i++) {
-        Expects_not_null(params[i]);
-        char index_str[32];
-        snprintf(index_str, sizeof(index_str), "%zu", i + 1);
-        variable_t *var = variable_create_from_cstr(index_str, string_cstr(params[i]), false, false);
-        variable_array_append(store->positional_params, var);
+    Expects_not_null(name);
+    const variable_t *var = variable_store_get_variable(store, name);
+    if (!var) {
+        return -1;
     }
+    return variable_get_value_length(var);
 }
 
-void variable_store_set_positional_params_cstr(variable_store_t *store, const char *params[], size_t count)
+string_t *variable_store_get_value_removing_smallest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern)
 {
     Expects_not_null(store);
-
-    variable_array_clear(store->positional_params);
-
-    for (size_t i = 0; i < count; i++) {
-        Expects_not_null(params[i]);
-        char index_str[32];
-        snprintf(index_str, sizeof(index_str), "%zu", i + 1);
-        variable_t *var = variable_create_from_cstr(index_str, params[i], false, false);
-        variable_array_append(store->positional_params, var);
+    Expects_not_null(name);
+    Expects_not_null(pattern);
+    const variable_t *var = variable_store_get_variable(store, name);
+    if (!var) {
+        return NULL;
     }
+    return variable_remove_smallest_suffix(var, pattern);
 }
 
-const variable_t *variable_store_get_positional_param(const variable_store_t *store, size_t index)
+string_t *variable_store_get_value_removing_largest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern)
 {
     Expects_not_null(store);
-    return variable_array_get(store->positional_params, index);
+    Expects_not_null(name);
+    Expects_not_null(pattern);
+    const variable_t *var = variable_store_get_variable(store, name);
+    if (!var) {
+        return NULL;
+    }
+    return variable_remove_largest_suffix(var, pattern);
 }
 
-const char *variable_store_get_positional_param_cstr(const variable_store_t *store, size_t index)
-{
-    const variable_t *var = variable_store_get_positional_param(store, index);
-    return var ? variable_get_value_cstr(var) : NULL;
-}
-
-size_t variable_store_positional_param_count(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return variable_array_size(store->positional_params);
-}
-
-// Special parameter getters
-const string_t *variable_store_get_status(const variable_store_t *store)
+string_t *variable_store_get_value_removing_smallest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern)
 {
     Expects_not_null(store);
-    return store->status_str;
+    Expects_not_null(name);
+    Expects_not_null(pattern);
+    const variable_t *var = variable_store_get_variable(store, name);
+    if (!var) {
+        return NULL;
+    }
+    return variable_remove_smallest_prefix(var, pattern);
 }
 
-long variable_store_get_pid(const variable_store_t *store)
+string_t *variable_store_get_value_removing_largest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern)
 {
     Expects_not_null(store);
-    return store->pid;
+    Expects_not_null(name);
+    Expects_not_null(pattern);
+    const variable_t *var = variable_store_get_variable(store, name);
+    if (!var) {
+        return NULL;
+    }
+    return variable_remove_largest_prefix(var, pattern);
 }
-
-const string_t *variable_store_get_shell_name(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return store->shell_name;
-}
-
-long variable_store_get_last_bg_pid(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return store->last_bg_pid;
-}
-
-const string_t *variable_store_get_options(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return store->options;
-}
-
-const char *variable_store_get_status_cstr(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return string_data(store->status_str);
-}
-
-const char *variable_store_get_shell_name_cstr(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return string_data(store->shell_name);
-}
-
-const char *variable_store_get_options_cstr(const variable_store_t *store)
-{
-    Expects_not_null(store);
-    return string_data(store->options);
-}
-
-// Special parameter setters
-void variable_store_set_status(variable_store_t *store, const string_t *status)
-{
-    Expects_not_null(store);
-    Expects_not_null(status);
-
-    string_t *new_status =  string_create_from(status);
-
-    string_destroy(&store->status_str);
-    store->status_str = new_status;
-}
-
-void variable_store_set_status_cstr(variable_store_t *store, const char *status)
-{
-    Expects_not_null(store);
-    Expects_not_null(status);
-
-    string_t *new_status = string_create_from_cstr(status);
-
-    string_destroy(&store->status_str);
-    store->status_str = new_status;
-}
-
-void variable_store_set_shell_name(variable_store_t *store, const string_t *shell_name)
-{
-    Expects_not_null(store);
-    Expects_not_null(shell_name);
-
-    string_t *new_shell_name = string_create_from(shell_name);
-
-    string_destroy(&store->shell_name);
-    store->shell_name = new_shell_name;
-}
-
-void variable_store_set_shell_name_cstr(variable_store_t *store, const char *shell_name)
-{
-    Expects_not_null(store);
-    Expects_not_null(shell_name);
-
-    string_t *new_shell_name = string_create_from_cstr(shell_name);
-
-    string_destroy(&store->shell_name);
-    store->shell_name = new_shell_name;
-}
-
-void variable_store_set_last_bg_pid(variable_store_t *store, long last_bg_pid)
-{
-    Expects_not_null(store);
-    store->last_bg_pid = last_bg_pid;
-}
-
-void variable_store_set_options(variable_store_t *store, const string_t *options)
-{
-    Expects_not_null(store);
-    Expects_not_null(options);
-
-    string_t *new_options = string_create_from(options);
-
-    string_destroy(&store->options);
-    store->options = new_options;
-}
-
-void variable_store_set_options_cstr(variable_store_t *store, const char *options)
-{
-    Expects_not_null(store);
-    Expects_not_null(options);
-
-    string_t *new_options = string_create_from_cstr(options);
-
-    string_destroy(&store->options);
-    store->options = new_options;
-}   
 

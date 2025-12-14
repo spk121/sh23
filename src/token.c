@@ -839,6 +839,18 @@ const string_t *part_get_param_name(const part_t *part)
     return part->param_name;
 }
 
+param_subtype_t part_get_param_kind(const part_t *part)
+{
+    Expects_not_null(part);
+    return part->param_kind;
+}
+
+const string_t *part_get_word(const part_t *part)
+{
+    Expects_not_null(part);
+    return part->word;
+}
+
 token_list_t *part_get_nested(const part_t *part)
 {
     Expects_not_null(part);

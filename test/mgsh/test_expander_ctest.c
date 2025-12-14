@@ -156,7 +156,7 @@ CTEST(test_expander_arithmetic_simple)
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     // Create a variable store and set a variable
-    variable_store_t *vars = variable_store_create("test");
+    variable_store_t *vars = variable_store_create();
     expander_set_variable_store(exp, vars);
     
     // Create a word token with an arithmetic part: $((1+2))
@@ -193,7 +193,7 @@ CTEST(test_expander_arithmetic_with_variable)
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     // Create a variable store and set x=10
-    variable_store_t *vars = variable_store_create("test");
+    variable_store_t *vars = variable_store_create();
     variable_store_add_cstr(vars, "x", "10", false, false);
     expander_set_variable_store(exp, vars);
     
@@ -231,7 +231,7 @@ CTEST(test_expander_arithmetic_complex)
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     // Create a variable store and set x=10, y=5
-    variable_store_t *vars = variable_store_create("test");
+    variable_store_t *vars = variable_store_create();
     variable_store_add_cstr(vars, "x", "10", false, false);
     variable_store_add_cstr(vars, "y", "5", false, false);
     expander_set_variable_store(exp, vars);
@@ -271,7 +271,7 @@ CTEST(test_expander_arithmetic_empty)
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     // Create a variable store
-    variable_store_t *vars = variable_store_create("test");
+    variable_store_t *vars = variable_store_create();
     expander_set_variable_store(exp, vars);
     
     // Create a word token with an empty arithmetic part: $(())
@@ -308,7 +308,7 @@ CTEST(test_expander_arithmetic_nested)
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     // Create a variable store
-    variable_store_t *vars = variable_store_create("test");
+    variable_store_t *vars = variable_store_create();
     expander_set_variable_store(exp, vars);
     
     // Create a word token with nested arithmetic: $((1 + $((1 + 1))))

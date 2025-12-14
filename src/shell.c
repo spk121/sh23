@@ -77,7 +77,7 @@ shell_t *shell_create(const shell_config_t *cfg)
     if (cfg && cfg->initial_vars)
         ; //sh->vars = variable_store_clone(cfg->initial_vars);
     else
-        sh->vars = variable_store_create("mgsh");
+        sh->vars = variable_store_create();
 
     // Components
     sh->lexer = lexer_create();

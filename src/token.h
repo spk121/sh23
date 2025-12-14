@@ -84,7 +84,6 @@ typedef enum
 {
     PARAM_PLAIN,               // $var or ${var}
     PARAM_LENGTH,              // ${#var}
-    PARAM_SUBSTRING,           // ${var:offset:length}
     PARAM_USE_DEFAULT,         // ${var:-word}
     PARAM_ASSIGN_DEFAULT,      // ${var:=word}
     PARAM_ERROR_IF_UNSET,      // ${var:?word}
@@ -484,6 +483,17 @@ const string_t *part_get_text(const part_t *part);
  * Returns NULL for other part types.
  */
 const string_t *part_get_param_name(const part_t *part);
+
+/**
+ * Get the parameter kind/subtype of a PART_PARAMETER.
+ */
+param_subtype_t part_get_param_kind(const part_t *part);
+
+/**
+ * Get the word field of a PART_PARAMETER (used in ${var:-word}, etc.).
+ * Returns NULL for other part types or if no word is present.
+ */
+const string_t *part_get_word(const part_t *part);
 
 /**
  * Get the nested token list of a PART_COMMAND_SUBST or PART_ARITHMETIC.

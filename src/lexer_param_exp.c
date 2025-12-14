@@ -292,10 +292,8 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     default:
         if (has_colon)
         {
-            // ${var:offset:length} — substring
-            kind = PARAM_SUBSTRING;
-            // do not consume colon or offset — word starts now
-            op_len = 0;
+            lexer_set_error(lx, "bad substitution: invalid operator after ':'");
+            return LEX_ERROR;
         }
         else
         {

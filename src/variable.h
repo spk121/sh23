@@ -35,4 +35,11 @@ int variable_set_value_cstr(variable_t *variable, const char *value);
 int variable_set_exported(variable_t *variable, bool exported);
 int variable_set_read_only(variable_t *variable, bool read_only);
 
+// Value helpers
+int variable_get_value_length(const variable_t *variable);
+string_t *variable_remove_smallest_suffix(const variable_t *variable, const string_t *pattern);
+string_t *variable_remove_largest_suffix(const variable_t *variable, const string_t *pattern);
+string_t *variable_remove_smallest_prefix(const variable_t *variable, const string_t *pattern);
+string_t *variable_remove_largest_prefix(const variable_t *variable, const string_t *pattern);
+
 #endif
