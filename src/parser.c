@@ -1125,6 +1125,25 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
 
     parser_skip_newlines(parser);
 
+    // POSIX requirement: brace groups require a separator before the closing }
+    // Valid:   { echo foo; }  or  { echo foo\n}
+    // Invalid: { echo foo }
+    // Exception: Empty brace groups are allowed: { }
+    if (ast_node_list_size(body->data.command_list.items) > 0)
+    {
+        int last_sep_idx = ast_node_command_list_separator_count(body) - 1;
+        cmd_separator_t last_sep = ast_node_command_list_get_separator(body, last_sep_idx);
+        
+        if (last_sep == LIST_SEP_EOL)
+        {
+            // The last command had no separator token, but we're about to see }
+            // This violates POSIX: brace groups require a separator before }
+            parser_set_error(parser, "Expected separator (';' or newline) before '}'");
+            ast_node_destroy(&body);
+            return PARSE_ERROR;
+        }
+    }
+
     // Expect '}'
     status = parser_expect(parser, TOKEN_RBRACE);
     if (status != PARSE_OK)
