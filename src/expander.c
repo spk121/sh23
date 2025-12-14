@@ -208,6 +208,89 @@ void expander_clear_positionals(expander_t *exp)
     string_destroy(&empty);
 }
 
+static void expander_clear_error(expander_t *exp)
+{
+    if (exp->error_msg)
+    {
+        string_destroy(&exp->error_msg);
+        exp->error_msg = NULL;
+    }
+}
+
+static void expander_set_error(expander_t *exp, const char *msg)
+{
+    expander_clear_error(exp);
+    exp->error_msg = string_create_from_cstr(msg ? msg : "error");
+}
+
+void expander_push_positionals(expander_t *exp, string_t **params, int count)
+{
+    Expects_not_null(exp);
+    Expects_ge(count, 0);
+    if (count > 0)
+        Expects_not_null(params);
+
+    expander_clear_error(exp);
+
+    if (!positional_params_push(exp->pos_stack, params, count))
+    {
+        // Clean up parameters on failure since ownership was not taken
+        if (params)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (params[i])
+                    string_destroy(&params[i]);
+            }
+            xfree(params);
+        }
+        expander_set_error(exp, "too many positional parameters");
+    }
+}
+
+void expander_pop_positionals(expander_t *exp)
+{
+    Expects_not_null(exp);
+    positional_params_pop(exp->pos_stack);
+}
+
+void expander_replace_positionals(expander_t *exp, string_t **params, int count)
+{
+    Expects_not_null(exp);
+    Expects_ge(count, 0);
+    if (count > 0)
+        Expects_not_null(params);
+
+    expander_clear_error(exp);
+
+    if (!positional_params_replace(exp->pos_stack, params, count))
+    {
+        if (params)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (params[i])
+                    string_destroy(&params[i]);
+            }
+            xfree(params);
+        }
+        expander_set_error(exp, "too many positional parameters");
+    }
+}
+
+bool expander_shift_positionals(expander_t *exp, int n)
+{
+    Expects_not_null(exp);
+    Expects_ge(n, 0);
+
+    expander_clear_error(exp);
+
+    bool ok = positional_params_shift(exp->pos_stack, n);
+    if (!ok)
+        expander_set_error(exp, "shift count exceeds positional parameters");
+    return ok;
+}
+
 const string_t *expander_get_error(const expander_t *exp)
 {
     Expects_not_null(exp);

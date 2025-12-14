@@ -270,6 +270,12 @@ bool expander_set_positionals(expander_t *exp, int argc, const char **argv);
  */
 void expander_clear_positionals(expander_t *exp);
 
+// Positional parameter management for executor/builtins
+void expander_push_positionals(expander_t *exp, string_t **params, int count);
+void expander_pop_positionals(expander_t *exp);
+void expander_replace_positionals(expander_t *exp, string_t **params, int count);
+bool expander_shift_positionals(expander_t *exp, int n);
+
 /**
  * Get the last error message from the expander.
  * @param exp The expander instance
