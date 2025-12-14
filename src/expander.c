@@ -139,10 +139,18 @@ int expander_get_last_exit_status(const expander_t *exp)
     return exp->last_exit_status;
 }
 
-void expander_set_positionals(expander_t *exp, int argc, const char **argv)
+bool expander_set_positionals(expander_t *exp, int argc, const char **argv)
 {
     Expects_not_null(exp);
     Expects(argc >= 0);
+    
+    // Clear any previous error
+    if (exp->error_msg)
+    {
+        string_destroy(&exp->error_msg);
+        exp->error_msg = NULL;
+    }
+    
     // $0 is argv[0]; positional set is argv[1..]
     if (argc > 0 && argv)
     {
@@ -150,7 +158,17 @@ void expander_set_positionals(expander_t *exp, int argc, const char **argv)
         positional_params_set_zero(exp->pos_stack, tmp0);
         string_destroy(&tmp0);
     }
+    
     int count = (argc > 0) ? (argc - 1) : 0;
+    
+    // Check if count exceeds maximum
+    int max_params = positional_params_get_max(exp->pos_stack);
+    if (count > max_params)
+    {
+        exp->error_msg = string_create_from_cstr("too many positional parameters");
+        return false;
+    }
+    
     string_t **params = NULL;
     if (count > 0)
     {
@@ -161,7 +179,24 @@ void expander_set_positionals(expander_t *exp, int argc, const char **argv)
             params[i] = string_create_from_cstr(src);
         }
     }
-    positional_params_replace(exp->pos_stack, params, count);
+    
+    if (!positional_params_replace(exp->pos_stack, params, count))
+    {
+        // Clean up on failure
+        if (params)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                if (params[i])
+                    string_destroy(&params[i]);
+            }
+            xfree(params);
+        }
+        exp->error_msg = string_create_from_cstr("failed to set positional parameters");
+        return false;
+    }
+    
+    return true;
 }
 
 void expander_clear_positionals(expander_t *exp)
@@ -171,6 +206,12 @@ void expander_clear_positionals(expander_t *exp)
     string_t *empty = string_create();
     positional_params_set_zero(exp->pos_stack, empty);
     string_destroy(&empty);
+}
+
+const string_t *expander_get_error(const expander_t *exp)
+{
+    Expects_not_null(exp);
+    return exp->error_msg;
 }
 
 #ifdef POSIX_API
@@ -426,7 +467,25 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
         // Unset positional -> empty string
         return string_create();
     }
-    
+
+    // Special parameter: $* (join all positional params)
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '*')
+    {
+        char sep = (string_length(exp->ifs) > 0) ? string_at(exp->ifs, 0) : ' ';
+        string_t *result = positional_params_get_all_joined(exp->pos_stack, sep);
+        return result ? result : string_create();
+    }
+
+    // Special parameter: $@ (requires special handling in expander_expand_word)
+    if (string_length(param_name) == 1 && string_at(param_name, 0) == '@')
+    {
+        // When unquoted, $@ behaves like $* (will be field-split later)
+        // When quoted ("$@"), it must preserve word boundaries - handled specially below
+        char sep = (string_length(exp->ifs) > 0) ? string_at(exp->ifs, 0) : ' ';
+        string_t *result = positional_params_get_all_joined(exp->pos_stack, sep);
+        return result ? result : string_create();
+    }
+
     string_t *value = NULL;
     const char *ev = NULL;
 
@@ -792,6 +851,25 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     {
         int part_count = part_list_size(parts);
         
+        // Special case: "$@" must preserve word boundaries and not undergo field splitting
+        // This must be detected BEFORE we start building the expanded string
+        if (part_count == 1)
+        {
+            part_t *only_part = part_list_get(parts, 0);
+            if (part_get_type(only_part) == PART_PARAMETER &&
+                part_was_double_quoted(only_part))
+            {
+                const string_t *param_name = part_get_param_name(only_part);
+                if (param_name && 
+                    string_length(param_name) == 1 && 
+                    string_at(param_name, 0) == '@')
+                {
+                    // "$@" - return all positional params as separate fields
+                    return positional_params_get_all(exp->pos_stack);
+                }
+            }
+        }
+       
         for (int i = 0; i < part_count; i++)
         {
             part_t *part = part_list_get(parts, i);

@@ -15,6 +15,7 @@ struct positional_params_stack_t {
     int depth;
     int capacity;
     string_t *zero; // $0 stored separately
+    int max_params; // Maximum number of positional parameters allowed
 };
 
 static positional_params_t *positional_params_create_frame(string_t **params, int count)
@@ -63,6 +64,7 @@ positional_params_stack_t *positional_params_stack_create(void)
     s->depth = 0;
     s->frames = NULL;
     s->zero = string_create();
+    s->max_params = POSITIONAL_PARAMS_MAX;
     // initialize with an empty frame
     positional_params_stack_ensure_capacity(s, 1);
     s->frames[0] = positional_params_create_frame(NULL, 0);
@@ -83,16 +85,20 @@ void positional_params_stack_destroy(positional_params_stack_t **stack)
     *stack = NULL;
 }
 
-void positional_params_push(positional_params_stack_t *stack, string_t **params, int count)
+bool positional_params_push(positional_params_stack_t *stack, string_t **params, int count)
 {
     Expects_not_null(stack);
     Expects(count >= 0);
     if (count > 0)
         Expects_not_null(params);
 
+    if (count > stack->max_params)
+        return false;
+
     positional_params_stack_ensure_capacity(stack, stack->depth + 1);
     stack->frames[stack->depth] = positional_params_create_frame(params, count);
     stack->depth += 1;
+    return true;
 }
 
 void positional_params_pop(positional_params_stack_t *stack)
@@ -168,7 +174,7 @@ string_t *positional_params_get_all_joined(const positional_params_stack_t *stac
     return out;
 }
 
-static void positional_params_replace_frame(positional_params_stack_t *stack, string_t **params, int count)
+static bool positional_params_replace_frame(positional_params_stack_t *stack, string_t **params, int count)
 {
     Expects_not_null(stack);
     Expects(count >= 0);
@@ -177,13 +183,18 @@ static void positional_params_replace_frame(positional_params_stack_t *stack, st
         Expects_not_null(params);
         Expects_not_null(*params);
     }
+    
+    if (count > stack->max_params)
+        return false;
+    
     positional_params_t *cur = positional_params_current(stack);
-    if (!cur) return;
+    if (!cur) return false;
     positional_params_destroy_frame(&stack->frames[stack->depth - 1]);
     stack->frames[stack->depth - 1] = positional_params_create_frame(params, count);
+    return true;
 }
 
-void positional_params_replace(positional_params_stack_t *stack, string_t **params, int count)
+bool positional_params_replace(positional_params_stack_t *stack, string_t **params, int count)
 {
     Expects_not_null(stack);
     Expects_ge(count, 0);
@@ -193,7 +204,7 @@ void positional_params_replace(positional_params_stack_t *stack, string_t **para
         Expects_not_null(*params);
     }
 
-    positional_params_replace_frame(stack, params, count);
+    return positional_params_replace_frame(stack, params, count);
 }
 
 bool positional_params_shift(positional_params_stack_t *stack, int n)
@@ -224,6 +235,21 @@ bool positional_params_shift(positional_params_stack_t *stack, int n)
     cur->params = new_params;
     cur->count = new_count;
     return true;
+}
+
+void positional_params_set_max(positional_params_stack_t *stack, int max_params)
+{
+    Expects_not_null(stack);
+    Expects(max_params > 0);
+    
+    stack->max_params = max_params;
+}
+
+int positional_params_get_max(const positional_params_stack_t *stack)
+{
+    Expects_not_null(stack);
+    
+    return stack->max_params;
 }
 
 void positional_params_set_zero(positional_params_stack_t *stack, const string_t *name)

@@ -260,14 +260,22 @@ char *expand_string(expander_t *exp, variable_store_t *vars, const char *input);
  * @param exp The expander instance
  * @param argc Number of arguments
  * @param argv Array of C strings (size >= argc)
+ * @return true if successful, false if number of parameters exceeds maximum allowed
  */
-void expander_set_positionals(expander_t *exp, int argc, const char **argv);
+bool expander_set_positionals(expander_t *exp, int argc, const char **argv);
 
 /**
  * Clear positional parameters.
  * @param exp The expander instance
  */
 void expander_clear_positionals(expander_t *exp);
+
+/**
+ * Get the last error message from the expander.
+ * @param exp The expander instance
+ * @return Error message string, or NULL if no error
+ */
+const string_t *expander_get_error(const expander_t *exp);
 
 
 #endif /* EXPANDER_H */

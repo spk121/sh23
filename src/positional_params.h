@@ -5,6 +5,13 @@
 #include "string_t.h"
 #include <stdbool.h>
 
+// Maximum number of positional parameters allowed
+#define POSITIONAL_PARAMS_MAX 4096
+#if __STDC_VERSION__ >= 202311L
+static_assert(POSITIONAL_PARAMS_MAX > 0, "POSITIONAL_PARAMS_MAX must be positive");
+static_assert(POSITIONAL_PARAMS_MAX < INT_MAX, "POSITIONAL_PARAMS_MAX must fit in int");
+#endif
+
 // Opaque types
 typedef struct positional_params_t positional_params_t;
 typedef struct positional_params_stack_t positional_params_stack_t;
@@ -35,8 +42,9 @@ void positional_params_stack_destroy(positional_params_stack_t **stack);
  * @param stack The parameter stack
  * @param params Array of parameters (params[0] is $1)
  * @param count Number of parameters
+ * @return true if successful, false if count exceeds maximum allowed
  */
-void positional_params_push(positional_params_stack_t *stack, 
+bool positional_params_push(positional_params_stack_t *stack, 
                             string_t **params, int count);
 
 /**
@@ -103,8 +111,9 @@ string_t *positional_params_get_all_joined(const positional_params_stack_t *stac
  * @param stack The parameter stack
  * @param params Array of new parameters (params[0] is $1)
  * @param count Number of parameters
+ * @return true if successful, false if count exceeds maximum allowed
  */
-void positional_params_replace(positional_params_stack_t *stack,
+bool positional_params_replace(positional_params_stack_t *stack,
                                string_t **params, int count);
 
 /**
@@ -116,6 +125,26 @@ void positional_params_replace(positional_params_stack_t *stack,
  * @return true if successful, false if n > parameter count
  */
 bool positional_params_shift(positional_params_stack_t *stack, int n);
+
+// ============================================================================
+// Maximum Parameter Limit
+// ============================================================================
+
+/**
+ * Set the maximum number of positional parameters allowed.
+ * 
+ * @param stack The parameter stack
+ * @param max_params Maximum number of positional parameters (must be > 0)
+ */
+void positional_params_set_max(positional_params_stack_t *stack, int max_params);
+
+/**
+ * Get the maximum number of positional parameters allowed.
+ * 
+ * @param stack The parameter stack
+ * @return Maximum number of positional parameters
+ */
+int positional_params_get_max(const positional_params_stack_t *stack);
 
 // ============================================================================
 // $0 Management (separate from positional parameters)
