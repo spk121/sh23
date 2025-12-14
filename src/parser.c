@@ -96,15 +96,24 @@ bool parser_accept(parser_t *parser, token_type_t type)
 
 parse_status_t parser_expect(parser_t *parser, token_type_t type)
 {
-    if (parser_current_token_type(parser) == type)
+    token_type_t got = parser_current_token_type(parser);
+
+    if (got == type)
     {
         parser_advance(parser);
         return PARSE_OK;
     }
 
+    if (got == TOKEN_EOF)
+    {
+        parser_set_error(parser, "Unexpected end of input (expected %s)",
+                        token_type_to_string(type));
+        return PARSE_INCOMPLETE;
+    }
+
     parser_set_error(parser, "Expected %s but got %s",
                     token_type_to_string(type),
-                    token_type_to_string(parser_current_token_type(parser)));
+                    token_type_to_string(got));
     return PARSE_ERROR;
 }
 
@@ -233,6 +242,13 @@ void parser_clear_error(parser_t *parser)
 {
     Expects_not_null(parser);
     string_clear(parser->error_msg);
+}
+
+bool parser_error_is_unexpected_eof(const parser_t *parser, parse_status_t status)
+{
+    Expects_not_null(parser);
+    return status == PARSE_INCOMPLETE && parser != NULL &&
+           (parser->tokens == NULL || parser->position >= token_list_size(parser->tokens));
 }
 
 /* ============================================================================

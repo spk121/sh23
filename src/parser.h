@@ -242,4 +242,9 @@ const char *parser_get_error(const parser_t *parser);
  */
 void parser_clear_error(parser_t *parser);
 
+/**
+ * Check if the most recent parse failure was due to unexpected EOF.
+ */
+bool parser_error_is_unexpected_eof(const parser_t *parser, parse_status_t status);
+
 #endif /* PARSER_T_H */
