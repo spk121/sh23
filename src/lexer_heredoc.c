@@ -21,6 +21,7 @@
 #include <ctype.h>
 #include <string.h>
 
+#if 0
 /**
  * Check if a character is a special parameter character.
  * These can follow $ directly without braces.
@@ -42,6 +43,7 @@ static bool is_name_start_char(char c)
 {
     return (isalpha(c) || c == '_');
 }
+#endif
 
 /**
  * Characters that can be escaped with backslash in unquoted heredoc.

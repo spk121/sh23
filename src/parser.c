@@ -20,7 +20,6 @@ parser_t *parser_create(void)
 {
     parser_t *parser = (parser_t *)xcalloc(1, sizeof(parser_t));
     parser->error_msg = string_create();
-    parser->allow_in_keyword = false;
     return parser;
 }
 
@@ -228,6 +227,10 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
         else if (parser_accept(parser, TOKEN_NEWLINE))
         {
             separator = LIST_SEP_SEQUENTIAL;
+        }
+        else
+        {
+            separator = LIST_SEP_EOL;
         }
 
         // Store separator
@@ -1128,6 +1131,52 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
     return PARSE_OK;
 }
 
+static int is_valid_name_cstr(const char *s)
+{
+    Expects_not_null(s);
+    Expects_ne(*s, '\0');
+
+    if (!(isalpha((unsigned char)*s) || *s == '_'))
+        return 0;
+    for (const unsigned char *p = (const unsigned char *)s + 1; *p; ++p)
+    {
+        if (!(isalnum(*p) || *p == '_'))
+            return 0;
+    }
+    return 1;
+}
+
+static bool get_function_name_from_token(parser_t *parser, token_t *tok, string_t *func_name)
+{
+    Expects_not_null(tok);
+    Expects_not_null(func_name);
+
+    if (token_get_type(tok) != TOKEN_WORD)
+        return false;
+
+    if (token_was_quoted(tok))
+    {
+        parser_set_error(parser, "Function name cannot be quoted");
+        return false;
+    }
+    for (int i = 0; i < token_part_count(tok); i++)
+    {
+        part_t *part = token_get_part(tok, i);
+        if (part_get_type(part) != PART_LITERAL)
+        {
+            parser_set_error(parser, "Function name cannot contain expansions");
+            return false;
+        }
+        string_append(func_name, part_get_text(part));
+    }
+    if (string_length(func_name) == 0 || !is_valid_name_cstr(string_cstr(func_name)))
+    {
+        parser_set_error(parser, "Invalid function name");
+        return false;
+    }
+    return true;
+}
+
 parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node)
 {
     Expects_not_null(parser);
@@ -1143,19 +1192,9 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
     token_t *name_tok = parser_current_token(parser);
     // Extract function name
     string_t *func_name = string_create();
-    if (token_part_count(name_tok) == 1)
+    if (!get_function_name_from_token(parser, name_tok, func_name))
     {
-        part_t *part = token_get_part(name_tok, 0);
-        if (part_get_type(part) == PART_LITERAL)
-        {
-            string_append(func_name, part_get_text(part));
-        }
-    }
-    
-    // Validate that we got a name
-    if (string_length(func_name) == 0)
-    {
-        parser_set_error(parser, "Invalid function name");
+        // Error already set in get_function_name_from_token().
         string_destroy(&func_name);
         return PARSE_ERROR;
     }

@@ -13,10 +13,12 @@
 #include "tokenizer.h"
 
 // Internal helpers used by shell_feed_line/shell_run_script
+#if 0
 static sh_status_t sh_lex(shell_t *sh, token_list_t **out_tokens);
 static sh_status_t sh_parse(shell_t *sh, token_list_t *tokens, ast_t **out_ast);
 static sh_status_t sh_expand(shell_t *sh, ast_t *ast, ast_t **out_expanded);
 static sh_status_t sh_execute(shell_t *sh, ast_t *ast);
+#endif
 
 static char *normalize_newlines(const char *input)
 {

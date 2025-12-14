@@ -71,6 +71,7 @@ typedef enum
 {
     LIST_SEP_SEQUENTIAL, // ; or newline
     LIST_SEP_BACKGROUND, // &
+    LIST_SEP_EOL
 } cmd_separator_t;
 
 /* Command separator list structure */

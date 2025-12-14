@@ -32,10 +32,6 @@ typedef struct parser_t
     string_t *error_msg;
     int error_line;
     int error_column;
-
-    /* Parser state */
-    bool allow_in_keyword; // context flag for "in" keyword in for loops
-
 } parser_t;
 
 /* ============================================================================

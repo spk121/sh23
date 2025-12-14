@@ -82,7 +82,7 @@ static void parser_init(math_parser_t *parser, expander_t *exp, variable_store_t
 
 // Skip whitespace
 static void skip_whitespace(math_parser_t *parser) {
-    while (isspace(string_at(parser->input, parser->pos))) {
+    while (parser->pos < string_length(parser->input) && isspace(string_at(parser->input, parser->pos))) {
         parser->pos++;
     }
 }

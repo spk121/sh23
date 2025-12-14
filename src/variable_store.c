@@ -1,6 +1,8 @@
 #include "variable_store.h"
 #include "xalloc.h"
+#ifdef POSIX_C
 #include <unistd.h>
+#endif
 #include <string.h>
 
 // Comparison function for finding variable_t by name
