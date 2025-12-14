@@ -410,13 +410,10 @@ CTEST(test_parser_for_loop)
  * Parser Tests - Case Statements
  * ============================================================================ */
 
-// NOTE: Case statement parsing is implemented but currently has a memory issue
-// in the test that needs further investigation. The parser code itself works.
-// Temporarily skipped to allow other tests to run.
-/*
+// Re-enabled now that parser and ownership semantics are stable
 CTEST(test_parser_case_statement)
 {
-    ast_node_t *ast = parse_string("case $x in\na) echo a;;\nb) echo b;;\nesac");
+    ast_node_t *ast = parse_string("case $x in\na ) echo a;;\nb ) echo b;;\nesac");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
     
     if (ast != NULL)
@@ -431,7 +428,29 @@ CTEST(test_parser_case_statement)
     }
     (void)ctest;
 }
-*/
+
+// Small case-specific test: optional leading '(' before pattern list
+CTEST(test_parser_case_leading_paren)
+{
+    ast_node_t *ast = parse_string("case x in\n(a) echo a;;\n esac");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_CASE_CLAUSE, "is case clause");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.case_items, "has case items");
+        CTEST_ASSERT_EQ(ctest, first->data.case_clause.case_items->size, 1, "one case item");
+        
+        ast_node_t *item = first->data.case_clause.case_items->nodes[0];
+        CTEST_ASSERT_NOT_NULL(ctest, item->data.case_item.patterns, "item has patterns");
+        CTEST_ASSERT_EQ(ctest, token_list_size(item->data.case_item.patterns), 1, "one pattern");
+        CTEST_ASSERT_NOT_NULL(ctest, item->data.case_item.body, "item has body");
+
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
 
 /* ============================================================================
  * Parser Tests - Function Definitions
@@ -757,8 +776,8 @@ int main(void)
         CTEST_ENTRY(test_parser_for_loop),
 
         // Parser Tests - Case Statements
-        // Note: Case statement test temporarily skipped due to memory issue
-        // CTEST_ENTRY(test_parser_case_statement),
+        CTEST_ENTRY(test_parser_case_statement),
+        CTEST_ENTRY(test_parser_case_leading_paren),
 
         // Parser Tests - Function Definitions
         CTEST_ENTRY(test_parser_function_def),

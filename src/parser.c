@@ -249,44 +249,48 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
             break;
 
         bool promoted = false;
-        if (!promoted && context == PARSE_COMMAND_IN_IF)
+        token_t *promote_tok = parser_current_token(parser);
+        if (promote_tok != NULL && token_get_type(promote_tok) == TOKEN_WORD)
         {
-            promoted = token_try_promote_to_then(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_THEN)
-        {
-            promoted = token_try_promote_to_elif(parser_current_token(parser))
-                || token_try_promote_to_else(parser_current_token(parser))
-                || token_try_promote_to_fi(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_ELIF)
-        {
-            promoted = token_try_promote_to_then(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_ELSE)
-        {
-            promoted = token_try_promote_to_fi(parser_current_token(parser));
-        }
-        else if(!promoted && (context == PARSE_COMMAND_IN_WHILE || context == PARSE_COMMAND_IN_UNTIL))
-        {
-            promoted = token_try_promote_to_do(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_DO)
-        {
-            promoted = token_try_promote_to_done(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_FOR)
-        {
-            promoted = token_try_promote_to_in(parser_current_token(parser)) 
-                || token_try_promote_to_do(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_CASE)
-        {
-            promoted = token_try_promote_to_esac(parser_current_token(parser));
-        }
-        else if(!promoted && context == PARSE_COMMAND_IN_BRACE_GROUP)
-        {
-            promoted = token_try_promote_to_rbrace(parser_current_token(parser));
+            if (!promoted && context == PARSE_COMMAND_IN_IF)
+            {
+                promoted = token_try_promote_to_then(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_THEN)
+            {
+                promoted = token_try_promote_to_elif(promote_tok)
+                    || token_try_promote_to_else(promote_tok)
+                    || token_try_promote_to_fi(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_ELIF)
+            {
+                promoted = token_try_promote_to_then(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_ELSE)
+            {
+                promoted = token_try_promote_to_fi(promote_tok);
+            }
+            else if(!promoted && (context == PARSE_COMMAND_IN_WHILE || context == PARSE_COMMAND_IN_UNTIL))
+            {
+                promoted = token_try_promote_to_do(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_DO)
+            {
+                promoted = token_try_promote_to_done(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_FOR)
+            {
+                promoted = token_try_promote_to_in(promote_tok) 
+                    || token_try_promote_to_do(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_CASE)
+            {
+                promoted = token_try_promote_to_esac(promote_tok);
+            }
+            else if(!promoted && context == PARSE_COMMAND_IN_BRACE_GROUP)
+            {
+                promoted = token_try_promote_to_rbrace(promote_tok);
+            }
         }
 
         // RPAREN is handled in the tokenizer because it is not context-sensitive.
@@ -297,7 +301,8 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
             current == TOKEN_FI || current == TOKEN_DONE ||
             current == TOKEN_ESAC || current == TOKEN_EOF ||
             current == TOKEN_THEN || current == TOKEN_ELSE ||
-            current == TOKEN_ELIF || current == TOKEN_DO)
+            current == TOKEN_ELIF || current == TOKEN_DO ||
+            current == TOKEN_DSEMI)
         {
             break;
         }
@@ -1070,8 +1075,18 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
     while (parser_current_token_type(parser) != TOKEN_ESAC &&
            !parser_at_end(parser))
     {
+        // Allow promoting 'esac' if it's still a WORD so loop can terminate
+        token_t *ctok = parser_current_token(parser);
+        if (ctok != NULL && token_get_type(ctok) == TOKEN_WORD)
+        {
+            token_try_promote_to_reserved_word(ctok, true);
+            if (token_get_type(ctok) == TOKEN_ESAC)
+                break;
+        }
         // Parse pattern list
         token_list_t *patterns = token_list_create();
+        // POSIX: allow optional leading '(' before the pattern list
+        parser_accept(parser, TOKEN_LPAREN);
         
         if (parser_current_token_type(parser) != TOKEN_WORD)
         {

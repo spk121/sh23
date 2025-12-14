@@ -95,6 +95,7 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_tokenizer_ctest.c
     test/mgsh/test_ast_ctest.c
     test/mgsh/test_expander_ctest.c
+    test/mgsh/test_ast_heredoc_ctest.c
 )
 
 foreach(test_src ${MGSH_TEST_SOURCES})
