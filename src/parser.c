@@ -356,10 +356,6 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
                 promoted = token_try_promote_to_in(promote_tok) 
                     || token_try_promote_to_do(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_CASE)
-            {
-                promoted = token_try_promote_to_esac(promote_tok);
-            }
             else if(!promoted && context == PARSE_COMMAND_IN_BRACE_GROUP)
             {
                 promoted = token_try_promote_to_rbrace(promote_tok);
@@ -370,6 +366,11 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
 
         // Check for end tokens
         token_type_t current = parser_current_token_type(parser);
+        if (context == PARSE_COMMAND_IN_CASE && current == TOKEN_WORD)
+        {
+            token_try_promote_to_esac(parser_current_token(parser));
+            current = parser_current_token_type(parser);
+        }
         if (current == TOKEN_RPAREN || current == TOKEN_RBRACE ||
             current == TOKEN_FI || current == TOKEN_DONE ||
             current == TOKEN_ESAC || current == TOKEN_EOF ||
