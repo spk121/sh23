@@ -271,8 +271,33 @@ void ast_node_set_location(ast_node_t *node, int first_line, int first_column,
  * AST Node Creation Helpers
  * ============================================================================ */
 
+/*
+ * OWNERSHIP POLICY FOR TOKENS IN AST:
+ * 
+ * The AST takes FULL OWNERSHIP of all token_t pointers and token_list_t
+ * structures passed to ast_create_* functions. This includes:
+ *   - Individual token_t* (e.g., for case_clause.word, redirection.target)
+ *   - token_list_t* (e.g., for simple_command.words, for_clause.words)
+ * 
+ * When an AST node is destroyed via ast_node_destroy():
+ *   - All token_t objects are destroyed via token_destroy()
+ *   - All token_list_t structures are destroyed via token_list_destroy()
+ *   - This recursively destroys all tokens within the lists
+ * 
+ * The caller must NOT:
+ *   - Destroy tokens after passing them to AST
+ *   - Keep references to tokens after passing them to AST  
+ *   - Use token_list_destroy() on lists after passing them to AST
+ * 
+ * The caller should:
+ *   - Call token_list_release_tokens() on the original token_list from
+ *     the parser to clear pointers without destroying tokens
+ *   - Then free the token_list structure itself
+ */
+
 /**
  * Create a simple command node.
+ * OWNERSHIP: Takes ownership of words, redirections, and assignments.
  */
 ast_node_t *ast_create_simple_command(token_list_t *words, 
                                      ast_node_list_t *redirections,
@@ -321,17 +346,20 @@ ast_node_t *ast_create_until_clause(ast_node_t *condition, ast_node_t *body);
 
 /**
  * Create a for clause node.
+ * OWNERSHIP: Takes ownership of words token list (clones variable string).
  */
 ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words, 
                                  ast_node_t *body);
 
 /**
  * Create a case clause node.
+ * OWNERSHIP: Takes ownership of word token.
  */
 ast_node_t *ast_create_case_clause(token_t *word);
 
 /**
  * Create a case item node.
+ * OWNERSHIP: Takes ownership of patterns token list.
  */
 ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body);
 
@@ -343,6 +371,7 @@ ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
 
 /**
  * Create a redirection node.
+ * OWNERSHIP: Takes ownership of target token.
  */
 ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number, 
                                   token_t *target);

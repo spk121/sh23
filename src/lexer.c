@@ -524,7 +524,7 @@ void lexer_finalize_word(lexer_t *lx)
     try_promote_to_assignment(lx->current_token);
     token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col, lx->line_no, lx->col_no);
 
-
+    // Transfer ownership of the current token to the token list
     token_list_append(lx->tokens, lx->current_token);
     lx->current_token = NULL;
     lx->in_word = false;

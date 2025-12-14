@@ -34,10 +34,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_SIMPLE_COMMAND:
         if (n->data.simple_command.words != NULL)
         {
-            // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(n->data.simple_command.words);
-            xfree(n->data.simple_command.words->tokens);
-            xfree(n->data.simple_command.words);
+            // AST owns these tokens - destroy them
+            token_list_destroy(&n->data.simple_command.words);
         }
         if (n->data.simple_command.redirections != NULL)
         {
@@ -45,10 +43,8 @@ void ast_node_destroy(ast_node_t **node)
         }
         if (n->data.simple_command.assignments != NULL)
         {
-            // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(n->data.simple_command.assignments);
-            xfree(n->data.simple_command.assignments->tokens);
-            xfree(n->data.simple_command.assignments);
+            // AST owns these tokens - destroy them
+            token_list_destroy(&n->data.simple_command.assignments);
         }
         break;
 
@@ -98,10 +94,8 @@ void ast_node_destroy(ast_node_t **node)
         }
         if (n->data.for_clause.words != NULL)
         {
-            // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(n->data.for_clause.words);
-            xfree(n->data.for_clause.words->tokens);
-            xfree(n->data.for_clause.words);
+            // AST owns these tokens - destroy them
+            token_list_destroy(&n->data.for_clause.words);
         }
         ast_node_destroy(&n->data.for_clause.body);
         break;
@@ -109,8 +103,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_CASE_CLAUSE:
         if (n->data.case_clause.word != NULL)
         {
-            // Don't destroy token - it's owned by the parser's token list
-            n->data.case_clause.word = NULL;
+            // AST owns this token - destroy it
+            token_destroy(&n->data.case_clause.word);
         }
         if (n->data.case_clause.case_items != NULL)
         {
@@ -121,10 +115,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_CASE_ITEM:
         if (n->data.case_item.patterns != NULL)
         {
-            // Don't destroy tokens - they're owned by the parser's token list
-            token_list_release_tokens(n->data.case_item.patterns);
-            xfree(n->data.case_item.patterns->tokens);
-            xfree(n->data.case_item.patterns);
+            // AST owns these tokens - destroy them
+            token_list_destroy(&n->data.case_item.patterns);
         }
         ast_node_destroy(&n->data.case_item.body);
         break;
@@ -144,8 +136,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_REDIRECTION:
         if (n->data.redirection.target != NULL)
         {
-            // Don't destroy token - it's owned by the parser's token list
-            n->data.redirection.target = NULL;
+            // AST owns this token - destroy it
+            token_destroy(&n->data.redirection.target);
         }
         if (n->data.redirection.heredoc_content != NULL)
         {

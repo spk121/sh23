@@ -68,15 +68,17 @@ static ast_node_t *parse_string(const char *input)
     {
         const char *err = parser_get_error(parser);
         printf("Parse error for input '%s': %s\n", input, err ? err : "unknown");
+        parser_destroy(&parser);
+        token_list_destroy(&tokens);
+        return NULL;
     }
     
     parser_destroy(&parser);
-    // token_list_destroy(&tokens);
-
-    if (status != PARSE_OK)
-    {
-        return NULL;
-    }
+    
+    // AST now owns the tokens - release them from the list without destroying
+    token_list_release_tokens(tokens);
+    xfree(tokens->tokens);
+    xfree(tokens);
 
     return ast;
 }

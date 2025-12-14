@@ -63,6 +63,19 @@ void parser_destroy(parser_t **parser);
  * 
  * @return PARSE_OK on success, PARSE_ERROR on error, PARSE_EMPTY if no tokens
  * 
+ * OWNERSHIP POLICY:
+ *   - The parser does NOT take ownership of the token_list structure itself
+ *   - The resulting AST DOES take ownership of individual token_t objects
+ *     from the list
+ *   - After successful parsing, the caller must:
+ *     1. Call token_list_release_tokens() to clear pointers without
+ *        destroying tokens (which are now owned by the AST)
+ *     2. Free the token_list structure itself  
+ *     3. Eventually destroy the AST with ast_node_destroy(), which will
+ *        destroy all the tokens
+ *   - On parse failure, the token_list retains all its tokens and should
+ *     be destroyed normally with token_list_destroy()
+ * 
  * On success, caller takes ownership of the AST and must free it.
  */
 parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t **out_ast);

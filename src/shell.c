@@ -210,8 +210,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     tokenizer_destroy(&tokenizer);
     token_list_destroy(&tokens);
 
-    // Tokenize into AST
-    // The shell has a parser.
+    // Parse into AST
     ast_node_t *ast = NULL;
     parse_status_t parse_status = parser_parse(sh->parser, out_tokens, &ast);
     if (parse_status == PARSE_ERROR)
@@ -226,6 +225,11 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         token_list_destroy(&out_tokens);
         return SH_INTERNAL_ERROR;
     }
+ 
+    // AST now owns the tokens - release them from the list without destroying
+    token_list_release_tokens(out_tokens);
+    xfree(out_tokens->tokens);
+    xfree(out_tokens);
  
     // Step through AST, printing each node and their children.
     if (log_level() == LOG_DEBUG)
