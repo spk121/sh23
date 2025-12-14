@@ -134,7 +134,7 @@ CTEST(test_expander_expand_ast_stub)
     token_add_literal_part(word, text);
     string_destroy(&text);
     
-    ast_node_t *node = ast_create_word(word);
+    ast_node_t *node = ast_create_case_clause(word);
     CTEST_ASSERT_NOT_NULL(ctest, node, "AST node created");
     
     // Call the expansion function (stub should return it unchanged)

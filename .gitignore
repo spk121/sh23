@@ -60,6 +60,18 @@ tmp/
 *~
 build/
 
+# IDEs and editors
+.vscode/
+.vs/
+.idea/
+*.sublime-workspace
+*.sublime-project
+*.code-workspace
+*.vsidx
+
+# AI Slop
+*copilot*
+
 # CodeQL
 _codeql_build_dir/
 _codeql_detected_source_root

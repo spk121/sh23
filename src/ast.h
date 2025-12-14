@@ -230,12 +230,6 @@ struct ast_node_t
             token_t *target;       // filename or fd for redirection
             string_t *heredoc_content; // for heredoc
         } redirection;
-
-        /* AST_WORD */
-        struct
-        {
-            token_t *token; // wrapped token
-        } word;
     } data;
 };
 
@@ -352,11 +346,6 @@ ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
  */
 ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number, 
                                   token_t *target);
-
-/**
- * Create a word node.
- */
-ast_node_t *ast_create_word(token_t *token);
 
 /* ============================================================================
  * AST Node List Functions

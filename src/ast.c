@@ -153,14 +153,6 @@ void ast_node_destroy(ast_node_t **node)
         }
         break;
 
-    case AST_WORD:
-        if (n->data.word.token != NULL)
-        {
-            // Don't destroy token - it's owned by the parser's token list
-            n->data.word.token = NULL;
-        }
-        break;
-
     default:
         break;
     }
@@ -317,13 +309,6 @@ ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
     return node;
 }
 
-ast_node_t *ast_create_word(token_t *token)
-{
-    ast_node_t *node = ast_node_create(AST_WORD);
-    node->data.word.token = token;
-    return node;
-}
-
 /* ============================================================================
  * AST Node List Functions
  * ============================================================================ */
@@ -450,14 +435,28 @@ const char *ast_node_type_to_string(ast_node_type_t type)
         return "FUNCTION_DEF";
     case AST_REDIRECTION:
         return "REDIRECTION";
-    case AST_WORD:
-        return "WORD";
     case AST_CASE_ITEM:
         return "CASE_ITEM";
     default:
         return "UNKNOWN";
     }
 }
+
+// TODO: Implement a full AST to string function for debugging
+#if 0
+static void ast_print_redirection(ast_node_t *redir, int indent_level, string_t *result)
+{
+    for (int i = 0; i < indent_level + 1; i++)
+        string_append_cstr(result, "  ");
+    string_append_cstr(result, "words: ");
+    string_t *words_str = token_list_to_string(redir->data.);
+    string_append(result, words_str);
+    string_destroy(&words_str);
+    string_append_cstr(result, "\n");
+
+    fprintf(stderr, "redirection: %s\n", ast_node_type_to_string(redir->type));
+}
+#endif
 
 static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
                                      int indent_level)
@@ -490,6 +489,20 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_destroy(&words_str);
             string_append_cstr(result, "\n");
         }
+        // TODO: implement redirections printing.
+#if 0
+        if (node->data.simple_command.redirections != NULL &&
+            ast_node_list_size(node->data.simple_command.redirections) > 0)
+        {
+            fprintf(stderr, "    redirections:\n");
+            for (int i = 0; i < ast_node_list_size(node->data.simple_command.redirections); i++)
+            {
+                ast_node_t *redir = ast_node_list_get(node->data.simple_command.redirections, i);
+                ast_print_redirection(
+                    redir, indent + 2); // Assuming a helper function exists or add inline printing
+            }
+        }
+#endif
         break;
 
     case AST_PIPELINE:
