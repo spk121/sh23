@@ -136,7 +136,8 @@ static bool is_redirection_token(token_type_t type)
            type == TOKEN_DLESS || type == TOKEN_DGREAT ||
            type == TOKEN_LESSAND || type == TOKEN_GREATAND ||
            type == TOKEN_LESSGREAT || type == TOKEN_DLESSDASH ||
-           type == TOKEN_CLOBBER || type == TOKEN_IO_NUMBER;
+           type == TOKEN_CLOBBER || type == TOKEN_IO_NUMBER ||
+           type == TOKEN_IO_LOCATION;
 }
 
 static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
@@ -1538,12 +1539,72 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     Expects_not_null(out_node);
 
     int io_number = -1;
+    string_t *io_location = NULL;
 
-    // Check for IO_NUMBER
-    if (parser_current_token_type(parser) == TOKEN_IO_NUMBER)
+    // Check for IO_NUMBER or IO_LOCATION
+    token_type_t prefix_type = parser_current_token_type(parser);
+    if (prefix_type == TOKEN_IO_NUMBER)
     {
         token_t *num_tok = parser_current_token(parser);
         io_number = token_get_io_number(num_tok);
+        parser_advance(parser);
+    }
+    else if (prefix_type == TOKEN_IO_LOCATION)
+    {
+        token_t *loc_tok = parser_current_token(parser);
+        const string_t *loc = token_get_io_location(loc_tok);
+        const char *loc_cstr = loc ? string_cstr(loc) : NULL;
+        if (loc_cstr != NULL)
+        {
+            int len = string_length(loc);
+            if (len >= 2 && loc_cstr[0] == '{' && loc_cstr[len - 1] == '}')
+            {
+                const char *inner = loc_cstr + 1;
+                int inner_len = len - 2;
+                if (inner_len <= 0)
+                {
+                    parser_set_error(parser, "Invalid IO location");
+                    return PARSE_ERROR;
+                }
+
+                string_t *inner_str = string_create_from_cstr_len(inner, inner_len);
+                const char *inner_cstr = string_cstr(inner_str);
+
+                bool digits_only = true;
+                long value = 0;
+                for (int i = 0; i < inner_len; i++)
+                {
+                    unsigned char ch = (unsigned char)inner_cstr[i];
+                    if (!isdigit(ch))
+                    {
+                        digits_only = false;
+                        break;
+                    }
+                    value = value * 10 + (inner_cstr[i] - '0');
+                }
+
+                if (digits_only)
+                {
+                    io_number = (int)value;
+                    io_location = inner_str; // take ownership
+                }
+                else if (is_valid_name_cstr(inner_cstr))
+                {
+                    io_location = inner_str; // take ownership
+                }
+                else
+                {
+                    string_destroy(&inner_str);
+                    parser_set_error(parser, "Invalid IO location");
+                    return PARSE_ERROR;
+                }
+            }
+            else
+            {
+                parser_set_error(parser, "Invalid IO location");
+                return PARSE_ERROR;
+            }
+        }
         parser_advance(parser);
     }
 
@@ -1584,6 +1645,8 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
         break;
     default:
         parser_set_error(parser, "Expected redirection operator");
+        if (io_location != NULL)
+            string_destroy(&io_location);
         return PARSE_ERROR;
     }
 
@@ -1593,7 +1656,7 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     {
         // No delimiter token follows; lexer queued heredoc using its own parser of the delimiter.
         // We create the redirection node without a target; heredoc content will be provided later.
-        *out_node = ast_create_redirection(redir_type, io_number, NULL);
+        *out_node = ast_create_redirection(redir_type, io_number, io_location, NULL);
         return PARSE_OK;
     }
 
@@ -1601,12 +1664,14 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     if (parser_current_token_type(parser) != TOKEN_WORD && parser_current_token_type(parser) != TOKEN_IO_LOCATION)
     {
         parser_set_error(parser, "Expected filename after redirection operator");
+        if (io_location != NULL)
+            string_destroy(&io_location);
         return PARSE_ERROR;
     }
 
     token_t *target = parser_current_token(parser);
     parser_advance(parser);
 
-    *out_node = ast_create_redirection(redir_type, io_number, target);
+    *out_node = ast_create_redirection(redir_type, io_number, io_location, target);
     return PARSE_OK;
 }

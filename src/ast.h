@@ -246,6 +246,7 @@ struct ast_node_t
         {
             redirection_type_t redir_type;
             int io_number;         // file descriptor (or -1 for default)
+            string_t *io_location; // braced io location (e.g., "2" or "var")
             token_t *target;       // filename or fd for redirection
             string_t *heredoc_content; // for heredoc
         } redirection;
@@ -397,8 +398,8 @@ ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *
  * Create a redirection node.
  * OWNERSHIP: Takes ownership of target token.
  */
-ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number, 
-                                  token_t *target);
+ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
+                                  string_t *io_location, token_t *target);
 
 /* ============================================================================
  * AST Node List Functions

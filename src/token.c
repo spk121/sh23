@@ -47,6 +47,9 @@ void token_destroy(token_t **token)
     if (t->heredoc_content != NULL)
         string_destroy(&t->heredoc_content);
 
+    if (t->io_location != NULL)
+        string_destroy(&t->io_location);
+
     if (t->assignment_name != NULL)
         string_destroy(&t->assignment_name);
 
@@ -114,6 +117,24 @@ void token_set_io_number(token_t *token, int io_number)
 {
     Expects_not_null(token);
     token->io_number = io_number;
+}
+
+const string_t *token_get_io_location(const token_t *token)
+{
+    Expects_not_null(token);
+    if (token->type != TOKEN_IO_LOCATION)
+        return NULL;
+    return token->io_location;
+}
+
+void token_set_io_location(token_t *token, string_t *location)
+{
+    Expects_not_null(token);
+    if (token->io_location != NULL)
+    {
+        string_destroy(&token->io_location);
+    }
+    token->io_location = location;
 }
 
 bool token_is_last_part_literal(const token_t *token)

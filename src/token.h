@@ -262,6 +262,17 @@ int token_get_io_number(const token_t *token);
 void token_set_io_number(token_t *token, int io_number);
 
 /**
+ * Get the IO location string for TOKEN_IO_LOCATION (including the original
+ * braced lexeme). Returns NULL for other token types.
+ */
+const string_t *token_get_io_location(const token_t *token);
+
+/**
+ * Set the IO location string (takes ownership of the provided string).
+ */
+void token_set_io_location(token_t *token, string_t *location);
+
+/**
  * Check if the last part of a TOKEN_WORD is a PART_LITERAL.
  */
 bool token_is_last_part_literal(const token_t *token);

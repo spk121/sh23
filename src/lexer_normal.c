@@ -572,32 +572,39 @@ static bool try_emit_io_number(lexer_t *lx)
 static bool try_emit_braced_io_location(lexer_t *lx)
 {
     Expects_not_null(lx);
-    char c, c2;
 
     if (lexer_peek(lx) != '{')
         return false;
 
-    c = lexer_peek_ahead(lx, 1);
-    if (!isalpha(c) && c != '_')
+    char c = lexer_peek_ahead(lx, 1);
+    if (!(isalnum((unsigned char)c) || c == '_'))
         return false;
-    
-    int n = 2;
-    while (lexer_peek_ahead(lx, n) != '\0' && lexer_peek_ahead(lx, n) != '\n')
+
+    int n = 2; // already saw "{" and first identifier char
+    while (true)
     {
         c = lexer_peek_ahead(lx, n);
-
-        if (c != '}' && !isalnum(c) && c != '_')
+        if (c == '\0' || c == '\n')
             return false;
-        
-        c2 = lexer_peek_ahead(lx, n + 1);
-        if (c == '}' && (c2 == '<' || c2 == '>'))
+
+        if (c == '}')
         {
-            n++;
-            string_t *io_location = string_create_from_cstr_len(string_data(lx->input) + lx->pos, n);
-            lexer_emit_io_location_token(lx, string_cstr(io_location));
-            string_destroy(&io_location);
+            char next = lexer_peek_ahead(lx, n + 1);
+            if (next == '<' || next == '>')
+            {
+                int len = n + 1; // include closing brace
+                string_t *io_location = string_create_from_cstr_len(string_data(lx->input) + lx->pos, len);
+                lexer_emit_io_location_token(lx, string_cstr(io_location));
+                string_destroy(&io_location);
+                lexer_advance_n_chars(lx, len);
+                return true;
+            }
+            // '}' not followed by redirection operator – not an IO location
+            return false;
         }
+
+        if (!(isalnum((unsigned char)c) || c == '_'))
+            return false;
         n++;
     }
-    return false;
 }

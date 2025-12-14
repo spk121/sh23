@@ -650,6 +650,57 @@ CTEST(test_parser_append_redirection)
     (void)ctest;
 }
 
+CTEST(test_parser_braced_io_number_redirection)
+{
+    ast_node_t *ast = parse_string("{2}>out.txt");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
+        CTEST_ASSERT_EQ(ctest, first->data.simple_command.redirections->size, 1, "one redirection");
+
+        ast_node_t *redir = first->data.simple_command.redirections->nodes[0];
+        CTEST_ASSERT_EQ(ctest, redir->data.redirection.io_number, 2, "io number parsed");
+        CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.io_location, "io location stored");
+        CTEST_ASSERT_STR_EQ(ctest, string_cstr(redir->data.redirection.io_location), "2", "io location inner text");
+
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_braced_io_name_redirection)
+{
+    ast_node_t *ast = parse_string("{fd}>out.txt");
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+
+    if (ast != NULL)
+    {
+        ast_node_t *first = ast->data.command_list.items->nodes[0];
+        CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
+        CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
+        CTEST_ASSERT_EQ(ctest, first->data.simple_command.redirections->size, 1, "one redirection");
+
+        ast_node_t *redir = first->data.simple_command.redirections->nodes[0];
+        CTEST_ASSERT_EQ(ctest, redir->data.redirection.io_number, -1, "io number defaults when name used");
+        CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.io_location, "io location stored");
+        CTEST_ASSERT_STR_EQ(ctest, string_cstr(redir->data.redirection.io_location), "fd", "io location inner text");
+
+        ast_node_destroy(&ast);
+    }
+    (void)ctest;
+}
+
+CTEST(test_parser_braced_io_invalid_redirection)
+{
+    ast_node_t *ast = parse_string("{2x}>out.txt");
+    CTEST_ASSERT_NULL(ctest, ast, "parsing failed for invalid IO location");
+    (void)ctest;
+}
+
 /* ============================================================================
  * Executor Tests
  * ============================================================================ */
@@ -966,6 +1017,9 @@ int main(void)
         CTEST_ENTRY(test_parser_output_redirection),
         CTEST_ENTRY(test_parser_input_redirection),
         CTEST_ENTRY(test_parser_append_redirection),
+        CTEST_ENTRY(test_parser_braced_io_number_redirection),
+        CTEST_ENTRY(test_parser_braced_io_name_redirection),
+        CTEST_ENTRY(test_parser_braced_io_invalid_redirection),
 
         // Executor Tests
         CTEST_ENTRY(test_executor_create_destroy),

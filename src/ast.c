@@ -147,6 +147,10 @@ void ast_node_destroy(ast_node_t **node)
             // AST owns this token - destroy it
             token_destroy(&n->data.redirection.target);
         }
+        if (n->data.redirection.io_location != NULL)
+        {
+            string_destroy(&n->data.redirection.io_location);
+        }
         if (n->data.redirection.heredoc_content != NULL)
         {
             string_destroy(&n->data.redirection.heredoc_content);
@@ -299,11 +303,12 @@ ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
 }
 
 ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
-                                  token_t *target)
+                                  string_t *io_location, token_t *target)
 {
     ast_node_t *node = ast_node_create(AST_REDIRECTION);
     node->data.redirection.redir_type = redir_type;
     node->data.redirection.io_number = io_number;
+    node->data.redirection.io_location = io_location;
     node->data.redirection.target = target;
     node->data.redirection.heredoc_content = NULL;
     return node;
@@ -669,6 +674,14 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             char buf[32];
             snprintf(buf, sizeof(buf), "%d", node->data.redirection.io_number);
             string_append_cstr(result, buf);
+            string_append_cstr(result, "\n");
+        }
+        if (node->data.redirection.io_location != NULL)
+        {
+            for (int i = 0; i < indent_level + 1; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "io_location: ");
+            string_append(result, node->data.redirection.io_location);
             string_append_cstr(result, "\n");
         }
         if (node->data.redirection.target != NULL)
