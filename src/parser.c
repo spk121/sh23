@@ -473,6 +473,11 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
     ast_node_list_t *redirections = ast_node_list_create();
     token_list_t *assignments = token_list_create();
 
+    // Track heredoc redirections to collect bodies after command line
+    ast_node_t **pending_heredocs = NULL;
+    int pending_count = 0;
+    int pending_capacity = 0;
+
     bool has_command = false;
     string_t *dbg_str = NULL;
 
@@ -518,6 +523,21 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
                 return status;
             }
             ast_node_list_append(redirections, redir);
+            // If this redirection is a heredoc, remember to read its body
+            if (redir != NULL && redir->type == AST_REDIRECTION)
+            {
+                redirection_type_t rt = redir->data.redirection.redir_type;
+                if (rt == REDIR_HEREDOC || rt == REDIR_HEREDOC_STRIP)
+                {
+                    if (pending_count >= pending_capacity)
+                    {
+                        int newcap = (pending_capacity == 0) ? 4 : pending_capacity * 2;
+                        pending_heredocs = xrealloc(pending_heredocs, newcap * sizeof(ast_node_t *));
+                        pending_capacity = newcap;
+                    }
+                    pending_heredocs[pending_count++] = redir;
+                }
+            }
             continue;
         }
 
@@ -562,6 +582,71 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         parser_set_error(parser, "Expected command");
         return PARSE_ERROR;
     }
+
+    // If there are pending heredocs, read and attach their bodies now
+    for (int i = 0; i < pending_count; i++)
+    {
+        // Allow optional newlines before heredoc body tokens
+        parser_skip_newlines(parser);
+
+        if (parser_current_token_type(parser) != TOKEN_WORD)
+        {
+            // Clean up local tracking array before erroring
+            if (pending_heredocs)
+                xfree(pending_heredocs);
+            token_list_destroy(&words);
+            ast_node_list_destroy(&redirections);
+            token_list_destroy(&assignments);
+            parser_set_error(parser, "Expected here-document body");
+            return PARSE_ERROR;
+        }
+
+        token_t *body_tok = parser_current_token(parser);
+
+        // Extract literal text from heredoc body token
+        string_t *body = string_create();
+        int nparts = token_part_count(body_tok);
+        for (int p = 0; p < nparts; p++)
+        {
+            part_t *part = token_get_part(body_tok, p);
+            if (part_get_type(part) == PART_LITERAL || part_get_type(part) == PART_TILDE)
+            {
+                const string_t *txt = part_get_text(part);
+                if (txt)
+                    string_append(body, txt);
+            }
+            else
+            {
+                // Heredoc lexer should produce only literal content; treat other parts as literal fallback
+                const string_t *txt = part_get_text(part);
+                if (txt)
+                    string_append(body, txt);
+            }
+        }
+
+        // Attach to corresponding redirection node
+        ast_node_t *redir_node = pending_heredocs[i];
+        if (redir_node->data.redirection.heredoc_content != NULL)
+        {
+            string_destroy(&redir_node->data.redirection.heredoc_content);
+        }
+        redir_node->data.redirection.heredoc_content = body;
+
+        // Consume the body WORD and the END_OF_HEREDOC marker
+        parser_advance(parser);
+        if (parser_expect(parser, TOKEN_END_OF_HEREDOC) != PARSE_OK)
+        {
+            if (pending_heredocs)
+                xfree(pending_heredocs);
+            token_list_destroy(&words);
+            ast_node_list_destroy(&redirections);
+            token_list_destroy(&assignments);
+            return PARSE_ERROR;
+        }
+    }
+
+    if (pending_heredocs)
+        xfree(pending_heredocs);
 
     *out_node = ast_create_simple_command(words, redirections, assignments);
     return PARSE_OK;
@@ -1324,12 +1409,14 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     case TOKEN_DGREAT:
         redir_type = REDIR_APPEND;
         break;
-    //case TOKEN_DLESS:
-    //    redir_type = REDIR_HEREDOC;
-    //    break;
-    //case TOKEN_DLESSDASH:
-    //    redir_type = REDIR_HEREDOC_STRIP;
-    //    break;
+    case TOKEN_DLESS:
+        // Heredoc: lexer already parsed and queued delimiter; no target token follows
+        redir_type = REDIR_HEREDOC;
+        break;
+    case TOKEN_DLESSDASH:
+        // Heredoc with tab stripping: lexer already parsed and queued delimiter
+        redir_type = REDIR_HEREDOC_STRIP;
+        break;
     case TOKEN_LESSAND:
         redir_type = REDIR_DUP_INPUT;
         break;
@@ -1343,33 +1430,30 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
         redir_type = REDIR_CLOBBER;
         break;
     default:
-        if (current == TOKEN_DLESS || current == TOKEN_DLESSDASH)
-        {
-            // TODO: Implement heredoc redirection properly
-            // For now, create a basic redirection node
-            redir_type = (current == TOKEN_DLESS) ? REDIR_HEREDOC : REDIR_HEREDOC_STRIP;
-            parser_advance(parser); // consume << or <<-
-            *out_node = ast_create_redirection(redir_type, io_number, NULL);
-            return PARSE_OK;
-        }    
         parser_set_error(parser, "Expected redirection operator");
         return PARSE_ERROR;
     }
 
     parser_advance(parser);
 
-    // Expect target (filename or fd)
-    if (parser_current_token_type(parser) != TOKEN_WORD)
+    if (redir_type == REDIR_HEREDOC || redir_type == REDIR_HEREDOC_STRIP)
+    {
+        // No delimiter token follows; lexer queued heredoc using its own parser of the delimiter.
+        // We create the redirection node without a target; heredoc content will be provided later.
+        *out_node = ast_create_redirection(redir_type, io_number, NULL);
+        return PARSE_OK;
+    }
+
+    // Expect target (filename or fd) for non-heredoc redirections
+    if (parser_current_token_type(parser) != TOKEN_WORD && parser_current_token_type(parser) != TOKEN_IO_LOCATION)
     {
         parser_set_error(parser, "Expected filename after redirection operator");
         return PARSE_ERROR;
     }
 
-    // FIXME: figure out who owns the target token.
     token_t *target = parser_current_token(parser);
     parser_advance(parser);
 
-    // Should ast_create_redirection clone the target token?
     *out_node = ast_create_redirection(redir_type, io_number, target);
     return PARSE_OK;
 }
