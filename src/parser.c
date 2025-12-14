@@ -152,7 +152,14 @@ static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
 
         if (parser_current_token_type(parser) != TOKEN_WORD)
         {
-            parser_set_error(parser, "Expected here-document body");
+            if (pending_count == 1)
+            {
+                parser_set_error(parser, "Expected here-document body");
+            }
+            else
+            {
+                parser_set_error(parser, "Expected here-document body for heredoc #%d of %d", i + 1, pending_count);
+            }
             return PARSE_ERROR;
         }
 
