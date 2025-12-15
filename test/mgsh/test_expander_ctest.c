@@ -23,6 +23,103 @@ CTEST(test_expander_create_destroy)
     (void)ctest;
 }
 
+    /**
+     * Recursive parameter expansion: ${foo:=${bar}} assigns foo to expanded ${bar}
+     */
+    CTEST(test_expander_recursive_param_assign_default)
+    {
+        expander_t *exp = expander_create();
+        variable_store_t *vars = variable_store_create();
+        expander_set_variable_store(exp, vars);
+
+        // Set bar=B; leave foo unset
+        variable_store_add_cstr(vars, "bar", "B", false, false);
+
+        // Build word token containing a PART_PARAMETER for ${foo:=${bar}}
+        token_t *word = token_create_word();
+        part_t *p = part_create_parameter(string_create_from_cstr("foo"));
+        p->param_kind = PARAM_ASSIGN_DEFAULT;
+        p->word = string_create_from_cstr("${bar}");
+        token_add_part(word, p);
+
+        string_list_t *res = expander_expand_word(exp, word);
+        CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
+        const string_t *out = string_list_at(res, 0);
+        CTEST_ASSERT_STR_EQ(ctest, string_cstr(out), "B", "assign default uses expanded ${bar}");
+
+        // Verify foo was assigned to B in variable store
+        CTEST_ASSERT_EQ(ctest, variable_store_has_name_cstr(vars, "foo"), 1, "foo present");
+        const char *foo_val = variable_store_get_value_cstr(vars, "foo");
+        CTEST_ASSERT_NOT_NULL(ctest, foo_val, "foo assigned");
+        CTEST_ASSERT_STR_EQ(ctest, foo_val, "B", "foo == B");
+
+        string_list_destroy(&res);
+        token_destroy(&word);
+        variable_store_destroy(&vars);
+        expander_destroy(&exp);
+        (void)ctest;
+    }
+
+    /**
+     * Recursive parameter expansion: ${foo:-${bar}} uses expanded ${bar} when foo unset
+     */
+    CTEST(test_expander_recursive_param_use_default)
+    {
+        expander_t *exp = expander_create();
+        variable_store_t *vars = variable_store_create();
+        expander_set_variable_store(exp, vars);
+
+        variable_store_add_cstr(vars, "bar", "X", false, false);
+
+        token_t *word = token_create_word();
+        part_t *p = part_create_parameter(string_create_from_cstr("foo"));
+        p->param_kind = PARAM_USE_DEFAULT;
+        p->word = string_create_from_cstr("${bar}");
+        token_add_part(word, p);
+
+        string_list_t *res = expander_expand_word(exp, word);
+        CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
+        const string_t *out = string_list_at(res, 0);
+        CTEST_ASSERT_STR_EQ(ctest, string_cstr(out), "X", "use default expands ${bar}");
+
+        string_list_destroy(&res);
+        token_destroy(&word);
+        variable_store_destroy(&vars);
+        expander_destroy(&exp);
+        (void)ctest;
+    }
+
+    /**
+     * Recursive parameter expansion: ${foo:+${bar}} returns expanded ${bar} only if foo is set/non-null
+     */
+    CTEST(test_expander_recursive_param_use_alternate)
+    {
+        expander_t *exp = expander_create();
+        variable_store_t *vars = variable_store_create();
+        expander_set_variable_store(exp, vars);
+
+        // foo set to Y; bar to Z
+        variable_store_add_cstr(vars, "foo", "Y", false, false);
+        variable_store_add_cstr(vars, "bar", "Z", false, false);
+
+        token_t *word = token_create_word();
+        part_t *p = part_create_parameter(string_create_from_cstr("foo"));
+        p->param_kind = PARAM_USE_ALTERNATE;
+        p->word = string_create_from_cstr("${bar}");
+        token_add_part(word, p);
+
+        string_list_t *res = expander_expand_word(exp, word);
+        CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
+        const string_t *out = string_list_at(res, 0);
+        CTEST_ASSERT_STR_EQ(ctest, string_cstr(out), "Z", "use alternate expands ${bar}");
+
+        string_list_destroy(&res);
+        token_destroy(&word);
+        variable_store_destroy(&vars);
+        expander_destroy(&exp);
+        (void)ctest;
+    }
+
 /**
  * Test IFS getter and setter
  */
@@ -747,6 +844,9 @@ static CTestEntry test_entries[] = {
     { "test_expander_special_param_background_pid_default", ctest_func_test_expander_special_param_background_pid_default, NULL, NULL, false },
     { "test_expander_positionals_basic", ctest_func_test_expander_positionals_basic, NULL, NULL, false },
     { "test_expander_positionals_at_star", ctest_func_test_expander_positionals_at_star, NULL, NULL, false },
+    { "test_expander_recursive_param_assign_default", ctest_func_test_expander_recursive_param_assign_default, NULL, NULL, false },
+    { "test_expander_recursive_param_use_default", ctest_func_test_expander_recursive_param_use_default, NULL, NULL, false },
+    { "test_expander_recursive_param_use_alternate", ctest_func_test_expander_recursive_param_use_alternate, NULL, NULL, false },
 };
 
 int main(int argc, char *argv[])

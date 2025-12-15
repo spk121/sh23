@@ -746,7 +746,11 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             }
             else
             {
-                string_destroy(&value);
+                if (is_set)
+                {
+                    // Can only be an empty string here.
+                    string_destroy(&value);
+                }
                 const string_t *word = part_get_word(part);
                 if (word == NULL)
                     return string_create();
@@ -764,7 +768,11 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             }
             else
             {
-                string_destroy(&value);
+                if (is_set)
+                {
+                    // Can only be an empty string here.
+                    string_destroy(&value);
+                }
                 const string_t *word = part_get_word(part);
                 if (word == NULL)
                     return string_create();
@@ -790,7 +798,11 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             }
             else
             {
-                string_destroy(&value);
+                if (is_set)
+                {
+                    // Can only be an empty string here.
+                    string_destroy(&value);
+                }
                 const string_t *word = part_get_word(part);
                 
                 // Set error message
@@ -835,8 +847,13 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             }
             else
             {
-                string_destroy(&value);
-                return string_create();
+                if (is_set)
+                {
+                    // Can only be an empty string here.
+                    return value;
+                }
+                else
+                    return string_create();
             }
         }
         
