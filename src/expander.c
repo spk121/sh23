@@ -26,6 +26,7 @@
 #include "positional_params.h"
 #include "variable_store.h"
 #include "pattern_removal.h"
+#include "lexer.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -92,6 +93,136 @@ void expander_destroy(expander_t **expander)
     
     xfree(e);
     *expander = NULL;
+}
+
+// ============================================================================
+// Word String Expansion (for parameter expansion words/patterns)
+// ============================================================================
+
+/**
+ * Recursively expand a raw word string from parameter expansions.
+ * This is used for the "word" portions in ${var:-word}, ${var#pattern}, etc.
+ * 
+ * The string is re-lexed and expanded respecting quoting context.
+ * 
+ * @param exp The expander instance
+ * @param str The raw string to expand
+ * @param was_single_quoted Whether the string was single-quoted
+ * @param was_double_quoted Whether the string was double-quoted
+ * @return The expanded string (caller must free), or NULL on error
+ */
+string_t *expander_expand_word_string(expander_t *exp, const string_t *str, bool was_single_quoted, bool was_double_quoted)
+{
+    Expects_not_null(exp);
+    Expects_not_null(str);
+
+    // Single-quoted strings don't undergo expansion
+    if (was_single_quoted)
+    {
+        return string_create_from(str);
+    }
+
+    // Empty string expands to empty
+    if (string_length(str) == 0)
+    {
+        return string_create();
+    }
+
+    // Re-lex the string to tokenize it properly
+    lexer_t *lx = lexer_create();
+    lexer_append_input(lx, str);
+
+    token_list_t *tokens = token_list_create();
+    int num_tokens = 0;
+    lex_status_t lex_status = lexer_tokenize(lx, tokens, &num_tokens);
+
+    if (lex_status != LEX_OK)
+    {
+        log_warn("expander_expand_word_string: failed to lex string");
+        token_list_destroy(&tokens);
+        lexer_destroy(&lx);
+        return string_create_from(str); // Return original on lex error
+    }
+
+    lexer_destroy(&lx);
+
+    // Build the expanded result from the tokens
+    string_t *result = string_create();
+    int token_count = token_list_size(tokens);
+
+    for (int i = 0; i < token_count; i++)
+    {
+        token_t *tok = token_list_get(tokens, i);
+        if (tok == NULL)
+            continue;
+
+        token_type_t tok_type = token_get_type(tok);
+
+        // Skip EOF tokens
+        if (tok_type == TOKEN_EOF)
+            continue;
+
+        // For WORD tokens, expand them if they need expansion
+        if (tok_type == TOKEN_WORD)
+        {
+            if (token_needs_expansion(tok))
+            {
+                // Recursively expand the word token
+                string_list_t *expanded_fields = expander_expand_word(exp, tok);
+                if (expanded_fields != NULL)
+                {
+                    // Join the fields (no field splitting for quoted contexts)
+                    int field_count = string_list_size(expanded_fields);
+                    for (int j = 0; j < field_count; j++)
+                    {
+                        if (j > 0 && !was_double_quoted)
+                        {
+                            string_append_char(result, ' ');
+                        }
+                        const string_t *field = string_list_at(expanded_fields, j);
+                        if (field != NULL)
+                        {
+                            string_append(result, field);
+                        }
+                    }
+                    string_list_destroy(&expanded_fields);
+                }
+            }
+            else
+            {
+                // No expansion needed, just extract the literal text
+                const part_list_t *parts = token_get_parts_const(tok);
+                if (parts != NULL)
+                {
+                    int part_count = part_list_size(parts);
+                    for (int j = 0; j < part_count; j++)
+                    {
+                        part_t *part = part_list_get(parts, j);
+                        if (part != NULL && part_get_type(part) == PART_LITERAL)
+                        {
+                            const string_t *text = part_get_text(part);
+                            if (text != NULL)
+                            {
+                                string_append(result, text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            // Non-WORD tokens (operators, etc.) - append their string representation
+            const char *tok_str = token_type_to_string(tok_type);
+            if (tok_str != NULL)
+            {
+                string_append_cstr(result, tok_str);
+            }
+        }
+    }
+
+    token_list_destroy(&tokens);
+    return result;
 }
 
 // ============================================================================
@@ -617,7 +748,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             {
                 string_destroy(&value);
                 const string_t *word = part_get_word(part);
-                return word ? string_create_from(word) : string_create();
+                if (word == NULL)
+                    return string_create();
+                string_t *expanded_word = expander_expand_word_string(exp, word, part_was_single_quoted(part), part_was_double_quoted(part));
+                return expanded_word ? expanded_word : string_create();
             }
         }
         
@@ -632,7 +766,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             {
                 string_destroy(&value);
                 const string_t *word = part_get_word(part);
-                string_t *default_val = word ? string_create_from(word) : string_create();
+                if (word == NULL)
+                    return string_create();
+                string_t *expanded_word = expander_expand_word_string(exp, word, part_was_single_quoted(part), part_was_double_quoted(part));
+                string_t *default_val = expanded_word ? expanded_word : string_create();
                 
                 // Assign the default value to the variable
                 if (exp->vars != NULL)
@@ -659,7 +796,19 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
                 // Set error message
                 if (word != NULL && string_length(word) > 0)
                 {
-                    expander_set_error(exp, string_cstr(word));
+                    string_t *expanded_word = expander_expand_word_string(exp, word, part_was_single_quoted(part), part_was_double_quoted(part));
+                    if (expanded_word && string_length(expanded_word) > 0)
+                    {
+                        expander_set_error(exp, string_cstr(expanded_word));
+                    }
+                    else
+                    {
+                        char err_msg[256];
+                        snprintf(err_msg, sizeof(err_msg), "%s: parameter not set", string_cstr(param_name));
+                        expander_set_error(exp, err_msg);
+                    }
+                    if (expanded_word)
+                        string_destroy(&expanded_word);
                 }
                 else
                 {
@@ -679,7 +828,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             {
                 string_destroy(&value);
                 const string_t *word = part_get_word(part);
-                return word ? string_create_from(word) : string_create();
+                if (word == NULL)
+                    return string_create();
+                string_t *expanded_word = expander_expand_word_string(exp, word, part_was_single_quoted(part), part_was_double_quoted(part));
+                return expanded_word ? expanded_word : string_create();
             }
             else
             {
@@ -698,7 +850,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             const string_t *pattern = part_get_word(part);
             if (pattern != NULL)
             {
-                string_t *result = remove_suffix_smallest(value, pattern);
+                string_t *expanded_pattern = expander_expand_word_string(exp, pattern, part_was_single_quoted(part), part_was_double_quoted(part));
+                string_t *result = remove_suffix_smallest(value, expanded_pattern ? expanded_pattern : pattern);
+                if (expanded_pattern)
+                    string_destroy(&expanded_pattern);
                 string_destroy(&value);
                 return result ? result : string_create();
             }
@@ -715,7 +870,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             const string_t *pattern = part_get_word(part);
             if (pattern != NULL)
             {
-                string_t *result = remove_suffix_largest(value, pattern);
+                string_t *expanded_pattern = expander_expand_word_string(exp, pattern, part_was_single_quoted(part), part_was_double_quoted(part));
+                string_t *result = remove_suffix_largest(value, expanded_pattern ? expanded_pattern : pattern);
+                if (expanded_pattern)
+                    string_destroy(&expanded_pattern);
                 string_destroy(&value);
                 return result ? result : string_create();
             }
@@ -732,7 +890,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             const string_t *pattern = part_get_word(part);
             if (pattern != NULL)
             {
-                string_t *result = remove_prefix_smallest(value, pattern);
+                string_t *expanded_pattern = expander_expand_word_string(exp, pattern, part_was_single_quoted(part), part_was_double_quoted(part));
+                string_t *result = remove_prefix_smallest(value, expanded_pattern ? expanded_pattern : pattern);
+                if (expanded_pattern)
+                    string_destroy(&expanded_pattern);
                 string_destroy(&value);
                 return result ? result : string_create();
             }
@@ -749,7 +910,10 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             const string_t *pattern = part_get_word(part);
             if (pattern != NULL)
             {
-                string_t *result = remove_prefix_largest(value, pattern);
+                string_t *expanded_pattern = expander_expand_word_string(exp, pattern, part_was_single_quoted(part), part_was_double_quoted(part));
+                string_t *result = remove_prefix_largest(value, expanded_pattern ? expanded_pattern : pattern);
+                if (expanded_pattern)
+                    string_destroy(&expanded_pattern);
                 string_destroy(&value);
                 return result ? result : string_create();
             }
@@ -781,8 +945,13 @@ static string_t *expand_command_substitution(expander_t *exp, const part_t *part
         return string_create();
     }
     
-    log_debug("expand_command_substitution: invoking callback for command: %s", string_cstr(command));
-    string_t *result = exp->cmd_subst_callback(command, exp->cmd_subst_user_data);
+    // Expand any parameter expansions within the command text
+    // This handles cases like $(echo ${var:-default})
+    string_t *expanded_command = expander_expand_word_string(exp, command, part_was_single_quoted(part), part_was_double_quoted(part));
+    
+    log_debug("expand_command_substitution: invoking callback for command: %s", string_cstr(expanded_command));
+    string_t *result = exp->cmd_subst_callback(expanded_command, exp->cmd_subst_user_data);
+    string_destroy(&expanded_command);
     
     if (result == NULL)
     {
@@ -807,8 +976,13 @@ static string_t *expand_arithmetic(expander_t *exp, const part_t *part)
         return string_create_from_cstr("0");
     }
     
+    // Expand any parameter expansions within the arithmetic expression
+    // This handles cases like $((${var:-10} + 5))
+    string_t *expanded_expr = expander_expand_word_string(exp, expr_text, part_was_single_quoted(part), part_was_double_quoted(part));
+    
     // Evaluate the arithmetic expression
-    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, expr_text);
+    ArithmeticResult result = arithmetic_evaluate(exp, exp->vars, expanded_expr);
+    string_destroy(&expanded_expr);
     
     if (result.failed)
     {

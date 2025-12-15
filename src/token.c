@@ -175,6 +175,12 @@ void token_set_quoted(token_t *token, bool was_quoted)
     token->was_quoted = was_quoted;
 }
 
+bool token_needs_expansion(const token_t *token)
+{
+    Expects_not_null(token);
+    return token->needs_expansion;
+}
+
 /* ============================================================================
  * Token Part Management
  * ============================================================================ */

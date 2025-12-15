@@ -118,9 +118,10 @@ struct part_t
     /* For PART_PARAMETER */
     param_subtype_t param_kind;
     string_t *param_name;
-    string_t *word; // the "word" in ${var:-word} (already parsed as nested tokens!)
+    string_t *word; // the raw "word" text in ${var:-word} forms (literal string, not yet expanded)
 
-    /* For nested expansions (COMMAND_SUBST, ARITHMETIC, complex ${...}) */
+    /* For nested expansions that have been pre-lexed into tokens
+     * (e.g., COMMAND_SUBST, ARITHMETIC, or complex ${...} forms that need recursive expansion) */
     token_list_t *nested;
 
     /* Quote tracking */
@@ -282,6 +283,11 @@ bool token_is_last_part_literal(const token_t *token);
 bool token_was_quoted(const token_t *token);
 
 void token_set_quoted(token_t *token, bool was_quoted);
+
+/**
+ * Check if a token needs any form of expansion (parameter, command, arithmetic, tilde).
+ */
+bool token_needs_expansion(const token_t *token);
 /* ============================================================================
  * Token Part Management
  * ============================================================================ */

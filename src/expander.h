@@ -235,6 +235,20 @@ ast_node_t *expander_expand_ast(expander_t *exp, ast_node_t *node);
 string_list_t *expander_expand_word(expander_t *exp, token_t *word_token);
 
 /**
+ * Recursively expand a raw word string from parameter expansions.
+ * This is used for the \"word\" portions in ${var:-word}, ${var#pattern}, etc.
+ * 
+ * The string is re-lexed and expanded respecting quoting context.
+ * 
+ * @param exp The expander instance
+ * @param str The raw string to expand
+ * @param was_single_quoted Whether the string was single-quoted (prevents expansion)
+ * @param was_double_quoted Whether the string was double-quoted (selective expansion)
+ * @return The expanded string (caller must free), or NULL on error
+ */
+string_t *expander_expand_word_string(expander_t *exp, const string_t *str, bool was_single_quoted, bool was_double_quoted);
+
+/**
  * Expand a string directly (for arithmetic evaluation).
  * 
  * This performs parameter expansion on a raw string,
