@@ -166,21 +166,17 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     }
     else if (lex_status == LEX_INCOMPLETE)
     {
-        // What's the best strategy here? Can we buffer
-        // the tokens we've already read? Or should we just
-        // return SH_INCOMPLETE and keep appending to the
-        // lexer until we get a complete line?
-        // For now, we'll just return SH_INCOMPLETE
-        // and start over next time.
+        // Lexer needs more input (e.g., unclosed quotes)
+        // Keep tokens for now - they may be needed when heredoc completes
         log_debug("shell_feed_line: lexer returned LEX_INCOMPLETE");
-        token_list_destroy(&tokens);
+        // Don't destroy tokens - lexer may reference them for heredoc processing
         return SH_INCOMPLETE;
     }
     else if (lex_status == LEX_NEED_HEREDOC)
     {
-        // Handle heredoc
+        // Heredoc delimiter seen, waiting for heredoc body
         log_debug("shell_feed_line: lexer returned LEX_NEED_HEREDOC");
-        token_list_destroy(&tokens);
+        // Don't destroy tokens - they'll be needed when heredoc is complete
         return SH_INCOMPLETE;
     }
     else if (lex_status != LEX_OK)
@@ -193,6 +189,22 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     // Got a complete input, so reset the lexer and
     // continue with the tokenizer.
     lexer_reset(sh->lexer);
+
+    // Check if this is just heredoc completion tokens (shouldn't be parsed standalone)
+    // If we only have a WORD (heredoc content) followed by END_OF_HEREDOC, skip parsing
+    // These tokens were already part of a previous command
+    if (token_list_size(tokens) == 2)
+    {
+        token_t *first = token_list_get(tokens, 0);
+        token_t *second = token_list_get(tokens, 1);
+        if (token_get_type(first) == TOKEN_WORD && 
+            token_get_type(second) == TOKEN_END_OF_HEREDOC)
+        {
+            log_debug("shell_feed_line: skipping heredoc completion tokens");
+            token_list_destroy(&tokens);
+            return SH_OK;
+        }
+    }
 
     // The tokenizer doesn't need persistent state, so
     // we can create a new one each line.
