@@ -225,6 +225,21 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         token_list_destroy(&out_tokens);
         return SH_SYNTAX_ERROR;
     }
+    else if (parse_status == PARSE_INCOMPLETE)
+    {
+        // Parser needs more input (e.g., incomplete if clause, multiline command)
+        // Keep the tokens for now - they'll be cleaned up later
+        log_debug("shell_feed_line: parser returned PARSE_INCOMPLETE");
+        // Don't destroy out_tokens - parser may have references
+        return SH_INCOMPLETE;
+    }
+    else if (parse_status == PARSE_EMPTY)
+    {
+        // Empty input (just whitespace/newlines)
+        log_debug("shell_feed_line: parser returned PARSE_EMPTY");
+        token_list_destroy(&out_tokens);
+        return SH_OK;
+    }
     else if (parse_status != PARSE_OK)
     {
         log_error("shell_feed_line: unexpected parser status: %d", parse_status);

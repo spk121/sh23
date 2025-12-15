@@ -575,6 +575,27 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             {
                 ast_node_to_string_helper(node->data.command_list.items->nodes[i],
                                         result, indent_level + 1);
+                
+                // Print the separator for this command
+                if (node->data.command_list.separators != NULL && i < node->data.command_list.separators->len)
+                {
+                    cmd_separator_t sep = cmd_separator_list_get(node->data.command_list.separators, i);
+                    for (int j = 0; j < indent_level + 1; j++)
+                        string_append_cstr(result, "  ");
+                    
+                    switch (sep)
+                    {
+                        case LIST_SEP_SEQUENTIAL:
+                            string_append_cstr(result, "separator: ;\n");
+                            break;
+                        case LIST_SEP_BACKGROUND:
+                            string_append_cstr(result, "separator: &\n");
+                            break;
+                        case LIST_SEP_EOL:
+                            string_append_cstr(result, "separator: EOL\n");
+                            break;
+                    }
+                }
             }
         }
         break;

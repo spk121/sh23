@@ -450,7 +450,58 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
         }
     }
 
-    // No alias expansion - add token to output and move to next
+    // No alias expansion - check if this WORD token should be converted to TOKEN_IO_NUMBER
+    // A WORD that consists only of digits and is immediately followed by a 
+    // redirection operator should be an IO_NUMBER
+    if (token_get_type(token) == TOKEN_WORD)
+    {
+        // Check if next token is a redirection operator
+        if (tok->input_pos + 1 < token_list_size(tok->input_tokens))
+        {
+            token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
+            token_type_t next_type = token_get_type(next_token);
+            
+            // List of redirection operators
+            bool is_redir = (next_type == TOKEN_LESS || 
+                           next_type == TOKEN_GREATER ||
+                           next_type == TOKEN_DGREAT ||
+                           next_type == TOKEN_DLESS ||
+                           next_type == TOKEN_DLESSDASH ||
+                           next_type == TOKEN_LESSAND ||
+                           next_type == TOKEN_GREATAND ||
+                           next_type == TOKEN_LESSGREAT ||
+                           next_type == TOKEN_CLOBBER);
+            
+            if (is_redir)
+            {
+                // Check if the word is all digits
+                char *word_text = tokenizer_extract_word_text(token);
+                if (word_text != NULL && strlen(word_text) > 0)
+                {
+                    bool all_digits = true;
+                    for (int i = 0; word_text[i] != '\0'; i++)
+                    {
+                        if (!isdigit((unsigned char)word_text[i]))
+                        {
+                            all_digits = false;
+                            break;
+                        }
+                    }
+                    
+                    if (all_digits)
+                    {
+                        // Convert to TOKEN_IO_NUMBER
+                        int io_num = atoi(word_text);
+                        token_set_type(token, TOKEN_IO_NUMBER);
+                        token_set_io_number(token, io_num);
+                    }
+                }
+                xfree(word_text);
+            }
+        }
+    }
+
+    // Add token to output and move to next
     tok->input_pos++;
     token_list_append(tok->output_tokens, token);
 
