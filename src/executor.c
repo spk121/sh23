@@ -708,18 +708,104 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
  */
 string_t *executor_command_subst_callback(const string_t *command, void *user_data)
 {
-    (void)command;    // unused for now
+#ifdef POSIX_API
+    (void)user_data;  // unused for now
+
+    const char *cmd = string_cstr(command);
+    if (cmd == NULL || *cmd == '\0')
+    {
+        return string_create();
+    }
+
+    FILE *pipe = popen(cmd, "r");
+    if (pipe == NULL)
+    {
+        log_error("executor_command_subst_callback: popen failed for '%s'", cmd);
+        return string_create();
+    }
+
+    string_t *output = string_create();
+    char buffer[256];
+
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL)
+    {
+        string_append_cstr(output, buffer);
+    }
+
+    int exit_code = pclose(pipe);
+    if (exit_code != 0)
+    {
+        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
+    }
+
+    // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
+    while (string_length(output) > 0)
+    {
+        char last = string_back(output);
+        if (last == '\n' || last == '\r')
+        {
+            string_pop_back(output);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return output;
+#elifdef UCRT_API
+    (void)user_data;  // unused for now
+
+    const char *cmd = string_cstr(command);
+    if (cmd == NULL || *cmd == '\0')
+    {
+        return string_create();
+    }
+
+    FILE *pipe = _popen(cmd, "r");
+    if (pipe == NULL)
+    {
+        log_error("executor_command_subst_callback: _popen failed for '%s'", cmd);
+        return string_create();
+    }
+
+    string_t *output = string_create();
+    char buffer[256];
+
+    while (fgets(buffer, sizeof(buffer), pipe) != NULL)
+    {
+        string_append_cstr(output, buffer);
+    }
+
+    int exit_code = _pclose(pipe);
+    if (exit_code != 0)
+    {
+        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
+    }
+
+    // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
+    while (string_length(output) > 0)
+    {
+        char last = string_back(output);
+        if (last == '\n' || last == '\r')
+        {
+            string_pop_back(output);
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return output;
+#else
+    // There is no portable way to do command substitution in ISO_C.
+    // You could run a shell process via system(), but, without capturing output.
+    (void)command;    // unused
     (void)user_data;  // unused for now
     
-    // Stub: return empty string for now
-    // A full implementation would:
-    // 1. Get shell_t from user_data
-    // 2. Create a subshell
-    // 3. Parse and execute the command
-    // 4. Capture its output
-    // 5. Return the output as a string_t
-    
     return string_create();
+#endif
 }
 
 /**
