@@ -1,6 +1,23 @@
 cmake_minimum_required(VERSION 3.16)
 project(mgsh LANGUAGES C)
 
+# API selection option
+set(API_TYPE "ISO_C" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
+set_property(CACHE API_TYPE PROPERTY STRINGS "POSIX" "UCRT" "ISO_C")
+
+# Define the appropriate API macro based on selection
+if(API_TYPE STREQUAL "POSIX")
+    add_compile_definitions(POSIX_API)
+    message(STATUS "Building with POSIX API")
+elseif(API_TYPE STREQUAL "UCRT")
+    add_compile_definitions(UCRT_API)
+    message(STATUS "Building with UCRT API")
+elseif(API_TYPE STREQUAL "ISO_C")
+    message(STATUS "Building with ISO C (no platform-specific API)")
+else()
+    message(FATAL_ERROR "Invalid API_TYPE: ${API_TYPE}. Must be POSIX, UCRT, or ISO_C")
+endif()
+
 if(MSVC)
     add_compile_options(/std:clatest /W4 /Od /Zi)
 else()

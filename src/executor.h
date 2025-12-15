@@ -202,12 +202,16 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
 
 /**
  * Pathname expansion (glob) callback for the expander.
- * Expands glob patterns to matching filenames.
- * 
+ * Platform behavior:
+ * - POSIX_API: uses POSIX glob() for pathname expansion.
+ * - UCRT_API: uses _findfirst/_findnext from <io.h> for wildcard matching.
+ * - ISO_C: no implementation; returns NULL so the expander preserves the literal.
+ *
  * @param pattern The glob pattern to expand
- * @param user_data Pointer to the shell_t context
- * @return A list of matching filenames as string_t objects (caller must free with string_list_destroy),
- *         or NULL if no matches (pattern should be left unexpanded)
+ * @param user_data Pointer to the shell_t context (opaque to this function)
+ * @return On success with matches: a newly allocated list of filenames
+ *         (caller must free with string_list_destroy). On no matches or error:
+ *         returns NULL, signaling the expander to leave the pattern unexpanded.
  */
 string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data);
 

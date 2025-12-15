@@ -5,6 +5,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef POSIX_API
+#include <glob.h>
+#endif
+#ifdef UCRT_API
+#include <io.h>
+#include <errno.h>
+#endif
 
 /* ============================================================================
  * Constants
@@ -717,20 +724,108 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
 
 /**
  * Pathname expansion (glob) callback for the expander.
- * For now, this is a stub that returns no matches.
- * In a full implementation, this would glob the pattern against the filesystem.
+ * Platform behavior:
+ * - POSIX_API: uses POSIX glob() to expand patterns against the filesystem.
+ * - UCRT_API: uses _findfirst/_findnext from <io.h> to expand Windows-style
+ *   wildcard patterns in a single directory.
+ * - ISO_C (default): no glob implementation; returns NULL so the expander
+ *   preserves the literal pattern.
+ *
+ * Return semantics:
+ * - On success with one or more matches: returns a newly allocated
+ *   string_list_t containing each matched path (caller must destroy).
+ * - On no matches or on error: returns NULL, signaling the expander to keep
+ *   the original pattern literal per POSIX behavior.
  */
 string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data)
 {
-    (void)pattern;    // unused for now
-    (void)user_data;  // unused for now
+#ifdef POSIX_API
+    (void)user_data;  // unused
     
-    // Stub: return NULL for no matches
-    // A full implementation would:
-    // 1. Use system glob functions or equivalent
-    // 2. Match the pattern against filesystem
-    // 3. Return list of matching filenames
-    // 4. Return NULL if no matches
+    const char *pattern_str = string_data(pattern);
+    glob_t glob_result;
     
-    return NULL;
+    // Perform glob matching
+    // GLOB_NOCHECK: If no matches, return the pattern itself
+    // GLOB_TILDE: Expand ~ for home directory
+    int ret = glob(pattern_str, GLOB_TILDE, NULL, &glob_result);
+    
+    if (ret != 0) {
+        // On error or no matches (when not using GLOB_NOCHECK), return NULL
+        if (ret == GLOB_NOMATCH) {
+            return NULL;
+        }
+        // GLOB_NOSPACE or GLOB_ABORTED
+        return NULL;
+    }
+    
+    // No matches found
+    if (glob_result.gl_pathc == 0) {
+        globfree(&glob_result);
+        return NULL;
+    }
+    
+    // Create result list
+    string_list_t *result = string_list_create();
+    
+    // Add all matched paths
+    for (size_t i = 0; i < glob_result.gl_pathc; i++) {
+        string_t *path = string_create_from_cstr(glob_result.gl_pathv[i]);
+        string_list_move_push_back(result, path);
+    }
+    
+    globfree(&glob_result);
+    return result;
+    
+#elifdef UCRT_API
+    (void)user_data;  // unused
+    
+    const char *pattern_str = string_data(pattern);
+    log_debug("executor_pathname_expansion_callback: UCRT glob pattern='%s'", pattern_str);
+    struct _finddata_t fd;
+    intptr_t handle;
+    
+    // Attempt to find first matching file
+    handle = _findfirst(pattern_str, &fd);
+    if (handle == -1L) {
+        if (errno == ENOENT) {
+            // No matches found
+            return NULL;
+        }
+        // Other error (access denied, etc.)
+        return NULL;
+    }
+    
+    // Create result list
+    string_list_t *result = string_list_create();
+    
+    // Add all matching files
+    do {
+        // Skip . and .. entries
+        if (strcmp(fd.name, ".") == 0 || strcmp(fd.name, "..") == 0)
+            continue;
+        
+        // Add the matched filename to the result list
+        string_t *filename = string_create_from_cstr(fd.name);
+        string_list_move_push_back(result, filename);
+        
+    } while (_findnext(handle, &fd) == 0);
+    
+    _findclose(handle);
+    
+    // If no files were added (only . and .. were found), return NULL
+    if (string_list_size(result) == 0) {
+        string_list_destroy(&result);
+        return NULL;
+    }
+    
+    return result;
+    
+#else
+    /* In ISO_C environments, no glob implementation is available */
+    (void)pattern;    // unused
+    (void)user_data;  // unused
+    log_warning("executor_pathname_expansion_callback: No glob implementation available");
+    return (string_list_t*)NULL;
+#endif
 }

@@ -1230,25 +1230,248 @@ static string_list_t *field_split(const string_t *str, const string_t *ifs, bool
 // ============================================================================
 
 /**
- * Expand an AST node (stub implementation).
+ * Helper function to expand a token_list_t of words in-place.
+ * Each TOKEN_WORD is expanded and may result in multiple tokens.
  * 
- * In a full implementation, this would:
- * - Traverse the AST recursively
- * - Expand all TOKEN_WORD nodes in commands
- * - Handle parameter expansion, command substitution, arithmetic
- * - Perform field splitting and pathname expansion
+ * The original WORD tokens in the list will be destroyed and replaced with
+ * new tokens representing the expanded fields.
+ */
+static void expand_word_list(expander_t *exp, token_list_t *words)
+{
+    if (words == NULL || token_list_size(words) == 0)
+        return;
+    
+    // Build a new list of expanded tokens
+    token_list_t *expanded_list = token_list_create();
+    
+    int word_count = token_list_size(words);
+    for (int i = 0; i < word_count; i++)
+    {
+        token_t *tok = token_list_get(words, i);
+        if (tok == NULL)
+            continue;
+        
+        token_type_t tok_type = token_get_type(tok);
+        
+        // Only expand WORD tokens
+        if (tok_type == TOKEN_WORD)
+        {
+            // Expand this word token
+            string_list_t *fields = expander_expand_word(exp, tok);
+            
+            if (fields != NULL && string_list_size(fields) > 0)
+            {
+                int field_count = string_list_size(fields);
+                
+                // Create a new TOKEN_WORD for each field
+                for (int j = 0; j < field_count; j++)
+                {
+                    const string_t *field = string_list_at(fields, j);
+                    if (field != NULL)
+                    {
+                        // Create a new word token with a single literal part
+                        token_t *new_tok = token_create(TOKEN_WORD);
+                        part_t *literal_part = part_create_literal(field);
+                        token_add_part(new_tok, literal_part);
+                        token_list_append(expanded_list, new_tok);
+                    }
+                }
+                
+                string_list_destroy(&fields);
+            }
+            else
+            {
+                // No expansion or empty result - keep the original token
+                token_list_append(expanded_list, tok);
+                if (fields != NULL)
+                    string_list_destroy(&fields);
+                continue;  // Don't destroy the token
+            }
+            
+            // Destroy the original WORD token since we replaced it
+            token_destroy(&tok);
+        }
+        else
+        {
+            // Non-WORD tokens are kept as-is
+            token_list_append(expanded_list, tok);
+        }
+    }
+    
+    // Release tokens from the original list without destroying them
+    // (we've already handled destruction above)
+    token_list_release_tokens(words);
+    
+    // Transfer all tokens from expanded_list to words
+    int expanded_count = token_list_size(expanded_list);
+    for (int i = 0; i < expanded_count; i++)
+    {
+        token_t *tok = token_list_get(expanded_list, i);
+        if (tok != NULL)
+        {
+            token_list_append(words, tok);
+        }
+    }
+    
+    // Free the temporary list structure (but not the tokens, which were transferred)
+    token_list_release_tokens(expanded_list);
+    xfree(expanded_list->tokens);
+    xfree(expanded_list);
+}
+
+/**
+ * Recursively expand an AST node and all its children.
+ * This traverses the AST and expands all TOKEN_WORD nodes in commands.
+ */
+static void expand_ast_recursive(expander_t *exp, ast_node_t *node)
+{
+    if (node == NULL)
+        return;
+    
+    ast_node_type_t node_type = ast_node_get_type(node);
+    
+    switch (node_type)
+    {
+        case AST_SIMPLE_COMMAND:
+            // Expand the word list (command and arguments)
+            expand_word_list(exp, node->data.simple_command.words);
+            // TODO: Also expand assignment values in node->data.simple_command.assignments
+            break;
+        
+        case AST_PIPELINE:
+            // Expand each command in the pipeline
+            if (node->data.pipeline.commands != NULL)
+            {
+                int cmd_count = ast_node_list_size(node->data.pipeline.commands);
+                for (int i = 0; i < cmd_count; i++)
+                {
+                    ast_node_t *cmd = ast_node_list_get(node->data.pipeline.commands, i);
+                    expand_ast_recursive(exp, cmd);
+                }
+            }
+            break;
+        
+        case AST_AND_OR_LIST:
+            // Expand left and right sides
+            expand_ast_recursive(exp, node->data.andor_list.left);
+            expand_ast_recursive(exp, node->data.andor_list.right);
+            break;
+        
+        case AST_COMMAND_LIST:
+            // Expand each command in the list
+            if (node->data.command_list.items != NULL)
+            {
+                int item_count = ast_node_list_size(node->data.command_list.items);
+                for (int i = 0; i < item_count; i++)
+                {
+                    ast_node_t *item = ast_node_list_get(node->data.command_list.items, i);
+                    expand_ast_recursive(exp, item);
+                }
+            }
+            break;
+        
+        case AST_SUBSHELL:
+        case AST_BRACE_GROUP:
+            // Expand the body
+            expand_ast_recursive(exp, node->data.compound.body);
+            break;
+        
+        case AST_IF_CLAUSE:
+            // Expand condition, then-body, elif clauses, and else-body
+            expand_ast_recursive(exp, node->data.if_clause.condition);
+            expand_ast_recursive(exp, node->data.if_clause.then_body);
+            if (node->data.if_clause.elif_list != NULL)
+            {
+                int elif_count = ast_node_list_size(node->data.if_clause.elif_list);
+                for (int i = 0; i < elif_count; i++)
+                {
+                    ast_node_t *elif_node = ast_node_list_get(node->data.if_clause.elif_list, i);
+                    expand_ast_recursive(exp, elif_node);
+                }
+            }
+            expand_ast_recursive(exp, node->data.if_clause.else_body);
+            break;
+        
+        case AST_WHILE_CLAUSE:
+        case AST_UNTIL_CLAUSE:
+            // Expand condition and body
+            expand_ast_recursive(exp, node->data.loop_clause.condition);
+            expand_ast_recursive(exp, node->data.loop_clause.body);
+            break;
+        
+        case AST_FOR_CLAUSE:
+            // Expand the word list and body
+            expand_word_list(exp, node->data.for_clause.words);
+            expand_ast_recursive(exp, node->data.for_clause.body);
+            break;
+        
+        case AST_CASE_CLAUSE:
+            // The word field is a single token_t*, not a token_list - skip it for now
+            // TODO: Implement single-token expansion properly
+            
+            // Expand each case item
+            if (node->data.case_clause.case_items != NULL)
+            {
+                int item_count = ast_node_list_size(node->data.case_clause.case_items);
+                for (int i = 0; i < item_count; i++)
+                {
+                    ast_node_t *item = ast_node_list_get(node->data.case_clause.case_items, i);
+                    expand_ast_recursive(exp, item);
+                }
+            }
+            break;
+        
+        case AST_CASE_ITEM:
+            // Expand patterns
+            expand_word_list(exp, node->data.case_item.patterns);
+            expand_ast_recursive(exp, node->data.case_item.body);
+            break;
+        
+        case AST_FUNCTION_DEF:
+            // Don't expand function bodies at definition time
+            // They should be expanded when the function is called
+            break;
+        
+        case AST_REDIRECTED_COMMAND:
+            // Expand the command
+            expand_ast_recursive(exp, node->data.redirected_command.command);
+            // TODO: Expand redirection targets (filenames)
+            break;
+        
+        case AST_REDIRECTION:
+            // The target is a single token_t* - skip for now
+            // TODO: Implement single-token expansion for redirection targets
+            break;
+        
+        case AST_WORD:
+            // Individual word nodes - not typically found at top level during expansion
+            break;
+        
+        default:
+            log_warn("expand_ast_recursive: unknown node type %d", node_type);
+            break;
+    }
+}
+
+/**
+ * Expand an entire AST node tree.
+ * This traverses the AST and expands all words in commands.
  * 
- * For now, returns the node unchanged.
+ * @param exp The expander instance
+ * @param node The AST node to expand
+ * @return The expanded AST (same node, modified in-place)
  */
 ast_node_t *expander_expand_ast(expander_t *exp, ast_node_t *node)
 {
     Expects_not_null(exp);
     Expects_not_null(node);
 
-    log_debug("expander_expand_ast: expanding AST node (stub)");
+    log_debug("expander_expand_ast: expanding AST node, pathname_callback=%p", 
+              (void*)exp->pathname_expansion_callback);
     
-    // TODO: Implement full AST traversal and expansion
-    // For now, just return the node unchanged
+    // Recursively expand all nodes in the AST
+    expand_ast_recursive(exp, node);
+    
     return node;
 }
 
@@ -1362,6 +1585,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
     // Step 3: Pathname expansion (globbing)
     if (exp->pathname_expansion_callback != NULL)
     {
+        log_debug("expander_expand_word: pathname expansion callback is set, checking %d fields", string_list_size(result));
         string_list_t *globbed = string_list_create();
         int field_count = string_list_size(result);
         
@@ -1383,6 +1607,7 @@ string_list_t *expander_expand_word(expander_t *exp, token_t *word_token)
             
             if (has_glob_chars)
             {
+                log_debug("expander_expand_word: found glob chars in field, calling pathname_expansion_callback");
                 // Invoke callback to expand the pattern
                 string_list_t *matches = exp->pathname_expansion_callback(field, exp->pathname_expansion_user_data);
                 

@@ -25,8 +25,9 @@ int main(void)
         .initial_vars = NULL
     };
     
+    // Create shell (shell takes ownership of initial_aliases)
     shell_t *sh = shell_create(&cfg);
-    alias_store_destroy(&initial_aliases);
+    // Don't destroy initial_aliases - shell owns it now
 
     sh_status_t status = SH_OK;
     int line_no = 0;

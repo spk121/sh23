@@ -11,6 +11,17 @@
 #include "variable_store.h"
 #include "xalloc.h"
 
+// Test-specific pathname expansion callback that returns two fixed filenames
+static string_list_t *test_pathname_expansion_callback(const string_t *pattern, void *user_data)
+{
+    (void)pattern;
+    (void)user_data;
+    string_list_t *lst = string_list_create();
+    string_list_push_back(lst, string_create_from_cstr("foo.txt"));
+    string_list_push_back(lst, string_create_from_cstr("bar.txt"));
+    return lst;
+}
+
 /**
  * Test that we can create and destroy an expander
  */
@@ -19,6 +30,37 @@ CTEST(test_expander_create_destroy)
     expander_t *exp = expander_create();
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
+    expander_destroy(&exp);
+    (void)ctest;
+}
+
+/**
+ * Pathname expansion callback: verify expander calls callback and replaces the word
+ */
+CTEST(test_expander_pathname_expansion_callback)
+{
+    expander_t *exp = expander_create();
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
+
+    // Register test-specific callback
+    expander_set_pathname_expansion_callback(exp, test_pathname_expansion_callback, NULL);
+
+    // Build a WORD token containing a literal with glob chars
+    token_t *word = token_create_word();
+    token_add_literal_part(word, string_create_from_cstr("*.txt"));
+
+    // Expand the word
+    string_list_t *res = expander_expand_word(exp, word);
+    CTEST_ASSERT_NOT_NULL(ctest, res, "expansion returned list");
+    CTEST_ASSERT_EQ(ctest, string_list_size(res), 2, "two matches returned");
+    const string_t *s0 = string_list_at(res, 0);
+    const string_t *s1 = string_list_at(res, 1);
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(s0), "foo.txt", "first match is foo.txt");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(s1), "bar.txt", "second match is bar.txt");
+
+    // Cleanup
+    string_list_destroy(&res);
+    token_destroy(&word);
     expander_destroy(&exp);
     (void)ctest;
 }

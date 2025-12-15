@@ -158,7 +158,13 @@ void positional_params_set_zero(positional_params_stack_t *stack,
                                 const string_t *name);
 
 /**
+ * Check if $0 is set.
+ */
+bool positional_params_has_zero(const positional_params_stack_t *stack);
+
+/**
  * Get $0 (script/shell name).
+ * Will return $0. Caller must first check positional_params_has_zero().
  */
 const string_t *positional_params_get_zero(const positional_params_stack_t *stack);
 

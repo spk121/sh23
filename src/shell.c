@@ -65,17 +65,17 @@ shell_t *shell_create(const shell_config_t *cfg)
 
     // Stores
     if (cfg && cfg->initial_aliases)
-        ; //sh->aliases = alias_store_clone(cfg->initial_aliases);
+        sh->aliases = (alias_store_t *)cfg->initial_aliases;
     else
         sh->aliases = alias_store_create();
     
     if (cfg && cfg->initial_funcs)
-        ; //sh->funcs = function_store_clone(cfg->initial_funcs);
+        sh->funcs = (function_store_t *)cfg->initial_funcs;
     else
         sh->funcs = function_store_create();
 
     if (cfg && cfg->initial_vars)
-        ; //sh->vars = variable_store_clone(cfg->initial_vars);
+        sh->vars = (variable_store_t *)cfg->initial_vars;
     else
         sh->vars = variable_store_create();
 
