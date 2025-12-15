@@ -984,10 +984,20 @@ string_t *part_to_string(const part_t *part)
         }
         break;
     case PART_COMMAND_SUBST:
-        string_append_cstr(result, "$(...)");
+        string_append_cstr(result, "$(");
+        if (part->text != NULL)
+        {
+            string_append_escaped_string(result, part->text);
+        }
+        string_append_cstr(result, ")");
         break;
     case PART_ARITHMETIC:
-        string_append_cstr(result, "$((...))");
+        string_append_cstr(result, "$((");
+        if (part->text != NULL)
+        {
+            string_append_escaped_string(result, part->text);
+        }
+        string_append_cstr(result, "))");
         break;
     }
 
