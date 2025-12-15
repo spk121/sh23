@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "string_t.h"
+#include "expander.h"
 #include <stdbool.h>
 
 /* ============================================================================
@@ -183,5 +184,31 @@ void executor_clear_error(executor_t *executor);
  * In dry-run mode, commands are validated but not executed.
  */
 void executor_set_dry_run(executor_t *executor, bool dry_run);
+
+/* ============================================================================
+ * Expander Callbacks
+ * ============================================================================ */
+
+/**
+ * Command substitution callback for the expander.
+ * Executes a command and returns its output.
+ * 
+ * @param command The command string to execute
+ * @param user_data Pointer to the shell_t context
+ * @return The output of the command as a newly allocated string_t (caller must free),
+ *         or NULL on error
+ */
+string_t *executor_command_subst_callback(const string_t *command, void *user_data);
+
+/**
+ * Pathname expansion (glob) callback for the expander.
+ * Expands glob patterns to matching filenames.
+ * 
+ * @param pattern The glob pattern to expand
+ * @param user_data Pointer to the shell_t context
+ * @return A list of matching filenames as string_t objects (caller must free with string_list_destroy),
+ *         or NULL if no matches (pattern should be left unexpanded)
+ */
+string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data);
 
 #endif /* EXECUTOR_H */

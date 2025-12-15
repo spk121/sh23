@@ -644,36 +644,25 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     }
 
     // Special parameter: $0
-    if (string_length(param_name) == 1 && string_at(param_name, 0) == '0')
+    int idx;
+    int p;
+    idx = string_atoi_at(param_name, 0, &p);
+    if (p == (int)string_length(param_name) && idx == 0)
     {
-        const string_t *z = positional_params_get_zero(exp->pos_stack);
-        return (z != NULL) ? string_create_from(z) : string_create();
+        // Access $0 if it's set
+        const string_t *zero = positional_params_get_zero(exp->pos_stack);
+        if (!zero || string_length(zero) == 0)
+            return string_create();
+        return string_create_from(zero);
     }
-
-    // Positional parameters $1..$N
-    if (string_length(param_name) >= 1 && isdigit((unsigned char)string_at(param_name, 0)))
+    else if (p == (int)string_length(param_name) && idx > 0)
     {
-        // Parse decimal index
-        long idx = 0;
-        for (int i = 0; i < (int)string_length(param_name); i++)
+        // Positional parameters $1..$N
+        if (idx > positional_params_count(exp->pos_stack))
         {
-            char c = string_at(param_name, (int)i);
-            if (!isdigit((unsigned char)c)) { idx = -1; break; }
-            idx = idx * 10 + (c - '0');
-            if (idx > INT_MAX) { idx = -1; break; }
+            return string_create();
         }
-        if (idx == 0)
-        {
-            const string_t *z = positional_params_get_zero(exp->pos_stack);
-            return (z != NULL) ? string_create_from(z) : string_create();
-        }
-        if (idx > 0)
-        {
-            const string_t *v = positional_params_get(exp->pos_stack, (int)idx);
-            return (v != NULL) ? string_create_from(v) : string_create();
-        }
-        // Unset positional -> empty string
-        return string_create();
+        return string_create_from(positional_params_get(exp->pos_stack, idx));
     }
 
     // Special parameter: $* (join all positional params)

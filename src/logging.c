@@ -70,7 +70,8 @@ void log_init(void)
     }
     else
     {
-        g_log_threshold = LOG_ERROR;
+        // g_log_threshold = LOG_ERROR;
+        g_log_threshold = LOG_DEBUG;
     }
 
     // Set abort level

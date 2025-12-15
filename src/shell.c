@@ -85,6 +85,12 @@ shell_t *shell_create(const shell_config_t *cfg)
     sh->expander = expander_create();
     sh->executor = executor_create();
     sh->error = string_create();
+    
+    // Hook executor callbacks into expander
+    expander_set_variable_store(sh->expander, sh->vars);
+    expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh);
+    expander_set_pathname_expansion_callback(sh->expander, executor_pathname_expansion_callback, sh);
+    
     return sh;
 }
 
@@ -231,12 +237,48 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     xfree(out_tokens->tokens);
     xfree(out_tokens);
  
-    // Step through AST, printing each node and their children.
+    // Debug: print the AST
     if (log_level() == LOG_DEBUG)
     {
         ast_print(ast);
     }
+
+    // Expand the AST (parameter expansion, command substitution, etc.)
+    ast_node_t *expanded_ast = expander_expand_ast(sh->expander, ast);
+    if (expanded_ast == NULL)
+    {
+        log_error("shell_feed_line: expander returned NULL");
+        ast_node_destroy(&ast);
+        return SH_INTERNAL_ERROR;
+    }
+
+    // Debug: print the expanded AST
+    if (log_level() == LOG_DEBUG)
+    {
+        log_debug("shell_feed_line: expanded AST:");
+        ast_print(expanded_ast);
+    }
+
+    // Execute the expanded AST
+    exec_status_t exec_status = executor_execute(sh->executor, expanded_ast);
+    
+    // Cleanup AST (expanded_ast may be the same pointer as ast)
     ast_node_destroy(&ast);
+
+    // Convert execution status to shell status
+    switch (exec_status)
+    {
+        case EXEC_OK:
+            return SH_OK;
+        case EXEC_ERROR:
+            return SH_RUNTIME_ERROR;
+        case EXEC_NOT_IMPL:
+            string_set_cstr(sh->error, "feature not yet implemented");
+            return SH_RUNTIME_ERROR;
+        default:
+            log_error("shell_feed_line: unexpected executor status: %d", exec_status);
+            return SH_INTERNAL_ERROR;
+    }
 
 #if 0
     // Tokenize

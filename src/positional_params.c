@@ -130,9 +130,10 @@ const string_t *positional_params_get(const positional_params_stack_t *stack, in
     Expects_ge(n, 1);
 
     positional_params_t *cur = positional_params_current(stack);
-    if (!cur) return NULL;
-    if (n > cur->count) return NULL;
-    return cur->params ? cur->params[n - 1] : NULL;
+    Expects_not_null(cur);
+    Expects_ge(cur->count, 0);
+    Expects_le(n, cur->count);
+    return cur->params[n - 1];
 }
 
 int positional_params_count(const positional_params_stack_t *stack)
@@ -262,9 +263,18 @@ void positional_params_set_zero(positional_params_stack_t *stack, const string_t
     stack->zero = string_create_from(name);
 }
 
+bool positional_params_has_zero(const positional_params_stack_t *stack)
+{
+    Expects_not_null(stack);
+    Expects_not_null(stack->zero);
+
+    return string_length(stack->zero) > 0;
+}
+
 const string_t *positional_params_get_zero(const positional_params_stack_t *stack)
 {
     Expects_not_null(stack);
+    Expects_not_null(stack->zero);
 
     return stack->zero;
 }

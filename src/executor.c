@@ -689,3 +689,48 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
 
     return ast_traverse_helper(root, visitor, user_data);
 }
+
+/* ============================================================================
+ * Expander Callbacks
+ * ============================================================================ */
+
+/**
+ * Command substitution callback for the expander.
+ * For now, this is a stub that returns empty output.
+ * In a full implementation, this would parse and execute the command.
+ */
+string_t *executor_command_subst_callback(const string_t *command, void *user_data)
+{
+    (void)command;    // unused for now
+    (void)user_data;  // unused for now
+    
+    // Stub: return empty string for now
+    // A full implementation would:
+    // 1. Get shell_t from user_data
+    // 2. Create a subshell
+    // 3. Parse and execute the command
+    // 4. Capture its output
+    // 5. Return the output as a string_t
+    
+    return string_create();
+}
+
+/**
+ * Pathname expansion (glob) callback for the expander.
+ * For now, this is a stub that returns no matches.
+ * In a full implementation, this would glob the pattern against the filesystem.
+ */
+string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data)
+{
+    (void)pattern;    // unused for now
+    (void)user_data;  // unused for now
+    
+    // Stub: return NULL for no matches
+    // A full implementation would:
+    // 1. Use system glob functions or equivalent
+    // 2. Match the pattern against filesystem
+    // 3. Return list of matching filenames
+    // 4. Return NULL if no matches
+    
+    return NULL;
+}
