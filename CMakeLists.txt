@@ -61,6 +61,8 @@ set(MGSH_LIB_SOURCES
     src/variable_array.h
     src/variable_store.c
     src/variable_store.h
+    src/pattern_removal.c
+    src/pattern_removal.h
     src/shell.c
     src/shell.h
     src/positional_params.c
