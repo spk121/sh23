@@ -911,7 +911,7 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
     /* In ISO_C environments, no glob implementation is available */
     (void)pattern;    // unused
     (void)user_data;  // unused
-    log_warning("executor_pathname_expansion_callback: No glob implementation available");
+    log_warn("executor_pathname_expansion_callback: No glob implementation available");
     return (string_list_t*)NULL;
 #endif
 }

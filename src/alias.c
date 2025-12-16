@@ -37,6 +37,8 @@ void alias_destroy(alias_t **alias)
 {
     Expects_not_null(alias);
     Expects_not_null(*alias);
+    Expects_not_null((*alias)->name);
+    Expects_not_null((*alias)->value);
 
     alias_t *a = *alias;
 
@@ -64,12 +66,14 @@ const string_t *alias_get_value(const alias_t *alias)
 const char *alias_get_name_cstr(const alias_t *alias)
 {
     Expects_not_null(alias);
+    Expects_not_null(alias->name);
     return string_cstr(alias->name);
 }
 
 const char *alias_get_value_cstr(const alias_t *alias)
 {
     Expects_not_null(alias);
+    Expects_not_null(alias->value);
     return string_cstr(alias->value);
 }
 
@@ -77,6 +81,7 @@ const char *alias_get_value_cstr(const alias_t *alias)
 void alias_set_name(alias_t *alias, const string_t *name)
 {
     Expects_not_null(alias);
+    Expects_not_null(alias->name);
     Expects_not_null(name);
 
     string_set(alias->name, name);
@@ -85,6 +90,7 @@ void alias_set_name(alias_t *alias, const string_t *name)
 void alias_set_value(alias_t *alias, const string_t *value)
 {
     Expects_not_null(alias);
+    Expects_not_null(alias->value);
     Expects_not_null(value);
 
     string_set(alias->value, value);
@@ -93,6 +99,7 @@ void alias_set_value(alias_t *alias, const string_t *value)
 void alias_set_name_cstr(alias_t *alias, const char *name)
 {
     Expects_not_null(alias);
+    Expects_not_null(alias->name);
     Expects_not_null(name);
 
     string_set_cstr(alias->name, name);
@@ -101,6 +108,7 @@ void alias_set_name_cstr(alias_t *alias, const char *name)
 void alias_set_value_cstr(alias_t *alias, const char *value)
 {
     Expects_not_null(alias);
+    Expects_not_null(alias->value);
     Expects_not_null(value);
 
     string_set_cstr(alias->value, value);

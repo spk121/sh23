@@ -181,6 +181,27 @@ bool token_needs_expansion(const token_t *token)
     return token->needs_expansion;
 }
 
+string_t *token_get_all_text(const token_t *token)
+{
+    Expects_not_null(token);
+    Expects_eq(token->type, TOKEN_WORD);
+    Expects_not_null(token->parts);
+
+    string_t *result = string_create();
+
+    for (int i = 0; i < token->parts->size; i++)
+    {
+        part_t *part = token->parts->parts[i];
+        Expects_not_null(part);
+        if (part->text != NULL)
+        {
+            string_append(result, part->text);
+        }
+    }
+
+    return result;
+}
+
 /* ============================================================================
  * Token Part Management
  * ============================================================================ */

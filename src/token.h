@@ -288,6 +288,14 @@ void token_set_quoted(token_t *token, bool was_quoted);
  * Check if a token needs any form of expansion (parameter, command, arithmetic, tilde).
  */
 bool token_needs_expansion(const token_t *token);
+
+
+/**
+ * Get text from all parts of a TOKEN_WORD token concatenated together.
+ * Assumes WORD token
+ */
+string_t *token_get_all_text(const token_t *token);
+
 /* ============================================================================
  * Token Part Management
  * ============================================================================ */

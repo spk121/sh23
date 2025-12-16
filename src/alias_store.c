@@ -52,6 +52,8 @@ alias_store_t *alias_store_create(void)
 
 alias_store_t *alias_store_create_with_capacity(int capacity)
 {
+    Expects_ge(capacity, 0);
+
     alias_store_t *store = xmalloc(sizeof(alias_store_t));
     store->aliases = alias_array_create_with_free((alias_array_free_func_t)alias_destroy);
 
@@ -61,7 +63,7 @@ alias_store_t *alias_store_create_with_capacity(int capacity)
     }
 
     log_debug("alias_store_create_with_capacity: created store %p with capacity %d",
-              store->aliases, store->aliases->capacity);
+              store->aliases, alias_array_capacity(store->aliases));
 
     return store;
 }
@@ -70,6 +72,8 @@ alias_store_t *alias_store_create_with_capacity(int capacity)
 void alias_store_destroy(alias_store_t **store)
 {
     Expects_not_null(store);
+    Expects_not_null(*store);
+    Expects_not_null((*store)->aliases);
 
     log_debug("alias_store_destroy: freeing store %p, size %zu", *store, alias_array_size((*store)->aliases));
     alias_array_destroy(&((*store)->aliases));
@@ -128,6 +132,7 @@ void alias_store_add_cstr(alias_store_t *store, const char *name, const char *va
 bool alias_store_remove(alias_store_t *store, const string_t *name)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
     Expects_not_null(name);
 
     int index;
@@ -143,6 +148,7 @@ bool alias_store_remove(alias_store_t *store, const string_t *name)
 bool alias_store_remove_cstr(alias_store_t *store, const char *name)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
     Expects_not_null(name);
 
     int index;
@@ -159,6 +165,7 @@ bool alias_store_remove_cstr(alias_store_t *store, const char *name)
 void alias_store_clear(alias_store_t *store)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
 
     log_debug("alias_store_clear: clearing store %p, size %zu", store, alias_array_size(store->aliases));
 
@@ -169,6 +176,8 @@ void alias_store_clear(alias_store_t *store)
 int alias_store_size(const alias_store_t *store)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
+
     return alias_array_size(store->aliases);
 }
 
@@ -185,6 +194,7 @@ bool alias_store_has_name(const alias_store_t *store, const string_t *name)
 bool alias_store_has_name_cstr(const alias_store_t *store, const char *name)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
     Expects_not_null(name);
 
     int index;
@@ -195,6 +205,7 @@ bool alias_store_has_name_cstr(const alias_store_t *store, const char *name)
 const string_t *alias_store_get_value(const alias_store_t *store, const string_t *name)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
     Expects_not_null(name);
 
     int index;
@@ -210,6 +221,7 @@ const string_t *alias_store_get_value(const alias_store_t *store, const string_t
 const char *alias_store_get_value_cstr(const alias_store_t *store, const char *name)
 {
     Expects_not_null(store);
+    Expects_not_null(store->aliases);
     Expects_not_null(name);
 
     int index;

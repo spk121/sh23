@@ -167,34 +167,11 @@ static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
         token_t *body_tok = parser_current_token(parser);
 
         // Extract literal text from heredoc body token
-        string_t *body = string_create();
-        int nparts = token_part_count(body_tok);
-        for (int p = 0; p < nparts; p++)
-        {
-            part_t *part = token_get_part(body_tok, p);
-            if (part_get_type(part) == PART_LITERAL || part_get_type(part) == PART_TILDE)
-            {
-                const string_t *txt = part_get_text(part);
-                if (txt)
-                    string_append(body, txt);
-            }
-            else
-            {
-                // Heredoc lexer should produce only literal content; treat other parts as literal fallback
-                const string_t *txt = part_get_text(part);
-                if (txt)
-                    string_append(body, txt);
-            }
-        }
-
+        string_t *body = token_get_all_text(body_tok);
         // Attach to corresponding redirection node
         ast_node_t *redir_node = pending_heredocs[i];
-        if (redir_node->data.redirection.heredoc_content != NULL)
-        {
-            string_destroy(&redir_node->data.redirection.heredoc_content);
-        }
-        redir_node->data.redirection.heredoc_content = body;
-
+        ast_redirection_node_set_heredoc_content(redir_node, body);
+        string_destroy(&body);
         // Consume the body WORD and the END_OF_HEREDOC marker
         parser_advance(parser);
         if (parser_expect(parser, TOKEN_END_OF_HEREDOC) != PARSE_OK)

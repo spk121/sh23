@@ -11,6 +11,7 @@
 static void alias_array_ensure_capacity(alias_array_t *array, int needed)
 {
     Expects_not_null(array);
+    Expects_ge(needed, 0);
 
     if (needed <= array->capacity)
         return;
@@ -45,6 +46,7 @@ alias_array_t *alias_array_create_with_free(alias_array_free_func_t free_func)
 void alias_array_destroy(alias_array_t **array)
 {
     Expects_not_null(array);
+    Expects_not_null(*array);
     alias_array_t *a = *array;
 
     log_debug("alias_array_destroy: freeing array %p, size %zu", a, a->size);
@@ -79,7 +81,10 @@ int alias_array_capacity(const alias_array_t *array)
 alias_t *alias_array_get(const alias_array_t *array, int index)
 {
     Expects_not_null(array);
-    Expects(index < array->size);
+    Expects_not_null(array->data);
+    Expects_ge(index, 0);
+    Expects_lt(index, array->size);
+
     return array->data[index];
 }
 
@@ -102,9 +107,12 @@ void alias_array_append(alias_array_t *array, alias_t *element)
 void alias_array_set(alias_array_t *array, int index, alias_t *element)
 {
     Expects_not_null(array);
-    Expects(index < array->size);
+    Expects_ge(index, 0);
+    Expects_lt(index, array->size);
+    Expects_not_null(array->data);
+    Expects_not_null(element);
 
-    if (array->free_func && array->data[index])
+    if (array->free_func)
     {
         array->free_func(&array->data[index]);
     }
@@ -114,9 +122,11 @@ void alias_array_set(alias_array_t *array, int index, alias_t *element)
 void alias_array_remove(alias_array_t *array, int index)
 {
     Expects_not_null(array);
-    Expects(index < array->size);
+    Expects_ge(index, 0);
+    Expects_lt(index, array->size);
+    Expects_not_null(array->data);
 
-    if (array->free_func && array->data[index])
+    if (array->free_func)
     {
         array->free_func(&array->data[index]);
     }
@@ -133,6 +143,7 @@ void alias_array_remove(alias_array_t *array, int index)
 void alias_array_clear(alias_array_t *array)
 {
     Expects_not_null(array);
+    Expects_not_null(array->data);
 
     if (array->free_func)
     {
@@ -155,6 +166,8 @@ void alias_array_clear(alias_array_t *array)
 void alias_array_resize(alias_array_t *array, int new_capacity)
 {
     Expects_not_null(array);
+    Expects_not_null(array->data);
+    Expects_ge(new_capacity, 0);
 
     if (new_capacity < array->size)
     {
@@ -197,6 +210,8 @@ void alias_array_foreach(alias_array_t *array, alias_array_apply_func_t apply_fu
 int alias_array_find(alias_array_t *array, alias_t *element, int *index)
 {
     Expects_not_null(array);
+    Expects_not_null(array->data);
+    Expects_not_null(element);
     Expects_not_null(index);
 
     for (int i = 0; i < array->size; i++)
@@ -214,7 +229,7 @@ int alias_array_find_with_compare(alias_array_t *array, const void *data, alias_
                                   int *index)
 {
     Expects_not_null(array);
-    Expects_not_null(data);
+    Expects_not_null(array->data);
     Expects_not_null(compare_func);
     Expects_not_null(index);
 
