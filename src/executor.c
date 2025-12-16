@@ -7,6 +7,7 @@
 #include <string.h>
 #ifdef POSIX_API
 #include <glob.h>
+#include <sys/wait.h>
 #endif
 #ifdef UCRT_API
 #include <io.h>
@@ -296,6 +297,18 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         }
         printf("\n");
         executor->last_exit_status = 0;
+        return EXEC_OK;
+    }
+
+    // POSIX: a simple command with no command name (e.g., only assignments or
+    // redirections) completes with the status of the last command substitution
+    // performed (or 0 if none). Since we already record substitution status in
+    // executor_record_subst_status, we treat a command with no words as
+    // successful and leave last_exit_status as-is.
+    bool has_words = (node->data.simple_command.words != NULL &&
+                      token_list_size(node->data.simple_command.words) > 0);
+    if (!has_words)
+    {
         return EXEC_OK;
     }
 
@@ -701,19 +714,49 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
  * Expander Callbacks
  * ============================================================================ */
 
+// Record the exit status observed during command substitution. The POSIX rule
+// that a simple command with no command name (e.g., pure assignments containing
+// substitutions) inherits the last substitution's status is enforced by the
+// caller; here we merely stash the status on the executor for later use.
+static void executor_record_subst_status(executor_t *executor, int raw_status)
+{
+    if (executor == NULL)
+    {
+        return;
+    }
+
+#ifdef POSIX_API
+    int status = raw_status;
+    if (WIFEXITED(raw_status))
+    {
+        status = WEXITSTATUS(raw_status);
+    }
+    else if (WIFSIGNALED(raw_status))
+    {
+        status = 128 + WTERMSIG(raw_status);
+    }
+#else
+    int status = raw_status;
+#endif
+
+    executor_set_exit_status(executor, status);
+}
+
 /**
  * Command substitution callback for the expander.
  * For now, this is a stub that returns empty output.
  * In a full implementation, this would parse and execute the command.
  */
-string_t *executor_command_subst_callback(const string_t *command, void *user_data)
+string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx, void *user_data)
 {
 #ifdef POSIX_API
     (void)user_data;  // unused for now
 
+    executor_t *executor = (executor_t *)executor_ctx;
     const char *cmd = string_cstr(command);
     if (cmd == NULL || *cmd == '\0')
     {
+        executor_record_subst_status(executor, 0);
         return string_create();
     }
 
@@ -721,6 +764,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
     if (pipe == NULL)
     {
         log_error("executor_command_subst_callback: popen failed for '%s'", cmd);
+        executor_record_subst_status(executor, 1);
         return string_create();
     }
 
@@ -737,6 +781,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
     {
         log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
     }
+    executor_record_subst_status(executor, exit_code);
 
     // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
     while (string_length(output) > 0)
@@ -756,9 +801,11 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
 #elifdef UCRT_API
     (void)user_data;  // unused for now
 
+    executor_t *executor = (executor_t *)executor_ctx;
     const char *cmd = string_cstr(command);
     if (cmd == NULL || *cmd == '\0')
     {
+        executor_record_subst_status(executor, 0);
         return string_create();
     }
 
@@ -766,6 +813,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
     if (pipe == NULL)
     {
         log_error("executor_command_subst_callback: _popen failed for '%s'", cmd);
+        executor_record_subst_status(executor, 1);
         return string_create();
     }
 
@@ -782,6 +830,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
     {
         log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
     }
+    executor_record_subst_status(executor, exit_code);
 
     // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
     while (string_length(output) > 0)
@@ -802,8 +851,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *user_da
     // There is no portable way to do command substitution in ISO_C.
     // You could run a shell process via system(), but, without capturing output.
     (void)command;    // unused
-    (void)user_data;  // unused for now
-    
+    executor_record_subst_status((executor_t *)executor_ctx, 0);
     return string_create();
 #endif
 }
@@ -909,9 +957,10 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
     
 #else
     /* In ISO_C environments, no glob implementation is available */
-    (void)pattern;    // unused
     (void)user_data;  // unused
+    string_list_t *result = string_list_create();
+    string_list_push_back(result, pattern);
     log_warn("executor_pathname_expansion_callback: No glob implementation available");
-    return (string_list_t*)NULL;
+    return result;
 #endif
 }

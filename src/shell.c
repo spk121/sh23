@@ -88,7 +88,7 @@ shell_t *shell_create(const shell_config_t *cfg)
     
     // Hook executor callbacks into expander
     expander_set_variable_store(sh->expander, sh->vars);
-    expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh);
+    expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh->executor, NULL);
     expander_set_pathname_expansion_callback(sh->expander, executor_pathname_expansion_callback, sh);
     
     return sh;
@@ -288,6 +288,10 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
 
     // Execute the expanded AST
     exec_status_t exec_status = executor_execute(sh->executor, expanded_ast);
+    // Propagate the last exit status into the expander so subsequent `$?`
+    // expansions see the most recent command status (including the POSIX
+    // assignment-only + command-substitution case).
+    expander_set_last_exit_status(sh->expander, executor_get_exit_status(sh->executor));
     
     // Cleanup AST (expanded_ast may be the same pointer as ast)
     ast_node_destroy(&ast);

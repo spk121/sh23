@@ -56,6 +56,7 @@ struct expander_t
     bool background_pid_set;
     positional_params_stack_t *pos_stack;
     command_subst_callback_t cmd_subst_callback;
+    void *cmd_subst_executor_ctx;
     void *cmd_subst_user_data;
     pathname_expansion_callback_t pathname_expansion_callback;
     void *pathname_expansion_user_data;
@@ -73,6 +74,7 @@ expander_t *expander_create(void)
     exp->last_exit_status = 0;
     exp->pos_stack = positional_params_stack_create();
     exp->cmd_subst_callback = NULL;
+    exp->cmd_subst_executor_ctx = NULL;
     exp->cmd_subst_user_data = NULL;
     exp->pathname_expansion_callback = NULL;
     exp->pathname_expansion_user_data = NULL;
@@ -483,10 +485,14 @@ int expander_get_background_pid(const expander_t *exp)
 }
 #endif
 
-void expander_set_command_subst_callback(expander_t *exp, command_subst_callback_t callback, void *user_data)
+void expander_set_command_subst_callback(expander_t *exp,
+                                         command_subst_callback_t callback,
+                                         void *executor_ctx,
+                                         void *user_data)
 {
     Expects_not_null(exp);
     exp->cmd_subst_callback = callback;
+    exp->cmd_subst_executor_ctx = executor_ctx;
     exp->cmd_subst_user_data = user_data;
 }
 
@@ -956,7 +962,9 @@ static string_t *expand_command_substitution(expander_t *exp, const part_t *part
     string_t *expanded_command = expander_expand_word_string(exp, command, part_was_single_quoted(part), part_was_double_quoted(part));
     
     log_debug("expand_command_substitution: invoking callback for command: %s", string_cstr(expanded_command));
-    string_t *result = exp->cmd_subst_callback(expanded_command, exp->cmd_subst_user_data);
+    string_t *result = exp->cmd_subst_callback(expanded_command,
+                                               exp->cmd_subst_executor_ctx,
+                                               exp->cmd_subst_user_data);
     string_destroy(&expanded_command);
     
     if (result == NULL)

@@ -194,11 +194,12 @@ void executor_set_dry_run(executor_t *executor, bool dry_run);
  * Executes a command and returns its output.
  * 
  * @param command The command string to execute
- * @param user_data Pointer to the shell_t context
+ * @param executor_ctx Pointer to the executor context
+ * @param user_data Pointer to optional user context
  * @return The output of the command as a newly allocated string_t (caller must free),
  *         or NULL on error
  */
-string_t *executor_command_subst_callback(const string_t *command, void *user_data);
+string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx, void *user_data);
 
 /**
  * Pathname expansion (glob) callback for the expander.

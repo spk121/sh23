@@ -58,7 +58,9 @@ typedef struct expander_t expander_t;
  * @return The output of the command as a newly allocated string_t (caller must free),
  *         or NULL on error
  */
-typedef string_t *(*command_subst_callback_t)(const string_t *command, void *user_data);
+typedef string_t *(*command_subst_callback_t)(const string_t *command,
+											  void *executor_ctx,
+											  void *user_data);
 
 /**
  * Pathname expansion (glob) callback function type.
@@ -173,7 +175,10 @@ int expander_get_background_pid(const expander_t *exp);
  * @param callback The callback function pointer (can be NULL to disable command substitution)
  * @param user_data User-provided context data to pass to the callback
  */
-void expander_set_command_subst_callback(expander_t *exp, command_subst_callback_t callback, void *user_data);
+void expander_set_command_subst_callback(expander_t *exp,
+										 command_subst_callback_t callback,
+										 void *executor_ctx,
+										 void *user_data);
 
 /**
  * Get the current command substitution callback.
