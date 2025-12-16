@@ -1163,9 +1163,9 @@ Total findings in this file: **1**
 char *eq = strchr(name, '=');
 ```
 
-**Recommendation**: Consider using string_find_first_of_cstr() or string_find_cstr()
+**Recommendation**: Consider using string_find_cstr() with a single-character string if `name` is a string_t. If `name` is a char*, this is the appropriate method to use.
 
-**Suggested replacement**: `string_find_first_of_cstr() or string_find_cstr()`
+**Suggested replacement**: `string_find_cstr(str, "=")` (if operating on string_t)
 
 ---
 
