@@ -30,16 +30,35 @@ For reference, here are the key `string_t` methods that can replace common C str
 
 | C Function | string_t Replacement | Description |
 |------------|---------------------|-------------|
-| `strlen(s)` | `string_length(str)` | Get string length |
-| `strcmp(s1, s2)` | `string_compare_cstr(str, cstr)` or `string_eq(str1, str2)` | Compare strings (cstr for C string, eq for string_t) |
-| `strncmp(s1, s2, n)` | `string_starts_with_cstr(str, prefix)` | Check prefix |
-| `strstr(s1, s2)` | `string_contains_cstr(str, substr)` (bool) or `string_find_cstr(str, substr)` (index) | Find substring - use contains for existence check, find for position |
-| `strcpy(dest, src)` | `string_set_cstr(str, cstr)` | Copy string |
-| `strcat(dest, src)` | `string_append_cstr(str, cstr)` | Append string |
-| `strchr(s, c)` | `string_find_first_of_cstr(str, chars)` | Find first occurrence (returns index, not pointer) |
-| `strrchr(s, c)` | `string_find_last_of_cstr(str, chars)` | Find last occurrence (returns index, not pointer) |
-| `s[0] == '\0'` or `*s == 0` | `string_empty(str)` | Check if empty |
-| `sprintf(buf, fmt, ...)` | `string_printf(str, fmt, ...)` | Formatted string |
+| `strlen(s)` | `string_length(str)` | Get string length (only if `s` is a `string_t`) |
+| `strcmp(s1, s2)` | `string_compare_cstr(str, cstr)` (returns int like strcmp) or `string_eq(str1, str2)` (returns bool for equality only) | Compare strings - use `compare_cstr` when comparing string_t with C string and need ordering, `eq` for equality between two string_t |
+| `strncmp(s1, s2, n)` | `string_starts_with_cstr(str, prefix)` or `string_ends_with_cstr(str, suffix)` | Check prefix/suffix - clearer intent than length-based comparison |
+| `strstr(s1, s2)` | `string_contains_cstr(str, substr)` (bool) or `string_find_cstr(str, substr)` (int, -1 if not found vs NULL) | Find substring - use contains for existence check, find for position |
+| `strcpy(dest, src)` | `string_set_cstr(str, cstr)` | Copy string (only if `dest` is a `string_t`) |
+| `strcat(dest, src)` | `string_append_cstr(str, cstr)` | Append string (only if `dest` is a `string_t`) |
+| `strchr(s, c)` | `string_find_cstr(str, "c")` with single-char string | Find character (returns index -1 vs pointer NULL) |
+| `strrchr(s, c)` | `string_rfind_cstr(str, "c")` with single-char string | Find last character (returns index -1 vs pointer NULL) |
+| `s[0] == '\0'` or `*s == 0` | `string_empty(str)` | Check if empty (only if `s` is a `string_t`) |
+| `sprintf(buf, fmt, ...)` | `string_printf(str, fmt, ...)` | Formatted string (only if creating/modifying a `string_t`) |
+
+### Important Notes About Replacements
+
+**⚠️ Context Matters**: The recommendations in this audit are pattern-based and must be evaluated in context:
+
+1. **Type checking required**: Many findings involve C string operations on `char*` variables. The `string_t` methods can only be used when operating on actual `string_t` objects. Converting between types just to use these methods may not be beneficial.
+
+2. **Return value differences**: Pay special attention to return value semantics:
+   - `strcmp()` returns int (negative/0/positive), while `string_eq()` returns bool (true/false)
+   - `strstr()` returns pointer (NULL if not found), while `string_find_cstr()` returns int (-1 if not found)
+   - `strchr()` returns pointer (NULL if not found), while `string_find_cstr()` returns int (-1 if not found)
+
+3. **Function purpose**: Use the right replacement for the use case:
+   - For ordering comparison: use `string_compare_cstr()` (returns int like strcmp)
+   - For equality testing: use `string_eq()` (returns bool)
+   - For existence check: use `string_contains_cstr()` (returns bool)
+   - For position finding: use `string_find_cstr()` (returns index)
+
+4. **Performance consideration**: Converting between C strings and string_t just to use these methods may add overhead. The recommendations are most beneficial when the variables are already string_t objects.
 
 ## Detailed Findings by File
 
@@ -1171,7 +1190,11 @@ We recommend addressing these findings in the following priority order:
 
 ## Notes
 
-- Not all findings require immediate action. Some uses of C string functions are appropriate when working with C string literals or external APIs.
-- The recommendations focus on cases where string_t methods would provide clearer, safer, or more efficient code.
-- Each recommendation should be evaluated in context to ensure it improves the code.
-- The audit was performed automatically and findings should be manually reviewed before implementation.
+- **Not all findings require action**: Many uses of C string functions in this audit operate on `char*` variables, not `string_t` objects. The recommendations are most relevant when the code is already working with `string_t` types.
+- **Manual verification required**: This audit was generated automatically by pattern matching. Each finding must be manually reviewed to verify:
+  - The variable types involved (is it actually a `string_t`?)
+  - The semantic correctness of the replacement (does the return type change matter?)
+  - The performance impact (is conversion worthwhile?)
+- **Prioritize actual string_t operations**: Focus first on cases where `string_t` objects are being manipulated using C string functions, as these represent the clearest improvement opportunities.
+- **Consider the context**: Some C string operations are appropriate when interfacing with external APIs, parsing C string literals, or working in performance-critical sections where string_t overhead is undesirable.
+- The recommendations focus on cases where string_t methods would provide clearer, safer, or more efficient code when working with string_t objects.
