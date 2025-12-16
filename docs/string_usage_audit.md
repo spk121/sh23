@@ -31,13 +31,13 @@ For reference, here are the key `string_t` methods that can replace common C str
 | C Function | string_t Replacement | Description |
 |------------|---------------------|-------------|
 | `strlen(s)` | `string_length(str)` | Get string length |
-| `strcmp(s1, s2)` | `string_compare_cstr(str, s2)` or `string_eq(str1, str2)` | Compare strings |
+| `strcmp(s1, s2)` | `string_compare_cstr(str, cstr)` or `string_eq(str1, str2)` | Compare strings (cstr for C string, eq for string_t) |
 | `strncmp(s1, s2, n)` | `string_starts_with_cstr(str, prefix)` | Check prefix |
-| `strstr(s1, s2)` | `string_contains_cstr(str, substr)` or `string_find_cstr(str, substr)` | Find substring |
-| `strcpy(dest, src)` | `string_set_cstr(str, src)` | Copy string |
-| `strcat(dest, src)` | `string_append_cstr(str, src)` | Append string |
-| `strchr(s, c)` | `string_find_first_of_cstr(str, chars)` | Find first occurrence |
-| `strrchr(s, c)` | `string_find_last_of_cstr(str, chars)` | Find last occurrence |
+| `strstr(s1, s2)` | `string_contains_cstr(str, substr)` (bool) or `string_find_cstr(str, substr)` (index) | Find substring - use contains for existence check, find for position |
+| `strcpy(dest, src)` | `string_set_cstr(str, cstr)` | Copy string |
+| `strcat(dest, src)` | `string_append_cstr(str, cstr)` | Append string |
+| `strchr(s, c)` | `string_find_first_of_cstr(str, chars)` | Find first occurrence (returns index, not pointer) |
+| `strrchr(s, c)` | `string_find_last_of_cstr(str, chars)` | Find last occurrence (returns index, not pointer) |
 | `s[0] == '\0'` or `*s == 0` | `string_empty(str)` | Check if empty |
 | `sprintf(buf, fmt, ...)` | `string_printf(str, fmt, ...)` | Formatted string |
 
