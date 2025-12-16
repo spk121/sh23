@@ -21,7 +21,7 @@ endif()
 if(MSVC)
     add_compile_options(/std:clatest /W4 /Od /Zi)
 else()
-    add_compile_options(-Wall -Wextra -g3 -O0)
+    add_compile_options(-Wall -Wextra -fanalyzer -fmax-errors=4 -g3 -O2)
 endif()
 
 # Collect all sources except main.c
