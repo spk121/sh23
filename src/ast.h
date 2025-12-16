@@ -287,6 +287,7 @@ ast_node_type_t ast_node_get_type(const ast_node_t *node);
 void ast_node_set_location(ast_node_t *node, int first_line, int first_column, 
                           int last_line, int last_column);
 
+void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content);
 /* ============================================================================
  * AST Node Creation Helpers
  * ============================================================================ */

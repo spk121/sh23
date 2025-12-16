@@ -185,6 +185,46 @@ void ast_node_set_location(ast_node_t *node, int first_line, int first_column,
     node->last_column = last_column;
 }
 
+void ast_command_list_node_append_item(ast_node_t *node, ast_node_t *item)
+{
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_COMMAND_LIST);
+    Expects_not_null(node->data.command_list.items);
+    Expects_not_null(item);
+
+    ast_node_list_append(node->data.command_list.items, item);
+}
+
+void ast_command_list_node_append_separator(ast_node_t *node, cmd_separator_t separator)
+{
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_COMMAND_LIST);
+    Expects_not_null(node->data.command_list.separators);
+
+    cmd_separator_list_add(node->data.command_list.separators, separator);
+}
+
+redirection_type_t ast_redirection_node_get_redir_type(const ast_node_t *node)
+{
+    Expects_not_null(node);
+    Expects(node->type == AST_REDIRECTION);
+
+    return node->data.redirection.redir_type;
+}
+
+void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content)
+{
+    Expects_not_null(node);
+    Expects(node->type == AST_REDIRECTION);
+    Expects_not_null(content);
+
+    if (node->data.redirection.heredoc_content != NULL)
+    {
+        string_destroy(&node->data.redirection.heredoc_content);
+    }
+    node->data.redirection.heredoc_content = string_create_from(content);
+}
+
 /* ============================================================================
  * AST Node Creation Helpers
  * ============================================================================ */
