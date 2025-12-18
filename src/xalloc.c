@@ -5,14 +5,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Default arena configuration constants
+static const long ARENA_INITIAL_CAP = 64;
+static const long ARENA_MAX_ALLOCATIONS = 1000000;
+
 // Global singleton arena instance for legacy API
 static arena_t global_arena = {
     .rollback_in_progress = false,
     .allocated_ptrs = NULL,
     .allocated_count = 0,
     .allocated_cap = 0,
-    .initial_cap = 64,
-    .max_allocations = 1000000
+    .initial_cap = ARENA_INITIAL_CAP,
+    .max_allocations = ARENA_MAX_ALLOCATIONS
 };
 
 // Legacy global variables - aliases to global_arena fields for arena_start() macro compatibility
@@ -283,16 +287,16 @@ void arena_xfree(arena_t *arena, void *p)
 
 void arena_init_ex(arena_t *arena)
 {
-    // Free existing allocations if arena was previously initialized
-    // We check both allocated_ptrs and allocated_cap to avoid false positives from uninitialized memory
-    if (arena->allocated_ptrs != NULL && arena->allocated_cap > 0)
+    // Free existing allocations if arena was previously initialized and still has allocations
+    // We check both allocated_ptrs and allocated_count to avoid false positives from uninitialized memory
+    if (arena->allocated_ptrs != NULL && arena->allocated_count > 0)
     {
         arena_reset_ex(arena, false);
     }
     
     arena->rollback_in_progress = false;
-    arena->initial_cap = 64;
-    arena->max_allocations = 1000000;
+    arena->initial_cap = ARENA_INITIAL_CAP;
+    arena->max_allocations = ARENA_MAX_ALLOCATIONS;
     arena->allocated_ptrs = calloc(arena->initial_cap, sizeof(void *));
     if (!arena->allocated_ptrs)
     {
@@ -445,8 +449,8 @@ void arena_init(void)
     }
     
     global_arena.rollback_in_progress = false;
-    global_arena.initial_cap = 64;
-    global_arena.max_allocations = 1000000;
+    global_arena.initial_cap = ARENA_INITIAL_CAP;
+    global_arena.max_allocations = ARENA_MAX_ALLOCATIONS;
     global_arena.allocated_ptrs = calloc(global_arena.initial_cap, sizeof(void *));
     if (!global_arena.allocated_ptrs)
     {
