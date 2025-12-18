@@ -6,8 +6,8 @@
 // Test arena_xmalloc basic allocation
 CTEST(test_arena_xmalloc_basic)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     // Set up jump point for error handling
     if (setjmp(arena.rollback_point) == 0)
@@ -18,15 +18,15 @@ CTEST(test_arena_xmalloc_basic)
         arena_xfree(&arena, ptr);
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test arena_xcalloc zero initialization
 CTEST(test_arena_xcalloc_zero_init)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -42,15 +42,15 @@ CTEST(test_arena_xcalloc_zero_init)
         arena_xfree(&arena, arr);
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test arena_xrealloc resizing
 CTEST(test_arena_xrealloc_resize)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -76,15 +76,15 @@ CTEST(test_arena_xrealloc_resize)
         arena_xfree(&arena, new_ptr);
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test arena_xstrdup string duplication
 CTEST(test_arena_xstrdup_duplicate)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -98,15 +98,15 @@ CTEST(test_arena_xstrdup_duplicate)
         arena_xfree(&arena, dup);
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test arena_xfree and basic tracking
 CTEST(test_arena_xfree_tracking)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -124,15 +124,15 @@ CTEST(test_arena_xfree_tracking)
         arena_xfree(&arena, ptr3);
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test arena lifecycle (init/reset/end)
 CTEST(test_arena_lifecycle)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -144,10 +144,10 @@ CTEST(test_arena_lifecycle)
         CTEST_ASSERT_NOT_NULL(ctest, ptr2, "ptr2 should be allocated");
         
         // Reset should free all allocations
-        arena_arena_reset(&arena, false);
+        arena_reset_ex(&arena, false);
         
         // After reset, we should be able to allocate again
-        arena_arena_init(&arena);
+        arena_init_ex(&arena);
         if (setjmp(arena.rollback_point) == 0)
         {
             void *ptr3 = arena_xmalloc(&arena, 50);
@@ -156,15 +156,15 @@ CTEST(test_arena_lifecycle)
         }
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test multiple allocations and frees
 CTEST(test_arena_multiple_allocs)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -191,15 +191,15 @@ CTEST(test_arena_multiple_allocs)
         }
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 
 // Test that NULL can be safely passed to arena_xfree
 CTEST(test_arena_xfree_null)
 {
-    arena_t arena;
-    arena_arena_init(&arena);
+    arena_t arena = {0};
+    arena_init_ex(&arena);
     
     if (setjmp(arena.rollback_point) == 0)
     {
@@ -208,7 +208,7 @@ CTEST(test_arena_xfree_null)
         CTEST_ASSERT_TRUE(ctest, true, "freeing NULL should be safe");
     }
     
-    arena_arena_end(&arena);
+    arena_end_ex(&arena);
     (void)ctest;
 }
 

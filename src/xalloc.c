@@ -6,14 +6,18 @@
 #include <string.h>
 
 // Global singleton arena instance for legacy API
-static arena_t global_arena;
+static arena_t global_arena = {
+    .rollback_in_progress = false,
+    .allocated_ptrs = NULL,
+    .allocated_count = 0,
+    .allocated_cap = 0,
+    .initial_cap = 64,
+    .max_allocations = 1000000
+};
 
-// Legacy global variables - kept for backward compatibility with arena_start() macro
-// The legacy API uses these directly, while global_arena tracks allocation state
+// Legacy global variables - aliases to global_arena fields for arena_start() macro compatibility
 jmp_buf arena_rollback_point;
 bool arena_rollback_in_progress = false;
-
-static const long MAX_ALLOCATIONS = 1000000;
 
 // -------------------------------------------------------------
 // Internal helpers for maintaining the sorted pointer list
@@ -63,7 +67,7 @@ static long find_insertion_index(arena_t *arena, void *new_ptr)
     return low;
 }
 // Insert pointer in sorted order (keeps the array sorted)
-// For legacy API - uses global rollback variables
+// For legacy API - uses global_arena
 static void insert_ptr_legacy(void *p)
 {
     if (!p)
@@ -72,25 +76,27 @@ static void insert_ptr_legacy(void *p)
         abort();
     }
 
-    if (global_arena.allocated_count >= MAX_ALLOCATIONS)
+    if (global_arena.allocated_count >= global_arena.max_allocations)
     {
         free(p);
-        fprintf(stderr, "exceeded maximum allocation limit (%ld)\n", MAX_ALLOCATIONS);
-        if (!arena_rollback_in_progress)
-            longjmp(arena_rollback_point, 1);
+        fprintf(stderr, "exceeded maximum allocation limit (%ld)\n", global_arena.max_allocations);
+        if (!global_arena.rollback_in_progress)
+            longjmp(global_arena.rollback_point, 1);
         return;
     }
 
     // Note that we can't use xrealloc here because it would call insert_ptr again.
     if (global_arena.allocated_count == global_arena.allocated_cap)
     {
-        long new_cap = global_arena.allocated_cap * 2;
+        long new_cap = (global_arena.allocated_cap > 0) ? global_arena.allocated_cap * 2 : global_arena.initial_cap;
+        if (new_cap > global_arena.max_allocations)
+            new_cap = global_arena.max_allocations;
         void **new_ptrs = calloc(new_cap, sizeof(void *));
         if (!new_ptrs)
         {
             free(p);
-            if (!arena_rollback_in_progress)
-                longjmp(arena_rollback_point, 1);
+            if (!global_arena.rollback_in_progress)
+                longjmp(global_arena.rollback_point, 1);
             return;
         }
         memmove(new_ptrs, global_arena.allocated_ptrs, global_arena.allocated_count * sizeof(void *));
@@ -121,10 +127,10 @@ static void insert_ptr(arena_t *arena, void *p)
         abort();
     }
 
-    if (arena->allocated_count >= MAX_ALLOCATIONS)
+    if (arena->allocated_count >= arena->max_allocations)
     {
         free(p);
-        fprintf(stderr, "exceeded maximum allocation limit (%ld)\n", MAX_ALLOCATIONS);
+        fprintf(stderr, "exceeded maximum allocation limit (%ld)\n", arena->max_allocations);
         if (!arena->rollback_in_progress)
             longjmp(arena->rollback_point, 1);
         return;
@@ -133,7 +139,9 @@ static void insert_ptr(arena_t *arena, void *p)
     // Note that we can't use xrealloc here because it would call insert_ptr again.
     if (arena->allocated_count == arena->allocated_cap)
     {
-        long new_cap = arena->allocated_cap * 2;
+        long new_cap = (arena->allocated_cap > 0) ? arena->allocated_cap * 2 : arena->initial_cap;
+        if (new_cap > arena->max_allocations)
+            new_cap = arena->max_allocations;
         void **new_ptrs = calloc(new_cap, sizeof(void *));
         if (!new_ptrs)
         {
@@ -273,20 +281,29 @@ void arena_xfree(arena_t *arena, void *p)
     free(p);
 }
 
-void arena_arena_init(arena_t *arena)
+void arena_init_ex(arena_t *arena)
 {
+    // Free existing allocations if arena was previously initialized
+    // We check both allocated_ptrs and allocated_cap to avoid false positives from uninitialized memory
+    if (arena->allocated_ptrs != NULL && arena->allocated_cap > 0)
+    {
+        arena_reset_ex(arena, false);
+    }
+    
     arena->rollback_in_progress = false;
-    arena->allocated_ptrs = calloc(64, sizeof(void *));
+    arena->initial_cap = 64;
+    arena->max_allocations = 1000000;
+    arena->allocated_ptrs = calloc(arena->initial_cap, sizeof(void *));
     if (!arena->allocated_ptrs)
     {
-        fprintf(stderr, "arena_arena_init: failed to allocate initial pointer array\n");
+        fprintf(stderr, "arena_init_ex: failed to allocate initial pointer array\n");
         abort();
     }
-    arena->allocated_cap = 64;
+    arena->allocated_cap = arena->initial_cap;
     arena->allocated_count = 0;
 }
 
-void arena_arena_reset(arena_t *arena, bool verbose)
+void arena_reset_ex(arena_t *arena, bool verbose)
 {
     arena->rollback_in_progress = true;
 
@@ -309,12 +326,12 @@ void arena_arena_reset(arena_t *arena, bool verbose)
     arena->rollback_in_progress = false;
 }
 
-void arena_arena_end(arena_t *arena)
+void arena_end_ex(arena_t *arena)
 {
 #ifdef DEBUG
-    arena_arena_reset(arena, true);
+    arena_reset_ex(arena, true);
 #else
-    arena_arena_reset(arena, false);
+    arena_reset_ex(arena, false);
 #endif
 }
 
@@ -421,16 +438,26 @@ void xfree(void *p)
 
 void arena_init(void)
 {
-    arena_rollback_in_progress = false;
+    // Free existing allocations if arena was previously used
+    if (global_arena.allocated_ptrs != NULL)
+    {
+        arena_reset(false);
+    }
+    
     global_arena.rollback_in_progress = false;
-    global_arena.allocated_ptrs = calloc(64, sizeof(void *));
+    global_arena.initial_cap = 64;
+    global_arena.max_allocations = 1000000;
+    global_arena.allocated_ptrs = calloc(global_arena.initial_cap, sizeof(void *));
     if (!global_arena.allocated_ptrs)
     {
         fprintf(stderr, "arena_init: failed to allocate initial pointer array\n");
         abort();
     }
-    global_arena.allocated_cap = 64;
+    global_arena.allocated_cap = global_arena.initial_cap;
     global_arena.allocated_count = 0;
+    
+    // Keep legacy global variable in sync for arena_start() macro compatibility
+    arena_rollback_in_progress = global_arena.rollback_in_progress;
 }
 
 // -------------------------------------------------------------
@@ -438,7 +465,8 @@ void arena_init(void)
 // -------------------------------------------------------------
 void arena_reset(bool verbose)
 {
-    arena_rollback_in_progress = true;
+    global_arena.rollback_in_progress = true;
+    arena_rollback_in_progress = true; // Keep in sync for arena_start() macro
 
     // Free from the end to avoid expensive memmove on every removal
     long count = global_arena.allocated_count;
@@ -456,7 +484,8 @@ void arena_reset(bool verbose)
     }
     global_arena.allocated_cap = global_arena.allocated_count = 0;
 
-    arena_rollback_in_progress = false;
+    global_arena.rollback_in_progress = false;
+    arena_rollback_in_progress = false; // Keep in sync for arena_start() macro
 }
 
 void arena_end(void)

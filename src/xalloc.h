@@ -18,6 +18,8 @@ typedef struct arena_t {
     void **allocated_ptrs;  // dynamically resized sorted array
     long allocated_count;
     long allocated_cap;
+    long initial_cap;       // initial capacity for allocated_ptrs array
+    long max_allocations;   // maximum number of allocations allowed
 } arena_t;
 
 /**
@@ -79,14 +81,23 @@ void arena_reset(bool verbose);
  */
 void arena_end(void);
 
-// Arena-based allocation functions that take an arena_t argument
+/**
+ * Arena-based allocation functions that operate on an explicit arena_t.
+ * 
+ * These functions provide the same functionality as the global arena functions
+ * (xmalloc, xcalloc, etc.) but operate on a specific arena instance, allowing
+ * multiple independent arenas and better testability.
+ * 
+ * Note: These are primarily provided for unit testing. General code should use
+ * the shorter API like xmalloc and xfree which operate on the global arena.
+ */
 void *arena_xmalloc(arena_t *arena, size_t size);
 void *arena_xcalloc(arena_t *arena, size_t n, size_t size);
 void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size);
 char *arena_xstrdup(arena_t *arena, const char *s);
 void arena_xfree(arena_t *arena, void *ptr);
-void arena_arena_init(arena_t *arena);
-void arena_arena_reset(arena_t *arena, bool verbose);
-void arena_arena_end(arena_t *arena);
+void arena_init_ex(arena_t *arena);
+void arena_reset_ex(arena_t *arena, bool verbose);
+void arena_end_ex(arena_t *arena);
 
 #endif // ARENA_ALLOC_H
