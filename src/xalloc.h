@@ -5,8 +5,22 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-extern jmp_buf arena_rollback_point;
-extern bool arena_rollback_in_progress;
+/**
+ * Arena allocator state structure.
+ * Encapsulates all the state needed for memory tracking.
+ */
+typedef struct arena_t {
+    jmp_buf rollback_point;
+    bool rollback_in_progress;
+    void **allocated_ptrs;  // dynamically resized sorted array
+    long allocated_count;
+    long allocated_cap;
+    long initial_cap;       // initial capacity for allocated_ptrs array
+    long max_allocations;   // maximum number of allocations allowed
+} arena_t;
+
+// Access to global singleton arena for use in arena_start() macro
+extern arena_t *arena_get_global(void);
 
 /**
  * Place this code in main, just after initializing the program but before any allocations:
@@ -15,7 +29,7 @@ extern bool arena_rollback_in_progress;
     do                                                                                                                 \
     {                                                                                                                  \
         arena_init();                                                                                                  \
-        if (setjmp(arena_rollback_point) != 0)                                                                         \
+        if (setjmp(arena_get_global()->rollback_point) != 0)                                                          \
         {                                                                                                              \
             arena_reset(false);                                                                                        \
             fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");             \
@@ -66,5 +80,24 @@ void arena_reset(bool verbose);
  * Call this at the end of main to free all allocated memory.
  */
 void arena_end(void);
+
+/**
+ * Arena-based allocation functions that operate on an explicit arena_t.
+ * 
+ * These functions provide the same functionality as the global arena functions
+ * (xmalloc, xcalloc, etc.) but operate on a specific arena instance, allowing
+ * multiple independent arenas and better testability.
+ * 
+ * Note: These are primarily provided for unit testing. General code should use
+ * the shorter API like xmalloc and xfree which operate on the global arena.
+ */
+void *arena_xmalloc(arena_t *arena, size_t size);
+void *arena_xcalloc(arena_t *arena, size_t n, size_t size);
+void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size);
+char *arena_xstrdup(arena_t *arena, const char *s);
+void arena_xfree(arena_t *arena, void *ptr);
+void arena_init_ex(arena_t *arena);
+void arena_reset_ex(arena_t *arena, bool verbose);
+void arena_end_ex(arena_t *arena);
 
 #endif // ARENA_ALLOC_H
