@@ -5,9 +5,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-extern jmp_buf arena_rollback_point;
-extern bool arena_rollback_in_progress;
-
 /**
  * Arena allocator state structure.
  * Encapsulates all the state needed for memory tracking.
@@ -22,6 +19,9 @@ typedef struct arena_t {
     long max_allocations;   // maximum number of allocations allowed
 } arena_t;
 
+// Access to global singleton arena for use in arena_start() macro
+extern arena_t *arena_get_global(void);
+
 /**
  * Place this code in main, just after initializing the program but before any allocations:
  */
@@ -29,7 +29,7 @@ typedef struct arena_t {
     do                                                                                                                 \
     {                                                                                                                  \
         arena_init();                                                                                                  \
-        if (setjmp(arena_rollback_point) != 0)                                                                         \
+        if (setjmp(arena_get_global()->rollback_point) != 0)                                                          \
         {                                                                                                              \
             arena_reset(false);                                                                                        \
             fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");             \
