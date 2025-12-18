@@ -8,8 +8,8 @@
 // Global singleton arena instance for legacy API
 static arena_t global_arena;
 
-// Legacy global variables - these are kept for backward compatibility
-// and are synchronized with the global_arena in arena_init()
+// Legacy global variables - kept for backward compatibility with arena_start() macro
+// The legacy API uses these directly, while global_arena tracks allocation state
 jmp_buf arena_rollback_point;
 bool arena_rollback_in_progress = false;
 
@@ -422,6 +422,7 @@ void xfree(void *p)
 void arena_init(void)
 {
     arena_rollback_in_progress = false;
+    global_arena.rollback_in_progress = false;
     global_arena.allocated_ptrs = calloc(64, sizeof(void *));
     if (!global_arena.allocated_ptrs)
     {
