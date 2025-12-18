@@ -9,6 +9,18 @@ extern jmp_buf arena_rollback_point;
 extern bool arena_rollback_in_progress;
 
 /**
+ * Arena allocator state structure.
+ * Encapsulates all the state needed for memory tracking.
+ */
+typedef struct arena_t {
+    jmp_buf rollback_point;
+    bool rollback_in_progress;
+    void **allocated_ptrs;  // dynamically resized sorted array
+    long allocated_count;
+    long allocated_cap;
+} arena_t;
+
+/**
  * Place this code in main, just after initializing the program but before any allocations:
  */
 #define arena_start()                                                                                                  \
@@ -66,5 +78,15 @@ void arena_reset(bool verbose);
  * Call this at the end of main to free all allocated memory.
  */
 void arena_end(void);
+
+// Arena-based allocation functions that take an arena_t argument
+void *arena_xmalloc(arena_t *arena, size_t size);
+void *arena_xcalloc(arena_t *arena, size_t n, size_t size);
+void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size);
+char *arena_xstrdup(arena_t *arena, const char *s);
+void arena_xfree(arena_t *arena, void *ptr);
+void arena_arena_init(arena_t *arena);
+void arena_arena_reset(arena_t *arena, bool verbose);
+void arena_arena_end(arena_t *arena);
 
 #endif // ARENA_ALLOC_H
