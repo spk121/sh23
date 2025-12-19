@@ -165,7 +165,7 @@ static void insert_ptr(arena_t *arena, void *p)
 #ifdef DEBUG
     arena->allocated_ptrs[idx].ptr = p;
     snprintf(arena->allocated_ptrs[idx].file, sizeof(arena->allocated_ptrs[idx].file), "%s", file);
-    snprintf(arena->allocated_ptrs[idx].line, sizeof(arena->allocated_ptrs[idx].line), "%d", line);
+    arena->allocated_ptrs[idx].line = line;
     arena->allocated_ptrs[idx].size = (int)size;
     fprintf(stderr, "ALLOC: %p %s:%d %d\n", p, file, line, (int)size);
 #else
@@ -266,7 +266,7 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
     if (idx >= 0)
     {
         // Print old allocation info
-        fprintf(stderr, "REALLOC: %p %s:%s %d -> ", 
+        fprintf(stderr, "REALLOC: %p %s:%d %d -> ", 
                 arena->allocated_ptrs[idx].ptr,
                 arena->allocated_ptrs[idx].file,
                 arena->allocated_ptrs[idx].line,
@@ -336,7 +336,7 @@ void arena_xfree(arena_t *arena, void *p)
     }
 
 #ifdef DEBUG
-    fprintf(stderr, "FREE: %p %s:%s %d -> %p (freed):0 0\n",
+    fprintf(stderr, "FREE: %p %s:%d %d -> %p (freed):0 0\n",
             arena->allocated_ptrs[idx].ptr,
             arena->allocated_ptrs[idx].file,
             arena->allocated_ptrs[idx].line,
@@ -384,7 +384,7 @@ void arena_reset_ex(arena_t *arena, bool verbose)
     {
         for (long i = 0; i < arena->allocated_count; i++)
         {
-            fprintf(stderr, "LEAK: %p %s:%s %d\n",
+            fprintf(stderr, "LEAK: %p %s:%d %d\n",
                     arena->allocated_ptrs[i].ptr,
                     arena->allocated_ptrs[i].file,
                     arena->allocated_ptrs[i].line,
@@ -491,7 +491,7 @@ void arena_reset(bool verbose)
     {
         for (long i = 0; i < global_arena.allocated_count; i++)
         {
-            fprintf(stderr, "LEAK: %p %s:%s %d\n",
+            fprintf(stderr, "LEAK: %p %s:%d %d\n",
                     global_arena.allocated_ptrs[i].ptr,
                     global_arena.allocated_ptrs[i].file,
                     global_arena.allocated_ptrs[i].line,

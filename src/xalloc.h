@@ -12,7 +12,7 @@
 typedef struct {
     void *ptr;
     char file[80];
-    char line[8];
+    int line;
     int size;
 } arena_alloc_t;
 #endif
