@@ -34,6 +34,44 @@ arena_t *arena_get_global(void)
 // Internal helpers for maintaining the sorted pointer list
 // -------------------------------------------------------------
 #ifdef DEBUG
+// Helper function to extract basename from file path and copy to buffer with truncation handling
+static void copy_basename(char *dest, size_t dest_size, const char *file)
+{
+    // Find the last '/' or '\\' in the file path to get basename
+    const char *basename = file;
+    const char *p = file;
+    while (*p)
+    {
+        if (*p == '/' || *p == '\\')
+        {
+            basename = p + 1;
+        }
+        p++;
+    }
+    
+    // Copy basename to destination
+    int n = snprintf(dest, dest_size, "%s", basename);
+    
+    // Check for truncation
+    if (n < 0)
+    {
+        // Encoding error - use empty string
+        dest[0] = '\0';
+    }
+    else if ((size_t)n >= dest_size)
+    {
+        // Truncation occurred - replace end with "..."
+        if (dest_size >= 4)
+        {
+            dest[dest_size - 4] = '.';
+            dest[dest_size - 3] = '.';
+            dest[dest_size - 2] = '.';
+            dest[dest_size - 1] = '\0';
+        }
+        fprintf(stderr, "WARNING: allocation file path truncated: %s\n", file);
+    }
+}
+
 static int ptr_compare(const void *a, const void *b)
 {
     const arena_alloc_t *pa = (const arena_alloc_t *)a;
@@ -180,7 +218,7 @@ static void insert_ptr(arena_t *arena, void *p)
     }
 #ifdef DEBUG
     arena->allocated_ptrs[idx].ptr = p;
-    snprintf(arena->allocated_ptrs[idx].file, sizeof(arena->allocated_ptrs[idx].file), "%s", file);
+    copy_basename(arena->allocated_ptrs[idx].file, sizeof(arena->allocated_ptrs[idx].file), file);
     arena->allocated_ptrs[idx].line = line;
     arena->allocated_ptrs[idx].size = size;
     fprintf(stderr, "ALLOC: %p %s:%d %zu\n", p, file, line, size);
@@ -281,12 +319,17 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
 #ifdef DEBUG
     if (idx >= 0)
     {
-        // Print old allocation info
+        // Print old allocation info for tracked pointer
         fprintf(stderr, "REALLOC: %p %s:%d %zu -> ", 
                 arena->allocated_ptrs[idx].ptr,
                 arena->allocated_ptrs[idx].file,
                 arena->allocated_ptrs[idx].line,
                 arena->allocated_ptrs[idx].size);
+    }
+    else
+    {
+        // Pointer was not tracked; still log the reallocation for consistency
+        fprintf(stderr, "REALLOC: %p (untracked) -> ", old_ptr);
     }
 #endif
     void *p = realloc(old_ptr, new_size);
