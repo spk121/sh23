@@ -34,10 +34,9 @@ arena_t *arena_get_global(void)
 // Internal helpers for maintaining the sorted pointer list
 // -------------------------------------------------------------
 #ifdef DEBUG
-// Helper function to extract basename from file path and copy to buffer with truncation handling
-static void copy_basename(char *dest, size_t dest_size, const char *file)
+// Helper function to extract basename from file path (returns pointer to basename within the original string)
+static const char *get_basename(const char *file)
 {
-    // Find the last '/' or '\\' in the file path to get basename
     const char *basename = file;
     const char *p = file;
     while (*p)
@@ -48,6 +47,13 @@ static void copy_basename(char *dest, size_t dest_size, const char *file)
         }
         p++;
     }
+    return basename;
+}
+
+// Helper function to extract basename from file path and copy to buffer with truncation handling
+static void copy_basename(char *dest, size_t dest_size, const char *file)
+{
+    const char *basename = get_basename(file);
     
     // Copy basename to destination
     int n = snprintf(dest, dest_size, "%s", basename);
@@ -221,7 +227,7 @@ static void insert_ptr(arena_t *arena, void *p)
     copy_basename(arena->allocated_ptrs[idx].file, sizeof(arena->allocated_ptrs[idx].file), file);
     arena->allocated_ptrs[idx].line = line;
     arena->allocated_ptrs[idx].size = size;
-    fprintf(stderr, "ALLOC: %p %s:%d %zu\n", p, file, line, size);
+    fprintf(stderr, "ALLOC: %p %s:%d %zu\n", p, arena->allocated_ptrs[idx].file, line, size);
 #else
     arena->allocated_ptrs[idx] = p;
 #endif
@@ -343,7 +349,7 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
         remove_ptr_at(arena, idx);
 #ifdef DEBUG
     // Print new allocation info
-    fprintf(stderr, "%p %s:%d %zu\n", p, file, line, new_size);
+    fprintf(stderr, "%p %s:%d %zu\n", p, get_basename(file), line, new_size);
     insert_ptr(arena, p, file, line, new_size);
 #else
     insert_ptr(arena, p);
