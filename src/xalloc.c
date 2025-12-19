@@ -109,6 +109,22 @@ static void insert_ptr(arena_t *arena, void *p)
         abort();
     }
 
+#ifdef DEBUG
+    // Check if this pointer already exists (SHADOW case - memory corruption or tracking error)
+    long existing_idx = find_ptr(arena, p);
+    if (existing_idx >= 0)
+    {
+        fprintf(stderr, "SHADOW: %p %s:%d %zu -> %p %s:%d %zu\n",
+                arena->allocated_ptrs[existing_idx].ptr,
+                arena->allocated_ptrs[existing_idx].file,
+                arena->allocated_ptrs[existing_idx].line,
+                arena->allocated_ptrs[existing_idx].size,
+                p, file, line, size);
+        fprintf(stderr, "insert_ptr: pointer %p already tracked (possible memory corruption or double allocation)\n", p);
+        abort();
+    }
+#endif
+
     if (arena->allocated_count >= arena->max_allocations)
     {
         free(p);
