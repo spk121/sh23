@@ -11,9 +11,9 @@
  */
 typedef struct {
     void *ptr;
-    char file[80];
+    char file[256];
     int line;
-    int size;
+    size_t size;
 } arena_alloc_t;
 #endif
 
