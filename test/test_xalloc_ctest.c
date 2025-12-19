@@ -3,6 +3,19 @@
 #include "ctest.h"
 #include "xalloc.h"
 
+// Helper macros to handle DEBUG and non-DEBUG modes
+#ifdef DEBUG
+#define TEST_ARENA_XMALLOC(arena, size) arena_xmalloc((arena), (size), __FILE__, __LINE__)
+#define TEST_ARENA_XCALLOC(arena, n, size) arena_xcalloc((arena), (n), (size), __FILE__, __LINE__)
+#define TEST_ARENA_XREALLOC(arena, ptr, size) arena_xrealloc((arena), (ptr), (size), __FILE__, __LINE__)
+#define TEST_ARENA_XSTRDUP(arena, s) arena_xstrdup((arena), (s), __FILE__, __LINE__)
+#else
+#define TEST_ARENA_XMALLOC(arena, size) arena_xmalloc((arena), (size))
+#define TEST_ARENA_XCALLOC(arena, n, size) arena_xcalloc((arena), (n), (size))
+#define TEST_ARENA_XREALLOC(arena, ptr, size) arena_xrealloc((arena), (ptr), (size))
+#define TEST_ARENA_XSTRDUP(arena, s) arena_xstrdup((arena), (s))
+#endif
+
 // Test arena_xmalloc basic allocation
 CTEST(test_arena_xmalloc_basic)
 {
@@ -12,7 +25,7 @@ CTEST(test_arena_xmalloc_basic)
     // Set up jump point for error handling
     if (setjmp(arena.rollback_point) == 0)
     {
-        void *ptr = arena_xmalloc(&arena, 100);
+        void *ptr = TEST_ARENA_XMALLOC(&arena, 100);
         CTEST_ASSERT_NOT_NULL(ctest, ptr, "allocated pointer should not be NULL");
         
         arena_xfree(&arena, ptr);
@@ -30,7 +43,7 @@ CTEST(test_arena_xcalloc_zero_init)
     
     if (setjmp(arena.rollback_point) == 0)
     {
-        int *arr = arena_xcalloc(&arena, 10, sizeof(int));
+        int *arr = TEST_ARENA_XCALLOC(&arena, 10, sizeof(int));
         CTEST_ASSERT_NOT_NULL(ctest, arr, "allocated array should not be NULL");
         
         // Verify zero initialization
@@ -54,7 +67,7 @@ CTEST(test_arena_xrealloc_resize)
     
     if (setjmp(arena.rollback_point) == 0)
     {
-        int *ptr = arena_xmalloc(&arena, sizeof(int) * 5);
+        int *ptr = TEST_ARENA_XMALLOC(&arena, sizeof(int) * 5);
         CTEST_ASSERT_NOT_NULL(ctest, ptr, "initial allocation should not be NULL");
         
         // Set some values
@@ -64,7 +77,7 @@ CTEST(test_arena_xrealloc_resize)
         }
         
         // Reallocate to larger size
-        int *new_ptr = arena_xrealloc(&arena, ptr, sizeof(int) * 10);
+        int *new_ptr = TEST_ARENA_XREALLOC(&arena, ptr, sizeof(int) * 10);
         CTEST_ASSERT_NOT_NULL(ctest, new_ptr, "reallocated pointer should not be NULL");
         
         // Verify original values are preserved
@@ -89,7 +102,7 @@ CTEST(test_arena_xstrdup_duplicate)
     if (setjmp(arena.rollback_point) == 0)
     {
         const char *original = "Hello, World!";
-        char *dup = arena_xstrdup(&arena, original);
+        char *dup = TEST_ARENA_XSTRDUP(&arena, original);
         
         CTEST_ASSERT_NOT_NULL(ctest, dup, "duplicated string should not be NULL");
         CTEST_ASSERT_STR_EQ(ctest, dup, original, "duplicated string should match original");
@@ -110,9 +123,9 @@ CTEST(test_arena_xfree_tracking)
     
     if (setjmp(arena.rollback_point) == 0)
     {
-        void *ptr1 = arena_xmalloc(&arena, 50);
-        void *ptr2 = arena_xmalloc(&arena, 100);
-        void *ptr3 = arena_xmalloc(&arena, 150);
+        void *ptr1 = TEST_ARENA_XMALLOC(&arena, 50);
+        void *ptr2 = TEST_ARENA_XMALLOC(&arena, 100);
+        void *ptr3 = TEST_ARENA_XMALLOC(&arena, 150);
         
         CTEST_ASSERT_NOT_NULL(ctest, ptr1, "ptr1 should be allocated");
         CTEST_ASSERT_NOT_NULL(ctest, ptr2, "ptr2 should be allocated");
@@ -137,8 +150,8 @@ CTEST(test_arena_lifecycle)
     if (setjmp(arena.rollback_point) == 0)
     {
         // Allocate some memory
-        void *ptr1 = arena_xmalloc(&arena, 100);
-        void *ptr2 = arena_xmalloc(&arena, 200);
+        void *ptr1 = TEST_ARENA_XMALLOC(&arena, 100);
+        void *ptr2 = TEST_ARENA_XMALLOC(&arena, 200);
         
         CTEST_ASSERT_NOT_NULL(ctest, ptr1, "ptr1 should be allocated");
         CTEST_ASSERT_NOT_NULL(ctest, ptr2, "ptr2 should be allocated");
@@ -150,7 +163,7 @@ CTEST(test_arena_lifecycle)
         arena_init_ex(&arena);
         if (setjmp(arena.rollback_point) == 0)
         {
-            void *ptr3 = arena_xmalloc(&arena, 50);
+            void *ptr3 = TEST_ARENA_XMALLOC(&arena, 50);
             CTEST_ASSERT_NOT_NULL(ctest, ptr3, "ptr3 should be allocated after reset");
             arena_xfree(&arena, ptr3);
         }
@@ -178,7 +191,7 @@ CTEST(test_arena_multiple_allocs)
         // Allocate multiple blocks
         for (int i = 0; i < COUNT; i++)
         {
-            ptrs[i] = arena_xmalloc(&arena, (i + 1) * 10);
+            ptrs[i] = TEST_ARENA_XMALLOC(&arena, (i + 1) * 10);
             CTEST_ASSERT_NOT_NULL(ctest, ptrs[i], "allocation should succeed");
         }
         
