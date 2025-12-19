@@ -251,7 +251,7 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
     parser->position = 0;
     parser_clear_error(parser);
 
-    if (token_list_size(tokens) == 0)
+    if (token_list_size(parser->tokens) == 0)
     {
         *out_ast = NULL;
         return PARSE_EMPTY;
@@ -263,7 +263,23 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node)
 {
     Expects_not_null(parser);
-    return parser_parse_command_list(parser, PARSE_COMMAND_TOP_LEVEL, out_node);
+    ast_node_t *program = ast_create_program();
+
+    // Skip leading newlines
+    parser_skip_newlines(parser);
+
+    ast_node_t *body = NULL;
+    parse_status_t status = parser_parse_command_list(parser, PARSE_COMMAND_TOP_LEVEL, &body);
+
+    if (status != PARSE_OK)
+    {
+        ast_node_destroy(&program);
+        return status;
+    }
+    
+    program->data.program.body = body;
+    *out_node = program;
+    return PARSE_OK;
 }
 
 parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context, ast_node_t **out_node)

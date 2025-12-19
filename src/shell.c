@@ -154,7 +154,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     lex_status_t lex_status = lexer_tokenize(sh->lexer, tokens, &num_tokens_read);
     if (log_level() == LOG_DEBUG)
     {
-        string_t *token_str = token_list_to_string(tokens);
+        string_t *token_str = token_list_to_string(tokens, 0);
         log_debug("shell_feed_line: lexed tokens: %s", string_data(token_str));
         string_destroy(&token_str);
     }
@@ -234,7 +234,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     if (parse_status == PARSE_ERROR)
     {
         string_set_cstr(sh->error, parser_get_error(sh->parser));
-        token_list_destroy(&out_tokens);
+        // token_list_destroy(&out_tokens);
         return SH_SYNTAX_ERROR;
     }
     else if (parse_status == PARSE_INCOMPLETE)

@@ -1157,7 +1157,9 @@ void token_list_destroy(token_list_t **list)
     }
 
     xfree(l->tokens);
+    l->tokens = NULL;
     xfree(l);
+    l = NULL;
     *list = NULL;
 }
 
@@ -1343,15 +1345,18 @@ int token_list_insert_range(token_list_t *list, int index, token_t **tokens, int
     return 0;
 }
 
-string_t *token_list_to_string(const token_list_t *list)
+string_t *token_list_to_string(const token_list_t *list, int indent_level)
 {
     Expects_not_null(list);
 
     string_t *result = string_create();
+    for (int s = 0; s < indent_level; s++)
+        string_append_cstr(result, "  ");
     string_append_cstr(result, "TokenList[\n");
     for (int i = 0; i < list->size; i++)
     {
-        string_append_cstr(result, "  ");
+        for (int s = 0; s < indent_level + 1; s++)
+            string_append_cstr(result, "  ");
         string_t *token_str = token_to_string(list->tokens[i]);
         string_append(result, token_str);
         string_destroy(&token_str);
@@ -1361,6 +1366,8 @@ string_t *token_list_to_string(const token_list_t *list)
             string_append_cstr(result, "\n");
     }
 
+    for (int s = 0; s < indent_level; s++)
+        string_append_cstr(result, "  ");
     string_append_cstr(result, "]");
     return result;
 }

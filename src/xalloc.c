@@ -6,8 +6,13 @@
 #include <string.h>
 
 // Default arena configuration constants
-static const long ARENA_INITIAL_CAP = 64;
-static const long ARENA_MAX_ALLOCATIONS = 1000000;
+#if __STDC_VERSION__ >= 202311L && !defined(_MSC_VER)
+constexpr long ARENA_INITIAL_CAP = 64;
+constexpr long ARENA_MAX_ALLOCATIONS = 1000000;
+#else
+#define ARENA_INITIAL_CAP 64
+#define ARENA_MAX_ALLOCATIONS 1000000
+#endif
 
 // Global singleton arena instance
 static arena_t global_arena = {

@@ -152,6 +152,12 @@ struct ast_node_t
     /* Common fields used by different node types */
     union
     {
+        /* AST_PROGRAM */
+        struct
+        {
+            ast_node_t *body; // A single command list node
+        } program;
+
         /* AST_SIMPLE_COMMAND */
         struct
         {
@@ -315,6 +321,12 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
  *     the parser to clear pointers without destroying tokens
  *   - Then free the token_list structure itself
  */
+
+#if __STDC_VERSION__ >= 202311L
+ast_node_t *ast_create_program();
+#else
+ast_node_t *ast_create_program(void);
+#endif
 
 /**
  * Create a simple command node.

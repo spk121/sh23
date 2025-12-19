@@ -4,12 +4,12 @@
 
 #include "string_t.h"
 #include <stdbool.h>
+#include <limits.h>
 
 // Maximum number of positional parameters allowed
 #define POSITIONAL_PARAMS_MAX 4096
-#if __STDC_VERSION__ >= 202311L
-static_assert(POSITIONAL_PARAMS_MAX > 0, "POSITIONAL_PARAMS_MAX must be positive");
-static_assert(POSITIONAL_PARAMS_MAX < INT_MAX, "POSITIONAL_PARAMS_MAX must fit in int");
+#if POSITIONAL_PARAMS_MAX <= 0 || POSITIONAL_PARAMS_MAX >= INT_MAX
+#error "POSITIONAL_PARAMS_MAX must be a positive integer less than INT_MAX"
 #endif
 
 // Opaque types

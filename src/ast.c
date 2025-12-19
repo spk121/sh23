@@ -229,6 +229,17 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
  * AST Node Creation Helpers
  * ============================================================================ */
 
+#if __STDC_VERSION__ >= 202311L
+ast_node_t* ast_create_program()
+#else
+ast_node_t *ast_create_program(void)
+#endif
+{
+    ast_node_t *node = ast_node_create(AST_PROGRAM);
+    node->data.program.body = NULL;
+    return node;
+}
+
 ast_node_t *ast_create_simple_command(token_list_t *words,
                                      ast_node_list_t *redirections,
                                      token_list_t *assignments)
@@ -462,6 +473,8 @@ const char *ast_node_type_to_string(ast_node_type_t type)
 {
     switch (type)
     {
+    case AST_PROGRAM:
+        return "PROGRAM";
     case AST_SIMPLE_COMMAND:
         return "SIMPLE_COMMAND";
     case AST_PIPELINE:
@@ -544,6 +557,23 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     // Recursively print children based on node type
     switch (node->type)
     {
+    case AST_PROGRAM:
+        for (int i = 0; i < indent_level + 1; i++)
+            string_append_cstr(result, "  ");
+        string_append_cstr(result, "body:\n");
+        if (node->data.program.body != NULL)
+        {
+            ast_node_to_string_helper(node->data.program.body, result, indent_level + 2);
+        }
+        else
+        {
+            for (int i = 0; i < indent_level + 2; i++)
+                string_append_cstr(result, "  ");
+            string_append_cstr(result, "(null)\n");
+        }
+        string_append_cstr(result, "\n");
+        break;
+
     case AST_SIMPLE_COMMAND:
         if (node->data.simple_command.assignments != NULL &&
             node->data.simple_command.assignments->size > 0)
@@ -551,7 +581,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             for (int i = 0; i < indent_level + 1; i++)
                 string_append_cstr(result, "  ");
             string_append_cstr(result, "assignments: ");
-            string_t *assignments_str = token_list_to_string(node->data.simple_command.assignments);
+            string_t *assignments_str = token_list_to_string(node->data.simple_command.assignments, indent_level + 1);
             string_append(result, assignments_str);
             string_destroy(&assignments_str);
             string_append_cstr(result, "\n");
@@ -561,8 +591,8 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             for (int i = 0; i < indent_level + 1; i++)
                 string_append_cstr(result, "  ");
-            string_append_cstr(result, "words: ");
-            string_t *words_str = token_list_to_string(node->data.simple_command.words);
+            string_append_cstr(result, "words:\n");
+            string_t *words_str = token_list_to_string(node->data.simple_command.words, indent_level + 1);
             string_append(result, words_str);
             string_destroy(&words_str);
             string_append_cstr(result, "\n");

@@ -168,7 +168,11 @@ CTEST(test_arena_multiple_allocs)
     
     if (setjmp(arena.rollback_point) == 0)
     {
-        const int COUNT = 20;
+#if __STDC_VERSION__ >= 202311L && !defined(_MSC_VER)
+        constexpr int COUNT = 20;
+#else
+        #define COUNT 20
+#endif
         void *ptrs[COUNT];
         
         // Allocate multiple blocks

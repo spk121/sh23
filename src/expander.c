@@ -1340,6 +1340,18 @@ static void expand_ast_recursive(expander_t *exp, ast_node_t *node)
     
     switch (node_type)
     {
+        case AST_PROGRAM:
+            // Expand each command in the pipeline
+            if (node->data.program.body != NULL)
+            {
+                int cmd_count = ast_node_list_size(node->data.program.body);
+                for (int i = 0; i < cmd_count; i++)
+                {
+                    ast_node_t *cmd = ast_node_list_get(node->data.program.body, i);
+                    expand_ast_recursive(exp, cmd);
+                }
+            }
+        break;
         case AST_SIMPLE_COMMAND:
             // Expand the word list (command and arguments)
             expand_word_list(exp, node->data.simple_command.words);

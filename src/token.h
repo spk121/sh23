@@ -675,6 +675,6 @@ int token_list_insert_range(token_list_t *list, int index, token_t **tokens, int
  * Create a debug string representation of a token list.
  * Caller is responsible for freeing the returned string.
  */
-string_t *token_list_to_string(const token_list_t *list);
+string_t *token_list_to_string(const token_list_t *list, int indent_level);
 
 #endif /* TOKEN_H */
