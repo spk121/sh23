@@ -1,11 +1,11 @@
 #include "parser.h"
 #include "logging.h"
 #include "xalloc.h"
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 
 // Forward declarations
 static int is_valid_name_cstr(const char *s);
@@ -31,9 +31,10 @@ parser_t *parser_create(void)
 
 void parser_destroy(parser_t **parser)
 {
-    if (!parser) return;
+    if (!parser)
+        return;
     parser_t *p = *parser;
-    
+
     if (p == NULL)
         return;
 
@@ -107,13 +108,12 @@ parse_status_t parser_expect(parser_t *parser, token_type_t type)
     if (got == TOKEN_EOF)
     {
         parser_set_error(parser, "Unexpected end of input (expected %s)",
-                        token_type_to_string(type));
+                         token_type_to_string(type));
         return PARSE_INCOMPLETE;
     }
 
-    parser_set_error(parser, "Expected %s but got %s",
-                    token_type_to_string(type),
-                    token_type_to_string(got));
+    parser_set_error(parser, "Expected %s but got %s", token_type_to_string(type),
+                     token_type_to_string(got));
     return PARSE_ERROR;
 }
 
@@ -132,17 +132,14 @@ void parser_skip_newlines(parser_t *parser)
 
 static bool is_redirection_token(token_type_t type)
 {
-    return type == TOKEN_LESS || type == TOKEN_GREATER ||
-           type == TOKEN_DLESS || type == TOKEN_DGREAT ||
-           type == TOKEN_LESSAND || type == TOKEN_GREATAND ||
-           type == TOKEN_LESSGREAT || type == TOKEN_DLESSDASH ||
-           type == TOKEN_CLOBBER || type == TOKEN_IO_NUMBER ||
-           type == TOKEN_IO_LOCATION;
+    return type == TOKEN_LESS || type == TOKEN_GREATER || type == TOKEN_DLESS ||
+           type == TOKEN_DGREAT || type == TOKEN_LESSAND || type == TOKEN_GREATAND ||
+           type == TOKEN_LESSGREAT || type == TOKEN_DLESSDASH || type == TOKEN_CLOBBER ||
+           type == TOKEN_IO_NUMBER || type == TOKEN_IO_LOCATION;
 }
 
-static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
-                                                  ast_node_t **pending_heredocs,
-                                                  int pending_count)
+static parse_status_t parser_attach_heredoc_bodies(parser_t *parser, ast_node_t **pending_heredocs,
+                                                   int pending_count)
 {
     Expects_not_null(parser);
 
@@ -159,7 +156,8 @@ static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
             }
             else
             {
-                parser_set_error(parser, "Expected here-document body for heredoc #%d of %d", i + 1, pending_count);
+                parser_set_error(parser, "Expected here-document body for heredoc #%d of %d", i + 1,
+                                 pending_count);
             }
             return PARSE_ERROR;
         }
@@ -276,13 +274,14 @@ parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node)
         ast_node_destroy(&program);
         return status;
     }
-    
+
     program->data.program.body = body;
     *out_node = program;
     return PARSE_OK;
 }
 
-parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context, ast_node_t **out_node)
+parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context,
+                                         ast_node_t **out_node)
 {
     Expects_not_null(parser);
     Expects_not_null(out_node);
@@ -346,34 +345,35 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
             {
                 promoted = token_try_promote_to_then(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_THEN)
+            else if (!promoted && context == PARSE_COMMAND_IN_THEN)
             {
-                promoted = token_try_promote_to_elif(promote_tok)
-                    || token_try_promote_to_else(promote_tok)
-                    || token_try_promote_to_fi(promote_tok);
+                promoted = token_try_promote_to_elif(promote_tok) ||
+                           token_try_promote_to_else(promote_tok) ||
+                           token_try_promote_to_fi(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_ELIF)
+            else if (!promoted && context == PARSE_COMMAND_IN_ELIF)
             {
                 promoted = token_try_promote_to_then(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_ELSE)
+            else if (!promoted && context == PARSE_COMMAND_IN_ELSE)
             {
                 promoted = token_try_promote_to_fi(promote_tok);
             }
-            else if(!promoted && (context == PARSE_COMMAND_IN_WHILE || context == PARSE_COMMAND_IN_UNTIL))
+            else if (!promoted &&
+                     (context == PARSE_COMMAND_IN_WHILE || context == PARSE_COMMAND_IN_UNTIL))
             {
                 promoted = token_try_promote_to_do(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_DO)
+            else if (!promoted && context == PARSE_COMMAND_IN_DO)
             {
                 promoted = token_try_promote_to_done(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_FOR)
+            else if (!promoted && context == PARSE_COMMAND_IN_FOR)
             {
-                promoted = token_try_promote_to_in(promote_tok) 
-                    || token_try_promote_to_do(promote_tok);
+                promoted =
+                    token_try_promote_to_in(promote_tok) || token_try_promote_to_do(promote_tok);
             }
-            else if(!promoted && context == PARSE_COMMAND_IN_BRACE_GROUP)
+            else if (!promoted && context == PARSE_COMMAND_IN_BRACE_GROUP)
             {
                 promoted = token_try_promote_to_rbrace(promote_tok);
             }
@@ -388,12 +388,10 @@ parse_status_t parser_parse_command_list(parser_t *parser, parser_command_contex
             token_try_promote_to_esac(parser_current_token(parser));
             current = parser_current_token_type(parser);
         }
-        if (current == TOKEN_RPAREN || current == TOKEN_RBRACE ||
-            current == TOKEN_FI || current == TOKEN_DONE ||
-            current == TOKEN_ESAC || current == TOKEN_EOF ||
-            current == TOKEN_THEN || current == TOKEN_ELSE ||
-            current == TOKEN_ELIF || current == TOKEN_DO ||
-            current == TOKEN_DSEMI)
+        if (current == TOKEN_RPAREN || current == TOKEN_RBRACE || current == TOKEN_FI ||
+            current == TOKEN_DONE || current == TOKEN_ESAC || current == TOKEN_EOF ||
+            current == TOKEN_THEN || current == TOKEN_ELSE || current == TOKEN_ELIF ||
+            current == TOKEN_DO || current == TOKEN_DSEMI)
         {
             break;
         }
@@ -518,7 +516,8 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
     token_type_t current = parser_current_token_type(parser);
 
     // Since we're in command position, we can promote WORD.
-    if (current == TOKEN_WORD && token_try_promote_to_reserved_word(parser_current_token(parser), false))
+    if (current == TOKEN_WORD &&
+        token_try_promote_to_reserved_word(parser_current_token(parser), false))
         current = parser_current_token_type(parser);
 
     // Also promote { to TOKEN_LBRACE
@@ -527,8 +526,8 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
 
     // Check for compound commands
     if (current == TOKEN_IF || current == TOKEN_WHILE || current == TOKEN_UNTIL ||
-        current == TOKEN_FOR || current == TOKEN_CASE ||
-        current == TOKEN_LPAREN || current == TOKEN_LBRACE)
+        current == TOKEN_FOR || current == TOKEN_CASE || current == TOKEN_LPAREN ||
+        current == TOKEN_LBRACE)
     {
         ast_node_t *compound = NULL;
         parse_status_t status = parser_parse_compound_command(parser, &compound);
@@ -558,7 +557,7 @@ parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
     {
         // Save position for potential backtrack
         int saved_pos = parser->position;
-        
+
         // Check if next token is LPAREN
         parser_advance(parser);
         if (parser_current_token_type(parser) == TOKEN_LPAREN)
@@ -643,7 +642,8 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
                     if (pending_count >= pending_capacity)
                     {
                         int newcap = (pending_capacity == 0) ? 4 : pending_capacity * 2;
-                        pending_heredocs = xrealloc(pending_heredocs, newcap * sizeof(ast_node_t *));
+                        pending_heredocs =
+                            xrealloc(pending_heredocs, newcap * sizeof(ast_node_t *));
                         pending_capacity = newcap;
                     }
                     pending_heredocs[pending_count++] = redir;
@@ -669,24 +669,22 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         }
 
         // Not part of simple command
-         if (log_level() == LOG_DEBUG)
+        if (log_level() == LOG_DEBUG)
         {
             dbg_str = token_to_string(parser_current_token(parser));
             log_debug("parser_parse_simple_command: terminate on: %s", string_cstr(dbg_str));
             string_destroy(&dbg_str);
         }
-       break;
+        break;
     }
 
     // A simple command must have at least one of: assignments, words, or redirections
     // POSIX allows assignment-only or redirection-only commands
-    if (token_list_size(assignments) == 0 &&
-        token_list_size(words) == 0 &&
+    if (token_list_size(assignments) == 0 && token_list_size(words) == 0 &&
         ast_node_list_size(redirections) == 0)
     {
         log_debug("parser_parse_simple_command: No command found: %d words, %d redirs, %d assigns",
-                  token_list_size(words),
-                  ast_node_list_size(redirections),
+                  token_list_size(words), ast_node_list_size(redirections),
                   token_list_size(assignments));
         token_list_destroy(&words);
         ast_node_list_destroy(&redirections);
@@ -695,7 +693,8 @@ parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_no
         return PARSE_ERROR;
     }
 
-    parse_status_t heredoc_status = parser_attach_heredoc_bodies(parser, pending_heredocs, pending_count);
+    parse_status_t heredoc_status =
+        parser_attach_heredoc_bodies(parser, pending_heredocs, pending_count);
     if (pending_heredocs)
         xfree(pending_heredocs);
     if (heredoc_status != PARSE_OK)
@@ -1096,11 +1095,12 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     // Reject reserved words as loop variables for compatibility
     if (token_is_reserved_word(string_cstr(var_name)))
     {
-        parser_set_error(parser, "Reserved word '%s' cannot be used as for loop variable", string_cstr(var_name));
+        parser_set_error(parser, "Reserved word '%s' cannot be used as for loop variable",
+                         string_cstr(var_name));
         string_destroy(&var_name);
         return PARSE_ERROR;
     }
-    
+
     parser_advance(parser);
 
     parser_skip_newlines(parser);
@@ -1114,7 +1114,7 @@ parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
     {
         token_try_promote_to_in(maybe_in);
     }
-    
+
     if (parser_accept(parser, TOKEN_IN))
     {
         // Parse word list
@@ -1209,7 +1209,7 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
     {
         token_try_promote_to_reserved_word(maybe_in, true);
     }
-    
+
     status = parser_expect(parser, TOKEN_IN);
     if (status != PARSE_OK)
     {
@@ -1221,8 +1221,7 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
     ast_node_t *case_node = ast_create_case_clause(word);
 
     // Parse case items
-    while (parser_current_token_type(parser) != TOKEN_ESAC &&
-           !parser_at_end(parser))
+    while (parser_current_token_type(parser) != TOKEN_ESAC && !parser_at_end(parser))
     {
         // Allow promoting 'esac' if it's still a WORD so loop can terminate
         token_t *ctok = parser_current_token(parser);
@@ -1236,7 +1235,7 @@ parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
         token_list_t *patterns = token_list_create();
         // POSIX: allow optional leading '(' before the pattern list
         parser_accept(parser, TOKEN_LPAREN);
-        
+
         if (parser_current_token_type(parser) != TOKEN_WORD)
         {
             // Allow empty case items or ESAC
@@ -1371,8 +1370,9 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
         }
     }
     // If body is NULL or empty, create an empty command list
-    if (body == NULL) {
-        body = ast_create_command_list();  // Assuming this creates an empty list
+    if (body == NULL)
+    {
+        body = ast_create_command_list(); // Assuming this creates an empty list
     }
 
     parser_skip_newlines(parser);
@@ -1385,7 +1385,7 @@ parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
     {
         int last_sep_idx = ast_node_command_list_separator_count(body) - 1;
         cmd_separator_t last_sep = ast_node_command_list_get_separator(body, last_sep_idx);
-        
+
         if (last_sep == LIST_SEP_EOL)
         {
             // The last command had no separator token, but we're about to see }
@@ -1475,7 +1475,7 @@ parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node
         string_destroy(&func_name);
         return PARSE_ERROR;
     }
-    
+
     parser_advance(parser);
 
     // Expect '('
@@ -1654,7 +1654,8 @@ parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
     }
 
     // Expect target (filename or fd) for non-heredoc redirections
-    if (parser_current_token_type(parser) != TOKEN_WORD && parser_current_token_type(parser) != TOKEN_IO_LOCATION)
+    if (parser_current_token_type(parser) != TOKEN_WORD &&
+        parser_current_token_type(parser) != TOKEN_IO_LOCATION)
     {
         parser_set_error(parser, "Expected filename after redirection operator");
         if (io_location != NULL)

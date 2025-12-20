@@ -64,9 +64,10 @@ token_array_t *token_array_create_with_free(token_array_tFreeFunc free_func)
 
 void token_array_destroy(token_array_t **array)
 {
-    if (!array) return;
+    if (!array)
+        return;
     token_array_t *a = *array;
-    
+
     if (a)
     {
         log_debug("token_array_destroy: freeing array %p, size %zu", a, a->size);

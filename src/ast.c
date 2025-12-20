@@ -23,9 +23,10 @@ ast_node_t *ast_node_create(ast_node_type_t type)
 
 void ast_node_destroy(ast_node_t **node)
 {
-    if (!node) return;
+    if (!node)
+        return;
     ast_node_t *n = *node;
-    
+
     if (n == NULL)
         return;
 
@@ -175,8 +176,8 @@ ast_node_type_t ast_node_get_type(const ast_node_t *node)
     return node->type;
 }
 
-void ast_node_set_location(ast_node_t *node, int first_line, int first_column,
-                          int last_line, int last_column)
+void ast_node_set_location(ast_node_t *node, int first_line, int first_column, int last_line,
+                           int last_column)
 {
     Expects_not_null(node);
     node->first_line = first_line;
@@ -230,7 +231,7 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
  * ============================================================================ */
 
 #if __STDC_VERSION__ >= 202311L
-ast_node_t* ast_create_program()
+ast_node_t *ast_create_program()
 #else
 ast_node_t *ast_create_program(void)
 #endif
@@ -240,9 +241,8 @@ ast_node_t *ast_create_program(void)
     return node;
 }
 
-ast_node_t *ast_create_simple_command(token_list_t *words,
-                                     ast_node_list_t *redirections,
-                                     token_list_t *assignments)
+ast_node_t *ast_create_simple_command(token_list_t *words, ast_node_list_t *redirections,
+                                      token_list_t *assignments)
 {
     ast_node_t *node = ast_node_create(AST_SIMPLE_COMMAND);
     node->data.simple_command.words = words;
@@ -259,8 +259,7 @@ ast_node_t *ast_create_pipeline(ast_node_list_t *commands, bool is_negated)
     return node;
 }
 
-ast_node_t *ast_create_andor_list(ast_node_t *left, ast_node_t *right,
-                                 andor_operator_t op)
+ast_node_t *ast_create_andor_list(ast_node_t *left, ast_node_t *right, andor_operator_t op)
 {
     ast_node_t *node = ast_node_create(AST_AND_OR_LIST);
     node->data.andor_list.left = left;
@@ -317,8 +316,7 @@ ast_node_t *ast_create_until_clause(ast_node_t *condition, ast_node_t *body)
     return node;
 }
 
-ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words,
-                                 ast_node_t *body)
+ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words, ast_node_t *body)
 {
     ast_node_t *node = ast_node_create(AST_FOR_CLAUSE);
     node->data.for_clause.variable = string_create_from(variable);
@@ -344,7 +342,7 @@ ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body)
 }
 
 ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
-                                   ast_node_list_t *redirections)
+                                    ast_node_list_t *redirections)
 {
     ast_node_t *node = ast_node_create(AST_FUNCTION_DEF);
     node->data.function_def.name = string_create_from(name);
@@ -354,7 +352,7 @@ ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
 }
 
 ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
-                                  string_t *io_location, token_t *target)
+                                   string_t *io_location, token_t *target)
 {
     ast_node_t *node = ast_node_create(AST_REDIRECTION);
     node->data.redirection.redir_type = redir_type;
@@ -388,9 +386,10 @@ ast_node_list_t *ast_node_list_create(void)
 
 void ast_node_list_destroy(ast_node_list_t **list)
 {
-    if (!list) return;
+    if (!list)
+        return;
     ast_node_list_t *l = *list;
-    
+
     if (l == NULL)
         return;
 
@@ -412,8 +411,8 @@ int ast_node_list_append(ast_node_list_t *list, ast_node_t *node)
     if (list->size >= list->capacity)
     {
         int new_capacity = list->capacity * 2;
-        ast_node_t **new_nodes = (ast_node_t **)xrealloc(list->nodes,
-                                                         new_capacity * sizeof(ast_node_t *));
+        ast_node_t **new_nodes =
+            (ast_node_t **)xrealloc(list->nodes, new_capacity * sizeof(ast_node_t *));
         list->nodes = new_nodes;
         list->capacity = new_capacity;
     }
@@ -537,8 +536,7 @@ const char *redirection_type_to_string(redirection_type_t type)
     }
 }
 
-static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
-                                     int indent_level)
+static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, int indent_level)
 {
     if (node == NULL)
     {
@@ -581,18 +579,19 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             for (int i = 0; i < indent_level + 1; i++)
                 string_append_cstr(result, "  ");
             string_append_cstr(result, "assignments: ");
-            string_t *assignments_str = token_list_to_string(node->data.simple_command.assignments, indent_level + 1);
+            string_t *assignments_str =
+                token_list_to_string(node->data.simple_command.assignments, indent_level + 1);
             string_append(result, assignments_str);
             string_destroy(&assignments_str);
             string_append_cstr(result, "\n");
         }
-        if (node->data.simple_command.words != NULL &&
-            node->data.simple_command.words->size > 0)
+        if (node->data.simple_command.words != NULL && node->data.simple_command.words->size > 0)
         {
             for (int i = 0; i < indent_level + 1; i++)
                 string_append_cstr(result, "  ");
             string_append_cstr(result, "words:\n");
-            string_t *words_str = token_list_to_string(node->data.simple_command.words, indent_level + 1);
+            string_t *words_str =
+                token_list_to_string(node->data.simple_command.words, indent_level + 1);
             string_append(result, words_str);
             string_destroy(&words_str);
             string_append_cstr(result, "\n");
@@ -622,8 +621,8 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             for (int i = 0; i < node->data.pipeline.commands->size; i++)
             {
-                ast_node_to_string_helper(node->data.pipeline.commands->nodes[i],
-                                        result, indent_level + 1);
+                ast_node_to_string_helper(node->data.pipeline.commands->nodes[i], result,
+                                          indent_level + 1);
             }
         }
         break;
@@ -643,27 +642,29 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             for (int i = 0; i < node->data.command_list.items->size; i++)
             {
-                ast_node_to_string_helper(node->data.command_list.items->nodes[i],
-                                        result, indent_level + 1);
-                
+                ast_node_to_string_helper(node->data.command_list.items->nodes[i], result,
+                                          indent_level + 1);
+
                 // Print the separator for this command
-                if (node->data.command_list.separators != NULL && i < node->data.command_list.separators->len)
+                if (node->data.command_list.separators != NULL &&
+                    i < node->data.command_list.separators->len)
                 {
-                    cmd_separator_t sep = cmd_separator_list_get(node->data.command_list.separators, i);
+                    cmd_separator_t sep =
+                        cmd_separator_list_get(node->data.command_list.separators, i);
                     for (int j = 0; j < indent_level + 1; j++)
                         string_append_cstr(result, "  ");
-                    
+
                     switch (sep)
                     {
-                        case LIST_SEP_SEQUENTIAL:
-                            string_append_cstr(result, "separator: ;\n");
-                            break;
-                        case LIST_SEP_BACKGROUND:
-                            string_append_cstr(result, "separator: &\n");
-                            break;
-                        case LIST_SEP_EOL:
-                            string_append_cstr(result, "separator: EOL\n");
-                            break;
+                    case LIST_SEP_SEQUENTIAL:
+                        string_append_cstr(result, "separator: ;\n");
+                        break;
+                    case LIST_SEP_BACKGROUND:
+                        string_append_cstr(result, "separator: &\n");
+                        break;
+                    case LIST_SEP_EOL:
+                        string_append_cstr(result, "separator: EOL\n");
+                        break;
                     }
                 }
             }
@@ -735,7 +736,8 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             for (int i = 0; i < indent_level + 1; i++)
                 string_append_cstr(result, "  ");
             string_append_cstr(result, "command:\n");
-            ast_node_to_string_helper(node->data.redirected_command.command, result, indent_level + 2);
+            ast_node_to_string_helper(node->data.redirected_command.command, result,
+                                      indent_level + 2);
         }
         if (node->data.redirected_command.redirections != NULL &&
             ast_node_list_size(node->data.redirected_command.redirections) > 0)
@@ -745,7 +747,8 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
             string_append_cstr(result, "redirections:\n");
             for (int i = 0; i < ast_node_list_size(node->data.redirected_command.redirections); i++)
             {
-                ast_node_t *redir = ast_node_list_get(node->data.redirected_command.redirections, i);
+                ast_node_t *redir =
+                    ast_node_list_get(node->data.redirected_command.redirections, i);
                 ast_node_to_string_helper(redir, result, indent_level + 2);
             }
         }
@@ -828,7 +831,7 @@ void ast_print(const ast_node_t *root)
 cmd_separator_list_t *cmd_separator_list_create(void)
 {
     cmd_separator_list_t *list = (cmd_separator_list_t *)xmalloc(sizeof(cmd_separator_list_t));
-    list->separators = (cmd_separator_t *)xmalloc(INITIAL_LIST_CAPACITY * sizeof(cmd_separator_t ));
+    list->separators = (cmd_separator_t *)xmalloc(INITIAL_LIST_CAPACITY * sizeof(cmd_separator_t));
     list->len = 0;
     list->capacity = INITIAL_LIST_CAPACITY;
     return list;
@@ -836,7 +839,8 @@ cmd_separator_list_t *cmd_separator_list_create(void)
 
 void cmd_separator_list_destroy(cmd_separator_list_t **list)
 {
-    if (!list || !*list) return;
+    if (!list || !*list)
+        return;
     cmd_separator_list_t *l = *list;
     xfree(l->separators);
     xfree(l);
@@ -846,9 +850,11 @@ void cmd_separator_list_destroy(cmd_separator_list_t **list)
 void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep)
 {
     Expects_not_null(list);
-    if (list->len >= list->capacity) {
+    if (list->len >= list->capacity)
+    {
         int new_capacity = list->capacity * 2;
-        list->separators = (cmd_separator_t *)xrealloc(list->separators, new_capacity * sizeof(cmd_separator_t));
+        list->separators =
+            (cmd_separator_t *)xrealloc(list->separators, new_capacity * sizeof(cmd_separator_t));
         list->capacity = new_capacity;
     }
     list->separators[list->len++] = sep;

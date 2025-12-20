@@ -10,8 +10,8 @@
 #include <sys/wait.h>
 #endif
 #ifdef UCRT_API
-#include <io.h>
 #include <errno.h>
+#include <io.h>
 #endif
 
 /* ============================================================================
@@ -35,9 +35,10 @@ executor_t *executor_create(void)
 
 void executor_destroy(executor_t **executor)
 {
-    if (!executor) return;
+    if (!executor)
+        return;
     executor_t *e = *executor;
-    
+
     if (e == NULL)
         return;
 
@@ -153,7 +154,7 @@ exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
         return executor_execute_redirected_command(executor, root);
     default:
         executor_set_error(executor, "Unsupported AST node type: %s",
-                          ast_node_type_to_string(root->type));
+                           ast_node_type_to_string(root->type));
         return EXEC_NOT_IMPL;
     }
 }
@@ -335,8 +336,7 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
         int redir_count = node->data.redirected_command.redirections == NULL
                               ? 0
                               : ast_node_list_size(node->data.redirected_command.redirections);
-        printf("[DRY RUN] Redirected command (%d redirection%s)\n",
-               redir_count,
+        printf("[DRY RUN] Redirected command (%d redirection%s)\n", redir_count,
                (redir_count == 1) ? "" : "s");
     }
 
@@ -370,7 +370,7 @@ exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t 
         for (int i = 0; i < node->data.if_clause.elif_list->size; i++)
         {
             ast_node_t *elif_node = node->data.if_clause.elif_list->nodes[i];
-            
+
             // Execute elif condition
             status = executor_execute(executor, elif_node->data.if_clause.condition);
             if (status != EXEC_OK)
@@ -560,7 +560,8 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.pipeline.commands->size; i++)
             {
-                if (!ast_traverse_helper(node->data.pipeline.commands->nodes[i], visitor, user_data))
+                if (!ast_traverse_helper(node->data.pipeline.commands->nodes[i], visitor,
+                                         user_data))
                 {
                     return false;
                 }
@@ -584,7 +585,8 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.command_list.items->size; i++)
             {
-                if (!ast_traverse_helper(node->data.command_list.items->nodes[i], visitor, user_data))
+                if (!ast_traverse_helper(node->data.command_list.items->nodes[i], visitor,
+                                         user_data))
                 {
                     return false;
                 }
@@ -613,7 +615,8 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.if_clause.elif_list->size; i++)
             {
-                if (!ast_traverse_helper(node->data.if_clause.elif_list->nodes[i], visitor, user_data))
+                if (!ast_traverse_helper(node->data.if_clause.elif_list->nodes[i], visitor,
+                                         user_data))
                 {
                     return false;
                 }
@@ -649,7 +652,8 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.case_clause.case_items->size; i++)
             {
-                if (!ast_traverse_helper(node->data.case_clause.case_items->nodes[i], visitor, user_data))
+                if (!ast_traverse_helper(node->data.case_clause.case_items->nodes[i], visitor,
+                                         user_data))
                 {
                     return false;
                 }
@@ -673,7 +677,8 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.function_def.redirections->size; i++)
             {
-                if (!ast_traverse_helper(node->data.function_def.redirections->nodes[i], visitor, user_data))
+                if (!ast_traverse_helper(node->data.function_def.redirections->nodes[i], visitor,
+                                         user_data))
                 {
                     return false;
                 }
@@ -690,7 +695,8 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.redirected_command.redirections->size; i++)
             {
-                if (!ast_traverse_helper(node->data.redirected_command.redirections->nodes[i], visitor, user_data))
+                if (!ast_traverse_helper(node->data.redirected_command.redirections->nodes[i],
+                                         visitor, user_data))
                 {
                     return false;
                 }
@@ -749,10 +755,11 @@ static void executor_record_subst_status(executor_t *executor, int raw_status)
  * For now, this is a stub that returns empty output.
  * In a full implementation, this would parse and execute the command.
  */
-string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx, void *user_data)
+string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx,
+                                          void *user_data)
 {
 #ifdef POSIX_API
-    (void)user_data;  // unused for now
+    (void)user_data; // unused for now
 
     executor_t *executor = (executor_t *)executor_ctx;
     const char *cmd = string_cstr(command);
@@ -781,7 +788,8 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
     int exit_code = pclose(pipe);
     if (exit_code != 0)
     {
-        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
+        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code,
+                  cmd);
     }
     executor_record_subst_status(executor, exit_code);
 
@@ -801,7 +809,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
 
     return output;
 #elifdef UCRT_API
-    (void)user_data;  // unused for now
+    (void)user_data; // unused for now
 
     executor_t *executor = (executor_t *)executor_ctx;
     const char *cmd = string_cstr(command);
@@ -830,7 +838,8 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
     int exit_code = _pclose(pipe);
     if (exit_code != 0)
     {
-        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
+        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code,
+                  cmd);
     }
     executor_record_subst_status(executor, exit_code);
 
@@ -852,7 +861,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
 #else
     // There is no portable way to do command substitution in ISO_C.
     // You could run a shell process via system(), but, without capturing output.
-    (void)command;    // unused
+    (void)command; // unused
     executor_record_subst_status((executor_t *)executor_ctx, 0);
     return string_create();
 #endif
@@ -876,90 +885,98 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
 string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data)
 {
 #ifdef POSIX_API
-    (void)user_data;  // unused
-    
+    (void)user_data; // unused
+
     const char *pattern_str = string_data(pattern);
     glob_t glob_result;
-    
+
     // Perform glob matching
     // GLOB_NOCHECK: If no matches, return the pattern itself
     // GLOB_TILDE: Expand ~ for home directory
     int ret = glob(pattern_str, GLOB_TILDE, NULL, &glob_result);
-    
-    if (ret != 0) {
+
+    if (ret != 0)
+    {
         // On error or no matches (when not using GLOB_NOCHECK), return NULL
-        if (ret == GLOB_NOMATCH) {
+        if (ret == GLOB_NOMATCH)
+        {
             return NULL;
         }
         // GLOB_NOSPACE or GLOB_ABORTED
         return NULL;
     }
-    
+
     // No matches found
-    if (glob_result.gl_pathc == 0) {
+    if (glob_result.gl_pathc == 0)
+    {
         globfree(&glob_result);
         return NULL;
     }
-    
+
     // Create result list
     string_list_t *result = string_list_create();
-    
+
     // Add all matched paths
-    for (size_t i = 0; i < glob_result.gl_pathc; i++) {
+    for (size_t i = 0; i < glob_result.gl_pathc; i++)
+    {
         string_t *path = string_create_from_cstr(glob_result.gl_pathv[i]);
         string_list_move_push_back(result, path);
     }
-    
+
     globfree(&glob_result);
     return result;
-    
+
 #elifdef UCRT_API
-    (void)user_data;  // unused
-    
+    (void)user_data; // unused
+
     const char *pattern_str = string_data(pattern);
     log_debug("executor_pathname_expansion_callback: UCRT glob pattern='%s'", pattern_str);
     struct _finddata_t fd;
     intptr_t handle;
-    
+
     // Attempt to find first matching file
     handle = _findfirst(pattern_str, &fd);
-    if (handle == -1L) {
-        if (errno == ENOENT) {
+    if (handle == -1L)
+    {
+        if (errno == ENOENT)
+        {
             // No matches found
             return NULL;
         }
         // Other error (access denied, etc.)
         return NULL;
     }
-    
+
     // Create result list
     string_list_t *result = string_list_create();
-    
+
     // Add all matching files
-    do {
+    do
+    {
         // Skip . and .. entries
         if (strcmp(fd.name, ".") == 0 || strcmp(fd.name, "..") == 0)
             continue;
-        
+
         // Add the matched filename to the result list
         string_t *filename = string_create_from_cstr(fd.name);
         string_list_move_push_back(result, filename);
-        
+
     } while (_findnext(handle, &fd) == 0);
-    
+
     _findclose(handle);
-    
+
     // If no files were added (only . and .. were found), return NULL
-    if (string_list_size(result) == 0) {
+    if (string_list_size(result) == 0)
+    {
         string_list_destroy(&result);
         return NULL;
     }
-    
+
     return result;
-    
+
 #else
     /* In ISO_C environments, no glob implementation is available */
-    (void)user_data;  // unused
+    (void)user_data; // unused
     string_list_t *result = string_list_create();
     string_list_push_back(result, pattern);
     log_warn("executor_pathname_expansion_callback: No glob implementation available");

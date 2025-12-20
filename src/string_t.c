@@ -11,7 +11,7 @@ static void string_ensure_capacity(string_t *str, int needed)
 {
     Expects_not_null(str);
     Expects(needed >= 0);
-    
+
     // Since this is used in creation, handle nulls and zeros.
 
     if (needed < str->capacity)
@@ -41,7 +41,6 @@ static void string_ensure_capacity(string_t *str, int needed)
     str->data = new_data;
     str->capacity = new_capacity;
 }
-
 
 // Constructors
 string_t *string_create(void)
@@ -194,7 +193,7 @@ void string_consume(string_t *str, string_t **str2)
     Expects_not_null(str);
     Expects_not_null(str2);
     Expects_not_null(*str2);
-    
+
     string_move(str, *str2);
     string_destroy(str2);
 }
@@ -515,7 +514,6 @@ void string_append_char(string_t *str, char c)
     str->data[str->length] = '\0';
 }
 
-
 #if 0
 void string_replace(string_t *str, int pos, int len, const string_t *other);
 void string_replace_substring(string_t *str, int pos, int len, const string_t *other, int begin2, int end2);
@@ -725,7 +723,6 @@ int string_compare_cstr(const string_t *str, const char *cstr)
     return strcmp(str->data, cstr);
 }
 
-
 int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2)
 {
     Expects_not_null(str);
@@ -740,7 +737,8 @@ int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int 
     return strcmp(data1, data2);
 }
 
-int string_compare_substring(const string_t *str1, int begin1, const string_t *str2, int begin2, int end2)
+int string_compare_substring(const string_t *str1, int begin1, const string_t *str2, int begin2,
+                             int end2)
 {
     Expects_not_null(str1);
     Expects_not_null(str2);
@@ -774,7 +772,6 @@ string_t *string_substring(const string_t *str, int begin, int end)
 
     return string_create_from_range(str, begin, end);
 }
-
 
 #if 0
 bool string_eq(const string_t *str1, const string_t *str2);
@@ -882,7 +879,6 @@ string_t *string_from_long(long value)
     string_t *str = string_create();
     string_printf(str, "%ld", value);
     return str;
-
 }
 
 string_t *string_from_double(double value)
@@ -897,13 +893,13 @@ string_t *string_from_double(double value)
 uint32_t string_hash(const string_t *str)
 {
     Expects_not_null(str);
-    uint32_t h = 0x811c9dc5;  // FNV-1a prime
+    uint32_t h = 0x811c9dc5; // FNV-1a prime
     for (int i = 0; i < str->length; i++)
     {
         h ^= (uint32_t)str->data[i];
-        h *= 0x01000193;      // FNV-1a magic constant
+        h *= 0x01000193; // FNV-1a magic constant
     }
-    return h ? h : 1;         // avoid zero (optional)
+    return h ? h : 1; // avoid zero (optional)
 }
 
 // ============================================================================
@@ -923,12 +919,12 @@ void string_list_destroy(string_list_t **list)
 {
     if (list == NULL)
         return;
-    
+
     for (int i = 0; i < (*list)->size; i++)
     {
         string_destroy(&(*list)->strings[i]);
     }
-    
+
     xfree((*list)->strings);
     xfree(*list);
     *list = NULL;
@@ -938,13 +934,13 @@ void string_list_move_push_back(string_list_t *list, string_t *str)
 {
     Expects_not_null(list);
     Expects_not_null(str);
-    
+
     if (list->size >= list->capacity)
     {
         list->capacity *= GROW_FACTOR;
         list->strings = xrealloc(list->strings, list->capacity * sizeof(string_t *));
     }
-    
+
     list->strings[list->size++] = str;
 }
 
@@ -952,7 +948,7 @@ void string_list_push_back(string_list_t *list, const string_t *str)
 {
     Expects_not_null(list);
     Expects_not_null(str);
-    
+
     string_t *cloned = string_create_from(str);
     string_list_move_push_back(list, cloned);
 }
@@ -968,7 +964,7 @@ const string_t *string_list_at(const string_list_t *list, int index)
     return_val_if_null(list, NULL);
     return_val_if_lt(index, 0, NULL);
     return_val_if_ge(index, list->size, NULL);
-    
+
     return list->strings[index];
 }
 
@@ -978,6 +974,6 @@ void string_list_assign(string_list_t *list, int index, const string_t *str)
     Expects_not_null(str);
     Expects_ge(index, 0);
     Expects_lt(index, list->size);
-    
+
     string_set(list->strings[index], str);
 }

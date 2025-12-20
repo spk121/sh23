@@ -66,10 +66,10 @@ bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool stri
         int after_tabs = string_find_first_not_of_cstr_at(lx->input, "\t", pos);
         if (after_tabs != -1)
             pos = after_tabs;
-    }   
+    }
 
     if (string_compare_substring(lx->input, pos, delim, 0, string_length(delim)) != 0)
-        return false;   
+        return false;
 
     pos += string_length(delim);
 
@@ -129,7 +129,7 @@ lex_status_t lexer_process_heredoc_body(lexer_t *lx)
             part_t *part = part_create_literal(lx->current_token->heredoc_content);
             string_destroy(&lx->current_token->heredoc_content);
 
-            part_set_quoted(part, false, true);          // behaves like double-quoted
+            part_set_quoted(part, false, true); // behaves like double-quoted
             if (quoted)
                 part_set_quoted(part, true, false); // fully literal
 

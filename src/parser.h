@@ -12,10 +12,10 @@
 
 typedef enum
 {
-    PARSE_OK = 0,       // successful parsing
-    PARSE_ERROR,        // syntax error during parsing
-    PARSE_INCOMPLETE,   // need more tokens to complete parsing
-    PARSE_EMPTY,        // empty input (no tokens to parse)
+    PARSE_OK = 0,     // successful parsing
+    PARSE_ERROR,      // syntax error during parsing
+    PARSE_INCOMPLETE, // need more tokens to complete parsing
+    PARSE_EMPTY,      // empty input (no tokens to parse)
 } parse_status_t;
 
 /* ============================================================================
@@ -56,13 +56,13 @@ void parser_destroy(parser_t **parser);
 
 /**
  * Parse a token list into an AST.
- * 
+ *
  * @param parser The parser context
  * @param tokens The list of tokens to parse (parser does not take ownership)
  * @param out_ast Pointer to store the resulting AST root node
- * 
+ *
  * @return PARSE_OK on success, PARSE_ERROR on error, PARSE_EMPTY if no tokens
- * 
+ *
  * OWNERSHIP POLICY:
  *   - The parser does NOT take ownership of the token_list structure itself
  *   - The resulting AST DOES take ownership of individual token_t objects
@@ -70,12 +70,12 @@ void parser_destroy(parser_t **parser);
  *   - After successful parsing, the caller must:
  *     1. Call token_list_release_tokens() to clear pointers without
  *        destroying tokens (which are now owned by the AST)
- *     2. Free the token_list structure itself  
+ *     2. Free the token_list structure itself
  *     3. Eventually destroy the AST with ast_node_destroy(), which will
  *        destroy all the tokens
  *   - On parse failure, the token_list retains all its tokens and should
  *     be destroyed normally with token_list_destroy()
- * 
+ *
  * On success, caller takes ownership of the AST and must free it.
  */
 parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t **out_ast);
@@ -87,7 +87,8 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
  */
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node);
 
-typedef enum {
+typedef enum
+{
     PARSE_COMMAND_TOP_LEVEL,
     PARSE_COMMAND_IN_IF,
     PARSE_COMMAND_IN_ELIF,
@@ -104,7 +105,8 @@ typedef enum {
 /**
  * Parse a command list (commands separated by ; or & or newlines).
  */
-parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context, ast_node_t **out_node);
+parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context,
+                                         ast_node_t **out_node);
 
 /**
  * Parse an and_or list (commands connected by && or ||).

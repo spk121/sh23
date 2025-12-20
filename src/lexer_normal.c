@@ -593,7 +593,8 @@ static bool try_emit_braced_io_location(lexer_t *lx)
             if (next == '<' || next == '>')
             {
                 int len = n + 1; // include closing brace
-                string_t *io_location = string_create_from_cstr_len(string_data(lx->input) + lx->pos, len);
+                string_t *io_location =
+                    string_create_from_cstr_len(string_data(lx->input) + lx->pos, len);
                 lexer_emit_io_location_token(lx, string_cstr(io_location));
                 string_destroy(&io_location);
                 lexer_advance_n_chars(lx, len);

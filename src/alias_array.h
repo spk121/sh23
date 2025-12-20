@@ -39,9 +39,10 @@ void alias_array_clear(alias_array_t *array);
 void alias_array_resize(alias_array_t *array, int new_capacity);
 
 // Operations
-void alias_array_foreach(alias_array_t *array, alias_array_apply_func_t apply_func, void *user_data);
+void alias_array_foreach(alias_array_t *array, alias_array_apply_func_t apply_func,
+                         void *user_data);
 int alias_array_find(alias_array_t *array, alias_t *element, int *index);
-int alias_array_find_with_compare(alias_array_t *array, const void *data, alias_array_compare_func_t compare_func,
-                                  int *index);
+int alias_array_find_with_compare(alias_array_t *array, const void *data,
+                                  alias_array_compare_func_t compare_func, int *index);
 
 #endif

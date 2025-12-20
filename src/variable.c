@@ -3,7 +3,8 @@
 #include "xalloc.h"
 
 // Constructors
-variable_t *variable_create(const string_t *name, const string_t *value, bool exported, bool read_only)
+variable_t *variable_create(const string_t *name, const string_t *value, bool exported,
+                            bool read_only)
 {
     Expects_not_null(name);
     Expects_not_null(value);
@@ -17,7 +18,8 @@ variable_t *variable_create(const string_t *name, const string_t *value, bool ex
     return variable;
 }
 
-variable_t *variable_create_from_cstr(const char *name, const char *value, bool exported, bool read_only)
+variable_t *variable_create_from_cstr(const char *name, const char *value, bool exported,
+                                      bool read_only)
 {
     Expects_not_null(name);
     Expects_not_null(value);
@@ -38,12 +40,10 @@ void variable_destroy(variable_t **variable)
     variable_t *v = *variable;
     Expects_not_null(v);
 
-    log_debug("variable_destroy: freeing variable %p, name = %s, value = %s, exported = %d, read_only = %d",
-              v,
-              v->name ? string_data(v->name) : "(null)",
-              v->value ? string_data(v->value) : "(null)",
-              v->exported,
-              v->read_only);
+    log_debug("variable_destroy: freeing variable %p, name = %s, value = %s, exported = %d, "
+              "read_only = %d",
+              v, v->name ? string_data(v->name) : "(null)",
+              v->value ? string_data(v->value) : "(null)", v->exported, v->read_only);
     string_destroy(&v->name);
     string_destroy(&v->value);
     xfree(v);
@@ -105,7 +105,8 @@ int variable_set_value(variable_t *variable, const string_t *value)
     Expects_not_null(variable);
     Expects_not_null(value);
 
-    if (variable->read_only) {
+    if (variable->read_only)
+    {
         log_fatal("variable_set_value: cannot modify read-only variable");
         return -1;
     }
@@ -134,7 +135,8 @@ int variable_set_value_cstr(variable_t *variable, const char *value)
     Expects_not_null(variable);
     Expects_not_null(value);
 
-    if (variable->read_only) {
+    if (variable->read_only)
+    {
         log_fatal("variable_set_value_cstr: cannot modify read-only variable");
         return -1;
     }

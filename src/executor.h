@@ -2,8 +2,8 @@
 #define EXECUTOR_H
 
 #include "ast.h"
-#include "string_t.h"
 #include "expander.h"
+#include "string_t.h"
 #include <stdbool.h>
 
 /* ============================================================================
@@ -12,9 +12,9 @@
 
 typedef enum
 {
-    EXEC_OK = 0,        // successful execution
-    EXEC_ERROR,         // error during execution
-    EXEC_NOT_IMPL,      // feature not yet implemented
+    EXEC_OK = 0,   // successful execution
+    EXEC_ERROR,    // error during execution
+    EXEC_NOT_IMPL, // feature not yet implemented
 } exec_status_t;
 
 /* ============================================================================
@@ -55,10 +55,10 @@ void executor_destroy(executor_t **executor);
 
 /**
  * Execute an AST.
- * 
+ *
  * @param executor The executor context
  * @param root The root AST node to execute
- * 
+ *
  * @return EXEC_OK on success, EXEC_ERROR on error, EXEC_NOT_IMPL for unsupported node types
  */
 exec_status_t executor_execute(executor_t *executor, const ast_node_t *root);
@@ -140,11 +140,11 @@ typedef bool (*ast_visitor_fn)(const ast_node_t *node, void *user_data);
 
 /**
  * Traverse an AST in pre-order, calling the visitor function for each node.
- * 
+ *
  * @param root The root node to start traversal from
  * @param visitor The visitor function to call for each node
  * @param user_data User data to pass to the visitor function
- * 
+ *
  * @return true if traversal completed, false if stopped early
  */
 bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_data);
@@ -192,14 +192,15 @@ void executor_set_dry_run(executor_t *executor, bool dry_run);
 /**
  * Command substitution callback for the expander.
  * Executes a command and returns its output.
- * 
+ *
  * @param command The command string to execute
  * @param executor_ctx Pointer to the executor context
  * @param user_data Pointer to optional user context
  * @return The output of the command as a newly allocated string_t (caller must free),
  *         or NULL on error
  */
-string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx, void *user_data);
+string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx,
+                                          void *user_data);
 
 /**
  * Pathname expansion (glob) callback for the expander.

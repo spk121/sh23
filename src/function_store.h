@@ -1,19 +1,21 @@
 #ifndef FUNCTION_STORE_H
 #define FUNCTION_STORE_H
 
-#include <stddef.h>
-#include <stdbool.h>
 #include "ast.h"
 #include "function_array.h"
+#include <stdbool.h>
+#include <stddef.h>
 
 // A shell function: name and parsed AST body.
 // Ownership: function_store_t owns both the function_t and its AST body.
-typedef struct function_t {
-    char *name;     // Function name
-    ast_node_t *body;  // AST node for function body (includes redirects)
+typedef struct function_t
+{
+    char *name;       // Function name
+    ast_node_t *body; // AST node for function body (includes redirects)
 } function_t;
 
-typedef struct function_store_t {
+typedef struct function_store_t
+{
     function_array_t *functions; // Array of function_t*
 } function_store_t;
 

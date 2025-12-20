@@ -1,16 +1,16 @@
 #include "shell.h"
-#include "logging.h"
-#include "xalloc.h"
-#include "string_t.h"
 #include "alias_store.h"
-#include "function_store.h"
-#include "variable_store.h"
-#include "lexer.h"
-#include "parser.h"
-#include "expander.h"
-#include "executor.h"
 #include "ast.h"
+#include "executor.h"
+#include "expander.h"
+#include "function_store.h"
+#include "lexer.h"
+#include "logging.h"
+#include "parser.h"
+#include "string_t.h"
 #include "tokenizer.h"
+#include "variable_store.h"
+#include "xalloc.h"
 
 // Internal helpers used by shell_feed_line/shell_run_script
 #if 0
@@ -68,7 +68,7 @@ shell_t *shell_create(const shell_config_t *cfg)
         sh->aliases = (alias_store_t *)cfg->initial_aliases;
     else
         sh->aliases = alias_store_create();
-    
+
     if (cfg && cfg->initial_funcs)
         sh->funcs = (function_store_t *)cfg->initial_funcs;
     else
@@ -85,12 +85,14 @@ shell_t *shell_create(const shell_config_t *cfg)
     sh->expander = expander_create();
     sh->executor = executor_create();
     sh->error = string_create();
-    
+
     // Hook executor callbacks into expander
     expander_set_variable_store(sh->expander, sh->vars);
-    expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh->executor, NULL);
-    expander_set_pathname_expansion_callback(sh->expander, executor_pathname_expansion_callback, sh);
-    
+    expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh->executor,
+                                        NULL);
+    expander_set_pathname_expansion_callback(sh->expander, executor_pathname_expansion_callback,
+                                             sh);
+
     return sh;
 }
 
@@ -98,7 +100,7 @@ void shell_destroy(shell_t **sh)
 {
     Expects_not_null(sh);
     shell_t *s = *sh;
-    
+
     if (s == NULL)
         return;
 
@@ -132,9 +134,10 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     Expects_not_null(sh);
     Expects_not_null(line);
     Expects_not_null(sh->lexer);
-    
+
     // Append line to lexer
-    if (sh->eol_norm) {
+    if (sh->eol_norm)
+    {
         char *buf = normalize_newlines(line);
         lexer_append_input_cstr(sh->lexer, buf);
         xfree(buf);
@@ -197,8 +200,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     {
         token_t *first = token_list_get(tokens, 0);
         token_t *second = token_list_get(tokens, 1);
-        if (token_get_type(first) == TOKEN_WORD && 
-            token_get_type(second) == TOKEN_END_OF_HEREDOC)
+        if (token_get_type(first) == TOKEN_WORD && token_get_type(second) == TOKEN_END_OF_HEREDOC)
         {
             log_debug("shell_feed_line: skipping heredoc completion tokens");
             token_list_destroy(&tokens);
@@ -258,12 +260,12 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         token_list_destroy(&out_tokens);
         return SH_INTERNAL_ERROR;
     }
- 
+
     // AST now owns the tokens - release them from the list without destroying
     token_list_release_tokens(out_tokens);
     xfree(out_tokens->tokens);
     xfree(out_tokens);
- 
+
     // Debug: print the AST
     if (log_level() == LOG_DEBUG)
     {
@@ -292,23 +294,23 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     // expansions see the most recent command status (including the POSIX
     // assignment-only + command-substitution case).
     expander_set_last_exit_status(sh->expander, executor_get_exit_status(sh->executor));
-    
+
     // Cleanup AST (expanded_ast may be the same pointer as ast)
     ast_node_destroy(&ast);
 
     // Convert execution status to shell status
     switch (exec_status)
     {
-        case EXEC_OK:
-            return SH_OK;
-        case EXEC_ERROR:
-            return SH_RUNTIME_ERROR;
-        case EXEC_NOT_IMPL:
-            string_set_cstr(sh->error, "feature not yet implemented");
-            return SH_RUNTIME_ERROR;
-        default:
-            log_error("shell_feed_line: unexpected executor status: %d", exec_status);
-            return SH_INTERNAL_ERROR;
+    case EXEC_OK:
+        return SH_OK;
+    case EXEC_ERROR:
+        return SH_RUNTIME_ERROR;
+    case EXEC_NOT_IMPL:
+        string_set_cstr(sh->error, "feature not yet implemented");
+        return SH_RUNTIME_ERROR;
+    default:
+        log_error("shell_feed_line: unexpected executor status: %d", exec_status);
+        return SH_INTERNAL_ERROR;
     }
 
 #if 0

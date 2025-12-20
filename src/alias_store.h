@@ -2,8 +2,8 @@
 #define ALIAS_STORE_H
 
 #include "alias.h"
-#include "string_t.h"
 #include "alias_array.h"
+#include "string_t.h"
 #include <stdbool.h>
 
 struct alias_store_t

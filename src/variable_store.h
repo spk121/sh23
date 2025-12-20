@@ -1,13 +1,14 @@
 #ifndef VARIABLE_STORE_H
 #define VARIABLE_STORE_H
 
-#include <stdbool.h>
-#include "string_t.h"
 #include "logging.h"
+#include "string_t.h"
 #include "variable.h"
 #include "variable_array.h"
+#include <stdbool.h>
 
-typedef struct variable_store_t {
+typedef struct variable_store_t
+{
     variable_array_t *variables;
 } variable_store_t;
 
@@ -22,8 +23,10 @@ void variable_store_destroy(variable_store_t **store);
 int variable_store_clear(variable_store_t *store);
 
 // Variable management
-void variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only);
-void variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only);
+void variable_store_add(variable_store_t *store, const string_t *name, const string_t *value,
+                        bool exported, bool read_only);
+void variable_store_add_cstr(variable_store_t *store, const char *name, const char *value,
+                             bool exported, bool read_only);
 void variable_store_remove(variable_store_t *store, const string_t *name);
 void variable_store_remove_cstr(variable_store_t *store, const char *name);
 int variable_store_has_name(const variable_store_t *store, const string_t *name);

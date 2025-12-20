@@ -177,7 +177,7 @@ struct token_t
     bool needs_field_splitting;    // has unquoted expansions
     bool needs_pathname_expansion; // has unquoted glob characters
     bool was_quoted;               // entire word was quoted
-    bool has_equals_before_quote;               // has an equals sign before a quoted character
+    bool has_equals_before_quote;  // has an equals sign before a quoted character
 };
 
 /* ============================================================================
@@ -288,7 +288,6 @@ void token_set_quoted(token_t *token, bool was_quoted);
  * Check if a token needs any form of expansion (parameter, command, arithmetic, tilde).
  */
 bool token_needs_expansion(const token_t *token);
-
 
 /**
  * Get text from all parts of a TOKEN_WORD token concatenated together.

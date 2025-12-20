@@ -16,29 +16,29 @@
  */
 typedef enum
 {
-    AST_PROGRAM,            // top-level program node
+    AST_PROGRAM, // top-level program node
 
     /* Basic command constructs */
-    AST_SIMPLE_COMMAND,    // command with arguments and redirections
-    AST_PIPELINE,          // sequence of commands connected by pipes
-    AST_AND_OR_LIST,       // commands connected by && or ||
-    AST_COMMAND_LIST,      // commands separated by ; or & or newlines
+    AST_SIMPLE_COMMAND, // command with arguments and redirections
+    AST_PIPELINE,       // sequence of commands connected by pipes
+    AST_AND_OR_LIST,    // commands connected by && or ||
+    AST_COMMAND_LIST,   // commands separated by ; or & or newlines
 
     /* Compound commands */
-    AST_SUBSHELL,          // ( command_list )
-    AST_BRACE_GROUP,       // { command_list; }
-    AST_IF_CLAUSE,         // if/then/else/elif/fi
-    AST_WHILE_CLAUSE,      // while/do/done
-    AST_UNTIL_CLAUSE,      // until/do/done
-    AST_FOR_CLAUSE,        // for/in/do/done
-    AST_CASE_CLAUSE,       // case/in/esac
-    AST_FUNCTION_DEF,      // name() compound-command [redirections]
+    AST_SUBSHELL,           // ( command_list )
+    AST_BRACE_GROUP,        // { command_list; }
+    AST_IF_CLAUSE,          // if/then/else/elif/fi
+    AST_WHILE_CLAUSE,       // while/do/done
+    AST_UNTIL_CLAUSE,       // until/do/done
+    AST_FOR_CLAUSE,         // for/in/do/done
+    AST_CASE_CLAUSE,        // case/in/esac
+    AST_FUNCTION_DEF,       // name() compound-command [redirections]
     AST_REDIRECTED_COMMAND, // generic wrapper: command + trailing redirections
 
     /* Auxiliary nodes */
-    AST_REDIRECTION,       // I/O redirection
-    AST_WORD,              // word node (wraps token)
-    AST_CASE_ITEM,         // pattern) command_list ;;
+    AST_REDIRECTION, // I/O redirection
+    AST_WORD,        // word node (wraps token)
+    AST_CASE_ITEM,   // pattern) command_list ;;
 
     AST_NODE_TYPE_COUNT
 } ast_node_type_t;
@@ -67,16 +67,16 @@ typedef enum
 
 /**
  * Command list separators.
- * 
+ *
  * DESIGN DECISION: Each command in a command_list has an associated separator,
  * including the last command (which gets LIST_SEP_EOL). This ensures:
  *   - items.size == separators.len (1:1 correspondence)
  *   - Simpler indexing: separator[i] describes what follows command[i]
  *   - Executor can easily determine if a command should run in background
- * 
+ *
  * Example: "echo foo; echo bar; echo baz"
  *   Command 0: "echo foo"  -> separator: LIST_SEP_SEQUENTIAL
- *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL  
+ *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL
  *   Command 2: "echo baz"  -> separator: LIST_SEP_EOL (no actual token)
  */
 typedef enum
@@ -99,15 +99,15 @@ typedef struct
  */
 typedef enum
 {
-    REDIR_INPUT,       // <
-    REDIR_OUTPUT,      // >
-    REDIR_APPEND,      // >>
-    REDIR_HEREDOC,     // <<
+    REDIR_INPUT,         // <
+    REDIR_OUTPUT,        // >
+    REDIR_APPEND,        // >>
+    REDIR_HEREDOC,       // <<
     REDIR_HEREDOC_STRIP, // <<-
-    REDIR_DUP_INPUT,   // <&
-    REDIR_DUP_OUTPUT,  // >&
-    REDIR_READWRITE,   // <>
-    REDIR_CLOBBER,     // >|
+    REDIR_DUP_INPUT,     // <&
+    REDIR_DUP_OUTPUT,    // >&
+    REDIR_READWRITE,     // <>
+    REDIR_CLOBBER,       // >|
 } redirection_type_t;
 
 /* ============================================================================
@@ -150,8 +150,7 @@ struct ast_node_t
     int last_column;
 
     /* Common fields used by different node types */
-    union
-    {
+    union {
         /* AST_PROGRAM */
         struct
         {
@@ -184,7 +183,7 @@ struct ast_node_t
         /* AST_COMMAND_LIST */
         struct
         {
-            ast_node_list_t *items;       // list of commands/pipelines
+            ast_node_list_t *items;           // list of commands/pipelines
             cmd_separator_list_t *separators; // separator after each item
         } command_list;
 
@@ -213,15 +212,15 @@ struct ast_node_t
         /* AST_FOR_CLAUSE */
         struct
         {
-            string_t *variable; // loop variable name
+            string_t *variable;  // loop variable name
             token_list_t *words; // words to iterate over (can be NULL for "$@")
-            ast_node_t *body;   // commands to execute in loop
+            ast_node_t *body;    // commands to execute in loop
         } for_clause;
 
         /* AST_CASE_CLAUSE */
         struct
         {
-            token_t *word;              // word to match
+            token_t *word;               // word to match
             ast_node_list_t *case_items; // list of case items
         } case_clause;
 
@@ -251,9 +250,9 @@ struct ast_node_t
         struct
         {
             redirection_type_t redir_type;
-            int io_number;         // file descriptor (or -1 for default)
-            string_t *io_location; // braced io location (e.g., "2" or "var")
-            token_t *target;       // filename or fd for redirection
+            int io_number;             // file descriptor (or -1 for default)
+            string_t *io_location;     // braced io location (e.g., "2" or "var")
+            token_t *target;           // filename or fd for redirection
             string_t *heredoc_content; // for heredoc
         } redirection;
     } data;
@@ -290,8 +289,8 @@ ast_node_type_t ast_node_get_type(const ast_node_t *node);
 /**
  * Set location information for an AST node.
  */
-void ast_node_set_location(ast_node_t *node, int first_line, int first_column, 
-                          int last_line, int last_column);
+void ast_node_set_location(ast_node_t *node, int first_line, int first_column, int last_line,
+                           int last_column);
 
 void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content);
 /* ============================================================================
@@ -300,22 +299,22 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
 
 /*
  * OWNERSHIP POLICY FOR TOKENS IN AST:
- * 
+ *
  * The AST takes FULL OWNERSHIP of all token_t pointers and token_list_t
  * structures passed to ast_create_* functions. This includes:
  *   - Individual token_t* (e.g., for case_clause.word, redirection.target)
  *   - token_list_t* (e.g., for simple_command.words, for_clause.words)
- * 
+ *
  * When an AST node is destroyed via ast_node_destroy():
  *   - All token_t objects are destroyed via token_destroy()
  *   - All token_list_t structures are destroyed via token_list_destroy()
  *   - This recursively destroys all tokens within the lists
- * 
+ *
  * The caller must NOT:
  *   - Destroy tokens after passing them to AST
- *   - Keep references to tokens after passing them to AST  
+ *   - Keep references to tokens after passing them to AST
  *   - Use token_list_destroy() on lists after passing them to AST
- * 
+ *
  * The caller should:
  *   - Call token_list_release_tokens() on the original token_list from
  *     the parser to clear pointers without destroying tokens
@@ -332,9 +331,8 @@ ast_node_t *ast_create_program(void);
  * Create a simple command node.
  * OWNERSHIP: Takes ownership of words, redirections, and assignments.
  */
-ast_node_t *ast_create_simple_command(token_list_t *words, 
-                                     ast_node_list_t *redirections,
-                                     token_list_t *assignments);
+ast_node_t *ast_create_simple_command(token_list_t *words, ast_node_list_t *redirections,
+                                      token_list_t *assignments);
 
 /**
  * Create a pipeline node.
@@ -344,8 +342,7 @@ ast_node_t *ast_create_pipeline(ast_node_list_t *commands, bool is_negated);
 /**
  * Create an and/or list node.
  */
-ast_node_t *ast_create_andor_list(ast_node_t *left, ast_node_t *right, 
-                                 andor_operator_t op);
+ast_node_t *ast_create_andor_list(ast_node_t *left, ast_node_t *right, andor_operator_t op);
 
 /**
  * Create a command list node.
@@ -381,8 +378,7 @@ ast_node_t *ast_create_until_clause(ast_node_t *condition, ast_node_t *body);
  * Create a for clause node.
  * OWNERSHIP: Takes ownership of words token list (clones variable string).
  */
-ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words, 
-                                 ast_node_t *body);
+ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words, ast_node_t *body);
 
 /**
  * Create a case clause node.
@@ -400,7 +396,7 @@ ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body);
  * Create a function definition node.
  */
 ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
-                                   ast_node_list_t *redirections);
+                                    ast_node_list_t *redirections);
 
 /**
  * Create a redirected command wrapper node.
@@ -412,7 +408,7 @@ ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *
  * OWNERSHIP: Takes ownership of target token.
  */
 ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
-                                  string_t *io_location, token_t *target);
+                                   string_t *io_location, token_t *target);
 
 /* ============================================================================
  * AST Node List Functions

@@ -268,8 +268,7 @@ static bool string_contains_glob(const string_t *str)
     Expects_not_null(str);
     Expects_not_null(str->data);
 
-    return (string_find_cstr(str, "*") != -1 ||
-            string_find_cstr(str, "?") != -1 ||
+    return (string_find_cstr(str, "*") != -1 || string_find_cstr(str, "?") != -1 ||
             string_find_cstr(str, "[") != -1);
 }
 
@@ -414,7 +413,8 @@ bool token_try_promote_to_reserved_word(token_t *tok, bool allow_in)
     return false;
 }
 
-static bool token_try_promote_to_word_str_to_token(token_t *tok, const char* target_word, token_type_t target_type)
+static bool token_try_promote_to_word_str_to_token(token_t *tok, const char *target_word,
+                                                   token_type_t target_type)
 {
     Expects_not_null(tok);
     Expects_eq(token_get_type(tok), TOKEN_WORD);
@@ -926,11 +926,9 @@ const char *part_type_to_string(part_type_t type)
     }
 }
 
-static char c0ctl[32][4] = {
-    "NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS", "HT", "LF", "VT",
-    "FF", "CR", "SO", "SI", "DLE", "DC1", "DC2", "DC3", "DC4", "NAK", "SYN", "ETB",
-    "CAN", "EM", "SUB", "ESC"
-};
+static char c0ctl[32][4] = {"NUL", "SOH", "STX", "ETX", "EOT", "ENQ", "ACK", "BEL", "BS",  "HT",
+                            "LF",  "VT",  "FF",  "CR",  "SO",  "SI",  "DLE", "DC1", "DC2", "DC3",
+                            "DC4", "NAK", "SYN", "ETB", "CAN", "EM",  "SUB", "ESC"};
 
 static void string_append_escaped_string(string_t *str, const string_t *text)
 {
@@ -971,7 +969,7 @@ static void string_append_escaped_string(string_t *str, const string_t *text)
                 string_append_char(str, '>');
             }
             else
-            string_append_char(str, c);
+                string_append_char(str, c);
             break;
         }
     }

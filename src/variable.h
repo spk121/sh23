@@ -1,11 +1,12 @@
 #ifndef VARIABLE_H
 #define VARIABLE_H
 
-#include <stdbool.h>
-#include "string_t.h"
 #include "logging.h"
+#include "string_t.h"
+#include <stdbool.h>
 
-typedef struct variable_t {
+typedef struct variable_t
+{
     string_t *name;
     string_t *value;
     bool exported;
@@ -13,8 +14,10 @@ typedef struct variable_t {
 } variable_t;
 
 // Constructors
-variable_t *variable_create(const string_t *name, const string_t *value, bool exported, bool read_only);
-variable_t *variable_create_from_cstr(const char *name, const char *value, bool exported, bool read_only);
+variable_t *variable_create(const string_t *name, const string_t *value, bool exported,
+                            bool read_only);
+variable_t *variable_create_from_cstr(const char *name, const char *value, bool exported,
+                                      bool read_only);
 
 // Destructor
 void variable_destroy(variable_t **variable);

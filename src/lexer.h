@@ -378,7 +378,8 @@ bool lexer_previous_token_was_newline(const lexer_t *lx);
  * Queue a heredoc for later reading.
  * Called when we encounter << or <<- operator.
  */
-void lexer_queue_heredoc(lexer_t *lexer, const string_t *delimiter, bool strip_tabs, bool delimiter_quoted);
+void lexer_queue_heredoc(lexer_t *lexer, const string_t *delimiter, bool strip_tabs,
+                         bool delimiter_quoted);
 
 /**
  * Empty the heredoc queue without reading bodies.

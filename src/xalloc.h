@@ -9,7 +9,8 @@
 /**
  * Structure to track allocation information in ARENA_DEBUG mode.
  */
-typedef struct {
+typedef struct
+{
     void *ptr;
     char file[256];
     int line;
@@ -21,18 +22,19 @@ typedef struct {
  * Arena allocator state structure.
  * Encapsulates all the state needed for memory tracking.
  */
-typedef struct arena_t {
+typedef struct arena_t
+{
     jmp_buf rollback_point;
     bool rollback_in_progress;
 #ifdef ARENA_DEBUG
-    arena_alloc_t *allocated_ptrs;  // dynamically resized sorted array
+    arena_alloc_t *allocated_ptrs; // dynamically resized sorted array
 #else
-    void **allocated_ptrs;  // dynamically resized sorted array
+    void **allocated_ptrs; // dynamically resized sorted array
 #endif
     long allocated_count;
     long allocated_cap;
-    long initial_cap;       // initial capacity for allocated_ptrs array
-    long max_allocations;   // maximum number of allocations allowed
+    long initial_cap;     // initial capacity for allocated_ptrs array
+    long max_allocations; // maximum number of allocations allowed
 } arena_t;
 
 // Access to global singleton arena for use in arena_start() macro
@@ -41,15 +43,16 @@ extern arena_t *arena_get_global(void);
 /**
  * Place this code in main, just after initializing the program but before any allocations:
  */
-#define arena_start()                                                                                        \
-    do                                                                                                       \
-    {                                                                                                        \
-        arena_init();                                                                                        \
-        if (setjmp(arena_get_global()->rollback_point) != 0)                                                 \
-        {                                                                                                    \
-            arena_reset();                                                                                   \
-            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");   \
-        }                                                                                                    \
+#define arena_start()                                                                              \
+    do                                                                                             \
+    {                                                                                              \
+        arena_init();                                                                              \
+        if (setjmp(arena_get_global()->rollback_point) != 0)                                       \
+        {                                                                                          \
+            arena_reset();                                                                         \
+            fprintf(stderr,                                                                        \
+                    "Out of memory — all allocated memory has been freed, restarting logic...\n"); \
+        }                                                                                          \
     } while (0)
 
 /**
@@ -79,7 +82,8 @@ void *xcalloc(size_t n, size_t size);
  * If new_size is 0, behaves like xfree.
  */
 #ifdef ARENA_DEBUG
-#define xrealloc(old_ptr, new_size) arena_xrealloc(arena_get_global(), (old_ptr), (new_size), __FILE__, __LINE__)
+#define xrealloc(old_ptr, new_size)                                                                \
+    arena_xrealloc(arena_get_global(), (old_ptr), (new_size), __FILE__, __LINE__)
 #else
 void *xrealloc(void *old_ptr, size_t new_size);
 #endif
@@ -123,11 +127,11 @@ void arena_end(void);
 
 /**
  * Arena-based allocation functions that operate on an explicit arena_t.
- * 
+ *
  * These functions provide the same functionality as the global arena functions
  * (xmalloc, xcalloc, etc.) but operate on a specific arena instance, allowing
  * multiple independent arenas and better testability.
- * 
+ *
  * Note: These are primarily provided for unit testing. General code should use
  * the shorter API like xmalloc and xfree which operate on the global arena.
  */

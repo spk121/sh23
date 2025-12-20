@@ -143,7 +143,8 @@ void lexer_drop_processed_input(lexer_t *lx)
         string_destroy(&new_input);
         lx->pos = 0;
 
-        if (string_capacity(lx->input) - string_length(lx->input) > LEXER_LARGE_UNUSED_INPUT_THRESHOLD)
+        if (string_capacity(lx->input) - string_length(lx->input) >
+            LEXER_LARGE_UNUSED_INPUT_THRESHOLD)
         {
             // If there's a lot of unused capacity, shrink the string
             string_resize(lx->input, string_length(lx->input) + LEXER_INPUT_RESIZE_PADDING);
@@ -155,8 +156,9 @@ void lexer_destroy(lexer_t **lx)
 {
     Expects_not_null(lx);
     lexer_t *l = *lx;
-    
-    if (!l) return;
+
+    if (!l)
+        return;
 
     if (l->input)
     {
@@ -456,7 +458,6 @@ void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str)
     }
 }
 
-
 // Gotta search this word for assignments. There's an assignment
 // if
 // - the first part is a literal that starts with a valid name
@@ -471,7 +472,8 @@ void lexer_append_literal_cstr_to_word(lexer_t *lx, const char *str)
 // - The text that follows the equals is moved into a separate LITERAL
 //   part placed at the beginning of the token->assignment_parts
 // - The remaining parts are appended to the token->assignment_value
-static bool try_promote_to_assignment(token_t *tok) {
+static bool try_promote_to_assignment(token_t *tok)
+{
     if (!tok->has_equals_before_quote)
         return false;
     if (part_list_size(tok->parts) == 0)
@@ -487,18 +489,21 @@ static bool try_promote_to_assignment(token_t *tok) {
     bool equals_at_end = (idx == string_length(first_part->text) - 1);
     if (equals_at_end && part_list_size(parts) == 1)
         return false;
-    
+
     // OK, can promote to assignment.
     tok->type = TOKEN_ASSIGNMENT_WORD;
     tok->assignment_name = string_substring(first_part->text, 0, idx);
     tok->assignment_value = part_list_create();
-    if (!equals_at_end) {
-        string_t *after_eq = string_substring(first_part->text, idx + 1, string_length(first_part->text));
+    if (!equals_at_end)
+    {
+        string_t *after_eq =
+            string_substring(first_part->text, idx + 1, string_length(first_part->text));
         part_t *part_after_eq = part_create_literal(after_eq);
         part_list_append(tok->assignment_value, part_after_eq);
         string_destroy(&after_eq);
     }
-    for (int i = 1; i < part_list_size(parts); ++i) {
+    for (int i = 1; i < part_list_size(parts); ++i)
+    {
         part_t *p = part_list_get(parts, i);
         part_list_append(tok->assignment_value, p);
     }
@@ -507,7 +512,6 @@ static bool try_promote_to_assignment(token_t *tok) {
     tok->parts->size = 0;
     return true;
 }
-
 
 void lexer_finalize_word(lexer_t *lx)
 {
@@ -522,7 +526,8 @@ void lexer_finalize_word(lexer_t *lx)
     }
 #endif
     try_promote_to_assignment(lx->current_token);
-    token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col, lx->line_no, lx->col_no);
+    token_set_location(lx->current_token, lx->tok_start_line, lx->tok_start_col, lx->line_no,
+                       lx->col_no);
 
     // Transfer ownership of the current token to the token list
     token_list_append(lx->tokens, lx->current_token);
@@ -585,7 +590,8 @@ bool lexer_try_operator(lexer_t *lx) {
  * Heredoc Functions
  * ============================================================================ */
 
-void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs, bool delimiter_quoted)
+void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs,
+                         bool delimiter_quoted)
 {
     Expects_not_null(lx);
     Expects_not_null(delimiter);
@@ -593,7 +599,8 @@ void lexer_queue_heredoc(lexer_t *lx, const string_t *delimiter, bool strip_tabs
     if (lx->heredoc_queue.size >= lx->heredoc_queue.capacity)
     {
         int newcap = lx->heredoc_queue.capacity * 2;
-        heredoc_entry_t *newentries = xrealloc(lx->heredoc_queue.entries, newcap * sizeof(heredoc_entry_t));
+        heredoc_entry_t *newentries =
+            xrealloc(lx->heredoc_queue.entries, newcap * sizeof(heredoc_entry_t));
         lx->heredoc_queue.entries = newentries;
         lx->heredoc_queue.capacity = newcap;
     }
@@ -675,8 +682,8 @@ int lexer_skip_whitespace(lexer_t *lx)
 bool lexer_is_delimiter(const lexer_t *lx, char c)
 {
     (void)lx;
-    return (c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '&' || c == '|' || c == '<' || c == '>' ||
-            c == '(' || c == ')');
+    return (c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '&' || c == '|' || c == '<' ||
+            c == '>' || c == '(' || c == ')');
 }
 
 /* ============================================================================
@@ -757,7 +764,8 @@ string_t *lexer_debug_string(const lexer_t *lx)
     Expects_not_null(lx);
 
     string_t *dbg = string_create();
-    string_printf(dbg, "Lexer(pos=%d, line=%d, col=%d, mode=", (int)lx->pos, lx->line_no, lx->col_no);
+    string_printf(dbg, "Lexer(pos=%d, line=%d, col=%d, mode=", (int)lx->pos, lx->line_no,
+                  lx->col_no);
 
     switch (lexer_current_mode(lx))
     {

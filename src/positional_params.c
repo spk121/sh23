@@ -1,16 +1,18 @@
 #include "positional_params.h"
-#include "xalloc.h"
-#include "string_t.h"
 #include "logging.h"
-#include <string.h>
+#include "string_t.h"
+#include "xalloc.h"
 #include <assert.h>
+#include <string.h>
 
-struct positional_params_t {
+struct positional_params_t
+{
     string_t **params; // params[0] is $1
     int count;         // number of params
 };
 
-struct positional_params_stack_t {
+struct positional_params_stack_t
+{
     positional_params_t **frames;
     int depth;
     int capacity;
@@ -32,8 +34,10 @@ static void positional_params_destroy_frame(positional_params_t **pf)
     Expects_not_null(*pf);
 
     positional_params_t *f = *pf;
-    if (f->params) {
-        for (int i = 0; i < f->count; i++) {
+    if (f->params)
+    {
+        for (int i = 0; i < f->count; i++)
+        {
             if (f->params[i])
                 string_destroy(&f->params[i]);
         }
@@ -46,10 +50,12 @@ static void positional_params_destroy_frame(positional_params_t **pf)
 static void positional_params_stack_ensure_capacity(positional_params_stack_t *stack, int needed)
 {
     Expects_not_null(stack);
-    
-    if (stack->capacity >= needed) return;
+
+    if (stack->capacity >= needed)
+        return;
     int newcap = stack->capacity ? stack->capacity * 2 : 4;
-    if (newcap < needed) newcap = needed;
+    if (newcap < needed)
+        newcap = needed;
     if (stack->frames == NULL)
         stack->frames = xcalloc((size_t)newcap, sizeof(positional_params_t *));
     else
@@ -74,9 +80,11 @@ positional_params_stack_t *positional_params_stack_create(void)
 
 void positional_params_stack_destroy(positional_params_stack_t **stack)
 {
-    if (!stack || !*stack) return;
+    if (!stack || !*stack)
+        return;
     positional_params_stack_t *s = *stack;
-    for (int i = 0; i < s->depth; i++) {
+    for (int i = 0; i < s->depth; i++)
+    {
         positional_params_destroy_frame(&s->frames[i]);
     }
     xfree(s->frames);
@@ -150,7 +158,8 @@ string_list_t *positional_params_get_all(const positional_params_stack_t *stack)
 
     positional_params_t *cur = positional_params_current(stack);
     string_list_t *list = string_list_create();
-    if (!cur || !cur->params) return list;
+    if (!cur || !cur->params)
+        return list;
     for (int i = 0; i < cur->count; i++)
     {
         string_list_push_back(list, cur->params[i]);
@@ -165,7 +174,8 @@ string_t *positional_params_get_all_joined(const positional_params_stack_t *stac
 
     positional_params_t *cur = positional_params_current(stack);
     string_t *out = string_create();
-    if (!cur || !cur->params) return out;
+    if (!cur || !cur->params)
+        return out;
     for (int i = 0; i < cur->count; i++)
     {
         if (i > 0)
@@ -175,7 +185,8 @@ string_t *positional_params_get_all_joined(const positional_params_stack_t *stac
     return out;
 }
 
-static bool positional_params_replace_frame(positional_params_stack_t *stack, string_t **params, int count)
+static bool positional_params_replace_frame(positional_params_stack_t *stack, string_t **params,
+                                            int count)
 {
     Expects_not_null(stack);
     Expects(count >= 0);
@@ -184,12 +195,13 @@ static bool positional_params_replace_frame(positional_params_stack_t *stack, st
         Expects_not_null(params);
         Expects_not_null(*params);
     }
-    
+
     if (count > stack->max_params)
         return false;
-    
+
     positional_params_t *cur = positional_params_current(stack);
-    if (!cur) return false;
+    if (!cur)
+        return false;
     positional_params_destroy_frame(&stack->frames[stack->depth - 1]);
     stack->frames[stack->depth - 1] = positional_params_create_frame(params, count);
     return true;
@@ -214,9 +226,12 @@ bool positional_params_shift(positional_params_stack_t *stack, int n)
     Expects_ge(n, 0);
 
     positional_params_t *cur = positional_params_current(stack);
-    if (!cur) return false;
-    if (n > cur->count) return false;
-    if (n == 0) return true;
+    if (!cur)
+        return false;
+    if (n > cur->count)
+        return false;
+    if (n == 0)
+        return true;
     int new_count = cur->count - n;
     string_t **new_params = NULL;
     if (new_count > 0)
@@ -242,14 +257,14 @@ void positional_params_set_max(positional_params_stack_t *stack, int max_params)
 {
     Expects_not_null(stack);
     Expects(max_params > 0);
-    
+
     stack->max_params = max_params;
 }
 
 int positional_params_get_max(const positional_params_stack_t *stack)
 {
     Expects_not_null(stack);
-    
+
     return stack->max_params;
 }
 
@@ -257,7 +272,7 @@ void positional_params_set_zero(positional_params_stack_t *stack, const string_t
 {
     Expects_not_null(name);
     Expects_not_null(stack);
-    
+
     if (stack->zero)
         string_destroy(&stack->zero);
     stack->zero = string_create_from(name);

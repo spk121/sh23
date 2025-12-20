@@ -76,17 +76,18 @@ void tokenizer_destroy(tokenizer_t **tok);
 /**
  * Tokenize the input token list and produce an output token list.
  * This performs alias expansion and re-lexing as needed.
- * 
+ *
  * @param tok The tokenizer context
  * @param input_tokens The list of tokens from the lexer
  * @param output_tokens The list to append tokenized tokens to
- * 
+ *
  * @return TOK_OK on success, TOK_ERROR on error
- * 
+ *
  * The input_tokens are consumed and should not be reused.
  * The caller takes ownership of tokens in output_tokens.
  */
-tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, token_list_t *output_tokens);
+tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens,
+                               token_list_t *output_tokens);
 
 /**
  * Process a single token from the input.
@@ -110,10 +111,10 @@ bool tokenizer_is_alias_eligible(const tokenizer_t *tok, const token_t *token);
  * Expand an alias for the given word token.
  * If the alias value contains text, it will be re-lexed and the
  * resulting tokens will be inserted into the input stream for re-processing.
- * 
+ *
  * @param tok The tokenizer context
  * @param alias_name The name of the alias (extracted from the token)
- * 
+ *
  * @return TOK_OK on success, TOK_ERROR on error
  */
 tok_status_t tokenizer_expand_alias(tokenizer_t *tok, const char *alias_name);
@@ -135,10 +136,10 @@ char *tokenizer_extract_word_text(const token_t *token);
 /**
  * Re-lex the given text and append the resulting tokens to the tokenizer.
  * This is used when an alias is expanded.
- * 
+ *
  * @param tok The tokenizer context
  * @param text The text to re-lex
- * 
+ *
  * @return TOK_OK on success, TOK_ERROR on error
  */
 tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text);
