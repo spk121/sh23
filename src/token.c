@@ -866,7 +866,7 @@ void part_destroy(part_t **part)
     if (p->param_name != NULL)
         string_destroy(&p->param_name);
     if (p->nested != NULL)
-        token_list_destroy(&p->nested);
+        token_list_unref(&p->nested);
 
     xfree(p);
     *part = NULL;

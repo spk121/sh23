@@ -35,8 +35,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_SIMPLE_COMMAND:
         if (n->data.simple_command.words != NULL)
         {
-            // AST owns these tokens - destroy them
-            token_list_destroy(&n->data.simple_command.words);
+            // AST owns these tokens - unref them
+            token_list_unref(&n->data.simple_command.words);
         }
         if (n->data.simple_command.redirections != NULL)
         {
@@ -44,8 +44,8 @@ void ast_node_destroy(ast_node_t **node)
         }
         if (n->data.simple_command.assignments != NULL)
         {
-            // AST owns these tokens - destroy them
-            token_list_destroy(&n->data.simple_command.assignments);
+            // AST owns these tokens - unref them
+            token_list_unref(&n->data.simple_command.assignments);
         }
         break;
 
@@ -95,8 +95,8 @@ void ast_node_destroy(ast_node_t **node)
         }
         if (n->data.for_clause.words != NULL)
         {
-            // AST owns these tokens - destroy them
-            token_list_destroy(&n->data.for_clause.words);
+            // AST owns these tokens - unref them
+            token_list_unref(&n->data.for_clause.words);
         }
         ast_node_destroy(&n->data.for_clause.body);
         break;
@@ -104,8 +104,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_CASE_CLAUSE:
         if (n->data.case_clause.word != NULL)
         {
-            // AST owns this token - destroy it
-            token_destroy(&n->data.case_clause.word);
+            // AST owns this token - unref it
+            token_unref(&n->data.case_clause.word);
         }
         if (n->data.case_clause.case_items != NULL)
         {
@@ -116,8 +116,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_CASE_ITEM:
         if (n->data.case_item.patterns != NULL)
         {
-            // AST owns these tokens - destroy them
-            token_list_destroy(&n->data.case_item.patterns);
+            // AST owns these tokens - unref them
+            token_list_unref(&n->data.case_item.patterns);
         }
         ast_node_destroy(&n->data.case_item.body);
         break;
@@ -145,8 +145,8 @@ void ast_node_destroy(ast_node_t **node)
     case AST_REDIRECTION:
         if (n->data.redirection.target != NULL)
         {
-            // AST owns this token - destroy it
-            token_destroy(&n->data.redirection.target);
+            // AST owns this token - unref it
+            token_unref(&n->data.redirection.target);
         }
         if (n->data.redirection.io_location != NULL)
         {
@@ -245,9 +245,9 @@ ast_node_t *ast_create_simple_command(token_list_t *words, ast_node_list_t *redi
                                       token_list_t *assignments)
 {
     ast_node_t *node = ast_node_create(AST_SIMPLE_COMMAND);
-    node->data.simple_command.words = words;
+    node->data.simple_command.words = token_list_ref(words);
     node->data.simple_command.redirections = redirections;
-    node->data.simple_command.assignments = assignments;
+    node->data.simple_command.assignments = token_list_ref(assignments);
     return node;
 }
 
@@ -320,7 +320,7 @@ ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words,
 {
     ast_node_t *node = ast_node_create(AST_FOR_CLAUSE);
     node->data.for_clause.variable = string_create_from(variable);
-    node->data.for_clause.words = words;
+    node->data.for_clause.words = token_list_ref(words);
     node->data.for_clause.body = body;
     return node;
 }
@@ -328,7 +328,7 @@ ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words,
 ast_node_t *ast_create_case_clause(token_t *word)
 {
     ast_node_t *node = ast_node_create(AST_CASE_CLAUSE);
-    node->data.case_clause.word = word;
+    node->data.case_clause.word = token_ref(word);
     node->data.case_clause.case_items = ast_node_list_create();
     return node;
 }
@@ -336,7 +336,7 @@ ast_node_t *ast_create_case_clause(token_t *word)
 ast_node_t *ast_create_case_item(token_list_t *patterns, ast_node_t *body)
 {
     ast_node_t *node = ast_node_create(AST_CASE_ITEM);
-    node->data.case_item.patterns = patterns;
+    node->data.case_item.patterns = token_list_ref(patterns);
     node->data.case_item.body = body;
     return node;
 }
@@ -358,7 +358,7 @@ ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
     node->data.redirection.redir_type = redir_type;
     node->data.redirection.io_number = io_number;
     node->data.redirection.io_location = io_location;
-    node->data.redirection.target = target;
+    node->data.redirection.target = token_ref(target);
     node->data.redirection.heredoc_content = NULL;
     return node;
 }
