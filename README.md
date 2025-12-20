@@ -1,5 +1,7 @@
 # sh23
 
+[![CI](https://github.com/spk121/sh23/actions/workflows/ci.yml/badge.svg)](https://github.com/spk121/sh23/actions/workflows/ci.yml)
+
 This intends to be a POSIX shell, but, it will have a compile-time option to
 that it can be built using only ISO C.
 
