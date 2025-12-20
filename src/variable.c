@@ -166,31 +166,3 @@ int variable_get_value_length(const variable_t *variable)
     const string_t *v = variable_get_value(variable);
     return v ? string_length(v) : 0;
 }
-
-string_t *variable_remove_smallest_suffix(const variable_t *variable, const string_t *pattern)
-{
-    Expects_not_null(variable);
-    Expects_not_null(pattern);
-    return remove_suffix_smallest(variable->value, pattern);
-}
-
-string_t *variable_remove_largest_suffix(const variable_t *variable, const string_t *pattern)
-{
-    Expects_not_null(variable);
-    Expects_not_null(pattern);
-    return remove_suffix_largest(variable->value, pattern);
-}
-
-string_t *variable_remove_smallest_prefix(const variable_t *variable, const string_t *pattern)
-{
-    Expects_not_null(variable);
-    Expects_not_null(pattern);
-    return remove_prefix_smallest(variable->value, pattern);
-}
-
-string_t *variable_remove_largest_prefix(const variable_t *variable, const string_t *pattern)
-{
-    Expects_not_null(variable);
-    Expects_not_null(pattern);
-    return remove_prefix_largest(variable->value, pattern);
-}
