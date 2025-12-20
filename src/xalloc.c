@@ -259,6 +259,9 @@ void *arena_xmalloc(arena_t *arena, size_t size, const char *file, int line)
 void *arena_xmalloc(arena_t *arena, size_t size)
 #endif
 {
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_lock(&arena->mutex);
+#endif    
     if (size == 0)
     {
         fprintf(stderr, "arena_xmalloc: invalid argument (size=0)\n");
@@ -278,6 +281,9 @@ void *arena_xmalloc(arena_t *arena, size_t size)
 #else
     insert_ptr(arena, p);
 #endif
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
+#endif
     return p;
 }
 
@@ -287,6 +293,9 @@ void *arena_xcalloc(arena_t *arena, size_t n, size_t size, const char *file, int
 void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
 #endif
 {
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_lock(&arena->mutex);
+#endif
     if (n == 0 || size == 0)
     {
         fprintf(stderr, "arena_xcalloc: invalid arguments (n=%zu, size=%zu)\n", n, size);
@@ -297,7 +306,12 @@ void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
     if (!p)
     {
         if (!arena->rollback_in_progress)
+        {
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+            mtx_unlock(&arena->mutex);
+#endif            
             longjmp(arena->rollback_point, 1);
+        }
         return NULL;
     }
 
@@ -305,6 +319,9 @@ void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
     insert_ptr(arena, p, file, line, n * size);
 #else
     insert_ptr(arena, p);
+#endif
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
 #endif
     return p;
 }
@@ -315,12 +332,25 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size, const char 
 void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
 #endif
 {
-    if (new_size == 0 || old_ptr == NULL)
-    {
-        fprintf(stderr, "arena_xrealloc: invalid arguments (old_ptr=%p, new_size=%zu)\n", old_ptr, new_size);
-        abort();
+    if (old_ptr == NULL)
+#ifdef DEBUG
+        return arena_xmalloc(arena, new_size, file, line);
+#else            
+        return arena_xmalloc(arena, new_size);
+#endif
+
+    if (new_size == 0) {
+#ifdef DEBUG
+        arena_xfree(arena, old_ptr, file, line);
+#else                
+        arena_xfree(arena, old_ptr);
+#endif
+        return NULL;
     }
 
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_lock(&arena->mutex);
+#endif    
     long idx = find_ptr(arena, old_ptr);
 #ifdef DEBUG
     if (idx >= 0)
@@ -342,7 +372,12 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
     if (!p)
     {
         if (!arena->rollback_in_progress)
+        {
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+            mtx_unlock(&arena->mutex);
+#endif            
             longjmp(arena->rollback_point, 1);
+        }
         return NULL;
     }
     if (idx >= 0)
@@ -355,6 +390,9 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
     insert_ptr(arena, p);
 #endif
 
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
+#endif            
     return p;
 }
 
@@ -364,6 +402,9 @@ char *arena_xstrdup(arena_t *arena, const char *s, const char *file, int line)
 char *arena_xstrdup(arena_t *arena, const char *s)
 #endif
 {
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_lock(&arena->mutex);
+#endif    
     if (s == NULL)
     {
         fprintf(stderr, "arena_xstrdup: NULL pointer passed\n");
@@ -382,26 +423,42 @@ char *arena_xstrdup(arena_t *arena, const char *s)
 #else
     insert_ptr(arena, p);
 #endif
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
+#endif
     return p;
 }
 
+#ifdef DEBUG
+void arena_xfree(arena_t *arena, void *p, const char *file, int line)
+#else
 void arena_xfree(arena_t *arena, void *p)
+#endif
 {
     if (!p)
         return;
 
+#ifdef DEBUG
+    char basename[256];
+    copy_basename(basename, sizeof(basename), file);
+
+    fprintf(stderr, "FREE: %p %s:%d 0 \n", p, basename, line);
+#endif
+#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
+    mtx_lock(&arena->mutex);
+#endif
     long idx = find_ptr(arena, p);
     if (idx < 0)
     {
 #ifdef DEBUG
-        fprintf(stderr, "FREE: %p (unknown):0 0 (double free or corruption detected)\n", p);
+        fprintf(stderr, "DEALLOC: %p (unknown):0 0 (double free or corruption detected)\n", p);
 #endif
         fprintf(stderr, "arena_xfree: double free or corruption detected (%p)\n", p);
         abort();
     }
 
 #ifdef DEBUG
-    fprintf(stderr, "FREE: %p %s:%d %zu -> %p (freed):0 0\n",
+    fprintf(stderr, "DEALLOC: %p %s:%d %zu -> %p (freed):0 0\n",
             arena->allocated_ptrs[idx].ptr,
             arena->allocated_ptrs[idx].file,
             arena->allocated_ptrs[idx].line,
@@ -410,6 +467,9 @@ void arena_xfree(arena_t *arena, void *p)
 #endif
     remove_ptr_at(arena, idx);
     free(p);
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
+#endif    
 }
 
 void arena_init_ex(arena_t *arena)
@@ -418,9 +478,12 @@ void arena_init_ex(arena_t *arena)
     // We check both allocated_ptrs and allocated_count to avoid false positives from uninitialized memory
     if (arena->allocated_ptrs != NULL && arena->allocated_count > 0)
     {
-        arena_reset_ex(arena, false);
+        arena_reset_ex(arena);
     }
-    
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+    mtx_init(&arena->mutex, mtx_plain);
+    mtx_lock(&arena->mutex);
+#endif    
     arena->rollback_in_progress = false;
     arena->initial_cap = ARENA_INITIAL_CAP;
     arena->max_allocations = ARENA_MAX_ALLOCATIONS;
@@ -436,25 +499,27 @@ void arena_init_ex(arena_t *arena)
     }
     arena->allocated_cap = arena->initial_cap;
     arena->allocated_count = 0;
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
+#endif    
 }
 
-void arena_reset_ex(arena_t *arena, bool verbose)
+void arena_reset_ex(arena_t *arena)
 {
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+    mtx_lock(&arena->mutex);
+#endif    
     arena->rollback_in_progress = true;
 
     // Free from the end to avoid expensive memmove on every removal
-    long count = arena->allocated_count;
 #ifdef DEBUG
-    if (verbose)
+    for (long i = 0; i < arena->allocated_count; i++)
     {
-        for (long i = 0; i < arena->allocated_count; i++)
-        {
-            fprintf(stderr, "LEAK: %p %s:%d %zu\n",
-                    arena->allocated_ptrs[i].ptr,
-                    arena->allocated_ptrs[i].file,
-                    arena->allocated_ptrs[i].line,
-                    arena->allocated_ptrs[i].size);
-        }
+        fprintf(stderr, "LEAK: %p %s:%d %zu\n",
+                arena->allocated_ptrs[i].ptr,
+                arena->allocated_ptrs[i].file,
+                arena->allocated_ptrs[i].line,
+                arena->allocated_ptrs[i].size);
     }
 #endif
     while (arena->allocated_count > 0)
@@ -469,22 +534,22 @@ void arena_reset_ex(arena_t *arena, bool verbose)
 
     free(arena->allocated_ptrs);
     arena->allocated_ptrs = NULL;
-    if (verbose)
-    {
+#ifdef DEBUG
+    if (count > 0){
         fprintf(stderr, "Arena reset: freeing %ld allocated blocks\n", count);
     }
+#endif
     arena->allocated_cap = arena->allocated_count = 0;
 
     arena->rollback_in_progress = false;
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+    mtx_unlock(&arena->mutex);
+#endif    
 }
 
 void arena_end_ex(arena_t *arena)
 {
-#ifdef DEBUG
-    arena_reset_ex(arena, true);
-#else
-    arena_reset_ex(arena, false);
-#endif
+    arena_reset_ex(arena);
 }
 
 // -------------------------------------------------------------
@@ -510,86 +575,35 @@ char *xstrdup(const char *s)
 {
     return arena_xstrdup(&global_arena, s);
 }
-#endif
 
 void xfree(void *p)
 {
     arena_xfree(&global_arena, p);
 }
+#endif
 
 void arena_init(void)
 {
-    // Free existing allocations if arena was previously used
-    if (global_arena.allocated_ptrs != NULL)
-    {
-        arena_reset(false);
-    }
-    
-    global_arena.rollback_in_progress = false;
-    global_arena.initial_cap = ARENA_INITIAL_CAP;
-    global_arena.max_allocations = ARENA_MAX_ALLOCATIONS;
-#ifdef DEBUG
-    global_arena.allocated_ptrs = calloc(global_arena.initial_cap, sizeof(arena_alloc_t));
-#else
-    global_arena.allocated_ptrs = calloc(global_arena.initial_cap, sizeof(void *));
-#endif
-    if (!global_arena.allocated_ptrs)
-    {
-        fprintf(stderr, "arena_init: failed to allocate initial pointer array\n");
-        abort();
-    }
-    global_arena.allocated_cap = global_arena.initial_cap;
-    global_arena.allocated_count = 0;
+    arena_init_ex(&global_arena);
 }
 
 // -------------------------------------------------------------
 // Full rollback — called automatically on allocation failure
 // -------------------------------------------------------------
-void arena_reset(bool verbose)
-{
-    global_arena.rollback_in_progress = true;
-
-    // Free from the end to avoid expensive memmove on every removal
-    long count = global_arena.allocated_count;
-#ifdef DEBUG
-    if (verbose)
-    {
-        for (long i = 0; i < global_arena.allocated_count; i++)
-        {
-            fprintf(stderr, "LEAK: %p %s:%d %zu\n",
-                    global_arena.allocated_ptrs[i].ptr,
-                    global_arena.allocated_ptrs[i].file,
-                    global_arena.allocated_ptrs[i].line,
-                    global_arena.allocated_ptrs[i].size);
-        }
-    }
-#endif
-    while (global_arena.allocated_count > 0)
-    {
-#ifdef DEBUG
-        void *p = global_arena.allocated_ptrs[--global_arena.allocated_count].ptr;
+#if __STDC_VERSION__ >= 202311L
+void arena_reset()
 #else
-        void *p = global_arena.allocated_ptrs[--global_arena.allocated_count];
+void arena_reset(void)
 #endif
-        free(p);
-    }
-
-    free(global_arena.allocated_ptrs);
-    global_arena.allocated_ptrs = NULL;
-    if (verbose)
-    {
-        fprintf(stderr, "Arena reset: freeing %ld allocated blocks\n", count);
-    }
-    global_arena.allocated_cap = global_arena.allocated_count = 0;
-
-    global_arena.rollback_in_progress = false;
+{
+    arena_reset_ex(&global_arena);
 }
 
-void arena_end(void)
-{
-#ifdef DEBUG
-    arena_reset(true);
+#if __STDC_VERSION__ >= 202311L
+void arena_end()
 #else
-    arena_reset(false);
+void arena_end(void)
 #endif
+{
+    arena_reset_ex(&global_arena);
 }

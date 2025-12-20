@@ -4,6 +4,9 @@
 #include <setjmp.h>
 #include <stdbool.h>
 #include <stdio.h>
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+#include <threads.h>
+#endif
 
 #ifdef DEBUG
 /**
@@ -23,6 +26,9 @@ typedef struct {
  */
 typedef struct arena_t {
     jmp_buf rollback_point;
+#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
+    mtx_t mutex;
+#endif    
     bool rollback_in_progress;
 #ifdef DEBUG
     arena_alloc_t *allocated_ptrs;  // dynamically resized sorted array
@@ -41,15 +47,15 @@ extern arena_t *arena_get_global(void);
 /**
  * Place this code in main, just after initializing the program but before any allocations:
  */
-#define arena_start()                                                                                                  \
-    do                                                                                                                 \
-    {                                                                                                                  \
-        arena_init();                                                                                                  \
-        if (setjmp(arena_get_global()->rollback_point) != 0)                                                          \
-        {                                                                                                              \
-            arena_reset(false);                                                                                        \
-            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");             \
-        }                                                                                                              \
+#define arena_start()                                                                                        \
+    do                                                                                                       \
+    {                                                                                                        \
+        arena_init();                                                                                        \
+        if (setjmp(arena_get_global()->rollback_point) != 0)                                                 \
+        {                                                                                                    \
+            arena_reset();                                                                                   \
+            fprintf(stderr, "Out of memory — all allocated memory has been freed, restarting logic...\n");   \
+        }                                                                                                    \
     } while (0)
 
 /**
@@ -100,18 +106,30 @@ char *xstrdup(const char *s);
  */
 void xfree(void *ptr);
 
+#if __STDC_VERSION__ >= 202311L
+void arena_init();
+#else
 void arena_init(void);
+#endif
 
 /**
  * Free all allocated memory tracked by the arena.
  * This is called automatically on out-of-memory conditions.
  */
-void arena_reset(bool verbose);
+#if __STDC_VERSION__ >= 202311L
+void arena_reset();
+#else
+void arena_reset(void);
+#endif
 
 /**
  * Call this at the end of main to free all allocated memory.
  */
+#if __STDC_VERSION__ >= 202311L
+void arena_end();
+#else
 void arena_end(void);
+#endif
 
 /**
  * Arena-based allocation functions that operate on an explicit arena_t.
@@ -128,15 +146,16 @@ void *arena_xmalloc(arena_t *arena, size_t size, const char *file, int line);
 void *arena_xcalloc(arena_t *arena, size_t n, size_t size, const char *file, int line);
 void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size, const char *file, int line);
 char *arena_xstrdup(arena_t *arena, const char *s, const char *file, int line);
+void arena_xfree(arena_t *arena, void *ptr, const char *file, int line);
 #else
 void *arena_xmalloc(arena_t *arena, size_t size);
 void *arena_xcalloc(arena_t *arena, size_t n, size_t size);
 void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size);
 char *arena_xstrdup(arena_t *arena, const char *s);
-#endif
 void arena_xfree(arena_t *arena, void *ptr);
+#endif
 void arena_init_ex(arena_t *arena);
-void arena_reset_ex(arena_t *arena, bool verbose);
+void arena_reset_ex(arena_t *arena);
 void arena_end_ex(arena_t *arena);
 
 #endif // ARENA_ALLOC_H

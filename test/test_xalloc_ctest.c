@@ -157,7 +157,7 @@ CTEST(test_arena_lifecycle)
         CTEST_ASSERT_NOT_NULL(ctest, ptr2, "ptr2 should be allocated");
         
         // Reset should free all allocations
-        arena_reset_ex(&arena, false);
+        arena_reset_ex(&arena);
         
         // After reset, we should be able to allocate again
         arena_init_ex(&arena);
