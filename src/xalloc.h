@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stdio.h>
 
-#define ARENA_DEBUG
 #ifdef ARENA_DEBUG
 /**
  * Structure to track allocation information in ARENA_DEBUG mode.

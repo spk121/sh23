@@ -1,5 +1,5 @@
 /**
- * @file expander.c
+ * @File expander.c
  * @brief POSIX shell word expansion implementation
  * 
  * This module implements the word expansion steps according to POSIX:
@@ -1344,12 +1344,7 @@ static void expand_ast_recursive(expander_t *exp, ast_node_t *node)
             // Expand each command in the pipeline
             if (node->data.program.body != NULL)
             {
-                int cmd_count = ast_node_list_size(node->data.program.body);
-                for (int i = 0; i < cmd_count; i++)
-                {
-                    ast_node_t *cmd = ast_node_list_get(node->data.program.body, i);
-                    expand_ast_recursive(exp, cmd);
-                }
+		expand_ast_recursive(exp, node->data.program.body);
             }
         break;
         case AST_SIMPLE_COMMAND:

@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
+
+set(CMAKE_COLOR_DIAGNOSTICS OFF)
+
 project(mgsh LANGUAGES C)
+
 
 # API selection option
 set(API_TYPE "ISO_C" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
@@ -21,7 +25,7 @@ endif()
 if(MSVC)
     add_compile_options(/std:clatest /W4 /Od /Zi /OPT:REF /MAP)
 else()
-    add_compile_options(-Wall -Wextra -fanalyzer -fmax-errors=4 -g3 -O2)
+    add_compile_options(-Wall -Wextra -fanalyzer -fdiagnostics-color=never -g3 -O2)
 endif()
 
 # Collect all sources except main.c

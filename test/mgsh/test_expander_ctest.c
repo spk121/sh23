@@ -863,33 +863,7 @@ CTEST(test_expander_positionals_at_star)
     expander_destroy(&exp);
     (void)ctest;
 }
-// Array of test entries
-static CTestEntry test_entries[] = {
-    { "test_expander_create_destroy", ctest_func_test_expander_create_destroy, NULL, NULL, false },
-    { "test_expander_ifs", ctest_func_test_expander_ifs, NULL, NULL, false },
-    { "test_expander_expand_simple_word", ctest_func_test_expander_expand_simple_word, NULL, NULL, false },
-    { "test_expander_expand_concatenated_word", ctest_func_test_expander_expand_concatenated_word, NULL, NULL, false },
-    { "test_expander_expand_ast_stub", ctest_func_test_expander_expand_ast_stub, NULL, NULL, false },
-    { "test_expander_arithmetic_simple", ctest_func_test_expander_arithmetic_simple, NULL, NULL, false },
-    { "test_expander_arithmetic_with_variable", ctest_func_test_expander_arithmetic_with_variable, NULL, NULL, false },
-    { "test_expander_arithmetic_complex", ctest_func_test_expander_arithmetic_complex, NULL, NULL, false },
-    { "test_expander_arithmetic_empty", ctest_func_test_expander_arithmetic_empty, NULL, NULL, false },
-    { "test_expander_arithmetic_nested", ctest_func_test_expander_arithmetic_nested, NULL, NULL, false },
-    { "test_expander_special_param_exit_status", ctest_func_test_expander_special_param_exit_status, NULL, NULL, false },
-    { "test_expander_special_param_exit_zero", ctest_func_test_expander_special_param_exit_zero, NULL, NULL, false },
-    { "test_expander_special_param_braced", ctest_func_test_expander_special_param_braced, NULL, NULL, false },
-    { "test_expander_special_param_pid", ctest_func_test_expander_special_param_pid, NULL, NULL, false },
-    { "test_expander_special_param_pid_braced", ctest_func_test_expander_special_param_pid_braced, NULL, NULL, false },
-    { "test_expander_special_param_pid_default", ctest_func_test_expander_special_param_pid_default, NULL, NULL, false },
-    { "test_expander_special_param_background_pid", ctest_func_test_expander_special_param_background_pid, NULL, NULL, false },
-    { "test_expander_special_param_background_pid_braced", ctest_func_test_expander_special_param_background_pid_braced, NULL, NULL, false },
-    { "test_expander_special_param_background_pid_default", ctest_func_test_expander_special_param_background_pid_default, NULL, NULL, false },
-    { "test_expander_positionals_basic", ctest_func_test_expander_positionals_basic, NULL, NULL, false },
-    { "test_expander_positionals_at_star", ctest_func_test_expander_positionals_at_star, NULL, NULL, false },
-    { "test_expander_recursive_param_assign_default", ctest_func_test_expander_recursive_param_assign_default, NULL, NULL, false },
-    { "test_expander_recursive_param_use_default", ctest_func_test_expander_recursive_param_use_default, NULL, NULL, false },
-    { "test_expander_recursive_param_use_alternate", ctest_func_test_expander_recursive_param_use_alternate, NULL, NULL, false },
-};
+
 
 int main(int argc, char *argv[])
 {
@@ -898,29 +872,39 @@ int main(int argc, char *argv[])
     
     // Initialize the memory arena
     arena_init();
-    
-    CTest ctest = {0};
-    int num_tests = sizeof(test_entries) / sizeof(test_entries[0]);
-    
-    printf("TAP version 14\n");
-    printf("1..%d\n", num_tests);
-    
-    for (int i = 0; i < num_tests; i++)
-    {
-        CTestEntry *entry = &test_entries[i];
-        ctest.current_test = entry->name;
-        
-        if (entry->setup)
-            entry->setup(&ctest);
-        
-        entry->func(&ctest);
-        
-        if (entry->teardown)
-            entry->teardown(&ctest);
-        
-        printf("ok %d - %s\n", i + 1, entry->name);
-    }
+
+    CTestEntry *suite[] = {
+	CTEST_ENTRY(test_expander_create_destroy),
+	CTEST_ENTRY(test_expander_ifs),
+	CTEST_ENTRY(test_expander_expand_simple_word),
+	CTEST_ENTRY(test_expander_expand_concatenated_word),
+	CTEST_ENTRY(test_expander_expand_ast_stub),
+	CTEST_ENTRY(test_expander_arithmetic_simple),
+	CTEST_ENTRY(test_expander_arithmetic_with_variable),
+	CTEST_ENTRY(test_expander_arithmetic_complex),
+	CTEST_ENTRY(test_expander_arithmetic_empty),
+	CTEST_ENTRY(test_expander_arithmetic_nested),
+	CTEST_ENTRY(test_expander_special_param_exit_status),
+	CTEST_ENTRY(test_expander_special_param_exit_zero),
+	CTEST_ENTRY(test_expander_special_param_braced),
+	CTEST_ENTRY(test_expander_special_param_pid),
+	CTEST_ENTRY(test_expander_special_param_pid_braced),
+	CTEST_ENTRY(test_expander_special_param_pid_default),
+	CTEST_ENTRY(test_expander_special_param_background_pid),
+	CTEST_ENTRY(test_expander_special_param_background_pid_braced),
+	CTEST_ENTRY(test_expander_special_param_background_pid_default),
+	CTEST_ENTRY(test_expander_positionals_basic),
+	CTEST_ENTRY(test_expander_positionals_at_star),
+	CTEST_ENTRY(test_expander_recursive_param_assign_default),
+	CTEST_ENTRY(test_expander_recursive_param_use_default),
+	CTEST_ENTRY(test_expander_recursive_param_use_alternate),
+	CTEST_ENTRY(test_expander_pathname_expansion_callback),
+	NULL
+    };
+
+    int result = ctest_run_suite(suite);
     
     arena_end();
-    return 0;
+
+    return result;
 }
