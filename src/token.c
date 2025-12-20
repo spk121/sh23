@@ -20,6 +20,7 @@ token_t *token_create(token_type_t type)
     token_t *token = (token_t *)xcalloc(1, sizeof(token_t));
 
     token->type = type;
+    token->refcount = 0; // Initialize refcount to 0
     if (type == TOKEN_WORD)
     {
         token->parts = part_list_create();
@@ -58,6 +59,33 @@ void token_destroy(token_t **token)
 
     xfree(t);
     *token = NULL;
+}
+
+token_t *token_ref(token_t *token)
+{
+    if (token == NULL)
+        return NULL;
+    
+    token->refcount++;
+    return token;
+}
+
+void token_unref(token_t **token)
+{
+    if (token == NULL || *token == NULL)
+        return;
+    
+    token_t *t = *token;
+    t->refcount--;
+    
+    if (t->refcount <= 0)
+    {
+        token_destroy(token);
+    }
+    else
+    {
+        *token = NULL;
+    }
 }
 
 /* ============================================================================
@@ -1138,6 +1166,7 @@ token_list_t *token_list_create(void)
     list->tokens = (token_t **)xcalloc(INITIAL_LIST_CAPACITY, sizeof(token_t *));
     list->size = 0;
     list->capacity = INITIAL_LIST_CAPACITY;
+    list->refcount = 0; // Initialize refcount to 0
 
     return list;
 }
@@ -1159,6 +1188,33 @@ void token_list_destroy(token_list_t **list)
     xfree(l);
     l = NULL;
     *list = NULL;
+}
+
+token_list_t *token_list_ref(token_list_t *list)
+{
+    if (list == NULL)
+        return NULL;
+    
+    list->refcount++;
+    return list;
+}
+
+void token_list_unref(token_list_t **list)
+{
+    if (list == NULL || *list == NULL)
+        return;
+    
+    token_list_t *l = *list;
+    l->refcount--;
+    
+    if (l->refcount <= 0)
+    {
+        token_list_destroy(list);
+    }
+    else
+    {
+        *list = NULL;
+    }
 }
 
 // List takes ownership of the token.

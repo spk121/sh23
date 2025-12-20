@@ -148,6 +148,9 @@ struct token_t
 {
     token_type_t type;
 
+    /* Reference counting for memory management */
+    int refcount;
+
     /* Location tracking for error messages */
     int first_line;
     int first_column;
@@ -189,6 +192,7 @@ struct token_list_t
     token_t **tokens;
     int size;
     int capacity;
+    int refcount; // Reference counting for memory management
 };
 
 /* ============================================================================
@@ -212,6 +216,20 @@ token_t *token_create_word(void);
  * Safe to call with NULL.
  */
 void token_destroy(token_t **token);
+
+/**
+ * Increment the reference count of a token.
+ * Returns the same token pointer for convenience.
+ * Safe to call with NULL (returns NULL).
+ */
+token_t *token_ref(token_t *token);
+
+/**
+ * Decrement the reference count of a token.
+ * When the reference count reaches 0 or below, the token is destroyed.
+ * Safe to call with NULL.
+ */
+void token_unref(token_t **token);
 
 /* ============================================================================
  * Token Accessors
@@ -605,6 +623,20 @@ token_list_t *token_list_create(void);
  * Safe to call with NULL.
  */
 void token_list_destroy(token_list_t **list);
+
+/**
+ * Increment the reference count of a token list.
+ * Returns the same token list pointer for convenience.
+ * Safe to call with NULL (returns NULL).
+ */
+token_list_t *token_list_ref(token_list_t *list);
+
+/**
+ * Decrement the reference count of a token list.
+ * When the reference count reaches 0 or below, the list is destroyed.
+ * Safe to call with NULL.
+ */
+void token_list_unref(token_list_t **list);
 
 /**
  * Append a token to a token list.
