@@ -19,7 +19,7 @@ else()
 endif()
 
 if(MSVC)
-    add_compile_options(/std:clatest /W4 /Od /Zi)
+    add_compile_options(/std:clatest /W4 /Od /Zi /OPT:REF /MAP)
 else()
     add_compile_options(-Wall -Wextra -fanalyzer -fmax-errors=4 -g3 -O2)
 endif()

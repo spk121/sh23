@@ -123,6 +123,8 @@ exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
 
     switch (root->type)
     {
+    case AST_PROGRAM:
+        return executor_execute_command_list(executor, root->data.program.body);
     case AST_SIMPLE_COMMAND:
         return executor_execute_simple_command(executor, root);
     case AST_PIPELINE:
