@@ -3,17 +3,19 @@
 #include "ctest.h"
 #include "xalloc.h"
 
-// Helper macros to handle DEBUG and non-DEBUG modes
-#ifdef DEBUG
+// Helper macros to handle ARENA_DEBUG and non-ARENA_DEBUG modes
+#ifdef ARENA_DEBUG
 #define TEST_ARENA_XMALLOC(arena, size) arena_xmalloc((arena), (size), __FILE__, __LINE__)
 #define TEST_ARENA_XCALLOC(arena, n, size) arena_xcalloc((arena), (n), (size), __FILE__, __LINE__)
 #define TEST_ARENA_XREALLOC(arena, ptr, size) arena_xrealloc((arena), (ptr), (size), __FILE__, __LINE__)
 #define TEST_ARENA_XSTRDUP(arena, s) arena_xstrdup((arena), (s), __FILE__, __LINE__)
+#define TEST_ARENA_XFREE(arena, ptr) arena_xfree((arena), (ptr), __FILE__, __LINE__)
 #else
 #define TEST_ARENA_XMALLOC(arena, size) arena_xmalloc((arena), (size))
 #define TEST_ARENA_XCALLOC(arena, n, size) arena_xcalloc((arena), (n), (size))
 #define TEST_ARENA_XREALLOC(arena, ptr, size) arena_xrealloc((arena), (ptr), (size))
 #define TEST_ARENA_XSTRDUP(arena, s) arena_xstrdup((arena), (s))
+#define TEST_ARENA_XFREE(arena, ptr) arena_xfree((arena), (ptr))
 #endif
 
 // Test arena_xmalloc basic allocation
@@ -28,7 +30,7 @@ CTEST(test_arena_xmalloc_basic)
         void *ptr = TEST_ARENA_XMALLOC(&arena, 100);
         CTEST_ASSERT_NOT_NULL(ctest, ptr, "allocated pointer should not be NULL");
         
-        arena_xfree(&arena, ptr);
+        TEST_ARENA_XFREE(&arena, ptr);
     }
     
     arena_end_ex(&arena);
@@ -52,7 +54,7 @@ CTEST(test_arena_xcalloc_zero_init)
             CTEST_ASSERT_EQ(ctest, arr[i], 0, "array element should be zero");
         }
         
-        arena_xfree(&arena, arr);
+        TEST_ARENA_XFREE(&arena, arr);
     }
     
     arena_end_ex(&arena);
@@ -86,7 +88,7 @@ CTEST(test_arena_xrealloc_resize)
             CTEST_ASSERT_EQ(ctest, new_ptr[i], i * 10, "original values should be preserved");
         }
         
-        arena_xfree(&arena, new_ptr);
+        TEST_ARENA_XFREE(&arena, new_ptr);
     }
     
     arena_end_ex(&arena);
@@ -108,14 +110,14 @@ CTEST(test_arena_xstrdup_duplicate)
         CTEST_ASSERT_STR_EQ(ctest, dup, original, "duplicated string should match original");
         CTEST_ASSERT_TRUE(ctest, dup != original, "duplicated string should be different pointer");
         
-        arena_xfree(&arena, dup);
+        TEST_ARENA_XFREE(&arena, dup);
     }
     
     arena_end_ex(&arena);
     (void)ctest;
 }
 
-// Test arena_xfree and basic tracking
+// Test TEST_ARENA_XFREE and basic tracking
 CTEST(test_arena_xfree_tracking)
 {
     arena_t arena = {0};
@@ -132,9 +134,9 @@ CTEST(test_arena_xfree_tracking)
         CTEST_ASSERT_NOT_NULL(ctest, ptr3, "ptr3 should be allocated");
         
         // Free in different order
-        arena_xfree(&arena, ptr2);
-        arena_xfree(&arena, ptr1);
-        arena_xfree(&arena, ptr3);
+        TEST_ARENA_XFREE(&arena, ptr2);
+        TEST_ARENA_XFREE(&arena, ptr1);
+        TEST_ARENA_XFREE(&arena, ptr3);
     }
     
     arena_end_ex(&arena);
@@ -165,7 +167,7 @@ CTEST(test_arena_lifecycle)
         {
             void *ptr3 = TEST_ARENA_XMALLOC(&arena, 50);
             CTEST_ASSERT_NOT_NULL(ctest, ptr3, "ptr3 should be allocated after reset");
-            arena_xfree(&arena, ptr3);
+            TEST_ARENA_XFREE(&arena, ptr3);
         }
     }
     
@@ -198,13 +200,13 @@ CTEST(test_arena_multiple_allocs)
         // Free every other one
         for (int i = 0; i < COUNT; i += 2)
         {
-            arena_xfree(&arena, ptrs[i]);
+            TEST_ARENA_XFREE(&arena, ptrs[i]);
         }
         
         // Free the rest
         for (int i = 1; i < COUNT; i += 2)
         {
-            arena_xfree(&arena, ptrs[i]);
+            TEST_ARENA_XFREE(&arena, ptrs[i]);
         }
     }
     
@@ -212,7 +214,7 @@ CTEST(test_arena_multiple_allocs)
     (void)ctest;
 }
 
-// Test that NULL can be safely passed to arena_xfree
+// Test that NULL can be safely passed to TEST_ARENA_XFREE
 CTEST(test_arena_xfree_null)
 {
     arena_t arena = {0};
@@ -221,7 +223,7 @@ CTEST(test_arena_xfree_null)
     if (setjmp(arena.rollback_point) == 0)
     {
         // This should not crash
-        arena_xfree(&arena, NULL);
+        TEST_ARENA_XFREE(&arena, NULL);
         CTEST_ASSERT_TRUE(ctest, true, "freeing NULL should be safe");
     }
     

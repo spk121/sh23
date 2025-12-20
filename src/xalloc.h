@@ -4,13 +4,10 @@
 #include <setjmp.h>
 #include <stdbool.h>
 #include <stdio.h>
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-#include <threads.h>
-#endif
 
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 /**
- * Structure to track allocation information in DEBUG mode.
+ * Structure to track allocation information in ARENA_DEBUG mode.
  */
 typedef struct {
     void *ptr;
@@ -26,11 +23,8 @@ typedef struct {
  */
 typedef struct arena_t {
     jmp_buf rollback_point;
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-    mtx_t mutex;
-#endif    
     bool rollback_in_progress;
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     arena_alloc_t *allocated_ptrs;  // dynamically resized sorted array
 #else
     void **allocated_ptrs;  // dynamically resized sorted array
@@ -62,7 +56,7 @@ extern arena_t *arena_get_global(void);
  * Allocate memory tracked by the arena.
  * On allocation failure, triggers a longjmp to the arena rollback point.
  */
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 #define xmalloc(size) arena_xmalloc(arena_get_global(), (size), __FILE__, __LINE__)
 #else
 void *xmalloc(size_t size);
@@ -72,7 +66,7 @@ void *xmalloc(size_t size);
  * Allocate zero-initialized memory tracked by the arena.
  * On allocation failure, triggers a longjmp to the arena rollback point.
  */
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 #define xcalloc(n, size) arena_xcalloc(arena_get_global(), (n), (size), __FILE__, __LINE__)
 #else
 void *xcalloc(size_t n, size_t size);
@@ -84,7 +78,7 @@ void *xcalloc(size_t n, size_t size);
  * If old_ptr is NULL, behaves like xmalloc.
  * If new_size is 0, behaves like xfree.
  */
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 #define xrealloc(old_ptr, new_size) arena_xrealloc(arena_get_global(), (old_ptr), (new_size), __FILE__, __LINE__)
 #else
 void *xrealloc(void *old_ptr, size_t new_size);
@@ -94,7 +88,7 @@ void *xrealloc(void *old_ptr, size_t new_size);
  * Duplicate a string, with memory tracked by the arena.
  * On allocation failure, triggers a longjmp to the arena rollback point.
  */
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 #define xstrdup(s) arena_xstrdup(arena_get_global(), (s), __FILE__, __LINE__)
 #else
 char *xstrdup(const char *s);
@@ -104,32 +98,28 @@ char *xstrdup(const char *s);
  * Free memory allocated by the arena.
  * Safe to call with NULL.
  */
-void xfree(void *ptr);
-
-#if __STDC_VERSION__ >= 202311L
-void arena_init();
+#ifdef ARENA_DEBUG
+#define xfree(ptr) arena_xfree(arena_get_global(), (ptr), __FILE__, __LINE__)
 #else
-void arena_init(void);
+void xfree(void *ptr);
 #endif
+
+/**
+ * Initialize the global arena allocator.
+ * Must be called before any allocations are made.
+ */
+void arena_init(void);
 
 /**
  * Free all allocated memory tracked by the arena.
  * This is called automatically on out-of-memory conditions.
  */
-#if __STDC_VERSION__ >= 202311L
-void arena_reset();
-#else
 void arena_reset(void);
-#endif
 
 /**
  * Call this at the end of main to free all allocated memory.
  */
-#if __STDC_VERSION__ >= 202311L
-void arena_end();
-#else
 void arena_end(void);
-#endif
 
 /**
  * Arena-based allocation functions that operate on an explicit arena_t.
@@ -141,19 +131,18 @@ void arena_end(void);
  * Note: These are primarily provided for unit testing. General code should use
  * the shorter API like xmalloc and xfree which operate on the global arena.
  */
-#ifdef DEBUG
-void *arena_xmalloc(arena_t *arena, size_t size, const char *file, int line);
-void *arena_xcalloc(arena_t *arena, size_t n, size_t size, const char *file, int line);
-void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size, const char *file, int line);
-char *arena_xstrdup(arena_t *arena, const char *s, const char *file, int line);
-void arena_xfree(arena_t *arena, void *ptr, const char *file, int line);
+#ifdef ARENA_DEBUG
+#define ARENA_DEBUG_PARAMS , const char *file, int line
 #else
-void *arena_xmalloc(arena_t *arena, size_t size);
-void *arena_xcalloc(arena_t *arena, size_t n, size_t size);
-void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size);
-char *arena_xstrdup(arena_t *arena, const char *s);
-void arena_xfree(arena_t *arena, void *ptr);
+#define ARENA_DEBUG_PARAMS
 #endif
+
+void *arena_xmalloc(arena_t *arena, size_t size ARENA_DEBUG_PARAMS);
+void *arena_xcalloc(arena_t *arena, size_t n, size_t size ARENA_DEBUG_PARAMS);
+void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size ARENA_DEBUG_PARAMS);
+char *arena_xstrdup(arena_t *arena, const char *s ARENA_DEBUG_PARAMS);
+void arena_xfree(arena_t *arena, void *ptr ARENA_DEBUG_PARAMS);
+
 void arena_init_ex(arena_t *arena);
 void arena_reset_ex(arena_t *arena);
 void arena_end_ex(arena_t *arena);

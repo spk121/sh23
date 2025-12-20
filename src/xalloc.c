@@ -33,7 +33,7 @@ arena_t *arena_get_global(void)
 // -------------------------------------------------------------
 // Internal helpers for maintaining the sorted pointer list
 // -------------------------------------------------------------
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 // Helper function to extract basename from file path (returns pointer to basename within the original string)
 static const char *get_basename(const char *file)
 {
@@ -102,7 +102,7 @@ static long find_ptr(arena_t *arena, const void *p)
         abort();
     }
     // binary search because list is kept sorted
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     arena_alloc_t key = {.ptr = (void *)p};
     arena_alloc_t *res = bsearch(&key, arena->allocated_ptrs, arena->allocated_count, sizeof(arena_alloc_t), ptr_compare);
 #else
@@ -124,7 +124,7 @@ static long find_insertion_index(arena_t *arena, void *new_ptr)
     while (low < high)
     {
         long mid = (low + high) / 2;
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         if (new_ptr < arena->allocated_ptrs[mid].ptr)
 #else
         if (new_ptr < arena->allocated_ptrs[mid])
@@ -141,7 +141,7 @@ static long find_insertion_index(arena_t *arena, void *new_ptr)
 }
 
 // Insert pointer in sorted order (keeps the array sorted)
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
 static void insert_ptr(arena_t *arena, void *p, const char *file, int line, size_t size)
 #else
 static void insert_ptr(arena_t *arena, void *p)
@@ -153,20 +153,24 @@ static void insert_ptr(arena_t *arena, void *p)
         abort();
     }
 
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     // Check if this pointer already exists (SHADOW case - memory corruption or tracking error)
-    long existing_idx = find_ptr(arena, p);
-    if (existing_idx >= 0)
+    for (long i = 0; i < arena->allocated_count; i++)
     {
-        fprintf(stderr, "SHADOW: existing allocation %p %s:%d %zu -> attempted new allocation %p %s:%d %zu\n",
-                arena->allocated_ptrs[existing_idx].ptr,
-                arena->allocated_ptrs[existing_idx].file,
-                arena->allocated_ptrs[existing_idx].line,
-                arena->allocated_ptrs[existing_idx].size,
-                p, file, line, size);
-        fprintf(stderr, "ERROR: pointer %p already tracked - possible memory corruption or double allocation\n", p);
-        abort();
-    }
+        void * begin = arena->allocated_ptrs[i].ptr;
+        void * end = (void *)((char *)begin + arena->allocated_ptrs[i].size);
+        if (p >= begin && p < end)
+        {
+            fprintf(stderr, "SHADOW: existing allocation %p %s:%d %zu -> attempted new allocation %p %s:%d\n",
+                    arena->allocated_ptrs[i].ptr,
+                    arena->allocated_ptrs[i].file,
+                    arena->allocated_ptrs[i].line,
+                    arena->allocated_ptrs[i].size,
+                    p, file, line);
+            fprintf(stderr, "ERROR: attempted to track pointer %p that is within an existing allocation\n", p);
+            abort();
+        }
+    }   
 #endif
 
     if (arena->allocated_count >= arena->max_allocations)
@@ -184,7 +188,7 @@ static void insert_ptr(arena_t *arena, void *p)
         long new_cap = (arena->allocated_cap > 0) ? arena->allocated_cap * 2 : arena->initial_cap;
         if (new_cap > arena->max_allocations)
             new_cap = arena->max_allocations;
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         arena_alloc_t *new_ptrs = calloc(new_cap, sizeof(arena_alloc_t));
         if (!new_ptrs)
         {
@@ -216,13 +220,13 @@ static void insert_ptr(arena_t *arena, void *p)
     // Shift everything right one position
     if (idx < arena->allocated_count)
     {
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         memmove(arena->allocated_ptrs + idx + 1, arena->allocated_ptrs + idx, (arena->allocated_count - idx) * sizeof(arena_alloc_t));
 #else
         memmove(arena->allocated_ptrs + idx + 1, arena->allocated_ptrs + idx, (arena->allocated_count - idx) * sizeof(void *));
 #endif
     }
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     arena->allocated_ptrs[idx].ptr = p;
     copy_basename(arena->allocated_ptrs[idx].file, sizeof(arena->allocated_ptrs[idx].file), file);
     arena->allocated_ptrs[idx].line = line;
@@ -242,7 +246,7 @@ static void remove_ptr_at(arena_t *arena, long idx)
         fprintf(stderr, "remove_ptr_at: invalid index %ld\n", idx);
         abort();
     }
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     memmove(arena->allocated_ptrs + idx, arena->allocated_ptrs + idx + 1, (arena->allocated_count - idx - 1) * sizeof(arena_alloc_t));
 #else
     memmove(arena->allocated_ptrs + idx, arena->allocated_ptrs + idx + 1, (arena->allocated_count - idx - 1) * sizeof(void *));
@@ -253,15 +257,8 @@ static void remove_ptr_at(arena_t *arena, long idx)
 // -------------------------------------------------------------
 // Arena-based public API
 // -------------------------------------------------------------
-#ifdef DEBUG
-void *arena_xmalloc(arena_t *arena, size_t size, const char *file, int line)
-#else
-void *arena_xmalloc(arena_t *arena, size_t size)
-#endif
+void *arena_xmalloc(arena_t *arena, size_t size ARENA_DEBUG_PARAMS)
 {
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_lock(&arena->mutex);
-#endif    
     if (size == 0)
     {
         fprintf(stderr, "arena_xmalloc: invalid argument (size=0)\n");
@@ -276,26 +273,16 @@ void *arena_xmalloc(arena_t *arena, size_t size)
         return NULL;                          // during cleanup we must not jump again
     }
 
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     insert_ptr(arena, p, file, line, size);
 #else
     insert_ptr(arena, p);
 #endif
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif
     return p;
 }
 
-#ifdef DEBUG
-void *arena_xcalloc(arena_t *arena, size_t n, size_t size, const char *file, int line)
-#else
-void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
-#endif
+void *arena_xcalloc(arena_t *arena, size_t n, size_t size ARENA_DEBUG_PARAMS)
 {
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_lock(&arena->mutex);
-#endif
     if (n == 0 || size == 0)
     {
         fprintf(stderr, "arena_xcalloc: invalid arguments (n=%zu, size=%zu)\n", n, size);
@@ -307,40 +294,30 @@ void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
     {
         if (!arena->rollback_in_progress)
         {
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-            mtx_unlock(&arena->mutex);
-#endif            
             longjmp(arena->rollback_point, 1);
         }
         return NULL;
     }
 
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     insert_ptr(arena, p, file, line, n * size);
 #else
     insert_ptr(arena, p);
 #endif
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif
     return p;
 }
 
-#ifdef DEBUG
-void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size, const char *file, int line)
-#else
-void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
-#endif
+void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size ARENA_DEBUG_PARAMS)
 {
     if (old_ptr == NULL)
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         return arena_xmalloc(arena, new_size, file, line);
 #else            
         return arena_xmalloc(arena, new_size);
 #endif
 
     if (new_size == 0) {
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         arena_xfree(arena, old_ptr, file, line);
 #else                
         arena_xfree(arena, old_ptr);
@@ -348,11 +325,8 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
         return NULL;
     }
 
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_lock(&arena->mutex);
-#endif    
     long idx = find_ptr(arena, old_ptr);
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     if (idx >= 0)
     {
         // Print old allocation info for tracked pointer
@@ -373,16 +347,13 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
     {
         if (!arena->rollback_in_progress)
         {
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-            mtx_unlock(&arena->mutex);
-#endif            
             longjmp(arena->rollback_point, 1);
         }
         return NULL;
     }
     if (idx >= 0)
         remove_ptr_at(arena, idx);
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     // Print new allocation info
     fprintf(stderr, "%p %s:%d %zu\n", p, get_basename(file), line, new_size);
     insert_ptr(arena, p, file, line, new_size);
@@ -390,21 +361,11 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
     insert_ptr(arena, p);
 #endif
 
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif            
     return p;
 }
 
-#ifdef DEBUG
-char *arena_xstrdup(arena_t *arena, const char *s, const char *file, int line)
-#else
-char *arena_xstrdup(arena_t *arena, const char *s)
-#endif
+char *arena_xstrdup(arena_t *arena, const char *s ARENA_DEBUG_PARAMS)
 {
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_lock(&arena->mutex);
-#endif    
     if (s == NULL)
     {
         fprintf(stderr, "arena_xstrdup: NULL pointer passed\n");
@@ -418,46 +379,36 @@ char *arena_xstrdup(arena_t *arena, const char *s)
             longjmp(arena->rollback_point, 1);
         return NULL;
     }
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     insert_ptr(arena, p, file, line, strlen(s) + 1);
 #else
     insert_ptr(arena, p);
 #endif
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif
     return p;
 }
 
-#ifdef DEBUG
-void arena_xfree(arena_t *arena, void *p, const char *file, int line)
-#else
-void arena_xfree(arena_t *arena, void *p)
-#endif
+void arena_xfree(arena_t *arena, void *p ARENA_DEBUG_PARAMS)
 {
     if (!p)
         return;
 
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     char basename[256];
     copy_basename(basename, sizeof(basename), file);
 
     fprintf(stderr, "FREE: %p %s:%d 0 \n", p, basename, line);
 #endif
-#if ARENA_THREAD_SAFE && !defined(__STDC_NO_THREADS__)
-    mtx_lock(&arena->mutex);
-#endif
     long idx = find_ptr(arena, p);
     if (idx < 0)
     {
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         fprintf(stderr, "DEALLOC: %p (unknown):0 0 (double free or corruption detected)\n", p);
 #endif
         fprintf(stderr, "arena_xfree: double free or corruption detected (%p)\n", p);
         abort();
     }
 
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     fprintf(stderr, "DEALLOC: %p %s:%d %zu -> %p (freed):0 0\n",
             arena->allocated_ptrs[idx].ptr,
             arena->allocated_ptrs[idx].file,
@@ -467,9 +418,6 @@ void arena_xfree(arena_t *arena, void *p)
 #endif
     remove_ptr_at(arena, idx);
     free(p);
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif    
 }
 
 void arena_init_ex(arena_t *arena)
@@ -480,14 +428,10 @@ void arena_init_ex(arena_t *arena)
     {
         arena_reset_ex(arena);
     }
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-    mtx_init(&arena->mutex, mtx_plain);
-    mtx_lock(&arena->mutex);
-#endif    
     arena->rollback_in_progress = false;
     arena->initial_cap = ARENA_INITIAL_CAP;
     arena->max_allocations = ARENA_MAX_ALLOCATIONS;
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     arena->allocated_ptrs = calloc(arena->initial_cap, sizeof(arena_alloc_t));
 #else
     arena->allocated_ptrs = calloc(arena->initial_cap, sizeof(void *));
@@ -499,20 +443,17 @@ void arena_init_ex(arena_t *arena)
     }
     arena->allocated_cap = arena->initial_cap;
     arena->allocated_count = 0;
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif    
 }
 
 void arena_reset_ex(arena_t *arena)
 {
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-    mtx_lock(&arena->mutex);
-#endif    
+#ifdef ARENA_DEBUG    
+    long count = arena->allocated_count;
+#endif
     arena->rollback_in_progress = true;
 
     // Free from the end to avoid expensive memmove on every removal
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     for (long i = 0; i < arena->allocated_count; i++)
     {
         fprintf(stderr, "LEAK: %p %s:%d %zu\n",
@@ -524,7 +465,7 @@ void arena_reset_ex(arena_t *arena)
 #endif
     while (arena->allocated_count > 0)
     {
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
         void *p = arena->allocated_ptrs[--arena->allocated_count].ptr;
 #else
         void *p = arena->allocated_ptrs[--arena->allocated_count];
@@ -534,7 +475,7 @@ void arena_reset_ex(arena_t *arena)
 
     free(arena->allocated_ptrs);
     arena->allocated_ptrs = NULL;
-#ifdef DEBUG
+#ifdef ARENA_DEBUG
     if (count > 0){
         fprintf(stderr, "Arena reset: freeing %ld allocated blocks\n", count);
     }
@@ -542,9 +483,6 @@ void arena_reset_ex(arena_t *arena)
     arena->allocated_cap = arena->allocated_count = 0;
 
     arena->rollback_in_progress = false;
-#if defined(ARENA_THREAD_SAFE) && !defined(__STDC_NO_THREADS__)
-    mtx_unlock(&arena->mutex);
-#endif    
 }
 
 void arena_end_ex(arena_t *arena)
@@ -555,7 +493,7 @@ void arena_end_ex(arena_t *arena)
 // -------------------------------------------------------------
 // Public API
 // -------------------------------------------------------------
-#ifndef DEBUG
+#ifndef ARENA_DEBUG
 void *xmalloc(size_t size)
 {
     return arena_xmalloc(&global_arena, size);
@@ -590,20 +528,12 @@ void arena_init(void)
 // -------------------------------------------------------------
 // Full rollback — called automatically on allocation failure
 // -------------------------------------------------------------
-#if __STDC_VERSION__ >= 202311L
-void arena_reset()
-#else
 void arena_reset(void)
-#endif
 {
     arena_reset_ex(&global_arena);
 }
 
-#if __STDC_VERSION__ >= 202311L
-void arena_end()
-#else
 void arena_end(void)
-#endif
 {
     arena_reset_ex(&global_arena);
 }
