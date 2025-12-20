@@ -154,23 +154,27 @@ static void insert_ptr(arena_t *arena, void *p)
     }
 
 #ifdef ARENA_DEBUG
-    // Check if this pointer already exists (SHADOW case - memory corruption or tracking error)
+    // Check for ANY overlap with existing allocations
     for (long i = 0; i < arena->allocated_count; i++)
     {
-        void * begin = arena->allocated_ptrs[i].ptr;
-        void * end = (void *)((char *)begin + arena->allocated_ptrs[i].size);
-        if (p >= begin && p < end)
+        void *old_begin = arena->allocated_ptrs[i].ptr;
+        void *old_end = (void *)((char *)old_begin + arena->allocated_ptrs[i].size);
+        void *new_begin = p;
+        void *new_end = (void *)((char *)p + size);
+        
+        if (!(old_end <= new_begin || new_end <= old_begin))
         {
-            fprintf(stderr, "SHADOW: existing allocation %p %s:%d %zu -> attempted new allocation %p %s:%d\n",
-                    arena->allocated_ptrs[i].ptr,
+            fprintf(stderr, "SHADOW: existing allocation [%p-%p] %s:%d %zu overlaps new allocation [%p-%p] %s:%d %zu\n",
+                    old_begin, old_end,
                     arena->allocated_ptrs[i].file,
                     arena->allocated_ptrs[i].line,
                     arena->allocated_ptrs[i].size,
-                    p, file, line);
-            fprintf(stderr, "ERROR: attempted to track pointer %p that is within an existing allocation\n", p);
+                    new_begin, new_end,
+                    file, line, size);
+            fprintf(stderr, "ERROR: overlapping memory allocations detected - possible heap corruption\n");
             abort();
         }
-    }   
+    }
 #endif
 
     if (arena->allocated_count >= arena->max_allocations)
