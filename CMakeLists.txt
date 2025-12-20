@@ -4,6 +4,25 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 project(mgsh LANGUAGES C)
 
+option(ENABLE_COVERAGE "Enable code coverage" ON)
+
+if(ENABLE_COVERAGE)
+    if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        message(WARNING "Code coverage works best with Debug build")
+    endif()
+    if(MSVC)
+    else()
+        add_compile_options(-O0 -g --coverage)  # -O0 avoids optimizations hiding lines
+        add_link_options(--coverage)            # Links libgcov
+    endif()
+else()
+    if(MSVC)
+        add_compile_options(/std:clatest /W4 /Od /Zi /OPT:REF /MAP)
+    else()
+        add_compile_options(-Wall -Wextra -fanalyzer -fdiagnostics-color=never -g3 -O2)
+    endif()
+endif()
+
 
 # API selection option
 set(API_TYPE "ISO_C" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
@@ -22,11 +41,6 @@ else()
     message(FATAL_ERROR "Invalid API_TYPE: ${API_TYPE}. Must be POSIX, UCRT, or ISO_C")
 endif()
 
-if(MSVC)
-    add_compile_options(/std:clatest /W4 /Od /Zi /OPT:REF /MAP)
-else()
-    add_compile_options(-Wall -Wextra -fanalyzer -fdiagnostics-color=never -g3 -O2)
-endif()
 
 # Collect all sources except main.c
 set(MGSH_LIB_SOURCES

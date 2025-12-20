@@ -122,12 +122,16 @@ bool parser_at_end(const parser_t *parser)
     return parser_current_token(parser) == NULL;
 }
 
-void parser_skip_newlines(parser_t *parser)
+// Skip one or more newlines.
+int parser_skip_newlines(parser_t *parser)
 {
+    int n = 0;
     while (parser_accept(parser, TOKEN_NEWLINE))
     {
         // Just skip
+        n++;
     }
+    return n;
 }
 
 static bool is_redirection_token(token_type_t type)
@@ -261,23 +265,161 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node)
 {
     Expects_not_null(parser);
-    ast_node_t *program = ast_create_program();
 
     // Skip leading newlines
     parser_skip_newlines(parser);
 
-    ast_node_t *body = NULL;
-    parse_status_t status = parser_parse_command_list(parser, PARSE_COMMAND_TOP_LEVEL, &body);
+    ast_node_t *complete_commands = NULL;
+    parse_status_t status = parser_parse_complete_commands(parser, &complete_commands);
+    ast_node_t *program;
 
-    if (status != PARSE_OK)
+    switch (status)
     {
+    case PARSE_OK:
+        program = ast_create_program(complete_commands);
+        // Skip trailing newlines
+        parser_skip_newlines(parser);
+        break;
+    case PARSE_EMPTY:
+        // Empty program
+        program = ast_create_program(NULL);
+        break;
+    case PARSE_INCOMPLETE:
+    case PARSE_ERROR:
         ast_node_destroy(&program);
-        return status;
+        break;
+    default:
+        log_error("parser_parse_program: unknown parse status %d", status);
+        ast_node_destroy(&program);
+        status = PARSE_ERROR;
     }
 
-    program->data.program.body = body;
     *out_node = program;
-    return PARSE_OK;
+    return status;
+}
+
+parse_status_t parser_parse_complete_commands(parser_t *parser, ast_node_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    ast_node_list_t *lst = ast_node_list_create();
+    parse_status_t status;
+    bool continue_parsing = false;
+
+    do
+    {
+        ast_node_t *complete_command = NULL;
+        status = parser_parse_complete_command(parser, &complete_command);
+
+        switch (status)
+        {
+        case PARSE_OK:
+            ast_node_list_append(lst, complete_command);
+            // Skip trailing newlines
+            int n = parser_skip_newlines(parser);
+            if (n > 0)
+                continue_parsing = true;
+            break;
+        case PARSE_EMPTY:
+        case PARSE_INCOMPLETE:
+        case PARSE_ERROR:
+            ast_node_list_destroy(&lst);
+            break;
+        default:
+            log_error("%s: unknown parse status %d", __func__, status);
+            ast_node_list_destroy(&lst);
+            status = PARSE_ERROR;
+            break;
+        }
+    } while (continue_parsing);
+
+    if (status == PARSE_OK)
+        *out_node = ast_create_complete_commands(lst);
+
+    return status;
+}
+
+parse_status_t parser_parse_complete_command(parser_t *parser, ast_node_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    ast_node_list_t *cmd_lst = ast_node_list_create();
+    parse_status_t status;
+    bool continue_parsing = false;
+
+    do
+    {
+        ast_node_t *lst = NULL;
+        status = parser_parse_list(parser, &lst);
+
+        switch (status)
+        {
+        case PARSE_OK:
+            ast_node_list_append(cmd_lst, lst);
+            op = parser_get_separator_op(parser);
+            if (op != LIST_SEP_EOL)
+                continue_parsing = true;
+            break;
+        case PARSE_EMPTY:
+        case PARSE_INCOMPLETE:
+        case PARSE_ERROR:
+            ast_node_list_destroy(&cmd_lst);
+            break;
+        default:
+            log_error("%s: unknown parse status %d", __func__, status);
+            ast_node_list_destroy(&cmd_lst);
+            status = PARSE_ERROR;
+            break;
+        }
+    } while (continue_parsing);
+
+    if (status == PARSE_OK)
+        *out_node = ast_create_complete_command(cmd_lst, ops_lst);
+
+    return status;
+}
+
+parse_status_t parser_parse_list(parser_t *parser, ast_node_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    ast_node_list_t *andor_lst = ast_node_list_create();
+    parse_status_t status;
+    bool continue_parsing = false;
+
+    do
+    {
+        ast_node_t *lst = NULL;
+        status = parser_parse_list(parser, &lst);
+
+        switch (status)
+        {
+        case PARSE_OK:
+            ast_node_list_append(andor_lst, lst);
+            op = parser_get_separator_op(parser);
+            if (op != LIST_SEP_EOL)
+                continue_parsing = true;
+            break;
+        case PARSE_EMPTY:
+        case PARSE_INCOMPLETE:
+        case PARSE_ERROR:
+            ast_node_list_destroy(&andor_lst);
+            break;
+        default:
+            log_error("%s: unknown parse status %d", __func__, status);
+            ast_node_list_destroy(&andor_lst);
+            status = PARSE_ERROR;
+            break;
+        }
+    } while (continue_parsing);
+
+    if (status == PARSE_OK)
+        *out_node = ast_create_list(andor_lst, ops_lst);
+
+    return status;
 }
 
 parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context,

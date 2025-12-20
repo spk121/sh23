@@ -13,9 +13,9 @@
 typedef enum
 {
     PARSE_OK = 0,     // successful parsing
-    PARSE_ERROR,      // syntax error during parsing
-    PARSE_INCOMPLETE, // need more tokens to complete parsing
     PARSE_EMPTY,      // empty input (no tokens to parse)
+    PARSE_INCOMPLETE, // need more tokens to complete parsing
+    PARSE_ERROR,      // syntax error during parsing
 } parse_status_t;
 
 /* ============================================================================
@@ -86,6 +86,8 @@ parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t *
  * and the AST node list.
  */
 parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node);
+
+parse_status_t parser_parse_complete_commands(parser_t *parser, ast_node_t **out_node);
 
 typedef enum
 {
@@ -220,9 +222,9 @@ parse_status_t parser_expect(parser_t *parser, token_type_t type);
 bool parser_at_end(const parser_t *parser);
 
 /**
- * Skip optional newlines.
+ * Skip optional newlines. Returns the number of newlines skipped.
  */
-void parser_skip_newlines(parser_t *parser);
+int parser_skip_newlines(parser_t *parser);
 
 /* ============================================================================
  * Error Handling Functions

@@ -230,14 +230,21 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
  * AST Node Creation Helpers
  * ============================================================================ */
 
-#if __STDC_VERSION__ >= 202311L
-ast_node_t *ast_create_program()
-#else
-ast_node_t *ast_create_program(void)
-#endif
+ast_node_t *ast_create_program(ast_node_t *complete_commands)
 {
+    // complete_commands may be NULL for an empty program
+
     ast_node_t *node = ast_node_create(AST_PROGRAM);
-    node->data.program.body = NULL;
+    node->data.program.complete_commands = complete_commands;
+    return node;
+}
+
+ast_node_t *ast_create_complete_commands(ast_node_list_t *complete_command_list)
+{
+    Expects_not_null(complete_command_list);
+
+    ast_node_t *node = ast_node_create(AST_COMPLETE_COMMANDS);
+    node->data.complete_commands.complete_command_list = complete_command_list;
     return node;
 }
 
@@ -536,6 +543,14 @@ const char *redirection_type_to_string(redirection_type_t type)
     }
 }
 
+static void indent_string(string_t *str, int indent_level)
+{
+    for (int i = 0; i < indent_level; i++)
+    {
+        string_append_cstr(str, "  ");
+    }
+}
+
 static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, int indent_level)
 {
     if (node == NULL)
@@ -544,11 +559,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
     }
 
     // Add indentation
-    for (int i = 0; i < indent_level; i++)
-    {
-        string_append_cstr(result, "  ");
-    }
-
+    indent_string(result, indent_level);
     string_append_cstr(result, ast_node_type_to_string(node->type));
     string_append_cstr(result, "\n");
 
@@ -556,18 +567,16 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
     switch (node->type)
     {
     case AST_PROGRAM:
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
-        string_append_cstr(result, "body:\n");
-        if (node->data.program.body != NULL)
+        indent_string(result, indent_level);
+        string_append_cstr(result, "complete commands:\n");
+        if (node->data.program.complete_commands != NULL)
         {
-            ast_node_to_string_helper(node->data.program.body, result, indent_level + 2);
+            ast_node_to_string_helper(node->data.program.complete_commands, result, indent_level + 1);
         }
         else
         {
-            for (int i = 0; i < indent_level + 2; i++)
-                string_append_cstr(result, "  ");
-            string_append_cstr(result, "(null)\n");
+            indent_string(result, indent_level + 1);
+            string_append_cstr(result, "(empty)\n");
         }
         string_append_cstr(result, "\n");
         break;

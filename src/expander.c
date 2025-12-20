@@ -1354,10 +1354,9 @@ static void expand_ast_recursive(expander_t *exp, ast_node_t *node)
     switch (node_type)
     {
     case AST_PROGRAM:
-        // Expand each command in the pipeline
-        if (node->data.program.body != NULL)
+        if (node->data.program.complete_commands != NULL)
         {
-            expand_ast_recursive(exp, node->data.program.body);
+            expand_ast_recursive(exp, node->data.program.complete_commands);
         }
         break;
     case AST_SIMPLE_COMMAND:

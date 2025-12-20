@@ -17,6 +17,9 @@
 typedef enum
 {
     AST_PROGRAM, // top-level program node
+    AST_COMPLETE_COMMANDS, // Single non-null node
+
+    AST_LINEBREAK, // zero or more newlines
 
     /* Basic command constructs */
     AST_SIMPLE_COMMAND, // command with arguments and redirections
@@ -154,8 +157,14 @@ struct ast_node_t
         /* AST_PROGRAM */
         struct
         {
-            ast_node_t *body; // A single command list node
+            ast_node_t *complete_commands; // body of program. May be NULL for empty program
         } program;
+
+        /* AST_COMPLETE_COMMANDS */
+        struct
+        {
+            ast_node_list_t *complete_command_list; // list of complete commands. never NULL
+        } complete_commands;
 
         /* AST_SIMPLE_COMMAND */
         struct
