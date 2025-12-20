@@ -11,6 +11,8 @@ jobs:
   build-ubuntu:
     name: Ubuntu - ${{ matrix.api_type }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         api_type: [POSIX, ISO_C]
@@ -40,6 +42,8 @@ jobs:
   build-windows:
     name: Windows - ${{ matrix.api_type }}
     runs-on: windows-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         api_type: [UCRT, ISO_C]
