@@ -76,6 +76,7 @@ string_t *string_create_from_n_chars(size_t count, char ch)
 string_t *string_create_from_cstr(const char *data)
 {
     Expects_not_null(data);
+    Expects_lt(strlen(data), (size_t)INT_MAX);
     int len = strlen(data);
     return string_create_from_cstr_len(data, len);
 }
@@ -203,6 +204,8 @@ void string_set_cstr(string_t *str, const char *cstr)
 {
     Expects_not_null(str);
     Expects_not_null(cstr);
+    Expects_lt(strlen(cstr), (size_t)INT_MAX);
+
     int len = strlen(cstr);
 
     int needed_capacity = len + 1;
@@ -463,6 +466,8 @@ void string_append_cstr(string_t *str, const char *cstr)
 {
     Expects_not_null(str);
     Expects_not_null(cstr);
+    Expects_lt(strlen(cstr), (size_t)INT_MAX);
+
     int cstr_len = strlen(cstr);
 
     int needed_capacity = str->length + cstr_len + 1;
@@ -592,6 +597,8 @@ int string_find_cstr(const string_t *str, const char *substr)
 {
     Expects_not_null(str);
     Expects_not_null(substr);
+    Expects_lt(strlen(substr), (size_t)INT_MAX);
+
 
     int substr_len = strlen(substr);
     if (substr_len == 0)
@@ -611,6 +618,7 @@ int string_find_cstr_at(const string_t *str, const char *substr, int pos)
 {
     Expects_not_null(str);
     Expects_not_null(substr);
+    Expects_lt(strlen(substr), (size_t)INT_MAX);
     Expects(pos >= 0);
     Expects(pos <= str->length);
 
@@ -641,8 +649,11 @@ int string_find_first_of_predicate(const string_t *str, bool (*predicate)(char))
 int string_find_first_of_predicate_at(const string_t *str, bool (*predicate)(char), int pos);
 int string_find_first_not_of(const string_t *str, const string_t *chars);
 int string_find_first_not_of_at(const string_t *str, const string_t *chars, int pos);
-int string_find_first_not_of_cstr(const string_t *str, const char *chars);
 #endif
+int string_find_first_not_of_cstr(const string_t *str, const char *chars)
+{
+    return string_find_first_not_of_cstr_at(str, chars, 0);
+}
 
 int string_find_first_not_of_cstr_at(const string_t *str, const char *chars, int pos)
 {

@@ -138,7 +138,7 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
             return LEX_OK;
         }
 
-        bool in_dquote = lexer_in_mode(lx, LEX_DOUBLE_QUOTE);
+        in_dquote = lexer_in_mode(lx, LEX_DOUBLE_QUOTE);
 
         if (c == '\\')
         {

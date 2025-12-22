@@ -672,7 +672,7 @@ static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
                 continue;
             }
 
-            string_t *name = string_create_from_range(lex, eq);
+            string_t *name = string_create_from_range(lex, eq, -1);
             string_t *value = string_create_from_cstr(eq + 1);
 
             /* Temporary vars are always considered "environment-visible"

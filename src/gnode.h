@@ -1,5 +1,5 @@
-#ifndef AST_GRAMMAR_H
-#define AST_GRAMMAR_H
+#ifndef GNODE_H
+#define GNODE_H
 
 #include "string_t.h"
 #include "token.h"

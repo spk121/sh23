@@ -229,8 +229,11 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     token_list_destroy(&tokens);
 
     // Parse into AST
-    ast_node_t *ast = NULL;
-    parse_status_t parse_status = parser_parse(sh->parser, out_tokens, &ast);
+    parser_t *parser = parser_create();
+    parser->tokens = tokens;
+    gnode_t *gast = NULL;
+    parse_status_t parse_status = parser_parse_program(parser, &gast);
+
     if (parse_status == PARSE_ERROR)
     {
         string_set_cstr(sh->error, parser_get_error(sh->parser));
@@ -259,6 +262,10 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         return SH_INTERNAL_ERROR;
     }
  
+    // Now convert grammar AST to shell AST
+    ast_node_t *ast = ast_lower(gast);
+    g_node_destroy(&gast);
+
     // AST now owns the tokens - release them from the list without destroying
     token_list_release_tokens(out_tokens);
     xfree(out_tokens->tokens);

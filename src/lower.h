@@ -1,8 +1,8 @@
-#ifndef AST_LOWER_H
-#define AST_LOWER_H
+#ifndef LOWER_H
+#define LOWER_H
 
 #include "ast.h"
-#include "ast_grammar.h"
+#include "gnode.h"
 
 /* Lower a POSIX-precise grammar AST (gnode_t) into an execution AST (ast_t).
  * Expects root to be a G_PROGRAM node.

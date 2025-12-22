@@ -1,7 +1,7 @@
-#ifndef PARSER_T_H
-#define PARSER_T_H
+#ifndef PARSER_H
+#define PARSER_H
 
-#include "ast.h"
+#include "gnode.h"
 #include "string_t.h"
 #include "token.h"
 #include <stdbool.h>
@@ -12,10 +12,10 @@
 
 typedef enum
 {
-    PARSE_OK = 0,       // successful parsing
-    PARSE_ERROR,        // syntax error during parsing
-    PARSE_INCOMPLETE,   // need more tokens to complete parsing
-    PARSE_EMPTY,        // empty input (no tokens to parse)
+    PARSE_OK = 0,     // successful parsing
+    PARSE_ERROR,      // syntax error during parsing
+    PARSE_INCOMPLETE, // need more tokens to complete parsing
+    PARSE_EMPTY,      // empty input (no tokens to parse)
 } parse_status_t;
 
 /* ============================================================================
@@ -44,6 +44,26 @@ typedef struct parser_t
 parser_t *parser_create(void);
 
 /**
+ * Create a new parser with a token list.
+ *
+ * @param tokens The list of tokens to parse (parser does not take ownership)
+ *
+ * OWNERSHIP POLICY:
+ *   - The parser does NOT take ownership of the token_list structure itself
+ *   - The resulting grammar AST DOES take ownership of individual token_t objects
+ *     from the list
+ *   - After successful parsing, the caller must:
+ *     1. Call token_list_release_tokens() to clear pointers without
+ *        destroying tokens (which are now owned by the grammar AST)
+ *     2. Free the token_list structure itself
+ *     3. Eventually destroy the grammar AST with g_node_destroy(), which will
+ *        destroy all the tokens
+ *   - On parse failure, the token_list retains all its tokens and should
+ *     be destroyed normally with token_list_destroy()
+ */
+parser_t *parser_create_with_tokens(token_list_t *tokens);
+
+/**
  * Destroy a parser and free all associated memory.
  * Safe to call with NULL.
  * Does not destroy the token list (caller retains ownership).
@@ -55,126 +75,57 @@ void parser_destroy(parser_t **parser);
  * ============================================================================ */
 
 /**
- * Parse a token list into an AST.
- * 
- * @param parser The parser context
- * @param tokens The list of tokens to parse (parser does not take ownership)
- * @param out_ast Pointer to store the resulting AST root node
- * 
+ * Parse the token list into a grammar AST.
+ *
+ * @param parser The parser context (must have tokens set)
+ * @param out_gnode Pointer to store the resulting grammar AST root node
+ *
  * @return PARSE_OK on success, PARSE_ERROR on error, PARSE_EMPTY if no tokens
- * 
- * OWNERSHIP POLICY:
- *   - The parser does NOT take ownership of the token_list structure itself
- *   - The resulting AST DOES take ownership of individual token_t objects
- *     from the list
- *   - After successful parsing, the caller must:
- *     1. Call token_list_release_tokens() to clear pointers without
- *        destroying tokens (which are now owned by the AST)
- *     2. Free the token_list structure itself  
- *     3. Eventually destroy the AST with ast_node_destroy(), which will
- *        destroy all the tokens
- *   - On parse failure, the token_list retains all its tokens and should
- *     be destroyed normally with token_list_destroy()
- * 
- * On success, caller takes ownership of the AST and must free it.
+ *
+ * On success, caller takes ownership of the grammar AST and must free it.
  */
-parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t **out_ast);
+parse_status_t parser_parse_program(parser_t *parser, gnode_t **out_gnode);
 
-/**
- * Parse a complete program (command list).
- * The caller is responsible for creating and initializing the parser
- * and the AST node list.
- */
-parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node);
+/* ============================================================================
+ * Grammar Parsing Functions (POSIX-aligned)
+ * ============================================================================ */
 
-typedef enum {
-    PARSE_COMMAND_TOP_LEVEL,
-    PARSE_COMMAND_IN_IF,
-    PARSE_COMMAND_IN_ELIF,
-    PARSE_COMMAND_IN_ELSE,
-    PARSE_COMMAND_IN_THEN,
-    PARSE_COMMAND_IN_DO,
-    PARSE_COMMAND_IN_WHILE,
-    PARSE_COMMAND_IN_UNTIL,
-    PARSE_COMMAND_IN_FOR,
-    PARSE_COMMAND_IN_CASE,
-    PARSE_COMMAND_IN_SUBSHELL,
-    PARSE_COMMAND_IN_BRACE_GROUP,
-} parser_command_context_t;
-/**
- * Parse a command list (commands separated by ; or & or newlines).
- */
-parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context, ast_node_t **out_node);
-
-/**
- * Parse an and_or list (commands connected by && or ||).
- */
-parse_status_t parser_parse_andor_list(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a pipeline (commands connected by |).
- */
-parse_status_t parser_parse_pipeline(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a command (simple or compound).
- */
-parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a simple command.
- */
-parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a compound command (if, while, for, case, subshell, brace group).
- */
-parse_status_t parser_parse_compound_command(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse an if clause.
- */
-parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a while clause.
- */
-parse_status_t parser_parse_while_clause(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse an until clause.
- */
-parse_status_t parser_parse_until_clause(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a for clause.
- */
-parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a case clause.
- */
-parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a subshell ( command_list ).
- */
-parse_status_t parser_parse_subshell(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a brace group { command_list; }.
- */
-parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a function definition name() compound-command.
- */
-parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node);
-
-/**
- * Parse a redirection.
- */
-parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node);
+parse_status_t gparse_program(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_complete_commands(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_complete_command(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_list(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_pipeline(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_pipe_sequence(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_command(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_compound_command(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_subshell(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_compound_list(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_term(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_for_clause(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_wordlist(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_case_clause(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_case_list_ns(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_case_list(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_case_item_ns(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_case_item(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_pattern_list(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_while_clause(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_until_clause(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_simple_command(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_redirect_list(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_io_redirect(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_io_file(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_filename(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_io_here(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_separator_op(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_separator(parser_t *parser, gnode_t **out_node);
 
 /* ============================================================================
  * Token Access Functions
@@ -222,6 +173,18 @@ bool parser_at_end(const parser_t *parser);
  */
 void parser_skip_newlines(parser_t *parser);
 
+/**
+ * Peek at a token at an offset from current position.
+ * Returns NULL if offset is out of bounds.
+ */
+token_t *parser_peek_token(const parser_t *parser, int offset);
+
+/**
+ * Get the previous token.
+ * Returns NULL if at start of input.
+ */
+token_t *parser_previous_token(const parser_t *parser);
+
 /* ============================================================================
  * Error Handling Functions
  * ============================================================================ */
@@ -247,4 +210,12 @@ void parser_clear_error(parser_t *parser);
  */
 bool parser_error_is_unexpected_eof(const parser_t *parser, parse_status_t status);
 
-#endif /* PARSER_T_H */
+/* ============================================================================
+ * Test Functions
+ * ============================================================================ */
+
+parse_status_t parser_string_to_gnodes(const char *input, gnode_t **out_node);
+
+gnode_t *parser_parse_string(const char *input);
+
+#endif /* PARSER_H */

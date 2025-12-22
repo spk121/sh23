@@ -502,4 +502,11 @@ string_t *lexer_debug_string(const lexer_t *lexer);
 // Implemented in lexer_normal.c
 // lex_status_t lexer_process_normal(lexer_t *lx, token_t **out_token);
 
+/* ============================================================================
+ * Test functions
+ * ============================================================================ */
+lexer_t *lexer_create_with_input_cstr(const char *input);
+
+lex_status_t lex_cstr_to_tokens(const char *input, token_list_t *out_tokens);
+
 #endif /* LEXER_H */

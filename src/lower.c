@@ -1,14 +1,17 @@
-﻿#include "ast_lower.h"
+﻿#include "lower.h"
 #include "logging.h"
+#include "token.h"
+#include "gnode.h"
+#include "string_t.h"
 
 /* Convenience macros for sanity checks */
-#define EXPECT_KIND(node, k)                                                                       \
+#define EXPECT_TYPE(node, k)                                                                       \
     do                                                                                             \
     {                                                                                              \
-        if (!(node) || (node)->kind != (k))                                                        \
+        if (!(node) || (node)->type != (k))                                                        \
         {                                                                                          \
-            log_error("ast_lower: expected kind %s, got %d", #k,                                   \
-                      (int)((node) ? (node)->kind : -1));                                          \
+            log_error("ast_lower: expected type %s, got %d", #k,                                   \
+                      (int)((node) ? (node)->type : -1));                                          \
             return NULL;                                                                           \
         }                                                                                          \
     } while (0)
@@ -39,19 +42,21 @@ static ast_node_t *lower_redirect_list(const gnode_t *g);
 static ast_node_t *lower_io_redirect(const gnode_t *g);
 static ast_node_t *lower_case_item(const gnode_t *g);
 static ast_node_t *lower_case_item_ns(const gnode_t *g);
+static ast_node_t *lower_do_group(const gnode_t *g);
+
 
 /* Small helpers */
 static token_list_t *token_list_from_wordlist(const gnode_t *g);
 static token_list_t *token_list_from_pattern_list(const gnode_t *g);
 static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file);
-static redir_operand_kind_t determine_operand_kind(const gnode_t *io_file_or_here,
+static redir_operand_kind_t determine_operand_kind(token_type_t type,
                                                    token_t *target_tok, string_t **out_io_loc);
 static cmd_separator_t separator_from_gseparator_op(const gnode_t *gsep);
 
 /* Entry point */
 ast_t *ast_lower(const gnode_t *root)
 {
-    EXPECT_KIND(root, G_PROGRAM);
+    EXPECT_TYPE(root, G_PROGRAM);
     return lower_program(root);
 }
 
@@ -62,7 +67,7 @@ ast_t *ast_lower(const gnode_t *root)
  */
 static ast_node_t *lower_program(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_PROGRAM);
+    Expects_eq(g->type, G_PROGRAM);
 
     ast_node_t *prog = ast_create_program();
 
@@ -91,15 +96,15 @@ static ast_node_t *lower_program(const gnode_t *g)
  */
 static ast_node_t *lower_complete_commands(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_COMPLETE_COMMANDS);
+    Expects_eq(g->type, G_COMPLETE_COMMANDS);
 
     ast_node_t *cl = ast_create_command_list();
 
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
     for (size_t i = 0; i < lst->size; i++)
     {
-        const gnode_t *gcmd = lst->items[i];
-        EXPECT_KIND(gcmd, G_COMPLETE_COMMAND);
+        const gnode_t *gcmd = lst->nodes[i];
+        Expects_eq(gcmd->type, G_COMPLETE_COMMAND);
 
         ast_node_t *item = lower_complete_command(gcmd);
         if (!item)
@@ -124,7 +129,7 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
  */
 static ast_node_t *lower_complete_command(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_COMPLETE_COMMAND);
+    Expects_eq(g->type, G_COMPLETE_COMMAND);
 
     const gnode_t *glist = g->data.multi.a;
     return lower_list(glist);
@@ -137,16 +142,16 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
  */
 static ast_node_t *lower_list(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_LIST);
+    Expects_eq(g->type, G_LIST);
 
     ast_node_t *cl = ast_create_command_list();
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
 
     /* list layout: [and_or, sep_op, and_or, sep_op, ...] */
     for (size_t i = 0; i < lst->size;)
     {
-        const gnode_t *elem = lst->items[i];
-        if (elem->kind != G_AND_OR)
+        const gnode_t *elem = lst->nodes[i];
+        if (elem->type != G_AND_OR)
         {
             log_error("lower_list: expected G_AND_OR at index %zu", i);
             ast_node_destroy(&cl);
@@ -167,8 +172,8 @@ static ast_node_t *lower_list(const gnode_t *g)
 
         if (i < lst->size)
         {
-            const gnode_t *sep_node = lst->items[i];
-            if (sep_node->kind == G_SEPARATOR_OP)
+            const gnode_t *sep_node = lst->nodes[i];
+            if (sep_node->type == G_SEPARATOR_OP)
             {
                 sep = separator_from_gseparator_op(sep_node);
                 i++;
@@ -197,7 +202,7 @@ static ast_node_t *lower_list(const gnode_t *g)
  */
 static ast_node_t *lower_and_or(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_AND_OR);
+    Expects_eq(g->type, G_AND_OR);
 
     /* Leaf case: parser makes G_AND_OR only for composed expressions.
        Simple pipeline will not be a G_AND_OR node in your implementation
@@ -218,7 +223,7 @@ static ast_node_t *lower_and_or(const gnode_t *g)
             return NULL;
 
         const gnode_t *op_node = g->data.multi.b;
-        EXPECT_KIND(op_node, G_AND_OR);
+        EXPECT_TYPE(op_node, G_AND_OR);
         token_t *tok = op_node->data.token;
         token_type_t t = token_get_type(tok);
 
@@ -237,13 +242,13 @@ static ast_node_t *lower_and_or(const gnode_t *g)
         ast_node_t *right = NULL;
         {
             const gnode_t *gp = g->data.multi.c;
-            if (gp->kind == G_PIPELINE)
+            if (gp->type == G_PIPELINE)
                 right = lower_pipeline(gp);
-            else if (gp->kind == G_AND_OR)
+            else if (gp->type == G_AND_OR)
                 right = lower_and_or(gp);
             else
             {
-                log_error("lower_and_or: unexpected right kind %d", (int)gp->kind);
+                log_error("lower_and_or: unexpected right kind %d", (int)gp->type);
                 ast_node_destroy(&left);
                 return NULL;
             }
@@ -262,7 +267,7 @@ static ast_node_t *lower_and_or(const gnode_t *g)
     /* In your parser, a single pipeline is not wrapped in G_AND_OR.
        So this path might never be used, but kept for robustness. */
     const gnode_t *maybe_pipeline = g->data.multi.a ? g->data.multi.a : g->data.child;
-    if (maybe_pipeline && maybe_pipeline->kind == G_PIPELINE)
+    if (maybe_pipeline && maybe_pipeline->type == G_PIPELINE)
         return lower_pipeline(maybe_pipeline);
 
     log_error("lower_and_or: unexpected structure");
@@ -276,31 +281,31 @@ static ast_node_t *lower_and_or(const gnode_t *g)
  */
 static ast_node_t *lower_pipeline(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_PIPELINE);
+    Expects_eq(g->type, G_PIPELINE);
 
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
     bool is_negated = false;
     const gnode_t *seq = NULL;
 
     if (lst->size == 1)
     {
-        seq = lst->items[0];
+        seq = lst->nodes[0];
     }
     else if (lst->size == 2)
     {
         /* Optional Bang + pipe_sequence */
-        const gnode_t *first = lst->items[0];
-        const gnode_t *second = lst->items[1];
+        const gnode_t *first = lst->nodes[0];
+        const gnode_t *second = lst->nodes[1];
 
         /* first is a WORD_NODE wrapping '!' in practice */
-        if (first->kind == G_WORD_NODE && token_get_type(first->data.token) == TOKEN_BANG)
+        if (first->type == G_WORD_NODE && token_get_type(first->data.token) == TOKEN_BANG)
         {
             is_negated = true;
             seq = second;
         }
         else
         {
-            seq = lst->items[0]; /* be defensive */
+            seq = lst->nodes[0]; /* be defensive */
         }
     }
     else
@@ -309,7 +314,7 @@ static ast_node_t *lower_pipeline(const gnode_t *g)
         return NULL;
     }
 
-    EXPECT_KIND(seq, G_PIPE_SEQUENCE);
+    EXPECT_TYPE(seq, G_PIPE_SEQUENCE);
     return lower_pipe_sequence(seq, is_negated);
 }
 
@@ -320,18 +325,18 @@ static ast_node_t *lower_pipeline(const gnode_t *g)
  */
 static ast_node_t *lower_pipe_sequence(const gnode_t *g, bool is_negated)
 {
-    EXPECT_KIND(g, G_PIPE_SEQUENCE);
+    Expects_eq(g->type, G_PIPE_SEQUENCE);
 
     ast_node_list_t *cmds = ast_node_list_create();
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
 
     for (size_t i = 0; i < lst->size; i++)
     {
-        const gnode_t *elem = lst->items[i];
+        const gnode_t *elem = lst->nodes[i];
 
-        if (elem->kind == G_PIPE_SEQUENCE || elem->kind == G_COMMAND)
+        if (elem->type == G_PIPE_SEQUENCE || elem->type == G_COMMAND)
         {
-            if (elem->kind == G_COMMAND)
+            if (elem->type == G_COMMAND)
             {
                 ast_node_t *cmd = lower_command(elem);
                 if (!cmd)
@@ -373,7 +378,7 @@ static ast_node_t *lower_pipe_sequence(const gnode_t *g, bool is_negated)
  */
 static ast_node_t *lower_command(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_COMMAND);
+    Expects_eq(g->type, G_COMMAND);
 
     /* We re-dispatch based on child kind, mirroring gparse_command */
     const gnode_t *child = NULL;
@@ -383,7 +388,7 @@ static ast_node_t *lower_command(const gnode_t *g)
        is itself that node, not a wrapper. If you actually had a G_COMMAND
        wrapper, adjust this logic to use g->data.child/multi. */
 
-    switch (g->kind)
+    switch (g->type)
     {
     case G_SIMPLE_COMMAND:
         return lower_simple_command(g);
@@ -404,7 +409,7 @@ static ast_node_t *lower_command(const gnode_t *g)
         break;
     }
 
-    log_error("lower_command: unexpected kind %d", (int)g->kind);
+    log_error("lower_command: unexpected kind %d", (int)g->type);
     return NULL;
 }
 
@@ -415,18 +420,18 @@ static ast_node_t *lower_command(const gnode_t *g)
  */
 static ast_node_t *lower_simple_command(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_SIMPLE_COMMAND);
+    Expects_eq(g->type, G_SIMPLE_COMMAND);
 
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
     token_list_t *assignments = token_list_create();
     token_list_t *words = token_list_create();
     ast_node_list_t *redirs = ast_node_list_create();
 
     for (size_t i = 0; i < lst->size; i++)
     {
-        const gnode_t *elem = lst->items[i];
+        const gnode_t *elem = lst->nodes[i];
 
-        switch (elem->kind)
+        switch (elem->type)
         {
         case G_ASSIGNMENT_WORD:
             token_list_append(assignments, elem->data.token);
@@ -452,7 +457,7 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
         }
 
         default:
-            log_error("lower_simple_command: unexpected child kind %d", (int)elem->kind);
+            log_error("lower_simple_command: unexpected child kind %d", (int)elem->type);
             token_list_destroy(&assignments);
             token_list_destroy(&words);
             ast_node_list_destroy(&redirs);
@@ -469,7 +474,7 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
  */
 static ast_node_t *lower_compound_command(const gnode_t *g)
 {
-    switch (g->kind)
+    switch (g->type)
     {
     case G_SUBSHELL:
         return lower_subshell(g);
@@ -486,14 +491,14 @@ static ast_node_t *lower_compound_command(const gnode_t *g)
     case G_UNTIL_CLAUSE:
         return lower_until_clause(g);
     default:
-        log_error("lower_compound_command: unexpected kind %d", (int)g->kind);
+        log_error("lower_compound_command: unexpected kind %d", (int)g->type);
         return NULL;
     }
 }
 
 static ast_node_t *lower_subshell(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_SUBSHELL);
+    Expects_eq(g->type, G_SUBSHELL);
     const gnode_t *clist = g->data.child;
     ast_node_t *body = lower_compound_list(clist);
     if (!body)
@@ -503,7 +508,7 @@ static ast_node_t *lower_subshell(const gnode_t *g)
 
 static ast_node_t *lower_brace_group(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_BRACE_GROUP);
+    Expects_eq(g->type, G_BRACE_GROUP);
     const gnode_t *clist = g->data.child;
     ast_node_t *body = lower_compound_list(clist);
     if (!body)
@@ -518,29 +523,29 @@ static ast_node_t *lower_brace_group(const gnode_t *g)
  */
 static ast_node_t *lower_compound_list(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_COMPOUND_LIST);
+    Expects_eq(g->type, G_COMPOUND_LIST);
     /* Your G_COMPOUND_LIST wraps a list whose first element is a G_TERM. */
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
     if (lst->size == 0)
         return ast_create_command_list();
-    const gnode_t *term = lst->items[0];
-    EXPECT_KIND(term, G_TERM);
+    const gnode_t *term = lst->nodes[0];
+    EXPECT_TYPE(term, G_TERM);
     return lower_term_as_command_list(term);
 }
 
 /* term: and_or (separator and_or)* → COMMAND_LIST */
 static ast_node_t *lower_term_as_command_list(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_TERM);
+    Expects_eq(g->type, G_TERM);
 
     ast_node_t *cl = ast_create_command_list();
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
 
     for (size_t i = 0; i < lst->size;)
     {
-        const gnode_t *elem = lst->items[i];
+        const gnode_t *elem = lst->nodes[i];
 
-        if (elem->kind != G_AND_OR)
+        if (elem->type != G_AND_OR)
         {
             log_error("lower_term: expected G_AND_OR");
             ast_node_destroy(&cl);
@@ -561,8 +566,8 @@ static ast_node_t *lower_term_as_command_list(const gnode_t *g)
 
         if (i < lst->size)
         {
-            const gnode_t *sep_node = lst->items[i];
-            if (sep_node->kind == G_SEPARATOR)
+            const gnode_t *sep_node = lst->nodes[i];
+            if (sep_node->type == G_SEPARATOR)
             {
                 /* normalize to LIST_SEP_SEQUENTIAL for ; or newline,
                    LIST_SEP_BACKGROUND for &. For now treat all as SEQUENTIAL. */
@@ -583,7 +588,7 @@ static ast_node_t *lower_term_as_command_list(const gnode_t *g)
  */
 static ast_node_t *lower_if_clause(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_IF_CLAUSE);
+    Expects_eq(g->type, G_IF_CLAUSE);
 
     const gnode_t *gcond = g->data.multi.a;
     const gnode_t *gthen = g->data.multi.b;
@@ -624,7 +629,7 @@ static ast_node_t *lower_if_clause(const gnode_t *g)
 /* else_part: else compound_list | elif ... then ... [else_part] */
 static ast_node_t *lower_else_part(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_ELSE_PART);
+    Expects_eq(g->type, G_ELSE_PART);
 
     /* You encoded else_part with multi.a, multi.b, multi.c. The parser code:
        - 'else' → multi.a = body
@@ -675,7 +680,7 @@ static ast_node_t *lower_else_part(const gnode_t *g)
  */
 static ast_node_t *lower_while_clause(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_WHILE_CLAUSE);
+    Expects_eq(g->type, G_WHILE_CLAUSE);
     const gnode_t *gcond = g->data.multi.a;
     const gnode_t *gbody = g->data.multi.b;
 
@@ -695,7 +700,7 @@ static ast_node_t *lower_while_clause(const gnode_t *g)
 
 static ast_node_t *lower_until_clause(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_UNTIL_CLAUSE);
+    Expects_eq(g->type, G_UNTIL_CLAUSE);
     const gnode_t *gcond = g->data.multi.a;
     const gnode_t *gbody = g->data.multi.b;
 
@@ -716,7 +721,7 @@ static ast_node_t *lower_until_clause(const gnode_t *g)
 /* do_group: Do compound_list Done */
 static ast_node_t *lower_do_group(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_DO_GROUP);
+    Expects_eq(g->type, G_DO_GROUP);
     return lower_compound_list(g->data.child);
 }
 
@@ -726,20 +731,20 @@ static ast_node_t *lower_do_group(const gnode_t *g)
  */
 static ast_node_t *lower_for_clause(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_FOR_CLAUSE);
+    Expects_eq(g->type, G_FOR_CLAUSE);
 
     const gnode_t *gname = g->data.multi.a;
     const gnode_t *gwlist = g->data.multi.b; /* may be NULL */
     const gnode_t *gdo = g->data.multi.c;
 
-    EXPECT_KIND(gname, G_NAME_NODE);
+    EXPECT_TYPE(gname, G_NAME_NODE);
 
-    string_t *var = string_create_from_cstr(token_lexeme(gname->data.token));
+    string_t *var = token_get_all_text(gname->data.token);
 
     token_list_t *words = NULL;
     if (gwlist)
     {
-        EXPECT_KIND(gwlist, G_WORDLIST);
+        EXPECT_TYPE(gwlist, G_WORDLIST);
         words = token_list_from_wordlist(gwlist);
     }
 
@@ -763,31 +768,31 @@ static ast_node_t *lower_for_clause(const gnode_t *g)
  */
 static ast_node_t *lower_case_clause(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_CASE_CLAUSE);
+    Expects_eq(g->type, G_CASE_CLAUSE);
 
     const gnode_t *gword = g->data.multi.a;
     const gnode_t *glist = g->data.multi.b; /* may be NULL */
 
-    EXPECT_KIND(gword, G_WORD_NODE);
+    EXPECT_TYPE(gword, G_WORD_NODE);
     token_t *subject = gword->data.token;
 
     ast_node_t *node = ast_create_case_clause(subject);
 
     if (glist)
     {
-        glist_t *lst = glist->data.list;
+        gnode_list_t *lst = glist->data.list;
         for (size_t i = 0; i < lst->size; i++)
         {
-            const gnode_t *item = lst->items[i];
+            const gnode_t *item = lst->nodes[i];
             ast_node_t *ci = NULL;
 
-            if (item->kind == G_CASE_ITEM)
+            if (item->type == G_CASE_ITEM)
                 ci = lower_case_item(item);
-            else if (item->kind == G_CASE_ITEM_NS)
+            else if (item->type == G_CASE_ITEM_NS)
                 ci = lower_case_item_ns(item);
             else
             {
-                log_error("lower_case_clause: unexpected item kind %d", (int)item->kind);
+                log_error("lower_case_clause: unexpected item kind %d", (int)item->type);
                 ast_node_destroy(&node);
                 return NULL;
             }
@@ -808,7 +813,7 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
 /* case_item: pattern_list ')' [compound_list] (DSEMI|SEMI_AND) */
 static ast_node_t *lower_case_item(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_CASE_ITEM);
+    Expects_eq(g->type, G_CASE_ITEM);
 
     const gnode_t *gpatterns = g->data.multi.a;
     const gnode_t *gbody = g->data.multi.b; /* may be NULL */
@@ -826,7 +831,7 @@ static ast_node_t *lower_case_item(const gnode_t *g)
         token_type_t t = token_get_type(gterm->data.token);
         if (t == TOKEN_DSEMI)
             term = CASE_TERM_DSEMI;
-        else if (t == TOKEN_SEMI_AND)
+        else if (t == TOKEN_SEMIAND)
             term = CASE_TERM_SEMI_AND;
     }
 
@@ -838,7 +843,7 @@ static ast_node_t *lower_case_item(const gnode_t *g)
 /* case_item_ns: pattern_list ')' [compound_list], no terminator */
 static ast_node_t *lower_case_item_ns(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_CASE_ITEM_NS);
+    Expects_eq(g->type, G_CASE_ITEM_NS);
 
     const gnode_t *gpatterns = g->data.multi.a;
     const gnode_t *gbody = g->data.multi.b; /* may be NULL */
@@ -860,18 +865,18 @@ static ast_node_t *lower_case_item_ns(const gnode_t *g)
  */
 static ast_node_t *lower_function_definition(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_FUNCTION_DEFINITION);
+    Expects_eq(g->type, G_FUNCTION_DEFINITION);
 
     const gnode_t *gfname = g->data.multi.a;
     const gnode_t *gbody = g->data.multi.d;
 
-    EXPECT_KIND(gfname, G_FNAME);
+    EXPECT_TYPE(gfname, G_FNAME);
 
-    string_t *name = string_create_from_cstr(token_lexeme(gfname->data.token));
+    string_t *name = token_get_all_text(gfname->data.token);
 
     ast_node_t *body = NULL;
 
-    if (gbody->kind == G_FUNCTION_BODY)
+    if (gbody->type == G_FUNCTION_BODY)
     {
         const gnode_t *gcmd = gbody->data.multi.a;
         const gnode_t *gredirs = gbody->data.multi.b;
@@ -887,10 +892,10 @@ static ast_node_t *lower_function_definition(const gnode_t *g)
         if (gredirs)
         {
             redirs = ast_node_list_create();
-            glist_t *lst = gredirs->data.list;
+            gnode_list_t *lst = gredirs->data.list;
             for (size_t i = 0; i < lst->size; i++)
             {
-                const gnode_t *gr = lst->items[i];
+                const gnode_t *gr = lst->nodes[i];
                 ast_node_t *r = lower_io_redirect(gr);
                 if (!r)
                 {
@@ -927,15 +932,15 @@ static ast_node_t *lower_function_definition(const gnode_t *g)
  */
 static ast_node_t *lower_redirect_list(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_REDIRECT_LIST);
+    Expects_eq(g->type, G_REDIRECT_LIST);
 
     ast_node_list_t *lst_ast = ast_node_list_create();
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
 
     for (size_t i = 0; i < lst->size; i++)
     {
-        const gnode_t *gr = lst->items[i];
-        EXPECT_KIND(gr, G_IO_REDIRECT);
+        const gnode_t *gr = lst->nodes[i];
+        EXPECT_TYPE(gr, G_IO_REDIRECT);
         ast_node_t *r = lower_io_redirect(gr);
         if (!r)
         {
@@ -952,7 +957,7 @@ static ast_node_t *lower_redirect_list(const gnode_t *g)
 
 static ast_node_t *lower_io_redirect(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_IO_REDIRECT);
+    Expects_eq(g->type, G_IO_REDIRECT);
 
     const gnode_t *gionum = g->data.multi.a;  /* IO_NUMBER_NODE or NULL */
     const gnode_t *gioloc = g->data.multi.b;  /* IO_LOCATION_NODE or NULL */
@@ -961,15 +966,17 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     int io_number = -1;
     if (gionum)
     {
-        EXPECT_KIND(gionum, G_IO_NUMBER_NODE);
-        io_number = atoi(token_lexeme(gionum->data.token));
+        EXPECT_TYPE(gionum, G_IO_NUMBER_NODE);
+        // By the time we get to lowering, the token should have been promoted
+        // to a number.
+        io_number = gionum->data.token->io_number;
     }
 
     string_t *io_location = NULL;
     if (gioloc)
     {
-        EXPECT_KIND(gioloc, G_IO_LOCATION_NODE);
-        io_location = string_create_from_cstr(token_lexeme(gioloc->data.token));
+        EXPECT_TYPE(gioloc, G_IO_LOCATION_NODE);
+        io_location = string_create_from(gioloc->data.token->io_location);
     }
 
     redirection_type_t rtype;
@@ -980,7 +987,7 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     token_type_t op_type;
 
     /* io_file */
-    if (gtarget->kind == G_IO_FILE)
+    if (gtarget->type == G_IO_FILE)
     {
         const gnode_t *op_node = gtarget->data.multi.a;
         op_tok = op_node->data.token;
@@ -989,14 +996,14 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         rtype = map_redir_type_from_io_file(gtarget);
 
         const gnode_t *gfname = gtarget->data.multi.b;
-        EXPECT_KIND(gfname, G_FILENAME);
+        EXPECT_TYPE(gfname, G_FILENAME);
         target_tok = gfname->data.token;
 
         operand = determine_operand_kind(op_type, target_tok, &io_location);
     }
 
     /* io_here */
-    else if (gtarget->kind == G_IO_HERE)
+    else if (gtarget->type == G_IO_HERE)
     {
         const gnode_t *op_node = gtarget->data.multi.a;
         op_tok = op_node->data.token;
@@ -1008,20 +1015,20 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
             rtype = REDIR_HEREDOC_STRIP;
 
         const gnode_t *gend = gtarget->data.multi.b;
-        EXPECT_KIND(gend, G_FILENAME);
+        EXPECT_TYPE(gend, G_FILENAME);
         target_tok = gend->data.token;
 
         operand = REDIR_OPERAND_HEREDOC;
     }
     else
     {
-        log_error("lower_io_redirect: unexpected target kind %d", (int)gtarget->kind);
+        log_error("lower_io_redirect: unexpected target kind %d", (int)gtarget->type);
         if (io_location)
             string_destroy(&io_location);
         return NULL;
     }
 
-    ast_node_t *node = ast_create_redirection(rtype, io_number, io_location, target_tok);
+    ast_node_t *node = ast_create_redirection(rtype, operand, io_number, io_location, target_tok);
     node->data.redirection.operand = operand;
     node->data.redirection.heredoc_content = heredoc_content;
 
@@ -1034,14 +1041,14 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
  */
 static token_list_t *token_list_from_wordlist(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_WORDLIST);
+    Expects_eq(g->type, G_WORDLIST);
     token_list_t *tl = token_list_create();
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
 
     for (size_t i = 0; i < lst->size; i++)
     {
-        const gnode_t *w = lst->items[i];
-        EXPECT_KIND(w, G_WORD_NODE);
+        const gnode_t *w = lst->nodes[i];
+        EXPECT_TYPE(w, G_WORD_NODE);
         token_list_append(tl, w->data.token);
     }
 
@@ -1051,14 +1058,14 @@ static token_list_t *token_list_from_wordlist(const gnode_t *g)
 /* pattern_list: list of WORD_NODE in data.list */
 static token_list_t *token_list_from_pattern_list(const gnode_t *g)
 {
-    EXPECT_KIND(g, G_PATTERN_LIST);
+    Expects_eq(g->type, G_PATTERN_LIST);
     token_list_t *tl = token_list_create();
-    glist_t *lst = g->data.list;
+    gnode_list_t *lst = g->data.list;
 
     for (size_t i = 0; i < lst->size; i++)
     {
-        const gnode_t *w = lst->items[i];
-        EXPECT_KIND(w, G_WORD_NODE);
+        const gnode_t *w = lst->nodes[i];
+        EXPECT_TYPE(w, G_WORD_NODE);
         token_list_append(tl, w->data.token);
     }
 
@@ -1068,9 +1075,9 @@ static token_list_t *token_list_from_pattern_list(const gnode_t *g)
 /* Map IO_FILE operator token to redirection_type_t */
 static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file)
 {
-    EXPECT_KIND(io_file, G_IO_FILE);
+    Expects_eq(io_file->type, G_IO_FILE);
     const gnode_t *op = io_file->data.multi.a;
-    EXPECT_KIND(op, G_WORD_NODE);
+    Expects_eq(op->type, G_WORD_NODE);
 
     token_type_t t = token_get_type(op->data.token);
     switch (t)
@@ -1098,7 +1105,7 @@ static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file)
 static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t *target_tok,
                                                    string_t **out_io_loc)
 {
-    const char *lex = token_lexeme(target_tok);
+    string_t *lx = token_get_all_text(target_tok);
 
     switch (op_type)
     {
@@ -1115,13 +1122,15 @@ static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t
      * ------------------------------------------------------------ */
     case TOKEN_LESSAND:  /* <& */
     case TOKEN_GREATAND: /* >& */
-        if (strcmp(lex, "-") == 0)
+        if (string_compare_cstr(lx, "-") == 0)
             return REDIR_OPERAND_CLOSE;
 
         /* numeric? */
-        for (const char *p = lex; *p; p++)
-            if (*p < '0' || *p > '9')
-                return REDIR_OPERAND_FILENAME; /* unspecified → treat as filename */
+        if (string_length(lx) > 0 && string_find_first_not_of_cstr(lx, "0123456789") != -1)
+        {
+            string_destroy(&lx);
+            return REDIR_OPERAND_FILENAME; /* unspecified → treat as filename */
+        }
 
         return REDIR_OPERAND_FD;
 
@@ -1144,7 +1153,7 @@ static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t
 /* separator_op: '&' or ';' → LIST_SEP_BACKGROUND/SEQUENTIAL */
 static cmd_separator_t separator_from_gseparator_op(const gnode_t *gsep)
 {
-    EXPECT_KIND(gsep, G_SEPARATOR_OP);
+    Expects_eq(gsep->type, G_SEPARATOR_OP);
     token_type_t t = token_get_type(gsep->data.token);
 
     if (t == TOKEN_AMPER)

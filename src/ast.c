@@ -552,19 +552,31 @@ const char *redirection_type_to_string(redirection_type_t type)
     }
 }
 
-static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
-                                     int indent_level)
+static void indent_str(string_t *str, int i)
+{
+    for (int j = 0; j < i; j++)
+    {
+        string_append_cstr(str, "  ");
+    }
+}
+
+static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, int indent_level);
+
+string_t *ast_node_to_string(const ast_node_t *node)
+{
+    string_t *result = string_create();
+    ast_node_to_string_helper(node, result, 0);
+    return result;
+}
+
+static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, int indent_level)
 {
     if (node == NULL)
     {
         return;
     }
 
-    // Add indentation
-    for (int i = 0; i < indent_level; i++)
-    {
-        string_append_cstr(result, "  ");
-    }
+    indent_str(result, indent_level);
 
     string_append_cstr(result, ast_node_type_to_string(node->type));
     string_append_cstr(result, "\n");
@@ -573,8 +585,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     switch (node->type)
     {
     case AST_PROGRAM:
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "body:\n");
         if (node->data.program.body != NULL)
         {
@@ -582,8 +593,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         }
         else
         {
-            for (int i = 0; i < indent_level + 2; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 2);
             string_append_cstr(result, "(null)\n");
         }
         string_append_cstr(result, "\n");
@@ -593,21 +603,20 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         if (node->data.simple_command.assignments != NULL &&
             node->data.simple_command.assignments->size > 0)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "assignments: ");
-            string_t *assignments_str = token_list_to_string(node->data.simple_command.assignments, indent_level + 1);
+            string_t *assignments_str =
+                token_list_to_string(node->data.simple_command.assignments, indent_level + 1);
             string_append(result, assignments_str);
             string_destroy(&assignments_str);
             string_append_cstr(result, "\n");
         }
-        if (node->data.simple_command.words != NULL &&
-            node->data.simple_command.words->size > 0)
+        if (node->data.simple_command.words != NULL && node->data.simple_command.words->size > 0)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "words:\n");
-            string_t *words_str = token_list_to_string(node->data.simple_command.words, indent_level + 1);
+            string_t *words_str =
+                token_list_to_string(node->data.simple_command.words, indent_level + 1);
             string_append(result, words_str);
             string_destroy(&words_str);
             string_append_cstr(result, "\n");
@@ -615,8 +624,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         if (node->data.simple_command.redirections != NULL &&
             ast_node_list_size(node->data.simple_command.redirections) > 0)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "redirections:\n");
             for (int i = 0; i < ast_node_list_size(node->data.simple_command.redirections); i++)
             {
@@ -629,23 +637,21 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     case AST_PIPELINE:
         if (node->data.pipeline.is_negated)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "negated: true\n");
         }
         if (node->data.pipeline.commands != NULL)
         {
             for (int i = 0; i < node->data.pipeline.commands->size; i++)
             {
-                ast_node_to_string_helper(node->data.pipeline.commands->nodes[i],
-                                        result, indent_level + 1);
+                ast_node_to_string_helper(node->data.pipeline.commands->nodes[i], result,
+                                          indent_level + 1);
             }
         }
         break;
 
     case AST_AND_OR_LIST:
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "op: ");
         string_append_cstr(result, node->data.andor_list.op == ANDOR_OP_AND ? "&&" : "||");
         string_append_cstr(result, "\n");
@@ -658,27 +664,29 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             for (int i = 0; i < node->data.command_list.items->size; i++)
             {
-                ast_node_to_string_helper(node->data.command_list.items->nodes[i],
-                                        result, indent_level + 1);
-                
+                ast_node_to_string_helper(node->data.command_list.items->nodes[i], result,
+                                          indent_level + 1);
+
                 // Print the separator for this command
-                if (node->data.command_list.separators != NULL && i < node->data.command_list.separators->len)
+                if (node->data.command_list.separators != NULL &&
+                    i < node->data.command_list.separators->len)
                 {
-                    cmd_separator_t sep = cmd_separator_list_get(node->data.command_list.separators, i);
+                    cmd_separator_t sep =
+                        cmd_separator_list_get(node->data.command_list.separators, i);
                     for (int j = 0; j < indent_level + 1; j++)
                         string_append_cstr(result, "  ");
-                    
+
                     switch (sep)
                     {
-                        case LIST_SEP_SEQUENTIAL:
-                            string_append_cstr(result, "separator: ;\n");
-                            break;
-                        case LIST_SEP_BACKGROUND:
-                            string_append_cstr(result, "separator: &\n");
-                            break;
-                        case LIST_SEP_EOL:
-                            string_append_cstr(result, "separator: EOL\n");
-                            break;
+                    case LIST_SEP_SEQUENTIAL:
+                        string_append_cstr(result, "separator: ;\n");
+                        break;
+                    case LIST_SEP_BACKGROUND:
+                        string_append_cstr(result, "separator: &\n");
+                        break;
+                    case LIST_SEP_EOL:
+                        string_append_cstr(result, "separator: EOL\n");
+                        break;
                     }
                 }
             }
@@ -691,18 +699,15 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         break;
 
     case AST_IF_CLAUSE:
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "condition:\n");
         ast_node_to_string_helper(node->data.if_clause.condition, result, indent_level + 2);
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "then:\n");
         ast_node_to_string_helper(node->data.if_clause.then_body, result, indent_level + 2);
         if (node->data.if_clause.else_body != NULL)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "else:\n");
             ast_node_to_string_helper(node->data.if_clause.else_body, result, indent_level + 2);
         }
@@ -710,12 +715,10 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
 
     case AST_WHILE_CLAUSE:
     case AST_UNTIL_CLAUSE:
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "condition:\n");
         ast_node_to_string_helper(node->data.loop_clause.condition, result, indent_level + 2);
-        for (int i = 0; i < indent_level + 1; i++)
-            string_append_cstr(result, "  ");
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "body:\n");
         ast_node_to_string_helper(node->data.loop_clause.body, result, indent_level + 2);
         break;
@@ -723,8 +726,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     case AST_FOR_CLAUSE:
         if (node->data.for_clause.variable != NULL)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "variable: ");
             string_append(result, node->data.for_clause.variable);
             string_append_cstr(result, "\n");
@@ -735,8 +737,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     case AST_FUNCTION_DEF:
         if (node->data.function_def.name != NULL)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "name: ");
             string_append(result, node->data.function_def.name);
             string_append_cstr(result, "\n");
@@ -747,20 +748,20 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     case AST_REDIRECTED_COMMAND:
         if (node->data.redirected_command.command != NULL)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "command:\n");
-            ast_node_to_string_helper(node->data.redirected_command.command, result, indent_level + 2);
+            ast_node_to_string_helper(node->data.redirected_command.command, result,
+                                      indent_level + 2);
         }
         if (node->data.redirected_command.redirections != NULL &&
             ast_node_list_size(node->data.redirected_command.redirections) > 0)
         {
-            for (int i = 0; i < indent_level + 1; i++)
-                string_append_cstr(result, "  ");
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "redirections:\n");
             for (int i = 0; i < ast_node_list_size(node->data.redirected_command.redirections); i++)
             {
-                ast_node_t *redir = ast_node_list_get(node->data.redirected_command.redirections, i);
+                ast_node_t *redir =
+                    ast_node_list_get(node->data.redirected_command.redirections, i);
                 ast_node_to_string_helper(redir, result, indent_level + 2);
             }
         }
@@ -768,7 +769,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
 
     case AST_REDIRECTION: {
         /* Print redirection operator */
-        indent(indent_level + 1);
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "type: ");
         string_append_cstr(result, redirection_type_to_string(node->data.redirection.redir_type));
         string_append_cstr(result, "\n");
@@ -776,7 +777,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         /* Print io_number if present */
         if (node->data.redirection.io_number >= 0)
         {
-            indent(indent_level + 1);
+            indent_str(result, indent_level + 1);
             string_append_cstr(result, "io_number: ");
             char buf[32];
             snprintf(buf, sizeof(buf), "%d", node->data.redirection.io_number);
@@ -785,7 +786,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         }
 
         /* operand kind */
-        indent(indent_level + 1);
+        indent_str(result, indent_level + 1);
         string_append_cstr(result, "operand: ");
         switch (node->data.redirection.operand)
         {
@@ -813,7 +814,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             if (node->data.redirection.target != NULL)
             {
-                indent(indent_level + 1);
+                indent_str(result, indent_level + 1);
                 string_append_cstr(result, "target: ");
                 string_t *target_str = token_to_string(node->data.redirection.target);
                 string_append(result, target_str);
@@ -826,7 +827,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             if (node->data.redirection.io_location != NULL)
             {
-                indent(indent_level + 1);
+                indent_str(result, indent_level + 1);
                 string_append_cstr(result, "io_location: ");
                 string_append(result, node->data.redirection.io_location);
                 string_append_cstr(result, "\n");
@@ -837,7 +838,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
         {
             if (node->data.redirection.heredoc_content != NULL)
             {
-                indent(indent_level + 1);
+                indent_str(result, indent_level + 1);
                 string_append_cstr(result, "heredoc_content: ");
                 string_append(result, node->data.redirection.heredoc_content);
                 string_append_cstr(result, "\n");
@@ -848,19 +849,7 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result,
     default:
         break;
     }
-}
-
-string_t *ast_node_to_string(const ast_node_t *node)
-{
-    string_t *result = string_create();
-    if (node == NULL)
-    {
-        string_append_cstr(result, "(null)");
-        return result;
     }
-
-    ast_node_to_string_helper(node, result, 0);
-    return result;
 }
 
 string_t *ast_tree_to_string(const ast_node_t *root)
@@ -884,13 +873,13 @@ cmd_separator_list_t *cmd_separator_list_create(void)
     return list;
 }
 
-void cmd_separator_list_destroy(cmd_separator_list_t **list)
+void cmd_separator_list_destroy(cmd_separator_list_t **lst)
 {
-    if (!list || !*list) return;
-    cmd_separator_list_t *l = *list;
+    if (!lst || !*lst) return;
+    cmd_separator_list_t *l = *lst;
     xfree(l->separators);
     xfree(l);
-    *list = NULL;
+    *lst = NULL;
 }
 
 void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep)

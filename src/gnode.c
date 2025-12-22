@@ -1,4 +1,4 @@
-#include "ast_grammar.h"
+#include "gnode.h"
 #include "xalloc.h"
 #include <stdio.h>
 #include <stdlib.h>

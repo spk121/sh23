@@ -319,7 +319,12 @@ ast_node_type_t ast_node_get_type(const ast_node_t *node);
  * Set location information for an AST node.
  */
 void ast_node_set_location(ast_node_t *node, int first_line, int first_column, 
-                          int last_line, int last_column);
+                          int last_line,
+                           int last_column);
+
+void ast_command_list_node_append_item(ast_node_t *node, ast_node_t *item);
+
+void ast_command_list_node_append_separator(ast_node_t *node, cmd_separator_t separator);
 
 void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content);
 /* ============================================================================
@@ -527,7 +532,7 @@ void ast_print(const ast_node_t *root);
  * Command Separator List Functions
  * ============================================================================ */
 cmd_separator_list_t *cmd_separator_list_create(void);
-void cmd_separator_list_destroy(cmd_separator_list_t **list);
+void cmd_separator_list_destroy(cmd_separator_list_t **lst);
 void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep);
 cmd_separator_t cmd_separator_list_get(const cmd_separator_list_t *list, int index);
 

@@ -38,8 +38,14 @@ set(MGSH_LIB_SOURCES
     src/function_store.h
     src/function_array.c
     src/function_array.h
+    src/gnode.c
+    src/gnode.h
+    src/gprint.c
+    src/gprint.h
     src/logging.c
     src/logging.h
+    src/lower.c
+    src/lower.h
     src/string_t.c
     src/string_t.h
     src/xalloc.c
@@ -113,6 +119,7 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_lexer_cmd_subst_ctest.c
     test/mgsh/test_lexer_arith_exp_ctest.c
     test/mgsh/test_lexer_heredoc_ctest.c
+    test/mgsh/test_parser_gnode_ctest.c
     test/mgsh/test_tokenizer_ctest.c
     test/mgsh/test_ast_ctest.c
     test/mgsh/test_expander_ctest.c

@@ -1,16 +1,14 @@
 #include "parser.h"
 #include "logging.h"
+#include "gnode.h"
 #include "xalloc.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 
-// Forward declarations
-static int is_valid_name_cstr(const char *s);
-static parse_status_t parser_parse_trailing_redirections(parser_t *parser,
-                                                         ast_node_list_t **out_redirections);
+// For testing purposes
+#include "lexer.h"
 
 /* ============================================================================
  * Constants
@@ -29,21 +27,50 @@ parser_t *parser_create(void)
     return parser;
 }
 
+parser_t *parser_create_with_tokens(token_list_t *tokens)
+{
+    parser_t *parser = parser_create();
+    parser->tokens = tokens;
+    parser->position = 0;
+    return parser;
+}
+
 void parser_destroy(parser_t **parser)
 {
-    if (!parser) return;
+    if (!parser)
+        return;
     parser_t *p = *parser;
-    
+
     if (p == NULL)
         return;
-
     if (p->error_msg != NULL)
     {
         string_destroy(&p->error_msg);
     }
-
     xfree(p);
     *parser = NULL;
+}
+
+/* ============================================================================
+ * Main Parsing Function
+ * ============================================================================ */
+
+parse_status_t parser_parse_program(parser_t *parser, gnode_t **out_gnode)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_gnode);
+
+    // Reset parser state
+    parser->position = 0;
+    parser_clear_error(parser);
+
+    if (parser->tokens == NULL || token_list_size(parser->tokens) == 0)
+    {
+        *out_gnode = NULL;
+        return PARSE_EMPTY;
+    }
+
+    return gparse_program(parser, out_gnode);
 }
 
 /* ============================================================================
@@ -53,12 +80,10 @@ void parser_destroy(parser_t **parser)
 token_t *parser_current_token(const parser_t *parser)
 {
     Expects_not_null(parser);
-
     if (parser->tokens == NULL || parser->position >= token_list_size(parser->tokens))
     {
         return NULL;
     }
-
     return token_list_get(parser->tokens, parser->position);
 }
 
@@ -75,7 +100,6 @@ token_type_t parser_current_token_type(const parser_t *parser)
 bool parser_advance(parser_t *parser)
 {
     Expects_not_null(parser);
-
     if (parser->position < token_list_size(parser->tokens))
     {
         parser->position++;
@@ -97,23 +121,19 @@ bool parser_accept(parser_t *parser, token_type_t type)
 parse_status_t parser_expect(parser_t *parser, token_type_t type)
 {
     token_type_t got = parser_current_token_type(parser);
-
     if (got == type)
     {
         parser_advance(parser);
         return PARSE_OK;
     }
-
     if (got == TOKEN_EOF)
     {
         parser_set_error(parser, "Unexpected end of input (expected %s)",
-                        token_type_to_string(type));
+                         token_type_to_string(type));
         return PARSE_INCOMPLETE;
     }
-
-    parser_set_error(parser, "Expected %s but got %s",
-                    token_type_to_string(type),
-                    token_type_to_string(got));
+    parser_set_error(parser, "Expected %s but got %s", token_type_to_string(type),
+                     token_type_to_string(got));
     return PARSE_ERROR;
 }
 
@@ -130,57 +150,25 @@ void parser_skip_newlines(parser_t *parser)
     }
 }
 
-static bool is_redirection_token(token_type_t type)
-{
-    return type == TOKEN_LESS || type == TOKEN_GREATER ||
-           type == TOKEN_DLESS || type == TOKEN_DGREAT ||
-           type == TOKEN_LESSAND || type == TOKEN_GREATAND ||
-           type == TOKEN_LESSGREAT || type == TOKEN_DLESSDASH ||
-           type == TOKEN_CLOBBER || type == TOKEN_IO_NUMBER ||
-           type == TOKEN_IO_LOCATION;
-}
-
-static parse_status_t parser_attach_heredoc_bodies(parser_t *parser,
-                                                  ast_node_t **pending_heredocs,
-                                                  int pending_count)
+token_t *parser_peek_token(const parser_t *parser, int offset)
 {
     Expects_not_null(parser);
-
-    for (int i = 0; i < pending_count; i++)
+    int pos = parser->position + offset;
+    if (pos < 0 || pos >= token_list_size(parser->tokens))
     {
-        // Allow optional newlines before heredoc body tokens
-        parser_skip_newlines(parser);
-
-        if (parser_current_token_type(parser) != TOKEN_WORD)
-        {
-            if (pending_count == 1)
-            {
-                parser_set_error(parser, "Expected here-document body");
-            }
-            else
-            {
-                parser_set_error(parser, "Expected here-document body for heredoc #%d of %d", i + 1, pending_count);
-            }
-            return PARSE_ERROR;
-        }
-
-        token_t *body_tok = parser_current_token(parser);
-
-        // Extract literal text from heredoc body token
-        string_t *body = token_get_all_text(body_tok);
-        // Attach to corresponding redirection node
-        ast_node_t *redir_node = pending_heredocs[i];
-        ast_redirection_node_set_heredoc_content(redir_node, body);
-        string_destroy(&body);
-        // Consume the body WORD and the END_OF_HEREDOC marker
-        parser_advance(parser);
-        if (parser_expect(parser, TOKEN_END_OF_HEREDOC) != PARSE_OK)
-        {
-            return PARSE_ERROR;
-        }
+        return NULL;
     }
+    return token_list_get(parser->tokens, pos);
+}
 
-    return PARSE_OK;
+token_t *parser_previous_token(const parser_t *parser)
+{
+    Expects_not_null(parser);
+    if (parser->position == 0)
+    {
+        return NULL;
+    }
+    return token_list_get(parser->tokens, parser->position - 1);
 }
 
 /* ============================================================================
@@ -191,18 +179,13 @@ void parser_set_error(parser_t *parser, const char *format, ...)
 {
     Expects_not_null(parser);
     Expects_not_null(format);
-
     va_list args;
     va_start(args, format);
-
     char buffer[PARSER_ERROR_BUFFER_SIZE];
     vsnprintf(buffer, sizeof(buffer), format, args);
-
     va_end(args);
-
     string_clear(parser->error_msg);
     string_append_cstr(parser->error_msg, buffer);
-
     // Store error location from current token
     token_t *tok = parser_current_token(parser);
     if (tok != NULL)
@@ -215,7 +198,6 @@ void parser_set_error(parser_t *parser, const char *format, ...)
 const char *parser_get_error(const parser_t *parser)
 {
     Expects_not_null(parser);
-
     if (string_length(parser->error_msg) == 0)
     {
         return NULL;
@@ -237,1434 +219,2219 @@ bool parser_error_is_unexpected_eof(const parser_t *parser, parse_status_t statu
 }
 
 /* ============================================================================
- * Main Parsing Functions
+ * GRAMMAR PARSING FUNCTIONS (POSIX-aligned)
  * ============================================================================ */
 
-parse_status_t parser_parse(parser_t *parser, token_list_t *tokens, ast_node_t **out_ast)
-{
-    Expects_not_null(parser);
-    Expects_not_null(tokens);
-    Expects_not_null(out_ast);
-
-    // Reset parser state
-    parser->tokens = tokens;
-    parser->position = 0;
-    parser_clear_error(parser);
-
-    if (token_list_size(parser->tokens) == 0)
-    {
-        *out_ast = NULL;
-        return PARSE_EMPTY;
-    }
-
-    return parser_parse_program(parser, out_ast);
-}
-
-parse_status_t parser_parse_program(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    ast_node_t *program = ast_create_program();
-
-    // Skip leading newlines
-    parser_skip_newlines(parser);
-
-    ast_node_t *body = NULL;
-    parse_status_t status = parser_parse_command_list(parser, PARSE_COMMAND_TOP_LEVEL, &body);
-
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&program);
-        return status;
-    }
-    
-    program->data.program.body = body;
-    *out_node = program;
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_command_list(parser_t *parser, parser_command_context_t context, ast_node_t **out_node)
+/* ============================================================================
+ * program :
+ *      linebreak complete_commands linebreak
+ *    | linebreak
+ * ============================================================================
+ */
+parse_status_t gparse_program(parser_t *parser, gnode_t **out_node)
 {
     Expects_not_null(parser);
     Expects_not_null(out_node);
 
-    ast_node_t *list = ast_create_command_list();
+    *out_node = NULL;
 
-    // Skip leading newlines
+    /* Create the top-level grammar node */
+    gnode_t *program = g_node_create(G_PROGRAM);
+
+    /* Skip leading newlines (linebreak) */
     parser_skip_newlines(parser);
 
-    while (!parser_at_end(parser) && parser_current_token_type(parser) != TOKEN_EOF)
+    /* Try to parse complete_commands */
+    gnode_t *commands = NULL;
+    parse_status_t status = gparse_complete_commands(parser, &commands);
+
+    if (status == PARSE_OK)
     {
-        ast_node_t *item = NULL;
-        parse_status_t status = parser_parse_andor_list(parser, &item);
+        /* Attach complete_commands as the child of program */
+        program->data.child = commands;
+    }
+    else if (status == PARSE_EMPTY)
+    {
+        /* program → linebreak (empty program) */
+        program->data.child = NULL;
+    }
+    else
+    {
+        /* Error or incomplete */
+        g_node_destroy(&program);
+        return status;
+    }
+
+    /* Skip trailing linebreak */
+    parser_skip_newlines(parser);
+
+    *out_node = program;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * complete_commands: complete_commands newline_list complete_command
+ *                  |                                complete_command
+ * ============================================================================
+ */
+parse_status_t gparse_complete_commands(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    /* If at EOF, this is empty */
+    if (parser_at_end(parser))
+        return PARSE_EMPTY;
+
+    /* Create the list node */
+    gnode_t *list = g_node_create(G_COMPLETE_COMMANDS);
+    list->data.list = g_list_create();
+
+    /* Parse the first complete_command */
+    gnode_t *cmd = NULL;
+    parse_status_t status = gparse_complete_command(parser, &cmd);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&list);
+        return status;
+    }
+
+    g_list_append(list->data.list, cmd);
+
+    /* Loop: newline_list complete_command */
+    while (true)
+    {
+        /* newline_list */
+        if (parser_current_token_type(parser) != TOKEN_NEWLINE)
+            break;
+
+        parser_skip_newlines(parser);
+
+        /* Try to parse another complete_command */
+        gnode_t *next = NULL;
+        status = gparse_complete_command(parser, &next);
 
         if (status != PARSE_OK)
         {
-            ast_node_destroy(&list);
+            /* If incomplete or error, stop and return */
+            g_node_destroy(&list);
             return status;
         }
 
-        ast_node_list_append(list->data.command_list.items, item);
-
-        // Check for separator
-        // DESIGN: We store a separator for EVERY command, including the last one.
-        // The last command gets LIST_SEP_EOL if there's no actual separator token.
-        // This maintains the invariant: items.size == separators.len
-        // Benefits: simpler indexing and executor logic
-        cmd_separator_t separator = LIST_SEP_SEQUENTIAL;
-        if (parser_accept(parser, TOKEN_AMPER))
-        {
-            separator = LIST_SEP_BACKGROUND;
-        }
-        else if (parser_accept(parser, TOKEN_SEMI))
-        {
-            separator = LIST_SEP_SEQUENTIAL;
-        }
-        else if (parser_accept(parser, TOKEN_NEWLINE))
-        {
-            separator = LIST_SEP_SEQUENTIAL;
-        }
-        else
-        {
-            // No separator token found - this is the last command in the list
-            separator = LIST_SEP_EOL;
-        }
-
-        // Store separator (always, even for last command)
-        cmd_separator_list_add(list->data.command_list.separators, separator);
-
-        // Skip additional newlines
-        parser_skip_newlines(parser);
-
-        if (parser_at_end(parser))
-            break;
-
-        bool promoted = false;
-        token_t *promote_tok = parser_current_token(parser);
-        if (promote_tok != NULL && token_get_type(promote_tok) == TOKEN_WORD)
-        {
-            if (!promoted && context == PARSE_COMMAND_IN_IF)
-            {
-                promoted = token_try_promote_to_then(promote_tok);
-            }
-            else if(!promoted && context == PARSE_COMMAND_IN_THEN)
-            {
-                promoted = token_try_promote_to_elif(promote_tok)
-                    || token_try_promote_to_else(promote_tok)
-                    || token_try_promote_to_fi(promote_tok);
-            }
-            else if(!promoted && context == PARSE_COMMAND_IN_ELIF)
-            {
-                promoted = token_try_promote_to_then(promote_tok);
-            }
-            else if(!promoted && context == PARSE_COMMAND_IN_ELSE)
-            {
-                promoted = token_try_promote_to_fi(promote_tok);
-            }
-            else if(!promoted && (context == PARSE_COMMAND_IN_WHILE || context == PARSE_COMMAND_IN_UNTIL))
-            {
-                promoted = token_try_promote_to_do(promote_tok);
-            }
-            else if(!promoted && context == PARSE_COMMAND_IN_DO)
-            {
-                promoted = token_try_promote_to_done(promote_tok);
-            }
-            else if(!promoted && context == PARSE_COMMAND_IN_FOR)
-            {
-                promoted = token_try_promote_to_in(promote_tok) 
-                    || token_try_promote_to_do(promote_tok);
-            }
-            else if(!promoted && context == PARSE_COMMAND_IN_BRACE_GROUP)
-            {
-                promoted = token_try_promote_to_rbrace(promote_tok);
-            }
-        }
-
-        // RPAREN is handled in the tokenizer because it is not context-sensitive.
-
-        // Check for end tokens
-        token_type_t current = parser_current_token_type(parser);
-        if (context == PARSE_COMMAND_IN_CASE && current == TOKEN_WORD)
-        {
-            token_try_promote_to_esac(parser_current_token(parser));
-            current = parser_current_token_type(parser);
-        }
-        if (current == TOKEN_RPAREN || current == TOKEN_RBRACE ||
-            current == TOKEN_FI || current == TOKEN_DONE ||
-            current == TOKEN_ESAC || current == TOKEN_EOF ||
-            current == TOKEN_THEN || current == TOKEN_ELSE ||
-            current == TOKEN_ELIF || current == TOKEN_DO ||
-            current == TOKEN_DSEMI)
-        {
-            break;
-        }
+        g_list_append(list->data.list, next);
     }
 
     *out_node = list;
     return PARSE_OK;
 }
 
-parse_status_t parser_parse_andor_list(parser_t *parser, ast_node_t **out_node)
+/* ============================================================================
+ * complete_command : list separator_op
+ *                  | list
+ * ============================================================================
+ */
+parse_status_t gparse_complete_command(parser_t *parser, gnode_t **out_node)
 {
     Expects_not_null(parser);
     Expects_not_null(out_node);
 
-    ast_node_t *left = NULL;
-    parse_status_t status = parser_parse_pipeline(parser, &left);
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_COMPLETE_COMMAND);
+
+    /* Parse list */
+    gnode_t *list = NULL;
+    parse_status_t status = gparse_list(parser, &list);
 
     if (status != PARSE_OK)
     {
+        g_node_destroy(&node);
         return status;
     }
 
-    // Check for && or ||
+    node->data.multi.a = list;
+
+    /* Optional separator_op */
+    gnode_t *sep = NULL;
+    status = gparse_separator_op(parser, &sep);
+
+    if (status == PARSE_OK)
+        node->data.multi.b = sep;
+    else
+        node->data.multi.b = NULL;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * list             : list separator_op and_or
+ *                  |                   and_or
+ * ============================================================================
+ */
+parse_status_t gparse_list(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    /* Create the list node */
+    gnode_t *list = g_node_create(G_LIST);
+    list->data.list = g_list_create();
+
+    /* Parse first and_or */
+    gnode_t *first = NULL;
+    parse_status_t status = gparse_and_or(parser, &first);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&list);
+        return status;
+    }
+
+    g_list_append(list->data.list, first);
+
+    /* Loop: separator_op and_or */
     while (true)
     {
-        token_type_t current = parser_current_token_type(parser);
-        if (current != TOKEN_AND_IF && current != TOKEN_OR_IF)
-        {
-            break;
-        }
+        gnode_t *sep = NULL;
+        status = gparse_separator_op(parser, &sep);
 
-        andor_operator_t op = (current == TOKEN_AND_IF) ? ANDOR_OP_AND : ANDOR_OP_OR;
-        parser_advance(parser);
+        if (status != PARSE_OK)
+            break; /* No separator_op → end of list */
 
-        // Skip newlines after operator
-        parser_skip_newlines(parser);
-
-        ast_node_t *right = NULL;
-        status = parser_parse_pipeline(parser, &right);
+        /* Parse next and_or */
+        gnode_t *next = NULL;
+        status = gparse_and_or(parser, &next);
 
         if (status != PARSE_OK)
         {
-            ast_node_destroy(&left);
+            g_node_destroy(&sep);
+            g_node_destroy(&list);
             return status;
         }
 
-        left = ast_create_andor_list(left, right, op);
+        /* Append both separator and next element */
+        g_list_append(list->data.list, sep);
+        g_list_append(list->data.list, next);
+    }
+
+    *out_node = list;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * and_or           :                         pipeline
+ *                  | and_or AND_IF linebreak pipeline
+ *                  | and_or OR_IF  linebreak pipeline
+ * ============================================================================
+ */
+parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    /* Parse the first pipeline */
+    gnode_t *left = NULL;
+    parse_status_t status = gparse_pipeline(parser, &left);
+
+    if (status != PARSE_OK)
+        return status;
+
+    /* Loop: (AND_IF | OR_IF) linebreak pipeline */
+    while (true)
+    {
+        token_type_t t = parser_current_token_type(parser);
+
+        if (t != TOKEN_AND_IF && t != TOKEN_OR_IF)
+            break;
+
+        /* Create operator node */
+        gnode_t *op = g_node_create(G_AND_OR);
+        op->data.token = parser_current_token(parser);
+
+        parser_advance(parser);
+
+        /* Skip linebreak */
+        parser_skip_newlines(parser);
+
+        /* Parse right-hand pipeline */
+        gnode_t *right = NULL;
+        status = gparse_pipeline(parser, &right);
+
+        if (status != PARSE_OK)
+        {
+            g_node_destroy(&left);
+            g_node_destroy(&op);
+            return status;
+        }
+
+        /*
+         * Build a new AND_OR node:
+         *   multi.a = left
+         *   multi.b = operator token
+         *   multi.c = right
+         */
+        gnode_t *node = g_node_create(G_AND_OR);
+        node->data.multi.a = left;
+        node->data.multi.b = op;
+        node->data.multi.c = right;
+
+        /* This becomes the new left-hand side */
+        left = node;
     }
 
     *out_node = left;
     return PARSE_OK;
 }
 
-parse_status_t parser_parse_pipeline(parser_t *parser, ast_node_t **out_node)
+/* ============================================================================
+ * pipeline         :      pipe_sequence
+ *                  | Bang pipe_sequence
+ * ============================================================================
+ */
+parse_status_t gparse_pipeline(parser_t *parser, gnode_t **out_node)
 {
     Expects_not_null(parser);
     Expects_not_null(out_node);
 
-    // You can only promote a TOKEN_WORD to TOKEN_BANG when it is
-    // the first token in a pipeline.
-    token_t *tok = parser_current_token(parser);
-    if (token_get_type(tok) == TOKEN_WORD)
-        token_try_promote_to_bang(tok);
+    *out_node = NULL;
 
-    // Check for ! prefix
-    bool is_negated = parser_accept(parser, TOKEN_BANG);
+    gnode_t *node = g_node_create(G_PIPELINE);
+    node->data.list = g_list_create();
 
-    ast_node_list_t *commands = ast_node_list_create();
+    token_type_t t = parser_current_token_type(parser);
 
-    // Parse first command
-    ast_node_t *cmd = NULL;
-    parse_status_t status = parser_parse_command(parser, &cmd);
+    /* Optional Bang prefix */
+    if (t == TOKEN_BANG)
+    {
+        gnode_t *bang_node = g_node_create(G_WORD_NODE); /* reuse token wrapper */
+        bang_node->data.token = parser_current_token(parser);
+        g_list_append(node->data.list, bang_node);
+        parser_advance(parser);
+    }
+
+    /* Parse pipe_sequence */
+    gnode_t *seq = NULL;
+    parse_status_t status = gparse_pipe_sequence(parser, &seq);
 
     if (status != PARSE_OK)
     {
-        ast_node_list_destroy(&commands);
+        g_node_destroy(&node);
         return status;
     }
 
-    ast_node_list_append(commands, cmd);
+    g_list_append(node->data.list, seq);
 
-    // Check for pipe operators
-    while (parser_accept(parser, TOKEN_PIPE))
-    {
-        // Skip newlines after pipe
-        parser_skip_newlines(parser);
-
-        ast_node_t *next_cmd = NULL;
-        status = parser_parse_command(parser, &next_cmd);
-
-        if (status != PARSE_OK)
-        {
-            ast_node_list_destroy(&commands);
-            return status;
-        }
-
-        ast_node_list_append(commands, next_cmd);
-    }
-
-    // If only one command and not negated, return the command directly
-    if (ast_node_list_size(commands) == 1 && !is_negated)
-    {
-        ast_node_t *single_cmd = ast_node_list_get(commands, 0);
-        // Remove from list without destroying
-        commands->nodes[0] = NULL;
-        ast_node_list_destroy(&commands);
-        *out_node = single_cmd;
-    }
-    else
-    {
-        *out_node = ast_create_pipeline(commands, is_negated);
-    }
-
+    *out_node = node;
     return PARSE_OK;
 }
 
-parse_status_t parser_parse_command(parser_t *parser, ast_node_t **out_node)
+/* ============================================================================
+ * pipe_sequence    :                             command
+ *                  | pipe_sequence '|' linebreak command
+ * ============================================================================
+ */
+parse_status_t gparse_pipe_sequence(parser_t *parser, gnode_t **out_node)
 {
     Expects_not_null(parser);
     Expects_not_null(out_node);
 
-    token_type_t current = parser_current_token_type(parser);
+    *out_node = NULL;
 
-    // Since we're in command position, we can promote WORD.
-    if (current == TOKEN_WORD && token_try_promote_to_reserved_word(parser_current_token(parser), false))
-        current = parser_current_token_type(parser);
+    gnode_t *node = g_node_create(G_PIPE_SEQUENCE);
+    node->data.list = g_list_create();
 
-    // Also promote { to TOKEN_LBRACE
-    if (current == TOKEN_WORD && token_try_promote_to_lbrace(parser_current_token(parser)))
-        current = TOKEN_LBRACE;
+    /* Parse first command */
+    gnode_t *cmd = NULL;
+    parse_status_t status = gparse_command(parser, &cmd);
 
-    // Check for compound commands
-    if (current == TOKEN_IF || current == TOKEN_WHILE || current == TOKEN_UNTIL ||
-        current == TOKEN_FOR || current == TOKEN_CASE ||
-        current == TOKEN_LPAREN || current == TOKEN_LBRACE)
-    {
-        ast_node_t *compound = NULL;
-        parse_status_t status = parser_parse_compound_command(parser, &compound);
-        if (status != PARSE_OK)
-            return status;
-
-        ast_node_list_t *redirections = NULL;
-        status = parser_parse_trailing_redirections(parser, &redirections);
-        if (status != PARSE_OK)
-        {
-            ast_node_destroy(&compound);
-            return status;
-        }
-
-        if (redirections != NULL)
-        {
-            compound = ast_create_redirected_command(compound, redirections);
-        }
-
-        *out_node = compound;
-        return PARSE_OK;
-    }
-
-    // Check for function definition: WORD followed by ()
-    // We need to look ahead to see if this is "name()" pattern
-    if (current == TOKEN_WORD)
-    {
-        // Save position for potential backtrack
-        int saved_pos = parser->position;
-        
-        // Check if next token is LPAREN
-        parser_advance(parser);
-        if (parser_current_token_type(parser) == TOKEN_LPAREN)
-        {
-            parser_advance(parser);
-            if (parser_current_token_type(parser) == TOKEN_RPAREN)
-            {
-                // This is a function definition - restore and parse
-                parser->position = saved_pos;
-                return parser_parse_function_def(parser, out_node);
-            }
-        }
-        // Not a function definition - restore position
-        parser->position = saved_pos;
-    }
-
-    // Otherwise, parse simple command
-    return parser_parse_simple_command(parser, out_node);
-}
-
-parse_status_t parser_parse_simple_command(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    token_list_t *words = token_list_create();
-    ast_node_list_t *redirections = ast_node_list_create();
-    token_list_t *assignments = token_list_create();
-
-    // Track heredoc redirections to collect bodies after command line
-    ast_node_t **pending_heredocs = NULL;
-    int pending_count = 0;
-    int pending_capacity = 0;
-
-    bool has_command = false;
-    string_t *dbg_str = NULL;
-
-    while (!parser_at_end(parser))
-    {
-        token_type_t current = parser_current_token_type(parser);
-
-        // Check for assignment (only before command word)
-        if (!has_command && current == TOKEN_ASSIGNMENT_WORD)
-        {
-            token_t *assign_tok = parser_current_token(parser);
-            if (log_level() == LOG_DEBUG)
-            {
-                dbg_str = token_to_string(parser_current_token(parser));
-                log_debug("parser_parse_simple_command: add ASSIGNMENT: %s", string_cstr(dbg_str));
-                string_destroy(&dbg_str);
-            }
-            token_list_append(assignments, assign_tok);
-            parser_advance(parser);
-            continue;
-        }
-
-        // Check for redirection
-        if (is_redirection_token(current))
-        {
-            ast_node_t *redir = NULL;
-            if (log_level() == LOG_DEBUG)
-            {
-                dbg_str = token_to_string(parser_current_token(parser));
-                log_debug("parser_parse_simple_command: add REDIRECTION: %s", string_cstr(dbg_str));
-                string_destroy(&dbg_str);
-            }
-            parse_status_t status = parser_parse_redirection(parser, &redir);
-            if (status != PARSE_OK)
-            {
-                token_list_destroy(&words);
-                ast_node_list_destroy(&redirections);
-                token_list_destroy(&assignments);
-                return status;
-            }
-            ast_node_list_append(redirections, redir);
-            // If this redirection is a heredoc, remember to read its body
-            if (redir != NULL && redir->type == AST_REDIRECTION)
-            {
-                redirection_type_t rt = redir->data.redirection.redir_type;
-                if (rt == REDIR_HEREDOC || rt == REDIR_HEREDOC_STRIP)
-                {
-                    if (pending_count >= pending_capacity)
-                    {
-                        int newcap = (pending_capacity == 0) ? 4 : pending_capacity * 2;
-                        pending_heredocs = xrealloc(pending_heredocs, newcap * sizeof(ast_node_t *));
-                        pending_capacity = newcap;
-                    }
-                    pending_heredocs[pending_count++] = redir;
-                }
-            }
-            continue;
-        }
-
-        // Check for word
-        if (current == TOKEN_WORD)
-        {
-            has_command = true;
-            token_t *word_tok = parser_current_token(parser);
-            if (log_level() == LOG_DEBUG)
-            {
-                dbg_str = token_to_string(parser_current_token(parser));
-                log_debug("parser_parse_simple_command: add WORD: %s", string_cstr(dbg_str));
-                string_destroy(&dbg_str);
-            }
-            token_list_append(words, word_tok);
-            parser_advance(parser);
-            continue;
-        }
-
-        // Not part of simple command
-         if (log_level() == LOG_DEBUG)
-        {
-            dbg_str = token_to_string(parser_current_token(parser));
-            log_debug("parser_parse_simple_command: terminate on: %s", string_cstr(dbg_str));
-            string_destroy(&dbg_str);
-        }
-       break;
-    }
-
-    // A simple command must have at least one of: assignments, words, or redirections
-    // POSIX allows assignment-only or redirection-only commands
-    if (token_list_size(assignments) == 0 &&
-        token_list_size(words) == 0 &&
-        ast_node_list_size(redirections) == 0)
-    {
-        log_debug("parser_parse_simple_command: No command found: %d words, %d redirs, %d assigns",
-                  token_list_size(words),
-                  ast_node_list_size(redirections),
-                  token_list_size(assignments));
-        token_list_destroy(&words);
-        ast_node_list_destroy(&redirections);
-        token_list_destroy(&assignments);
-        parser_set_error(parser, "Expected command");
-        return PARSE_ERROR;
-    }
-
-    parse_status_t heredoc_status = parser_attach_heredoc_bodies(parser, pending_heredocs, pending_count);
-    if (pending_heredocs)
-        xfree(pending_heredocs);
-    if (heredoc_status != PARSE_OK)
-    {
-        token_list_destroy(&words);
-        ast_node_list_destroy(&redirections);
-        token_list_destroy(&assignments);
-        return heredoc_status;
-    }
-
-    *out_node = ast_create_simple_command(words, redirections, assignments);
-    return PARSE_OK;
-}
-
-static parse_status_t parser_parse_trailing_redirections(parser_t *parser,
-                                                         ast_node_list_t **out_redirections)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_redirections);
-
-    *out_redirections = NULL;
-
-    if (!is_redirection_token(parser_current_token_type(parser)))
-    {
-        return PARSE_OK;
-    }
-
-    ast_node_list_t *redirections = ast_node_list_create();
-    ast_node_t **pending_heredocs = NULL;
-    int pending_count = 0;
-    int pending_capacity = 0;
-    parse_status_t status = PARSE_OK;
-
-    while (is_redirection_token(parser_current_token_type(parser)))
-    {
-        ast_node_t *redir = NULL;
-        status = parser_parse_redirection(parser, &redir);
-        if (status != PARSE_OK)
-        {
-            goto error;
-        }
-
-        ast_node_list_append(redirections, redir);
-
-        if (redir != NULL && redir->type == AST_REDIRECTION)
-        {
-            redirection_type_t rt = redir->data.redirection.redir_type;
-            if (rt == REDIR_HEREDOC || rt == REDIR_HEREDOC_STRIP)
-            {
-                if (pending_count >= pending_capacity)
-                {
-                    int newcap = (pending_capacity == 0) ? 4 : pending_capacity * 2;
-                    pending_heredocs = xrealloc(pending_heredocs, newcap * sizeof(ast_node_t *));
-                    pending_capacity = newcap;
-                }
-                pending_heredocs[pending_count++] = redir;
-            }
-        }
-    }
-
-    status = parser_attach_heredoc_bodies(parser, pending_heredocs, pending_count);
     if (status != PARSE_OK)
     {
-        if (pending_heredocs)
+        g_node_destroy(&node);
+        return status;
+    }
+
+    g_list_append(node->data.list, cmd);
+
+    /* Loop: '|' linebreak command */
+    while (parser_current_token_type(parser) == TOKEN_PIPE)
+    {
+        /* Create pipe token node */
+        gnode_t *pipe_node = g_node_create(G_WORD_NODE);
+        pipe_node->data.token = parser_current_token(parser);
+        g_list_append(node->data.list, pipe_node);
+
+        parser_advance(parser);
+
+        /* Skip linebreak */
+        parser_skip_newlines(parser);
+
+        /* Parse next command */
+        gnode_t *next = NULL;
+        status = gparse_command(parser, &next);
+
+        if (status != PARSE_OK)
         {
-            xfree(pending_heredocs);
-            pending_heredocs = NULL;
+            g_node_destroy(&node);
+            return status;
         }
-        goto error;
-    }
-    if (pending_heredocs)
-    {
-        xfree(pending_heredocs);
-        pending_heredocs = NULL;
+
+        g_list_append(node->data.list, next);
     }
 
-    if (ast_node_list_size(redirections) == 0)
-    {
-        ast_node_list_destroy(&redirections);
-        redirections = NULL;
-    }
-
-    *out_redirections = redirections;
+    *out_node = node;
     return PARSE_OK;
+}
 
-error:
-    if (pending_heredocs)
-        xfree(pending_heredocs);
-    ast_node_list_destroy(&redirections);
+/* ============================================================================
+ * command          : simple_command
+ *                  | compound_command
+ *                  | compound_command redirect_list
+ *                  | function_definition
+ * ============================================================================
+ */
+parse_status_t gparse_command(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_COMMAND);
+
+    /* Try function_definition first */
+    gnode_t *func = NULL;
+    parse_status_t status = gparse_function_definition(parser, &func);
+
+    if (status == PARSE_OK)
+    {
+        node->data.child = func;
+        *out_node = node;
+        return PARSE_OK;
+    }
+
+    /* Try compound_command */
+    gnode_t *compound = NULL;
+    status = gparse_compound_command(parser, &compound);
+
+    if (status == PARSE_OK)
+    {
+        /* Try optional redirect_list */
+        gnode_t *redirects = NULL;
+        parse_status_t redir_status = gparse_redirect_list(parser, &redirects);
+
+        if (redir_status == PARSE_OK)
+        {
+            /* compound_command redirect_list */
+            gnode_t *wrapper = g_node_create(G_COMMAND);
+            wrapper->data.multi.a = compound;
+            wrapper->data.multi.b = redirects;
+            node->data.child = wrapper;
+        }
+        else
+        {
+            /* Just compound_command */
+            node->data.child = compound;
+        }
+
+        *out_node = node;
+        return PARSE_OK;
+    }
+
+    /* Try simple_command */
+    gnode_t *simple = NULL;
+    status = gparse_simple_command(parser, &simple);
+
+    if (status == PARSE_OK)
+    {
+        node->data.child = simple;
+        *out_node = node;
+        return PARSE_OK;
+    }
+
+    /* Nothing matched */
+    g_node_destroy(&node);
     return status;
 }
 
-parse_status_t parser_parse_compound_command(parser_t *parser, ast_node_t **out_node)
+/* ============================================================================
+ * compound_command : brace_group
+ *                  | subshell
+ *                  | for_clause
+ *                  | case_clause
+ *                  | if_clause
+ *                  | while_clause
+ *                  | until_clause
+ * ============================================================================
+ */
+parse_status_t gparse_compound_command(parser_t *parser, gnode_t **out_node)
 {
     Expects_not_null(parser);
     Expects_not_null(out_node);
 
-    token_type_t current = parser_current_token_type(parser);
+    *out_node = NULL;
 
-    switch (current)
+    token_type_t t = parser_current_token_type(parser);
+
+    gnode_t *child = NULL;
+    parse_status_t status;
+
+    switch (t)
     {
-    case TOKEN_IF:
-        return parser_parse_if_clause(parser, out_node);
-    case TOKEN_WHILE:
-        return parser_parse_while_clause(parser, out_node);
-    case TOKEN_UNTIL:
-        return parser_parse_until_clause(parser, out_node);
-    case TOKEN_FOR:
-        return parser_parse_for_clause(parser, out_node);
-    case TOKEN_CASE:
-        return parser_parse_case_clause(parser, out_node);
-    case TOKEN_LPAREN:
-        return parser_parse_subshell(parser, out_node);
     case TOKEN_LBRACE:
-        return parser_parse_brace_group(parser, out_node);
-    default:
-        parser_set_error(parser, "Expected compound command");
-        return PARSE_ERROR;
-    }
-}
-
-parse_status_t parser_parse_if_clause(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect 'if'
-    parse_status_t status = parser_expect(parser, TOKEN_IF);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Parse condition
-    ast_node_t *condition = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_IF, &condition);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Expect 'then'
-    status = parser_expect(parser, TOKEN_THEN);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Parse then body
-    ast_node_t *then_body = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_THEN, &then_body);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    ast_node_t *if_node = ast_create_if_clause(condition, then_body);
-
-    // Handle elif/else/fi
-    while (parser_accept(parser, TOKEN_ELIF))
-    {
-        parser_skip_newlines(parser);
-
-        // Parse elif condition
-        ast_node_t *elif_condition = NULL;
-        status = parser_parse_command_list(parser, PARSE_COMMAND_IN_ELIF, &elif_condition);
-        if (status != PARSE_OK)
-        {
-            ast_node_destroy(&if_node);
-            return status;
-        }
-
-        parser_skip_newlines(parser);
-
-        // Expect 'then'
-        status = parser_expect(parser, TOKEN_THEN);
-        if (status != PARSE_OK)
-        {
-            ast_node_destroy(&if_node);
-            ast_node_destroy(&elif_condition);
-            return status;
-        }
-
-        parser_skip_newlines(parser);
-
-        // Parse elif body
-        ast_node_t *elif_body = NULL;
-        status = parser_parse_command_list(parser, PARSE_COMMAND_IN_THEN, &elif_body);
-        if (status != PARSE_OK)
-        {
-            ast_node_destroy(&if_node);
-            ast_node_destroy(&elif_condition);
-            return status;
-        }
-
-        // Add elif as another if_clause node
-        if (if_node->data.if_clause.elif_list == NULL)
-        {
-            if_node->data.if_clause.elif_list = ast_node_list_create();
-        }
-        ast_node_t *elif_node = ast_create_if_clause(elif_condition, elif_body);
-        ast_node_list_append(if_node->data.if_clause.elif_list, elif_node);
-
-        parser_skip_newlines(parser);
-    }
-
-    // Handle else
-    if (parser_accept(parser, TOKEN_ELSE))
-    {
-        parser_skip_newlines(parser);
-
-        ast_node_t *else_body = NULL;
-        status = parser_parse_command_list(parser, PARSE_COMMAND_IN_ELSE, &else_body);
-        if (status != PARSE_OK)
-        {
-            ast_node_destroy(&if_node);
-            return status;
-        }
-
-        if_node->data.if_clause.else_body = else_body;
-        parser_skip_newlines(parser);
-    }
-
-    // Expect 'fi'
-    status = parser_expect(parser, TOKEN_FI);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&if_node);
-        return status;
-    }
-
-    *out_node = if_node;
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_while_clause(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect 'while'
-    parse_status_t status = parser_expect(parser, TOKEN_WHILE);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Parse condition
-    ast_node_t *condition = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_WHILE, &condition);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Expect 'do'
-    status = parser_expect(parser, TOKEN_DO);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Parse body
-    ast_node_t *body = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_DO, &body);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Expect 'done'
-    status = parser_expect(parser, TOKEN_DONE);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        ast_node_destroy(&body);
-        return status;
-    }
-
-    *out_node = ast_create_while_clause(condition, body);
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_until_clause(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect 'until'
-    parse_status_t status = parser_expect(parser, TOKEN_UNTIL);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Parse condition
-    ast_node_t *condition = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_UNTIL, &condition);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Expect 'do'
-    status = parser_expect(parser, TOKEN_DO);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Parse body
-    ast_node_t *body = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_DO, &body);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Expect 'done'
-    status = parser_expect(parser, TOKEN_DONE);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&condition);
-        ast_node_destroy(&body);
-        return status;
-    }
-
-    *out_node = ast_create_until_clause(condition, body);
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_for_clause(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect 'for'
-    parse_status_t status = parser_expect(parser, TOKEN_FOR);
-    if (status != PARSE_OK)
-        return status;
-
-    // Expect variable name (a WORD)
-    if (parser_current_token_type(parser) != TOKEN_WORD)
-    {
-        parser_set_error(parser, "Expected variable name after 'for'");
-        return PARSE_ERROR;
-    }
-
-    token_t *var_tok = parser_current_token(parser);
-    // Extract and validate variable name from token
-    // Reject quoted names and any expansions; only literal parts are allowed
-    if (token_was_quoted(var_tok))
-    {
-        parser_set_error(parser, "Invalid variable name in for loop");
-        return PARSE_ERROR;
-    }
-
-    string_t *var_name = string_create();
-    int nparts = token_part_count(var_tok);
-    for (int i = 0; i < nparts; i++)
-    {
-        part_t *part = token_get_part(var_tok, i);
-        if (part_get_type(part) != PART_LITERAL)
-        {
-            parser_set_error(parser, "Invalid variable name in for loop");
-            string_destroy(&var_name);
-            return PARSE_ERROR;
-        }
-        string_append(var_name, part_get_text(part));
-    }
-
-    // Validate that a non-empty, valid shell name was extracted
-    if (string_length(var_name) == 0 || !is_valid_name_cstr(string_cstr(var_name)))
-    {
-        parser_set_error(parser, "Invalid variable name in for loop");
-        string_destroy(&var_name);
-        return PARSE_ERROR;
-    }
-
-    // Reject reserved words as loop variables for compatibility
-    if (token_is_reserved_word(string_cstr(var_name)))
-    {
-        parser_set_error(parser, "Reserved word '%s' cannot be used as for loop variable", string_cstr(var_name));
-        string_destroy(&var_name);
-        return PARSE_ERROR;
-    }
-    
-    parser_advance(parser);
-
-    parser_skip_newlines(parser);
-
-    token_list_t *words = NULL;
-
-    // Check for 'in' keyword
-    // Note: 'in' might still be a WORD, so we need to check and promote it
-    token_t *maybe_in = parser_current_token(parser);
-    if (maybe_in != NULL && token_get_type(maybe_in) == TOKEN_WORD)
-    {
-        token_try_promote_to_in(maybe_in);
-    }
-    
-    if (parser_accept(parser, TOKEN_IN))
-    {
-        // Parse word list
-        words = token_list_create();
-        while (parser_current_token_type(parser) == TOKEN_WORD)
-        {
-            token_t *word = parser_current_token(parser);
-            token_list_append(words, word);
-            parser_advance(parser);
-        }
-        parser_skip_newlines(parser);
-    }
-
-    // Expect separator (semicolon or newline)
-    if (!parser_accept(parser, TOKEN_SEMI))
-    {
-        parser_skip_newlines(parser);
-    }
-
-    token_t *maybe_do = parser_current_token(parser);
-    if (maybe_do != NULL && token_get_type(maybe_do) == TOKEN_WORD)
-    {
-        token_try_promote_to_do(maybe_do);
-    }
-
-    // Expect 'do'
-    status = parser_expect(parser, TOKEN_DO);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&var_name);
-        if (words != NULL)
-            token_list_destroy(&words);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Parse body
-    ast_node_t *body = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_DO, &body);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&var_name);
-        if (words != NULL)
-            token_list_destroy(&words);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Expect 'done'
-    status = parser_expect(parser, TOKEN_DONE);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&var_name);
-        if (words != NULL)
-            token_list_destroy(&words);
-        ast_node_destroy(&body);
-        return status;
-    }
-
-    *out_node = ast_create_for_clause(var_name, words, body);
-    string_destroy(&var_name); // ast_create_for_clause clones it
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_case_clause(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect 'case'
-    parse_status_t status = parser_expect(parser, TOKEN_CASE);
-    if (status != PARSE_OK)
-        return status;
-
-    // Expect word
-    if (parser_current_token_type(parser) != TOKEN_WORD)
-    {
-        parser_set_error(parser, "Expected word after 'case'");
-        return PARSE_ERROR;
-    }
-
-    token_t *word = parser_current_token(parser);
-    parser_advance(parser);
-
-    parser_skip_newlines(parser);
-
-    // Expect 'in' keyword - try to promote WORD to TOKEN_IN if needed
-    token_t *maybe_in = parser_current_token(parser);
-    if (maybe_in != NULL && token_get_type(maybe_in) == TOKEN_WORD)
-    {
-        token_try_promote_to_reserved_word(maybe_in, true);
-    }
-    
-    status = parser_expect(parser, TOKEN_IN);
-    if (status != PARSE_OK)
-    {
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    ast_node_t *case_node = ast_create_case_clause(word);
-
-    // Parse case items
-    while (parser_current_token_type(parser) != TOKEN_ESAC &&
-           !parser_at_end(parser))
-    {
-        // Allow promoting 'esac' if it's still a WORD so loop can terminate
-        token_t *ctok = parser_current_token(parser);
-        if (ctok != NULL && token_get_type(ctok) == TOKEN_WORD)
-        {
-            token_try_promote_to_reserved_word(ctok, true);
-            if (token_get_type(ctok) == TOKEN_ESAC)
-                break;
-        }
-        // Parse pattern list
-        token_list_t *patterns = token_list_create();
-        // POSIX: allow optional leading '(' before the pattern list
-        parser_accept(parser, TOKEN_LPAREN);
-        
-        if (parser_current_token_type(parser) != TOKEN_WORD)
-        {
-            // Allow empty case items or ESAC
-            if (parser_current_token_type(parser) == TOKEN_ESAC)
-            {
-                token_list_destroy(&patterns);
-                break;
-            }
-            parser_set_error(parser, "Expected pattern in case");
-            ast_node_destroy(&case_node);
-            token_list_destroy(&patterns);
-            return PARSE_ERROR;
-        }
-
-        while (true)
-        {
-            token_t *pattern = parser_current_token(parser);
-            token_list_append(patterns, pattern);
-            parser_advance(parser);
-
-            if (!parser_accept(parser, TOKEN_PIPE))
-                break;
-        }
-
-        // Expect ')'
-        status = parser_expect(parser, TOKEN_RPAREN);
-        if (status != PARSE_OK)
-        {
-            ast_node_destroy(&case_node);
-            token_list_destroy(&patterns);
-            return status;
-        }
-
-        parser_skip_newlines(parser);
-
-        // Parse commands (optional)
-        ast_node_t *item_body = NULL;
-        if (parser_current_token_type(parser) != TOKEN_DSEMI &&
-            parser_current_token_type(parser) != TOKEN_ESAC)
-        {
-            status = parser_parse_command_list(parser, PARSE_COMMAND_IN_CASE, &item_body);
-            if (status != PARSE_OK)
-            {
-                ast_node_destroy(&case_node);
-                token_list_destroy(&patterns);
-                return status;
-            }
-        }
-
-        // Create case item
-        ast_node_t *item = ast_create_case_item(patterns, item_body);
-        ast_node_list_append(case_node->data.case_clause.case_items, item);
-
-        parser_skip_newlines(parser);
-
-        // Expect ';;' (optional before esac)
-        if (parser_accept(parser, TOKEN_DSEMI))
-        {
-            parser_skip_newlines(parser);
-        }
-    }
-
-    // Expect 'esac'
-    status = parser_expect(parser, TOKEN_ESAC);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&case_node);
-        return status;
-    }
-
-    *out_node = case_node;
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_subshell(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect '('
-    parse_status_t status = parser_expect(parser, TOKEN_LPAREN);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Parse command list
-    ast_node_t *body = NULL;
-    status = parser_parse_command_list(parser, PARSE_COMMAND_IN_SUBSHELL, &body);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Expect ')'
-    status = parser_expect(parser, TOKEN_RPAREN);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&body);
-        return status;
-    }
-
-    *out_node = ast_create_subshell(body);
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_brace_group(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect '{'
-    parse_status_t status = parser_expect(parser, TOKEN_LBRACE);
-    if (status != PARSE_OK)
-        return status;
-
-    parser_skip_newlines(parser);
-
-    // Check for empty brace groups
-    token_t *tok = parser_current_token(parser);
-    if (tok != NULL && token_get_type(tok) == TOKEN_WORD)
-        token_try_promote_to_rbrace(tok);
-
-    ast_node_t *body = NULL;
-    if (parser_current_token_type(parser) != TOKEN_RBRACE)
-    {
-        // Parse command list
-        status = parser_parse_command_list(parser, PARSE_COMMAND_IN_BRACE_GROUP, &body);
-        if (status != PARSE_OK && status != PARSE_EMPTY)
-        { // Allow PARSE_EMPTY for empty bodies
-            return status;
-        }
-    }
-    // If body is NULL or empty, create an empty command list
-    if (body == NULL) {
-        body = ast_create_command_list();  // Assuming this creates an empty list
-    }
-
-    parser_skip_newlines(parser);
-
-    // POSIX requirement: brace groups require a separator before the closing }
-    // Valid:   { echo foo; }  or  { echo foo\n}
-    // Invalid: { echo foo }
-    // Exception: Empty brace groups are allowed: { }
-    if (ast_node_list_size(body->data.command_list.items) > 0)
-    {
-        int last_sep_idx = ast_node_command_list_separator_count(body) - 1;
-        cmd_separator_t last_sep = ast_node_command_list_get_separator(body, last_sep_idx);
-        
-        if (last_sep == LIST_SEP_EOL)
-        {
-            // The last command had no separator token, but we're about to see }
-            // This violates POSIX: brace groups require a separator before }
-            parser_set_error(parser, "Expected separator (';' or newline) before '}'");
-            ast_node_destroy(&body);
-            return PARSE_ERROR;
-        }
-    }
-
-    // Expect '}'
-    status = parser_expect(parser, TOKEN_RBRACE);
-    if (status != PARSE_OK)
-    {
-        ast_node_destroy(&body);
-        return status;
-    }
-
-    *out_node = ast_create_brace_group(body);
-    return PARSE_OK;
-}
-
-static int is_valid_name_cstr(const char *s)
-{
-    Expects_not_null(s);
-    Expects_ne(*s, '\0');
-
-    if (!(isalpha((unsigned char)*s) || *s == '_'))
-        return 0;
-    for (const unsigned char *p = (const unsigned char *)s + 1; *p; ++p)
-    {
-        if (!(isalnum(*p) || *p == '_'))
-            return 0;
-    }
-    return 1;
-}
-
-static bool get_function_name_from_token(parser_t *parser, token_t *tok, string_t *func_name)
-{
-    Expects_not_null(tok);
-    Expects_not_null(func_name);
-
-    if (token_get_type(tok) != TOKEN_WORD)
-        return false;
-
-    if (token_was_quoted(tok))
-    {
-        parser_set_error(parser, "Function name cannot be quoted");
-        return false;
-    }
-    for (int i = 0; i < token_part_count(tok); i++)
-    {
-        part_t *part = token_get_part(tok, i);
-        if (part_get_type(part) != PART_LITERAL)
-        {
-            parser_set_error(parser, "Function name cannot contain expansions");
-            return false;
-        }
-        string_append(func_name, part_get_text(part));
-    }
-    if (string_length(func_name) == 0 || !is_valid_name_cstr(string_cstr(func_name)))
-    {
-        parser_set_error(parser, "Invalid function name");
-        return false;
-    }
-    return true;
-}
-
-parse_status_t parser_parse_function_def(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    // Expect function name (a WORD)
-    if (parser_current_token_type(parser) != TOKEN_WORD)
-    {
-        parser_set_error(parser, "Expected function name");
-        return PARSE_ERROR;
-    }
-
-    token_t *name_tok = parser_current_token(parser);
-    // Extract function name
-    string_t *func_name = string_create();
-    if (!get_function_name_from_token(parser, name_tok, func_name))
-    {
-        // Error already set in get_function_name_from_token().
-        string_destroy(&func_name);
-        return PARSE_ERROR;
-    }
-    
-    parser_advance(parser);
-
-    // Expect '('
-    parse_status_t status = parser_expect(parser, TOKEN_LPAREN);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&func_name);
-        return status;
-    }
-
-    // Expect ')'
-    status = parser_expect(parser, TOKEN_RPAREN);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&func_name);
-        return status;
-    }
-
-    parser_skip_newlines(parser);
-
-    // Promote reserved words if necessary
-    if (parser_current_token_type(parser) == TOKEN_WORD)
-    {
-        token_try_promote_to_reserved_word(parser_current_token(parser), false);
-    }
-
-    // Parse compound command (body)
-    ast_node_t *body = NULL;
-    status = parser_parse_compound_command(parser, &body);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&func_name);
-        return status;
-    }
-
-    // Parse optional redirections (including heredocs)
-    ast_node_list_t *redirections = NULL;
-    status = parser_parse_trailing_redirections(parser, &redirections);
-    if (status != PARSE_OK)
-    {
-        string_destroy(&func_name);
-        ast_node_destroy(&body);
-        return status;
-    }
-
-    *out_node = ast_create_function_def(func_name, body, redirections);
-    string_destroy(&func_name); // ast_create_function_def clones it
-    return PARSE_OK;
-}
-
-parse_status_t parser_parse_redirection(parser_t *parser, ast_node_t **out_node)
-{
-    Expects_not_null(parser);
-    Expects_not_null(out_node);
-
-    int io_number = -1;
-    string_t *io_location = NULL;
-
-    // Check for IO_NUMBER or IO_LOCATION
-    token_type_t prefix_type = parser_current_token_type(parser);
-    if (prefix_type == TOKEN_IO_NUMBER)
-    {
-        token_t *num_tok = parser_current_token(parser);
-        io_number = token_get_io_number(num_tok);
-        parser_advance(parser);
-    }
-    else if (prefix_type == TOKEN_IO_LOCATION)
-    {
-        token_t *loc_tok = parser_current_token(parser);
-        const string_t *loc = token_get_io_location(loc_tok);
-        const char *loc_cstr = loc ? string_cstr(loc) : NULL;
-        if (loc_cstr != NULL)
-        {
-            int len = string_length(loc);
-            if (len >= 2 && loc_cstr[0] == '{' && loc_cstr[len - 1] == '}')
-            {
-                const char *inner = loc_cstr + 1;
-                int inner_len = len - 2;
-                if (inner_len <= 0)
-                {
-                    parser_set_error(parser, "Invalid IO location");
-                    return PARSE_ERROR;
-                }
-
-                string_t *inner_str = string_create_from_cstr_len(inner, inner_len);
-                const char *inner_cstr = string_cstr(inner_str);
-
-                bool digits_only = true;
-                long value = 0;
-                for (int i = 0; i < inner_len; i++)
-                {
-                    unsigned char ch = (unsigned char)inner_cstr[i];
-                    if (!isdigit(ch))
-                    {
-                        digits_only = false;
-                        break;
-                    }
-                    value = value * 10 + (inner_cstr[i] - '0');
-                }
-
-                if (digits_only)
-                {
-                    io_number = (int)value;
-                    io_location = inner_str; // take ownership
-                }
-                else if (is_valid_name_cstr(inner_cstr))
-                {
-                    io_location = inner_str; // take ownership
-                }
-                else
-                {
-                    string_destroy(&inner_str);
-                    parser_set_error(parser, "Invalid IO location");
-                    return PARSE_ERROR;
-                }
-            }
-            else
-            {
-                parser_set_error(parser, "Invalid IO location");
-                return PARSE_ERROR;
-            }
-        }
-        parser_advance(parser);
-    }
-
-    // Determine redirection type
-    token_type_t current = parser_current_token_type(parser);
-    redirection_type_t redir_type;
-
-    switch (current)
-    {
-    case TOKEN_LESS:
-        redir_type = REDIR_INPUT;
+        status = gparse_brace_group(parser, &child);
         break;
-    case TOKEN_GREATER:
-        redir_type = REDIR_OUTPUT;
+    case TOKEN_LPAREN:
+        status = gparse_subshell(parser, &child);
         break;
-    case TOKEN_DGREAT:
-        redir_type = REDIR_APPEND;
+    case TOKEN_FOR:
+        status = gparse_for_clause(parser, &child);
         break;
-    case TOKEN_DLESS:
-        // Heredoc: lexer already parsed and queued delimiter; no target token follows
-        redir_type = REDIR_HEREDOC;
+    case TOKEN_CASE:
+        status = gparse_case_clause(parser, &child);
         break;
-    case TOKEN_DLESSDASH:
-        // Heredoc with tab stripping: lexer already parsed and queued delimiter
-        redir_type = REDIR_HEREDOC_STRIP;
+    case TOKEN_IF:
+        status = gparse_if_clause(parser, &child);
         break;
-    case TOKEN_LESSAND:
-        redir_type = REDIR_DUP_INPUT;
+    case TOKEN_WHILE:
+        status = gparse_while_clause(parser, &child);
         break;
-    case TOKEN_GREATAND:
-        redir_type = REDIR_DUP_OUTPUT;
-        break;
-    case TOKEN_LESSGREAT:
-        redir_type = REDIR_READWRITE;
-        break;
-    case TOKEN_CLOBBER:
-        redir_type = REDIR_CLOBBER;
+    case TOKEN_UNTIL:
+        status = gparse_until_clause(parser, &child);
         break;
     default:
-        parser_set_error(parser, "Expected redirection operator");
-        if (io_location != NULL)
-            string_destroy(&io_location);
         return PARSE_ERROR;
     }
 
+    if (status != PARSE_OK)
+        return status;
+
+    gnode_t *node = g_node_create(G_COMPOUND_COMMAND);
+    node->data.child = child;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * subshell         : '(' compound_list ')'
+ * ============================================================================
+ */
+parse_status_t gparse_subshell(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_LPAREN)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_SUBSHELL);
+
+    /* '(' */
+    gnode_t *lparen = g_node_create(G_WORD_NODE);
+    lparen->data.token = parser_current_token(parser);
     parser_advance(parser);
 
-    if (redir_type == REDIR_HEREDOC || redir_type == REDIR_HEREDOC_STRIP)
+    /* compound_list */
+    gnode_t *list = NULL;
+    parse_status_t status = gparse_compound_list(parser, &list);
+
+    if (status != PARSE_OK)
     {
-        // No delimiter token follows; lexer queued heredoc using its own parser of the delimiter.
-        // We create the redirection node without a target; heredoc content will be provided later.
-        *out_node = ast_create_redirection(redir_type, io_number, io_location, NULL);
+        g_node_destroy(&node);
+        g_node_destroy(&lparen);
+        return status;
+    }
+
+    /* ')' */
+    if (parser_current_token_type(parser) != TOKEN_RPAREN)
+    {
+        parser_set_error(parser, "Expected ')' to close subshell");
+        g_node_destroy(&node);
+        g_node_destroy(&lparen);
+        g_node_destroy(&list);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *rparen = g_node_create(G_WORD_NODE);
+    rparen->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    node->data.multi.a = lparen;
+    node->data.multi.b = list;
+    node->data.multi.c = rparen;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * compound_list    : linebreak term
+ *                  | linebreak term separator
+ * ============================================================================
+ */
+parse_status_t gparse_compound_list(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_COMPOUND_LIST);
+
+    /* linebreak */
+    parser_skip_newlines(parser);
+
+    /* term */
+    gnode_t *term = NULL;
+    parse_status_t status = gparse_term(parser, &term);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        return status;
+    }
+
+    node->data.multi.a = term;
+
+    /* optional separator */
+    gnode_t *sep = NULL;
+    status = gparse_separator(parser, &sep);
+
+    if (status == PARSE_OK)
+        node->data.multi.b = sep;
+    else
+        node->data.multi.b = NULL;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * term             : term separator and_or
+ *                  |                and_or
+ * ============================================================================
+ */
+parse_status_t gparse_term(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_TERM);
+    node->data.list = g_list_create();
+
+    /* Parse first and_or */
+    gnode_t *first = NULL;
+    parse_status_t status = gparse_and_or(parser, &first);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        return status;
+    }
+
+    g_list_append(node->data.list, first);
+
+    /* Loop: separator and_or */
+    while (true)
+    {
+        gnode_t *sep = NULL;
+        status = gparse_separator(parser, &sep);
+
+        if (status != PARSE_OK)
+            break;
+
+        /* Parse next and_or */
+        gnode_t *next = NULL;
+        status = gparse_and_or(parser, &next);
+
+        if (status != PARSE_OK)
+        {
+            g_node_destroy(&sep);
+            g_node_destroy(&node);
+            return status;
+        }
+
+        /* Append both separator and next element */
+        g_list_append(node->data.list, sep);
+        g_list_append(node->data.list, next);
+    }
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * for_clause       : For name                                      do_group
+ *                  | For name                       sequential_sep do_group
+ *                  | For name linebreak in          sequential_sep do_group
+ *                  | For name linebreak in wordlist sequential_sep do_group
+ * ============================================================================
+ */
+parse_status_t gparse_for_clause(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_FOR)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_FOR_CLAUSE);
+
+    /* 'for' */
+    gnode_t *for_tok = g_node_create(G_WORD_NODE);
+    for_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* name */
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+    {
+        parser_set_error(parser, "Expected name after 'for'");
+        g_node_destroy(&node);
+        g_node_destroy(&for_tok);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *name = g_node_create(G_NAME_NODE);
+    name->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* Optional: linebreak in wordlist */
+    gnode_t *in_clause = NULL;
+    parse_status_t status = gparse_in_clause(parser, &in_clause);
+
+    /* sequential_sep */
+    token_type_t t = parser_current_token_type(parser);
+    if (t == TOKEN_SEMI)
+    {
+        parser_advance(parser);
+        parser_skip_newlines(parser);
+    }
+    else if (t == TOKEN_NEWLINE)
+    {
+        parser_skip_newlines(parser);
+    }
+    else if (status != PARSE_OK)
+    {
+        /* If no in_clause and no separator, error */
+        parser_set_error(parser, "Expected ';' or newline in for clause");
+        g_node_destroy(&node);
+        g_node_destroy(&for_tok);
+        g_node_destroy(&name);
+        return PARSE_ERROR;
+    }
+
+    /* do_group */
+    gnode_t *do_grp = NULL;
+    status = gparse_do_group(parser, &do_grp);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&for_tok);
+        g_node_destroy(&name);
+        if (in_clause)
+            g_node_destroy(&in_clause);
+        return status;
+    }
+
+    node->data.multi.a = for_tok;
+    node->data.multi.b = name;
+    node->data.multi.c = in_clause;
+    node->data.multi.d = do_grp;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * in_clause        : linebreak in wordlist
+ * ============================================================================
+ */
+parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    parser_skip_newlines(parser);
+
+    if (parser_current_token_type(parser) != TOKEN_IN)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_IN_NODE);
+
+    /* 'in' */
+    node->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* wordlist */
+    gnode_t *words = NULL;
+    parse_status_t status = gparse_wordlist(parser, &words);
+
+    if (status == PARSE_OK)
+    {
+        gnode_t *wrapper = g_node_create(G_IN_NODE);
+        wrapper->data.multi.a = node;
+        wrapper->data.multi.b = words;
+        *out_node = wrapper;
         return PARSE_OK;
     }
 
-    // Expect target (filename or fd) for non-heredoc redirections
-    if (parser_current_token_type(parser) != TOKEN_WORD && parser_current_token_type(parser) != TOKEN_IO_LOCATION)
+    /* No wordlist is OK */
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * wordlist         : wordlist WORD
+ *                  |          WORD
+ * ============================================================================
+ */
+parse_status_t gparse_wordlist(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_WORDLIST);
+    node->data.list = g_list_create();
+
+    while (parser_current_token_type(parser) == TOKEN_WORD)
     {
-        parser_set_error(parser, "Expected filename after redirection operator");
-        if (io_location != NULL)
-            string_destroy(&io_location);
+        gnode_t *word = g_node_create(G_WORD_NODE);
+        word->data.token = parser_current_token(parser);
+        g_list_append(node->data.list, word);
+        parser_advance(parser);
+    }
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * case_clause      : Case WORD linebreak in linebreak case_list    Esac
+ *                  | Case WORD linebreak in linebreak case_list_ns Esac
+ *                  | Case WORD linebreak in linebreak              Esac
+ * ============================================================================
+ */
+parse_status_t gparse_case_clause(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_CASE)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_CASE_CLAUSE);
+
+    /* 'case' */
+    gnode_t *case_tok = g_node_create(G_WORD_NODE);
+    case_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* WORD */
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+    {
+        parser_set_error(parser, "Expected word after 'case'");
+        g_node_destroy(&node);
+        g_node_destroy(&case_tok);
         return PARSE_ERROR;
     }
 
-    token_t *target = parser_current_token(parser);
+    gnode_t *word = g_node_create(G_WORD_NODE);
+    word->data.token = parser_current_token(parser);
     parser_advance(parser);
 
-    *out_node = ast_create_redirection(redir_type, io_number, io_location, target);
+    /* linebreak */
+    parser_skip_newlines(parser);
+
+    /* 'in' */
+    if (parser_current_token_type(parser) != TOKEN_IN)
+    {
+        parser_set_error(parser, "Expected 'in' in case statement");
+        g_node_destroy(&node);
+        g_node_destroy(&case_tok);
+        g_node_destroy(&word);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *in_tok = g_node_create(G_WORD_NODE);
+    in_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* linebreak */
+    parser_skip_newlines(parser);
+
+    /* Try case_list or case_list_ns */
+    gnode_t *list = NULL;
+    parse_status_t status = gparse_case_list(parser, &list);
+
+    if (status != PARSE_OK)
+    {
+        status = gparse_case_list_ns(parser, &list);
+    }
+
+    /* 'esac' */
+    if (parser_current_token_type(parser) != TOKEN_ESAC)
+    {
+        parser_set_error(parser, "Expected 'esac' to close case statement");
+        g_node_destroy(&node);
+        g_node_destroy(&case_tok);
+        g_node_destroy(&word);
+        g_node_destroy(&in_tok);
+        if (list)
+            g_node_destroy(&list);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *esac_tok = g_node_create(G_WORD_NODE);
+    esac_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    node->data.multi.a = case_tok;
+    node->data.multi.b = word;
+    node->data.multi.c = in_tok;
+    node->data.multi.d = esac_tok;
+
+    if (list)
+    {
+        /* Store list in a separate structure if needed */
+        gnode_t *wrapper = g_node_create(G_CASE_CLAUSE);
+        wrapper->data.multi.a = node;
+        wrapper->data.multi.b = list;
+        *out_node = wrapper;
+    }
+    else
+    {
+        *out_node = node;
+    }
+
     return PARSE_OK;
+}
+
+/* ============================================================================
+ * case_list_ns     : case_list case_item_ns
+ *                  |           case_item_ns
+ * ============================================================================
+ */
+parse_status_t gparse_case_list_ns(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_CASE_LIST_NS);
+    node->data.list = g_list_create();
+
+    /* Try to parse case_list first */
+    gnode_t *list = NULL;
+    parse_status_t status = gparse_case_list(parser, &list);
+
+    if (status == PARSE_OK)
+    {
+        g_list_append(node->data.list, list);
+    }
+
+    /* Parse case_item_ns */
+    gnode_t *item = NULL;
+    status = gparse_case_item_ns(parser, &item);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        return status;
+    }
+
+    g_list_append(node->data.list, item);
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * case_list        : case_list case_item
+ *                  |           case_item
+ * ============================================================================
+ */
+parse_status_t gparse_case_list(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_CASE_LIST);
+    node->data.list = g_list_create();
+
+    /* Parse first case_item */
+    gnode_t *item = NULL;
+    parse_status_t status = gparse_case_item(parser, &item);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        return status;
+    }
+
+    g_list_append(node->data.list, item);
+
+    /* Loop: case_item */
+    while (true)
+    {
+        gnode_t *next = NULL;
+        status = gparse_case_item(parser, &next);
+
+        if (status != PARSE_OK)
+            break;
+
+        g_list_append(node->data.list, next);
+    }
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * case_item_ns     :     pattern_list ')'               linebreak
+ *                  |     pattern_list ')' compound_list linebreak
+ *                  | '(' pattern_list ')'               linebreak
+ *                  | '(' pattern_list ')' compound_list linebreak
+ * ============================================================================
+ */
+parse_status_t gparse_case_item_ns(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_CASE_ITEM_NS);
+
+    /* Optional '(' */
+    gnode_t *lparen = NULL;
+    if (parser_current_token_type(parser) == TOKEN_LPAREN)
+    {
+        lparen = g_node_create(G_WORD_NODE);
+        lparen->data.token = parser_current_token(parser);
+        parser_advance(parser);
+    }
+
+    /* pattern_list */
+    gnode_t *patterns = NULL;
+    parse_status_t status = gparse_pattern_list(parser, &patterns);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        if (lparen)
+            g_node_destroy(&lparen);
+        return status;
+    }
+
+    /* ')' */
+    if (parser_current_token_type(parser) != TOKEN_RPAREN)
+    {
+        parser_set_error(parser, "Expected ')' after pattern list");
+        g_node_destroy(&node);
+        if (lparen)
+            g_node_destroy(&lparen);
+        g_node_destroy(&patterns);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *rparen = g_node_create(G_WORD_NODE);
+    rparen->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* Optional compound_list */
+    gnode_t *list = NULL;
+    status = gparse_compound_list(parser, &list);
+
+    /* linebreak */
+    parser_skip_newlines(parser);
+
+    node->data.multi.a = lparen;
+    node->data.multi.b = patterns;
+    node->data.multi.c = rparen;
+    node->data.multi.d = list;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * case_item        :     pattern_list ')' linebreak     DSEMI linebreak
+ *                  |     pattern_list ')' compound_list DSEMI linebreak
+ *                  | '(' pattern_list ')' linebreak     DSEMI linebreak
+ *                  | '(' pattern_list ')' compound_list DSEMI linebreak
+ * ============================================================================
+ */
+parse_status_t gparse_case_item(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_CASE_ITEM);
+
+    /* Optional '(' */
+    gnode_t *lparen = NULL;
+    if (parser_current_token_type(parser) == TOKEN_LPAREN)
+    {
+        lparen = g_node_create(G_WORD_NODE);
+        lparen->data.token = parser_current_token(parser);
+        parser_advance(parser);
+    }
+
+    /* pattern_list */
+    gnode_t *patterns = NULL;
+    parse_status_t status = gparse_pattern_list(parser, &patterns);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        if (lparen)
+            g_node_destroy(&lparen);
+        return status;
+    }
+
+    /* ')' */
+    if (parser_current_token_type(parser) != TOKEN_RPAREN)
+    {
+        parser_set_error(parser, "Expected ')' after pattern list");
+        g_node_destroy(&node);
+        if (lparen)
+            g_node_destroy(&lparen);
+        g_node_destroy(&patterns);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *rparen = g_node_create(G_WORD_NODE);
+    rparen->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* Optional compound_list or linebreak */
+    gnode_t *list = NULL;
+    status = gparse_compound_list(parser, &list);
+
+    if (status != PARSE_OK)
+    {
+        parser_skip_newlines(parser);
+    }
+
+    /* DSEMI */
+    if (parser_current_token_type(parser) != TOKEN_DSEMI)
+    {
+        parser_set_error(parser, "Expected ';;' after case item");
+        g_node_destroy(&node);
+        if (lparen)
+            g_node_destroy(&lparen);
+        g_node_destroy(&patterns);
+        g_node_destroy(&rparen);
+        if (list)
+            g_node_destroy(&list);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *dsemi = g_node_create(G_WORD_NODE);
+    dsemi->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* linebreak */
+    parser_skip_newlines(parser);
+
+    node->data.multi.a = lparen;
+    node->data.multi.b = patterns;
+    node->data.multi.c = rparen;
+    node->data.multi.d = list;
+
+    /* Store dsemi in a wrapper if needed */
+    gnode_t *wrapper = g_node_create(G_CASE_ITEM);
+    wrapper->data.multi.a = node;
+    wrapper->data.multi.b = dsemi;
+
+    *out_node = wrapper;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * pattern_list     :             WORD
+ *                  | pattern_list '|' WORD
+ * ============================================================================
+ */
+parse_status_t gparse_pattern_list(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_PATTERN_LIST);
+    node->data.list = g_list_create();
+
+    /* Parse first WORD */
+    gnode_t *word = g_node_create(G_WORD_NODE);
+    word->data.token = parser_current_token(parser);
+    g_list_append(node->data.list, word);
+    parser_advance(parser);
+
+    /* Loop: '|' WORD */
+    while (parser_current_token_type(parser) == TOKEN_PIPE)
+    {
+        /* '|' */
+        gnode_t *pipe = g_node_create(G_WORD_NODE);
+        pipe->data.token = parser_current_token(parser);
+        g_list_append(node->data.list, pipe);
+        parser_advance(parser);
+
+        /* WORD */
+        if (parser_current_token_type(parser) != TOKEN_WORD)
+        {
+            parser_set_error(parser, "Expected word after '|' in pattern");
+            g_node_destroy(&node);
+            return PARSE_ERROR;
+        }
+
+        word = g_node_create(G_WORD_NODE);
+        word->data.token = parser_current_token(parser);
+        g_list_append(node->data.list, word);
+        parser_advance(parser);
+    }
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * if_clause        : If compound_list Then compound_list else_part Fi
+ *                  | If compound_list Then compound_list           Fi
+ * ============================================================================
+ */
+parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_IF)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_IF_CLAUSE);
+
+    /* 'if' */
+    gnode_t *if_tok = g_node_create(G_WORD_NODE);
+    if_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* compound_list (condition) */
+    gnode_t *cond = NULL;
+    parse_status_t status = gparse_compound_list(parser, &cond);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&if_tok);
+        return status;
+    }
+
+    /* 'then' */
+    if (parser_current_token_type(parser) != TOKEN_THEN)
+    {
+        parser_set_error(parser, "Expected 'then' after if condition");
+        g_node_destroy(&node);
+        g_node_destroy(&if_tok);
+        g_node_destroy(&cond);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *then_tok = g_node_create(G_WORD_NODE);
+    then_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* compound_list (then body) */
+    gnode_t *then_body = NULL;
+    status = gparse_compound_list(parser, &then_body);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&if_tok);
+        g_node_destroy(&cond);
+        g_node_destroy(&then_tok);
+        return status;
+    }
+
+    /* Optional else_part */
+    gnode_t *else_part = NULL;
+    status = gparse_else_part(parser, &else_part);
+
+    /* 'fi' */
+    if (parser_current_token_type(parser) != TOKEN_FI)
+    {
+        parser_set_error(parser, "Expected 'fi' to close if statement");
+        g_node_destroy(&node);
+        g_node_destroy(&if_tok);
+        g_node_destroy(&cond);
+        g_node_destroy(&then_tok);
+        g_node_destroy(&then_body);
+        if (else_part)
+            g_node_destroy(&else_part);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *fi_tok = g_node_create(G_WORD_NODE);
+    fi_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    node->data.multi.a = if_tok;
+    node->data.multi.b = cond;
+    node->data.multi.c = then_tok;
+    node->data.multi.d = then_body;
+
+    if (else_part || fi_tok)
+    {
+        /* Need a wrapper for additional fields */
+        gnode_t *wrapper = g_node_create(G_IF_CLAUSE);
+        wrapper->data.multi.a = node;
+        wrapper->data.multi.b = else_part;
+        wrapper->data.multi.c = fi_tok;
+        *out_node = wrapper;
+    }
+    else
+    {
+        *out_node = node;
+    }
+
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * else_part        : Elif compound_list Then compound_list else_part
+ *                  | Elif compound_list Then compound_list
+ *                  | Else compound_list
+ * ============================================================================
+ */
+parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    token_type_t t = parser_current_token_type(parser);
+
+    if (t == TOKEN_ELIF)
+    {
+        gnode_t *node = g_node_create(G_ELSE_PART);
+
+        /* 'elif' */
+        gnode_t *elif_tok = g_node_create(G_WORD_NODE);
+        elif_tok->data.token = parser_current_token(parser);
+        parser_advance(parser);
+
+        /* compound_list (condition) */
+        gnode_t *cond = NULL;
+        parse_status_t status = gparse_compound_list(parser, &cond);
+
+        if (status != PARSE_OK)
+        {
+            g_node_destroy(&node);
+            g_node_destroy(&elif_tok);
+            return status;
+        }
+
+        /* 'then' */
+        if (parser_current_token_type(parser) != TOKEN_THEN)
+        {
+            parser_set_error(parser, "Expected 'then' after elif condition");
+            g_node_destroy(&node);
+            g_node_destroy(&elif_tok);
+            g_node_destroy(&cond);
+            return PARSE_ERROR;
+        }
+
+        gnode_t *then_tok = g_node_create(G_WORD_NODE);
+        then_tok->data.token = parser_current_token(parser);
+        parser_advance(parser);
+
+        /* compound_list (then body) */
+        gnode_t *then_body = NULL;
+        status = gparse_compound_list(parser, &then_body);
+
+        if (status != PARSE_OK)
+        {
+            g_node_destroy(&node);
+            g_node_destroy(&elif_tok);
+            g_node_destroy(&cond);
+            g_node_destroy(&then_tok);
+            return status;
+        }
+
+        /* Optional else_part */
+        gnode_t *else_part = NULL;
+        status = gparse_else_part(parser, &else_part);
+
+        node->data.multi.a = elif_tok;
+        node->data.multi.b = cond;
+        node->data.multi.c = then_tok;
+        node->data.multi.d = then_body;
+
+        if (else_part)
+        {
+            gnode_t *wrapper = g_node_create(G_ELSE_PART);
+            wrapper->data.multi.a = node;
+            wrapper->data.multi.b = else_part;
+            *out_node = wrapper;
+        }
+        else
+        {
+            *out_node = node;
+        }
+
+        return PARSE_OK;
+    }
+    else if (t == TOKEN_ELSE)
+    {
+        gnode_t *node = g_node_create(G_ELSE_PART);
+
+        /* 'else' */
+        gnode_t *else_tok = g_node_create(G_WORD_NODE);
+        else_tok->data.token = parser_current_token(parser);
+        parser_advance(parser);
+
+        /* compound_list */
+        gnode_t *body = NULL;
+        parse_status_t status = gparse_compound_list(parser, &body);
+
+        if (status != PARSE_OK)
+        {
+            g_node_destroy(&node);
+            g_node_destroy(&else_tok);
+            return status;
+        }
+
+        node->data.multi.a = else_tok;
+        node->data.multi.b = body;
+
+        *out_node = node;
+        return PARSE_OK;
+    }
+
+    return PARSE_ERROR;
+}
+
+/* ============================================================================
+ * while_clause     : While compound_list do_group
+ * ============================================================================
+ */
+parse_status_t gparse_while_clause(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_WHILE)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_WHILE_CLAUSE);
+
+    /* 'while' */
+    gnode_t *while_tok = g_node_create(G_WORD_NODE);
+    while_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* compound_list (condition) */
+    gnode_t *cond = NULL;
+    parse_status_t status = gparse_compound_list(parser, &cond);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&while_tok);
+        return status;
+    }
+
+    /* do_group */
+    gnode_t *do_grp = NULL;
+    status = gparse_do_group(parser, &do_grp);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&while_tok);
+        g_node_destroy(&cond);
+        return status;
+    }
+
+    node->data.multi.a = while_tok;
+    node->data.multi.b = cond;
+    node->data.multi.c = do_grp;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * until_clause     : Until compound_list do_group
+ * ============================================================================
+ */
+parse_status_t gparse_until_clause(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_UNTIL)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_UNTIL_CLAUSE);
+
+    /* 'until' */
+    gnode_t *until_tok = g_node_create(G_WORD_NODE);
+    until_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* compound_list (condition) */
+    gnode_t *cond = NULL;
+    parse_status_t status = gparse_compound_list(parser, &cond);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&until_tok);
+        return status;
+    }
+
+    /* do_group */
+    gnode_t *do_grp = NULL;
+    status = gparse_do_group(parser, &do_grp);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&until_tok);
+        g_node_destroy(&cond);
+        return status;
+    }
+
+    node->data.multi.a = until_tok;
+    node->data.multi.b = cond;
+    node->data.multi.c = do_grp;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * function_definition : fname '(' ')' linebreak function_body
+ * ============================================================================
+ */
+parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    /* fname (NAME) */
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+        return PARSE_ERROR;
+
+    /* Look ahead for '(' */
+    token_t *next = parser_peek_token(parser, 1);
+    if (!next || token_get_type(next) != TOKEN_LPAREN)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_FUNCTION_DEFINITION);
+
+    /* fname */
+    gnode_t *fname = g_node_create(G_FNAME);
+    fname->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* '(' */
+    gnode_t *lparen = g_node_create(G_WORD_NODE);
+    lparen->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* ')' */
+    if (parser_current_token_type(parser) != TOKEN_RPAREN)
+    {
+        parser_set_error(parser, "Expected ')' after '(' in function definition");
+        g_node_destroy(&node);
+        g_node_destroy(&fname);
+        g_node_destroy(&lparen);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *rparen = g_node_create(G_WORD_NODE);
+    rparen->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* linebreak */
+    parser_skip_newlines(parser);
+
+    /* function_body (compound_command) */
+    gnode_t *body = NULL;
+    parse_status_t status = gparse_compound_command(parser, &body);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&fname);
+        g_node_destroy(&lparen);
+        g_node_destroy(&rparen);
+        return status;
+    }
+
+    node->data.multi.a = fname;
+    node->data.multi.b = lparen;
+    node->data.multi.c = rparen;
+    node->data.multi.d = body;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * brace_group      : Lbrace compound_list Rbrace
+ * ============================================================================
+ */
+parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_LBRACE)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_BRACE_GROUP);
+
+    /* '{' */
+    gnode_t *lbrace = g_node_create(G_WORD_NODE);
+    lbrace->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* compound_list */
+    gnode_t *list = NULL;
+    parse_status_t status = gparse_compound_list(parser, &list);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&lbrace);
+        return status;
+    }
+
+    /* '}' */
+    if (parser_current_token_type(parser) != TOKEN_RBRACE)
+    {
+        parser_set_error(parser, "Expected '}' to close brace group");
+        g_node_destroy(&node);
+        g_node_destroy(&lbrace);
+        g_node_destroy(&list);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *rbrace = g_node_create(G_WORD_NODE);
+    rbrace->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    node->data.multi.a = lbrace;
+    node->data.multi.b = list;
+    node->data.multi.c = rbrace;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * do_group         : Do compound_list Done
+ * ============================================================================
+ */
+parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    if (parser_current_token_type(parser) != TOKEN_DO)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_DO_GROUP);
+
+    /* 'do' */
+    gnode_t *do_tok = g_node_create(G_WORD_NODE);
+    do_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* compound_list */
+    gnode_t *list = NULL;
+    parse_status_t status = gparse_compound_list(parser, &list);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&do_tok);
+        return status;
+    }
+
+    /* 'done' */
+    if (parser_current_token_type(parser) != TOKEN_DONE)
+    {
+        parser_set_error(parser, "Expected 'done' to close do group");
+        g_node_destroy(&node);
+        g_node_destroy(&do_tok);
+        g_node_destroy(&list);
+        return PARSE_ERROR;
+    }
+
+    gnode_t *done_tok = g_node_create(G_WORD_NODE);
+    done_tok->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    node->data.multi.a = do_tok;
+    node->data.multi.b = list;
+    node->data.multi.c = done_tok;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+static bool is_redirect_token(token_type_t t)
+{
+    return (t == TOKEN_IO_NUMBER || t == TOKEN_IO_LOCATION || t == TOKEN_LESS ||
+            t == TOKEN_LESSAND || t == TOKEN_GREATER || t == TOKEN_GREATAND || t == TOKEN_DGREAT ||
+            t == TOKEN_LESSGREAT || t == TOKEN_CLOBBER || t == TOKEN_DLESS || t == TOKEN_DLESSDASH);
+}
+
+/* ============================================================================
+ * simple_command   : cmd_prefix cmd_word cmd_suffix
+ *                  | cmd_prefix cmd_word
+ *                  | cmd_prefix
+ *                  | cmd_name cmd_suffix
+ *                  | cmd_name
+ * ============================================================================
+ */
+parse_status_t gparse_simple_command(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_SIMPLE_COMMAND);
+    node->data.list = g_list_create();
+
+    bool has_cmd_prefix = false;
+    bool has_cmd_name = false;
+
+    /* Try to parse cmd_prefix (redirections and assignments) */
+    while (true)
+    {
+        token_type_t t = parser_current_token_type(parser);
+
+        /* Check for redirection */
+        if (t == TOKEN_IO_NUMBER || t == TOKEN_IO_LOCATION || t == TOKEN_LESS ||
+            t == TOKEN_LESSAND || t == TOKEN_GREATER || t == TOKEN_GREATAND || t == TOKEN_DGREAT ||
+            t == TOKEN_LESSGREAT || t == TOKEN_CLOBBER || t == TOKEN_DLESS || t == TOKEN_DLESSDASH)
+        {
+            gnode_t *redir = NULL;
+            parse_status_t status = gparse_io_redirect(parser, &redir);
+
+            if (status != PARSE_OK)
+                break;
+
+            gnode_t *prefix = g_node_create(G_CMD_PREFIX);
+            prefix->data.child = redir;
+            g_list_append(node->data.list, prefix);
+            has_cmd_prefix = true;
+            continue;
+        }
+
+        /* Check for assignment */
+        if (t == TOKEN_ASSIGNMENT_WORD)
+        {
+            gnode_t *assign = g_node_create(G_ASSIGNMENT_WORD);
+            assign->data.token = parser_current_token(parser);
+            parser_advance(parser);
+
+            gnode_t *prefix = g_node_create(G_CMD_PREFIX);
+            prefix->data.child = assign;
+            g_list_append(node->data.list, prefix);
+            has_cmd_prefix = true;
+            continue;
+        }
+
+        break;
+    }
+
+    /* Try to parse cmd_name (WORD) */
+    if (parser_current_token_type(parser) == TOKEN_WORD)
+    {
+        gnode_t *name = g_node_create(G_CMD_NAME);
+        name->data.token = parser_current_token(parser);
+        g_list_append(node->data.list, name);
+        parser_advance(parser);
+        has_cmd_name = true;
+    }
+
+    /* Create a single suffix node */
+    gnode_t *suffix = g_node_create(G_CMD_SUFFIX);
+    suffix->data.list = g_list_create();
+    bool has_suffix = false;
+
+    while (true)
+    {
+        token_type_t t = parser_current_token_type(parser);
+
+        if (is_redirect_token(t))
+        {
+            gnode_t *redir = NULL;
+            if (gparse_io_redirect(parser, &redir) != PARSE_OK)
+                break;
+
+            g_list_append(suffix->data.list, redir);
+            has_suffix = true;
+            continue;
+        }
+
+        if (t == TOKEN_WORD)
+        {
+            gnode_t *word = g_node_create(G_CMD_WORD);
+            word->data.token = parser_current_token(parser);
+            parser_advance(parser);
+
+            g_list_append(suffix->data.list, word);
+            has_suffix = true;
+            continue;
+        }
+
+        break;
+    }
+
+    if (has_suffix)
+        g_list_append(node->data.list, suffix);
+    else
+        g_node_destroy(&suffix);
+
+    /* Must have at least cmd_prefix or cmd_name */
+    if (!has_cmd_prefix && !has_cmd_name)
+    {
+        g_node_destroy(&node);
+        return PARSE_ERROR;
+    }
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * redirect_list    : redirect_list io_redirect
+ *                  |                io_redirect
+ * ============================================================================
+ */
+parse_status_t gparse_redirect_list(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *node = g_node_create(G_REDIRECT_LIST);
+    node->data.list = g_list_create();
+
+    /* Parse first io_redirect */
+    gnode_t *redir = NULL;
+    parse_status_t status = gparse_io_redirect(parser, &redir);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        return status;
+    }
+
+    g_list_append(node->data.list, redir);
+
+    /* Loop: io_redirect */
+    while (true)
+    {
+        gnode_t *next = NULL;
+        status = gparse_io_redirect(parser, &next);
+
+        if (status != PARSE_OK)
+            break;
+
+        g_list_append(node->data.list, next);
+    }
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * io_redirect      : io_file
+ *                  | IO_NUMBER io_file
+ *                  | IO_LOCATION io_file
+ *                  | io_here
+ *                  | IO_NUMBER io_here
+ *                  | IO_LOCATION io_here
+ * ============================================================================
+ */
+parse_status_t gparse_io_redirect(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    gnode_t *io_number = NULL;
+    gnode_t *io_location = NULL;
+
+    token_type_t t = parser_current_token_type(parser);
+
+    /* Optional IO_NUMBER or IO_LOCATION */
+    if (t == TOKEN_IO_NUMBER)
+    {
+        io_number = g_node_create(G_IO_NUMBER_NODE);
+        io_number->data.token = parser_current_token(parser);
+        parser_advance(parser);
+        t = parser_current_token_type(parser);
+    }
+    else if (t == TOKEN_IO_LOCATION)
+    {
+        io_location = g_node_create(G_IO_LOCATION_NODE);
+        io_location->data.token = parser_current_token(parser);
+        parser_advance(parser);
+        t = parser_current_token_type(parser);
+    }
+
+    /* Try io_file */
+    gnode_t *file = NULL;
+    parse_status_t status = gparse_io_file(parser, &file);
+
+    if (status == PARSE_OK)
+    {
+        gnode_t *node = g_node_create(G_IO_REDIRECT);
+        node->data.multi.a = io_number;
+        node->data.multi.b = io_location;
+        node->data.multi.c = file;
+        *out_node = node;
+        return PARSE_OK;
+    }
+
+    /* Try io_here */
+    gnode_t *here = NULL;
+    status = gparse_io_here(parser, &here);
+
+    if (status == PARSE_OK)
+    {
+        gnode_t *node = g_node_create(G_IO_REDIRECT);
+        node->data.multi.a = io_number;
+        node->data.multi.b = io_location;
+        node->data.multi.c = here;
+        *out_node = node;
+        return PARSE_OK;
+    }
+
+    /* No redirect found */
+    if (io_number)
+        g_node_destroy(&io_number);
+    if (io_location)
+        g_node_destroy(&io_location);
+
+    return PARSE_ERROR;
+}
+
+/* ============================================================================
+ * io_file          : '<'       filename
+ *                  | LESSAND   filename
+ *                  | '>'       filename
+ *                  | GREATAND  filename
+ *                  | DGREAT    filename
+ *                  | LESSGREAT filename
+ *                  | CLOBBER   filename
+ * ============================================================================
+ */
+parse_status_t gparse_io_file(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    token_type_t t = parser_current_token_type(parser);
+
+    switch (t)
+    {
+    case TOKEN_LESS:
+    case TOKEN_LESSAND:
+    case TOKEN_GREATER:
+    case TOKEN_GREATAND:
+    case TOKEN_DGREAT:
+    case TOKEN_LESSGREAT:
+    case TOKEN_CLOBBER:
+        break;
+    default:
+        return PARSE_ERROR;
+    }
+
+    gnode_t *node = g_node_create(G_IO_FILE);
+
+    /* operator token */
+    gnode_t *op = g_node_create(G_WORD_NODE);
+    op->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* filename */
+    gnode_t *fname = NULL;
+    parse_status_t status = gparse_filename(parser, &fname);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&op);
+        return status;
+    }
+
+    node->data.multi.a = op;
+    node->data.multi.b = fname;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * filename         : WORD                      (Apply rule 2)
+ * ============================================================================
+ */
+parse_status_t gparse_filename(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_FILENAME);
+    node->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * io_here          : DLESS     here_end
+ *                  | DLESSDASH here_end
+ * ============================================================================
+ */
+parse_status_t gparse_io_here(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    token_type_t t = parser_current_token_type(parser);
+
+    if (t != TOKEN_DLESS && t != TOKEN_DLESSDASH)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_IO_HERE);
+
+    /* operator token */
+    gnode_t *op = g_node_create(G_WORD_NODE);
+    op->data.token = parser_current_token(parser);
+    parser_advance(parser);
+
+    /* here_end */
+    gnode_t *end = NULL;
+    parse_status_t status = gparse_filename(parser, &end);
+
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        g_node_destroy(&op);
+        return status;
+    }
+
+    node->data.multi.a = op;
+    node->data.multi.b = end;
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * separator_op     : '&'
+ *                  | ';'
+ * ============================================================================
+ */
+parse_status_t gparse_separator_op(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    token_type_t t = parser_current_token_type(parser);
+
+    if (t != TOKEN_AMPER && t != TOKEN_SEMI)
+        return PARSE_ERROR; /* Not a separator_op */
+
+    gnode_t *node = g_node_create(G_SEPARATOR_OP);
+    node->data.token = parser_current_token(parser);
+
+    parser_advance(parser);
+
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * separator : separator_op linebreak | newline_list;
+ * ============================================================================
+ */
+parse_status_t gparse_separator(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    *out_node = NULL;
+
+    token_type_t t = parser_current_token_type(parser);
+
+    /* Case 1: separator_op linebreak */
+    if (t == TOKEN_AMPER || t == TOKEN_SEMI)
+    {
+        gnode_t *sep = g_node_create(G_SEPARATOR);
+
+        /* separator_op */
+        gnode_t *op = g_node_create(G_SEPARATOR_OP);
+        op->data.token = parser_current_token(parser);
+        parser_advance(parser);
+
+        /* linebreak */
+        parser_skip_newlines(parser);
+
+        sep->data.child = op;
+        *out_node = sep;
+        return PARSE_OK;
+    }
+
+    /* Case 2: newline_list */
+    if (t == TOKEN_NEWLINE)
+    {
+        gnode_t *sep = g_node_create(G_SEPARATOR);
+
+        gnode_t *nl = g_node_create(G_NEWLINE_LIST);
+        nl->data.list = g_list_create();
+
+        while (parser_current_token_type(parser) == TOKEN_NEWLINE)
+        {
+            gnode_t *tok = g_node_create(G_WORD_NODE);
+            tok->data.token = parser_current_token(parser);
+            parser_advance(parser);
+            g_list_append(nl->data.list, tok);
+        }
+
+        sep->data.child = nl;
+        *out_node = sep;
+        return PARSE_OK;
+    }
+
+    return PARSE_ERROR;
+}
+
+/* ============================================================================
+ * Test functions
+ * ============================================================================ */
+
+extern lex_status_t lex_cstr_to_tokens(const char *input, token_list_t *out_tokens);
+
+parser_t *parser_create_from_string(const char* input)
+{
+    Expects_not_null(input);
+    token_list_t *tokens = token_list_create();
+    lex_status_t status = lex_cstr_to_tokens(input, tokens);
+    if (status != LEX_OK)
+    {
+        token_list_destroy(&tokens);
+        return NULL;
+    }
+    parser_t *parser = parser_create_with_tokens(tokens);
+    if (!parser)
+    {
+        token_list_destroy(&tokens);
+        return NULL;
+    }
+
+    return parser;
+}
+
+parse_status_t parser_string_to_gnodes(const char* input, gnode_t** out_node)
+{
+    Expects_not_null(input);
+    Expects_not_null(out_node);
+    parser_t* parser = parser_create_from_string(input);
+    if (!parser)
+    {
+        return PARSE_ERROR;
+    }
+    parse_status_t status = parser_parse_program(parser, out_node);
+    if (status != PARSE_OK)
+    {
+        parser_destroy(&parser);
+        return status;
+    }
+    /* Ensure we've consumed all tokens */
+    if (parser_current_token_type(parser) != TOKEN_EOF)
+    {
+        parser_set_error(parser, "Unexpected tokens after end of input");
+        g_node_destroy(out_node);
+        *out_node = NULL;
+        parser_destroy(&parser);
+        return PARSE_ERROR;
+    }
+    parser_destroy(&parser);
+    return PARSE_OK;
+}
+
+gnode_t *parser_parse_string(const char *input)
+{
+    Expects_not_null(input);
+    gnode_t *root = NULL;
+    parse_status_t status = parser_string_to_gnodes(input, &root);
+    if (status != PARSE_OK)
+    {
+        return NULL;
+    }
+    return root;
 }
