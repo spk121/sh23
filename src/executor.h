@@ -4,6 +4,7 @@
 #include "ast.h"
 #include "string_t.h"
 #include "expander.h"
+#include "variable_store.h"
 #include <stdbool.h>
 
 /* ============================================================================
@@ -31,6 +32,8 @@ typedef struct executor_t
 
     /* Execution state */
     bool dry_run; // if true, don't actually execute, just validate
+
+    variable_store_t *variables;
 
 } executor_t;
 

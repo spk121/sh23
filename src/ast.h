@@ -27,7 +27,8 @@ typedef enum
     /* Compound commands */
     AST_SUBSHELL,          // ( command_list )
     AST_BRACE_GROUP,       // { command_list; }
-    AST_IF_CLAUSE,         // if/then/else/elif/fi
+    AST_IF_CLAUSE,         // if/then/else/fi
+    AST_ELIF_CLAUSE,       // elif/then
     AST_WHILE_CLAUSE,      // while/do/done
     AST_UNTIL_CLAUSE,      // until/do/done
     AST_FOR_CLAUSE,        // for/in/do/done
@@ -109,6 +110,23 @@ typedef enum
     REDIR_READWRITE,   // <>
     REDIR_CLOBBER,     // >|
 } redirection_type_t;
+
+typedef enum
+{
+    REDIR_OPERAND_NONE,     // should never happen
+    REDIR_OPERAND_FILENAME, // target is a filename token
+    REDIR_OPERAND_FD,       // target is a numeric fd (from token)
+    REDIR_OPERAND_CLOSE,    // target is '-', indicating close fd
+    REDIR_OPERAND_IOLOC,    // io_location is a string (e.g., <&var). Probably UNUSED
+    REDIR_OPERAND_HEREDOC   // heredoc_content is used
+} redir_operand_kind_t;
+
+typedef enum
+{
+    CASE_TERM_NONE,    // for case_item_ns
+    CASE_TERM_DSEMI,   // ;;
+    CASE_TERM_SEMI_AND // ;&
+} case_terminator_t;
 
 /* ============================================================================
  * Forward Declarations
@@ -199,9 +217,16 @@ struct ast_node_t
         {
             ast_node_t *condition;      // condition to test
             ast_node_t *then_body;      // commands if condition is true
-            ast_node_list_t *elif_list; // list of elif nodes (each is an if_clause)
+            ast_node_list_t *elif_list; // list of elif nodes (each is an AST_ELIF_CLAUSE)
             ast_node_t *else_body;      // commands if all conditions are false (optional)
         } if_clause;
+
+        /* AST_ELIF_CLAUSE */
+        struct
+        {
+            ast_node_t *condition; // condition to test
+            ast_node_t *then_body; // commands if condition is true
+        } elif_clause;
 
         /* AST_WHILE_CLAUSE, AST_UNTIL_CLAUSE */
         struct
@@ -230,6 +255,7 @@ struct ast_node_t
         {
             token_list_t *patterns; // list of patterns
             ast_node_t *body;       // commands to execute if pattern matches
+            case_terminator_t terminator; // ;;, ;&, or none
         } case_item;
 
         /* AST_FUNCTION_DEF */
@@ -251,10 +277,12 @@ struct ast_node_t
         struct
         {
             redirection_type_t redir_type;
-            int io_number;         // file descriptor (or -1 for default)
-            string_t *io_location; // braced io location (e.g., "2" or "var")
-            token_t *target;       // filename or fd for redirection
-            string_t *heredoc_content; // for heredoc
+            int io_number;                // fd being redirected (or -1)
+            redir_operand_kind_t operand; // operand type
+
+            string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
+            token_t *target;           // used when operand == FILENAME or FD
+            string_t *heredoc_content; // used when operand == HEREDOC
         } redirection;
     } data;
 };
@@ -411,7 +439,8 @@ ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *
  * Create a redirection node.
  * OWNERSHIP: Takes ownership of target token.
  */
-ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
+ast_node_t *ast_create_redirection(redirection_type_t redir_type,
+                                   redir_operand_kind_t operand, int io_number,
                                   string_t *io_location, token_t *target);
 
 /* ============================================================================

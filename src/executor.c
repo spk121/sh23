@@ -8,6 +8,8 @@
 #ifdef POSIX_API
 #include <glob.h>
 #include <sys/wait.h>
+#include <unistd.h>
+#include <fcntl.h>
 #endif
 #ifdef UCRT_API
 #include <io.h>
@@ -15,10 +17,36 @@
 #endif
 
 /* ============================================================================
- * Constants
+ * Constants and types
  * ============================================================================ */
 
 #define EXECUTOR_ERROR_BUFFER_SIZE 512
+
+#ifdef POSIX_API
+typedef struct saved_fd_t
+{
+    int fd;        // the FD being redirected
+    int backup_fd; // duplicate of original FD
+} saved_fd_t;
+#endif
+
+/* ============================================================================
+ * Forward Declarations
+ * ============================================================================ */
+
+#ifdef POSIX_API
+static exec_status_t executor_apply_redirections_posix(executor_t *executor,
+                                                       const ast_node_list_t *redirs,
+                                                       saved_fd_t **out_saved,
+                                                       int *out_saved_count);
+
+static void executor_restore_redirections_posix(saved_fd_t *saved, int saved_count);
+static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const ast_node_t *node);
+
+#else
+static exec_status_t executor_apply_redirections_iso_c(executor_t *executor,
+                                                       const ast_node_list_t *redirs);
+#endif
 
 /* ============================================================================
  * Executor Lifecycle Functions
@@ -238,42 +266,192 @@ exec_status_t executor_execute_pipeline(executor_t *executor, const ast_node_t *
     Expects_not_null(node);
     Expects_eq(node->type, AST_PIPELINE);
 
-    // For now, execute commands sequentially without actual piping
-    // A real implementation would set up pipes between commands
-    exec_status_t status = EXEC_OK;
+    const ast_node_list_t *cmds = node->data.pipeline.commands;
+    bool is_negated = node->data.pipeline.is_negated;
 
-    if (node->data.pipeline.commands == NULL)
+    if (cmds == NULL || ast_node_list_size(cmds) == 0)
     {
         return EXEC_OK;
     }
 
-    for (int i = 0; i < node->data.pipeline.commands->size; i++)
-    {
-        ast_node_t *cmd = node->data.pipeline.commands->nodes[i];
-        status = executor_execute(executor, cmd);
+    int n = ast_node_list_size(cmds);
 
-        if (status != EXEC_OK)
+    /* Single command: no actual pipe needed in any mode */
+    if (n == 1)
+    {
+        const ast_node_t *only = ast_node_list_get(cmds, 0);
+        exec_status_t st = executor_execute(executor, only);
+
+        if (st == EXEC_OK && is_negated)
         {
-            break;
+            int s = executor_get_exit_status(executor);
+            executor_set_exit_status(executor, s == 0 ? 1 : 0);
         }
+
+        return st;
     }
 
-    // Handle negation
-    if (node->data.pipeline.is_negated && status == EXEC_OK)
-    {
-        // Invert exit status
-        if (executor->last_exit_status == 0)
-        {
-            executor->last_exit_status = 1;
-        }
-        else
-        {
-            executor->last_exit_status = 0;
-        }
-    }
-
-    return status;
+#ifdef POSIX_API
+    /* Real pipeline implementation on POSIX */
+    return executor_execute_pipeline_posix(executor, node);
+#elifdef UCRT_API
+    executor_set_error(executor, "Pipelines are not yet supported in UCRT_API mode");
+    return EXEC_NOT_IMPL;
+#else
+    /* No portable way to implement pipelines with system() */
+    executor_set_error(executor, "Pipelines are not supported in ISO_C_API mode");
+    return EXEC_ERROR;
+#endif
 }
+
+#ifdef POSIX_API
+static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_PIPELINE);
+
+    const ast_node_list_t *cmds = node->data.pipeline.commands;
+    bool is_negated = node->data.pipeline.is_negated;
+    int n = ast_node_list_size(cmds);
+
+    if (n <= 0)
+        return EXEC_OK;
+
+    /* Allocate pipes: n-1 pipes => 2*(n-1) fds */
+    int num_pipes = n - 1;
+    int(*pipes)[2] = NULL;
+    if (num_pipes > 0)
+    {
+        pipes = xcalloc((size_t)num_pipes, sizeof(int[2]));
+        for (int i = 0; i < num_pipes; i++)
+        {
+            if (pipe(pipes[i]) < 0)
+            {
+                executor_set_error(executor, "pipe() failed");
+                for (int j = 0; j < i; j++)
+                {
+                    close(pipes[j][0]);
+                    close(pipes[j][1]);
+                }
+                xfree(pipes);
+                return EXEC_ERROR;
+            }
+        }
+    }
+
+    pid_t *pids = xcalloc((size_t)n, sizeof(pid_t));
+
+    /* Fork children */
+    for (int i = 0; i < n; i++)
+    {
+        const ast_node_t *cmd = ast_node_list_get(cmds, i);
+
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            executor_set_error(executor, "fork() failed");
+            /* Close all pipes */
+            for (int k = 0; k < num_pipes; k++)
+            {
+                close(pipes[k][0]);
+                close(pipes[k][1]);
+            }
+            xfree(pipes);
+            xfree(pids);
+            return EXEC_ERROR;
+        }
+
+        if (pid == 0)
+        {
+            /* Child */
+
+            /* Connect stdin if not first command */
+            if (i > 0)
+            {
+                if (dup2(pipes[i - 1][0], STDIN_FILENO) < 0)
+                {
+                    _exit(127);
+                }
+            }
+
+            /* Connect stdout if not last command */
+            if (i < n - 1)
+            {
+                if (dup2(pipes[i][1], STDOUT_FILENO) < 0)
+                {
+                    _exit(127);
+                }
+            }
+
+            /* Close all pipe fds in child */
+            for (int k = 0; k < num_pipes; k++)
+            {
+                close(pipes[k][0]);
+                close(pipes[k][1]);
+            }
+
+            /* Execute command in child context */
+            exec_status_t st = executor_execute(executor, cmd);
+
+            int exit_code = 0;
+            if (st == EXEC_OK)
+                exit_code = executor_get_exit_status(executor);
+            else
+                exit_code = 127; /* generic failure */
+
+            _exit(exit_code);
+        }
+
+        /* Parent */
+        pids[i] = pid;
+    }
+
+    /* Parent: close all pipe fds */
+    for (int k = 0; k < num_pipes; k++)
+    {
+        close(pipes[k][0]);
+        close(pipes[k][1]);
+    }
+    xfree(pipes);
+
+    /* Wait for all children; record status of last in pipeline */
+    int last_status = 0;
+    for (int i = 0; i < n; i++)
+    {
+        int status = 0;
+        if (waitpid(pids[i], &status, 0) < 0)
+        {
+            /* Ignore wait errors for now */
+            continue;
+        }
+
+        if (i == n - 1)
+        {
+            /* Normalize to shell exit status convention */
+            int code = 0;
+            if (WIFEXITED(status))
+                code = WEXITSTATUS(status);
+            else if (WIFSIGNALED(status))
+                code = 128 + WTERMSIG(status);
+            else
+                code = 127;
+
+            last_status = code;
+        }
+    }
+
+    xfree(pids);
+
+    /* Apply negation if needed */
+    if (is_negated)
+        last_status = (last_status == 0) ? 1 : 0;
+
+    executor_set_exit_status(executor, last_status);
+    return EXEC_OK;
+}
+#endif /* POSIX_API */
+
 
 exec_status_t executor_execute_simple_command(executor_t *executor, const ast_node_t *node)
 {
@@ -322,6 +500,232 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     return EXEC_NOT_IMPL;
 }
 
+#if defined(POSIX_API)
+static exec_status_t executor_execute_simple_command_posix(executor_t *executor,
+                                                           const ast_node_t *node)
+{
+    const token_list_t *words = node->data.simple_command.words;
+    const token_list_t *assigns = node->data.simple_command.assignments;
+    const ast_node_list_t *redirs = node->data.simple_command.redirections;
+
+    bool has_words = (words && token_list_size(words) > 0);
+
+    /* ============================================================
+     * 1. Assignment-only command (no command name)
+     * ============================================================ */
+    if (!has_words)
+    {
+        /* These modify the shell's own variable store */
+        executor_apply_assignments_to_store(executor, assigns);
+        executor_set_exit_status(executor, 0);
+        return EXEC_OK;
+    }
+
+    /* ============================================================
+     * 2. Build temporary variable store for VAR=val cmd
+     * ============================================================ */
+    variable_store_t *tmp_vars = variable_store_create();
+
+    /* Expand and insert assignment words into tmp_vars */
+    executor_apply_assignments_to_store((executor_t *)&(executor_t){.variables = tmp_vars},
+                                        assigns);
+
+    /* ============================================================
+     * 3. Build envp = exported(parent) + all(tmp_vars)
+     * ============================================================ */
+    char *const *envp = variable_store_update_envp_with_parent(tmp_vars, executor->variables);
+
+    /* ============================================================
+     * 4. Apply redirections
+     * ============================================================ */
+    saved_fd_t *saved = NULL;
+    int saved_count = 0;
+
+    exec_status_t st = executor_apply_redirections_posix(executor, redirs, &saved, &saved_count);
+
+    if (st != EXEC_OK)
+    {
+        variable_store_destroy(&tmp_vars);
+        return st;
+    }
+
+    /* ============================================================
+     * 5. Fork and exec
+     * ============================================================ */
+    pid_t pid = fork();
+    if (pid < 0)
+    {
+        executor_set_error(executor, "fork() failed");
+        executor_restore_redirections_posix(saved, saved_count);
+        free(saved);
+        variable_store_destroy(&tmp_vars);
+        return EXEC_ERROR;
+    }
+
+    if (pid == 0)
+    {
+        /* ---------------- CHILD PROCESS ---------------- */
+
+        /* Build argv[] */
+        int argc = token_list_size(words);
+        char **argv = xcalloc(argc + 1, sizeof(char *));
+        for (int i = 0; i < argc; i++)
+            argv[i] = (char *)token_lexeme(token_list_get(words, i));
+        argv[argc] = NULL;
+
+        /* Execute command with merged environment */
+        execve(argv[0], argv, envp);
+
+        /* If execve returns, it's an error */
+        _exit(127);
+    }
+
+    /* ---------------- PARENT PROCESS ---------------- */
+
+    int status = 0;
+    waitpid(pid, &status, 0);
+
+    executor_restore_redirections_posix(saved, saved_count);
+    free(saved);
+
+    variable_store_destroy(&tmp_vars);
+
+    /* ============================================================
+     * 6. Normalize exit status
+     * ============================================================ */
+    int exit_code = 0;
+    if (WIFEXITED(status))
+        exit_code = WEXITSTATUS(status);
+    else if (WIFSIGNALED(status))
+        exit_code = 128 + WTERMSIG(status);
+    else
+        exit_code = 127;
+
+    executor_set_exit_status(executor, exit_code);
+    return EXEC_OK;
+}
+#else
+static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
+                                                           const ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_SIMPLE_COMMAND);
+
+    const token_list_t *words = node->data.simple_command.words;
+    const token_list_t *assigns = node->data.simple_command.assignments;
+    const ast_node_list_t *redirs = node->data.simple_command.redirections;
+
+    /* ISO C: we cannot support redirections at all */
+    if (redirs && ast_node_list_size(redirs) > 0)
+    {
+        executor_set_error(executor, "Redirections are not supported in ISO_C_API mode");
+        return EXEC_ERROR;
+    }
+
+    bool has_words = (words && token_list_size(words) > 0);
+
+    /* ============================================================
+     * 1. Assignment-only simple command: FOO=1
+     *    -> update shell variable store, do not run a command
+     * ============================================================ */
+    if (!has_words)
+    {
+        /* These persist in the shell's variable namespace */
+        executor_apply_assignments_to_store(executor, assigns);
+        executor_set_exit_status(executor, 0);
+        return EXEC_OK;
+    }
+
+    /* ============================================================
+     * 2. Command with temporary assignments: FOO=1 cmd ...
+     *    We must:
+     *      - create a temporary variable store
+     *      - populate it with the assignment words
+     *      - conceptually use (tmp + executor->variables) for expansions
+     *      - BUT we cannot pass envp to system(), so this only affects
+     *        the shell language (expansion) if/when wired.
+     * ============================================================ */
+
+    variable_store_t *tmp_vars = variable_store_create();
+
+    /*
+     * For now, we reuse executor_apply_assignments_to_store, but we
+     * need it to target tmp_vars instead of executor->variables.
+     * The clean way is to factor it to accept a variable_store_t*,
+     * but as a temporary hack you might adapt it. Here we inline a
+     * simple "assignments -> tmp_vars" equivalent.
+     */
+    if (assigns && token_list_size(assigns) > 0)
+    {
+        for (int i = 0; i < token_list_size(assigns); i++)
+        {
+            token_t *tok = token_list_get(assigns, i);
+            const char *lex = token_lexeme(tok);
+            if (!lex)
+                continue;
+
+            const char *eq = strchr(lex, '=');
+            if (!eq || eq == lex)
+            {
+                log_warn("executor (ISO_C): invalid assignment word '%s'", lex);
+                continue;
+            }
+
+            string_t *name = string_create_from_range(lex, eq);
+            string_t *value = string_create_from_cstr(eq + 1);
+
+            /* Temporary vars are always considered "environment-visible"
+             * in a logical sense, but ISO_C cannot actually pass envp.
+             * Export flag here is mostly conceptual for future use.
+             */
+            variable_store_add(tmp_vars, name, value, true /*exported logically*/,
+                               false /*read_only*/);
+
+            string_destroy(&name);
+            string_destroy(&value);
+        }
+    }
+
+    /*
+     * At this point, the *ideal* behavior is:
+     *  - expansions see tmp_vars + executor->variables
+     * But since the expander isn't wired through here yet, we just
+     * build a literal command string from the words.
+     */
+
+    string_t *cmd = string_create();
+    int word_count = token_list_size(words);
+    for (int i = 0; i < word_count; i++)
+    {
+        if (i > 0)
+            string_append_cstr(cmd, " ");
+
+        const char *lex = token_lexeme(token_list_get(words, i));
+        if (lex)
+            string_append_cstr(cmd, lex);
+    }
+
+    /* Execute via system() — no control over child environment */
+    int rc = system(string_data(cmd));
+    string_destroy(&cmd);
+    variable_store_destroy(&tmp_vars);
+
+    if (rc == -1)
+    {
+        executor_set_error(executor, "system() failed");
+        return EXEC_ERROR;
+    }
+
+    /* ISO C gives us no standard way to decode rc beyond 0/non-0.
+     * We'll just store the raw return code here.
+     */
+    executor_set_exit_status(executor, rc);
+    return EXEC_OK;
+}
+#endif
+
+
 exec_status_t executor_execute_redirected_command(executor_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -333,14 +737,232 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
         int redir_count = node->data.redirected_command.redirections == NULL
                               ? 0
                               : ast_node_list_size(node->data.redirected_command.redirections);
-        printf("[DRY RUN] Redirected command (%d redirection%s)\n",
-               redir_count,
+        printf("[DRY RUN] Redirected command (%d redirection%s)\n", redir_count,
                (redir_count == 1) ? "" : "s");
+        return EXEC_OK;
     }
 
-    // TODO: apply redirections before executing the wrapped command
-    return executor_execute(executor, node->data.redirected_command.command);
+    const ast_node_list_t *redirs = node->data.redirected_command.redirections;
+    const ast_node_t *command = node->data.redirected_command.command;
+
+    if (redirs == NULL || ast_node_list_size(redirs) == 0)
+    {
+        // No redirections — just execute the command
+        return executor_execute(executor, command);
+    }
+
+#ifdef POSIX_API
+    saved_fd_t *saved = NULL;
+    int saved_count = 0;
+
+    exec_status_t st = executor_apply_redirections_posix(executor, redirs, &saved, &saved_count);
+
+    if (st != EXEC_OK)
+    {
+        return st;
+    }
+
+    // Execute wrapped command
+    st = executor_execute(executor, command);
+
+    // Restore original FDs
+    executor_restore_redirections_posix(saved, saved_count);
+    free(saved);
+
+    return st;
+#elifdef UCRT_API
+    // TODO: Windows implementation
+    executor_set_error(executor, "Redirections not yet implemented on UCRT_API");
+    return EXEC_NOT_IMPL;
+#else
+    return executor_apply_redirections_iso_c(executor, redirs);
+#endif
 }
+
+#ifdef POSIX_API
+static exec_status_t executor_apply_redirections_posix(executor_t *executor,
+                                                       const ast_node_list_t *redirs,
+                                                       saved_fd_t **out_saved, int *out_saved_count)
+{
+    Expects_not_null(executor);
+    Expects_not_null(redirs);
+    Expects_not_null(out_saved);
+    Expects_not_null(out_saved_count);
+
+    int count = ast_node_list_size(redirs);
+    saved_fd_t *saved = calloc(count, sizeof(saved_fd_t));
+    if (!saved)
+    {
+        executor_set_error(executor, "Out of memory");
+        return EXEC_ERROR;
+    }
+
+    int saved_i = 0;
+
+    for (int i = 0; i < count; i++)
+    {
+        const ast_node_t *r = redirs->nodes[i];
+        Expects_eq(r->type, AST_REDIRECTION);
+
+        int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
+                  : (r->data.redirection.redir_type == REDIR_INPUT ||
+                     r->data.redirection.redir_type == REDIR_HEREDOC ||
+                     r->data.redirection.redir_type == REDIR_HEREDOC_STRIP)
+                      ? 0
+                      : 1);
+
+        // Save original FD
+        int backup = dup(fd);
+        if (backup < 0)
+        {
+            executor_set_error(executor, "dup() failed");
+            free(saved);
+            return EXEC_ERROR;
+        }
+
+        saved[saved_i].fd = fd;
+        saved[saved_i].backup_fd = backup;
+        saved_i++;
+
+        redir_operand_kind_t opk = r->data.redirection.operand;
+
+        switch (opk)
+        {
+
+        case REDIR_OPERAND_FILENAME: {
+            const char *fname = token_lexeme(r->data.redirection.target);
+            int flags = 0;
+            mode_t mode = 0666;
+
+            switch (r->data.redirection.redir_type)
+            {
+            case REDIR_INPUT:
+                flags = O_RDONLY;
+                break;
+            case REDIR_OUTPUT:
+                flags = O_WRONLY | O_CREAT | O_TRUNC;
+                break;
+            case REDIR_APPEND:
+                flags = O_WRONLY | O_CREAT | O_APPEND;
+                break;
+            case REDIR_READWRITE:
+                flags = O_RDWR | O_CREAT;
+                break;
+            case REDIR_CLOBBER:
+                flags = O_WRONLY | O_CREAT | O_TRUNC;
+                break;
+            default:
+                executor_set_error(executor, "Invalid filename redirection");
+                free(saved);
+                return EXEC_ERROR;
+            }
+
+            int newfd = open(fname, flags, mode);
+            if (newfd < 0)
+            {
+                executor_set_error(executor, "Failed to open '%s'", fname);
+                free(saved);
+                return EXEC_ERROR;
+            }
+
+            if (dup2(newfd, fd) < 0)
+            {
+                executor_set_error(executor, "dup2() failed");
+                close(newfd);
+                free(saved);
+                return EXEC_ERROR;
+            }
+
+            close(newfd);
+            break;
+        }
+
+        case REDIR_OPERAND_FD: {
+            const char *lex = token_lexeme(r->data.redirection.target);
+            int src = atoi(lex);
+
+            if (dup2(src, fd) < 0)
+            {
+                executor_set_error(executor, "dup2(%d,%d) failed", src, fd);
+                free(saved);
+                return EXEC_ERROR;
+            }
+            break;
+        }
+
+        case REDIR_OPERAND_CLOSE: {
+            close(fd);
+            break;
+        }
+
+        case REDIR_OPERAND_HEREDOC: {
+            int pipefd[2];
+            if (pipe(pipefd) < 0)
+            {
+                executor_set_error(executor, "pipe() failed");
+                free(saved);
+                return EXEC_ERROR;
+            }
+
+            const char *content = r->data.redirection.heredoc_content
+                                      ? string_data(r->data.redirection.heredoc_content)
+                                      : "";
+
+            write(pipefd[1], content, strlen(content));
+            close(pipefd[1]);
+
+            if (dup2(pipefd[0], fd) < 0)
+            {
+                executor_set_error(executor, "dup2() failed for heredoc");
+                close(pipefd[0]);
+                free(saved);
+                return EXEC_ERROR;
+            }
+
+            close(pipefd[0]);
+            break;
+        }
+
+        default:
+            executor_set_error(executor, "Unknown redirection operand");
+            free(saved);
+            return EXEC_ERROR;
+        }
+    }
+
+    *out_saved = saved;
+    *out_saved_count = saved_i;
+    return EXEC_OK;
+}
+
+static void executor_restore_redirections_posix(saved_fd_t *saved, int saved_count)
+{
+    for (int i = 0; i < saved_count; i++)
+    {
+        dup2(saved[i].backup_fd, saved[i].fd);
+        close(saved[i].backup_fd);
+    }
+}
+
+#elifdef UCRT_API
+static exec_status_t executor_apply_redirections_ucrt_c(executor_t *executor,
+                                                         const ast_node_list_t *redirs)
+{
+    (void)redirs;
+    executor_set_error(executor, "Redirections are not yet supported in UCRT_API mode");
+    return EXEC_NOT_IMPL;
+}
+#else
+static exec_status_t executor_apply_redirections_iso_c(executor_t *executor,
+                                                       const ast_node_list_t *redirs)
+{
+    (void)redirs;
+
+    executor_set_error(executor, "Redirections are not supported in ISO_C_API mode");
+
+    return EXEC_ERROR;
+}
+#endif
 
 exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t *node)
 {

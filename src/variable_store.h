@@ -9,6 +9,7 @@
 
 typedef struct variable_store_t {
     variable_array_t *variables;
+    char **cached_envp; // NULL-terminated array of malloc'd strings
 } variable_store_t;
 
 // Constructors
@@ -47,5 +48,15 @@ string_t *variable_store_get_value_removing_smallest_suffix(const variable_store
 string_t *variable_store_get_value_removing_largest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern);
 string_t *variable_store_get_value_removing_smallest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern);
 string_t *variable_store_get_value_removing_largest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern);
+
+// Environment array management
+/**
+ * Rebuild and return the envp array for execve().
+ * The returned pointer is owned by the variable store and remains valid
+ * until the next call to variable_store_update_envp().
+ */
+char *const *variable_store_update_envp(variable_store_t *vs);
+char *const *variable_store_update_envp_with_parent(variable_store_t *vs,
+                                                    const variable_store_t *parent);
 
 #endif
