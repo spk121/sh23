@@ -66,6 +66,16 @@ executor_t *executor_create(void)
     executor->variables = variable_store_create();
     executor->positional_params = positional_params_stack_create();
     
+    // Initialize special variable fields
+    executor->last_background_pid = 0;
+#ifdef POSIX_API
+    executor->shell_pid = (int)getpid();
+#else
+    executor->shell_pid = 0;
+#endif
+    executor->last_argument = string_create();
+    executor->shell_flags = string_create();
+    
     return executor;
 }
 
@@ -90,6 +100,17 @@ void executor_destroy(executor_t **executor)
     if (e->positional_params != NULL)
     {
         positional_params_stack_destroy(&e->positional_params);
+    }
+    
+    // Clean up special variable fields
+    if (e->last_argument != NULL)
+    {
+        string_destroy(&e->last_argument);
+    }
+    
+    if (e->shell_flags != NULL)
+    {
+        string_destroy(&e->shell_flags);
     }
 
     xfree(e);

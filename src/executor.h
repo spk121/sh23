@@ -23,6 +23,13 @@ typedef enum
  * Executor Context
  * ============================================================================ */
 
+/**
+ * @brief Executor context for shell command execution
+ * 
+ * The executor_t structure maintains the execution state for a shell session,
+ * including exit status tracking, error reporting, variables, and special
+ * POSIX shell variables.
+ */
 typedef struct executor_t
 {
     /* Exit status from last command */
@@ -34,10 +41,15 @@ typedef struct executor_t
     /* Execution state */
     bool dry_run; // if true, don't actually execute, just validate
 
+    /* Variable and parameter storage */
     variable_store_t *variables;
-
     positional_params_stack_t *positional_params;
 
+    /* Special variables for POSIX shell */
+    int last_background_pid;    // $! - PID of last background command
+    int shell_pid;              // $$ - PID of the shell process (set via getpid() on POSIX)
+    string_t *last_argument;    // $_ - Last argument of previous command
+    string_t *shell_flags;      // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
 
 } executor_t;
 
