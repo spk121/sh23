@@ -298,7 +298,7 @@ int variable_store_set_exported_cstr(variable_store_t *store, const char *name, 
 }
 
 // Value helper wrappers
-int variable_store_get_variable_length(const variable_store_t *store, const string_t *name)
+int variable_store_get_value_length(const variable_store_t *store, const string_t *name)
 {
     Expects_not_null(store);
     Expects_not_null(name);
@@ -307,54 +307,6 @@ int variable_store_get_variable_length(const variable_store_t *store, const stri
         return -1;
     }
     return variable_get_value_length(var);
-}
-
-string_t *variable_store_get_value_removing_smallest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(pattern);
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return NULL;
-    }
-    return variable_remove_smallest_suffix(var, pattern);
-}
-
-string_t *variable_store_get_value_removing_largest_suffix(const variable_store_t *store, const string_t *name, const string_t *pattern)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(pattern);
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return NULL;
-    }
-    return variable_remove_largest_suffix(var, pattern);
-}
-
-string_t *variable_store_get_value_removing_smallest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(pattern);
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return NULL;
-    }
-    return variable_remove_smallest_prefix(var, pattern);
-}
-
-string_t *variable_store_get_value_removing_largest_prefix(const variable_store_t *store, const string_t *name, const string_t *pattern)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(pattern);
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return NULL;
-    }
-    return variable_remove_largest_prefix(var, pattern);
 }
 
 char *const *variable_store_update_envp(variable_store_t *vs)
