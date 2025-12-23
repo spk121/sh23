@@ -30,22 +30,27 @@ void g_list_append(gnode_list_t *list, gnode_t *node)
     list->nodes[list->size++] = node;
 }
 
+// Minimum plausible heap address threshold for detecting obviously invalid pointers
+// This is a heuristic - pointers below this value (like 0x1, 0x2) are likely corrupted
+#define MIN_PLAUSIBLE_HEAP_ADDR 4096
+
 void g_list_destroy(gnode_list_t **plist)
 {
     if (!plist || !*plist)
         return;
     gnode_list_t *list = *plist;
 
-    /* Validate list pointer before using it */
-    if ((uintptr_t)list < 4096)
+    /* Validate list pointer before using it - check for obviously invalid addresses
+     * like 0x1 which indicate a corrupted union member or uninitialized data */
+    if ((uintptr_t)list < MIN_PLAUSIBLE_HEAP_ADDR)
     {
         fprintf(stderr, "g_list_destroy: invalid list pointer %p (likely uninitialized union member)\n", (void*)list);
         *plist = NULL;
         return;
     }
 
-    /* Validate nodes pointer before using it */
-    if (list->nodes && (uintptr_t)list->nodes < 4096)
+    /* Validate nodes pointer similarly */
+    if (list->nodes && (uintptr_t)list->nodes < MIN_PLAUSIBLE_HEAP_ADDR)
     {
         fprintf(stderr, "g_list_destroy: invalid nodes pointer %p in list %p (likely uninitialized or corrupted)\n", 
                 (void*)list->nodes, (void*)list);
