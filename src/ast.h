@@ -121,13 +121,21 @@ typedef enum
     REDIR_OPERAND_HEREDOC   // heredoc_content is used
 } redir_operand_kind_t;
 
+#ifdef FUTURE
+typedef enum
+{
+    CASE_ACTION_NONE,
+    CASE_ACTION_BREAK,
+    CASE_ACTION_FALLTHROUGH
+} case_action_t;
+#else
 typedef enum
 {
     CASE_TERM_NONE,    // for case_item_ns
     CASE_TERM_DSEMI,   // ;;
     CASE_TERM_SEMI_AND // ;&
 } case_terminator_t;
-
+#endif
 /* ============================================================================
  * Forward Declarations
  * ============================================================================ */
