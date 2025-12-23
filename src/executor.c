@@ -186,6 +186,8 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     
     // ------------------------------------------------------------
     // Add special shell variables from executor state
+    // These are added per the Phase 2 requirement to populate
+    // special variables in the temp variable store
     // ------------------------------------------------------------
     
     // $? - last exit status
