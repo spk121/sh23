@@ -5,18 +5,6 @@
 #include <string.h>
 #include <assert.h>
 
-struct positional_params_t {
-    string_t **params; // params[0] is $1
-    int count;         // number of params
-};
-
-struct positional_params_stack_t {
-    positional_params_t **frames;
-    int depth;
-    int capacity;
-    string_t *zero; // $0 stored separately
-    int max_params; // Maximum number of positional parameters allowed
-};
 
 static positional_params_t *positional_params_create_frame(string_t **params, int count)
 {

@@ -527,12 +527,17 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     bool has_words =
         (node->data.simple_command.words && token_list_size(node->data.simple_command.words) > 0);
 
-    bool has_assignments = executor_simple_command_has_assignments(node);
+    // FIXME: implement executor_simple_command_has_assignments()
+    //bool has_assignments = executor_simple_command_has_assignments(node);
+    bool has_assignments =
+        (node->data.simple_command.assignments &&
+                            token_list_size(node->data.simple_command.assignments) > 0);
 
     if (!has_words && has_assignments)
     {
         // Apply assignments to current environment
-        executor_apply_assignments(executor, node);
+        // FIXME: implement executor_apply_assignments()
+        // executor_apply_assignments(executor, node);
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
@@ -554,12 +559,6 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // ------------------------------------------------------------
     expander_t *exp = expander_create(executor->variables, executor->positional_params);
 
-    expander_set_getenv(exp, executor_getenv);
-    expander_set_tilde_expand(exp, executor_tilde_expand);
-    expander_set_glob(exp, executor_glob);
-    expander_set_command_substitute(exp, executor_command_substitute);
-    expander_set_userdata(exp, executor);
-
     // ------------------------------------------------------------
     // Expand command words
     // ------------------------------------------------------------
@@ -575,7 +574,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     }
 
     // First expanded word is the command name
-    string_t *cmd_name = string_list_get(expanded_words, 0);
+    string_t *cmd_name = string_list_at(expanded_words, 0);
 
     // ------------------------------------------------------------
     // Expand redirections
@@ -595,7 +594,10 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // ------------------------------------------------------------
     // Execute the command
     // ------------------------------------------------------------
-    exec_status_t status = executor_run_command(executor, expanded_words);
+
+    // FIXME: implement executor_run_command()
+    // exec_status_t status = executor_run_command(executor, expanded_words);
+    exec_status_t status = EXEC_NOT_IMPL;
 
     // ------------------------------------------------------------
     // Cleanup

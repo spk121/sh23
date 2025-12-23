@@ -22,14 +22,14 @@ struct expander_t
 const char *expander_getenv(void *userdata, const char *name);
 string_t *expander_tilde_expand(void *userdata, const string_t *text);
 string_list_t *expander_glob(void *user_data, const string_t *pattern);
-string_t *expander_command_subst(void *user_data, const string_t *command)
+string_t *expander_command_subst(void *user_data, const string_t *command);
 
     /* ============================================================================
- * Constructor / Destructor
- * ============================================================================
- */
+     * Constructor / Destructor
+     * ============================================================================
+     */
 
-expander_t *expander_create(variable_store_t *vars, positional_params_stack_t *params)
+    expander_t *expander_create(variable_store_t *vars, positional_params_stack_t *params)
 {
     expander_t *exp = xcalloc(1, sizeof(expander_t));
     if (!exp)
@@ -93,33 +93,85 @@ void expander_set_userdata(expander_t *exp, void *userdata)
 
 static string_t *expand_parameter(expander_t *exp, const part_t *part)
 {
-    // Basic parameter expansion: handle $var and ${var}
-    // For more complex forms (e.g., ${var:-default}), this would need extension
     const char *name = string_cstr(part->param_name);
-    const char *value = NULL;
-    if (exp->vars) {
-        value = variable_store_get_value_cstr(exp->vars, name);
+    string_t *result = NULL;
+
+    // Check for positional parameters
+    if (strcmp(name, "0") == 0)
+    {
+        if (exp->params && positional_params_has_zero(exp->params))
+        {
+            const string_t *zero = positional_params_get_zero(exp->params);
+            result = string_create_from(zero);
+        }
     }
-    if (!value) {
-        value = exp->fn_getenv(exp->userdata, name);
+    else if (strcmp(name, "#") == 0)
+    {
+        if (exp->params)
+        {
+            int count = positional_params_count(exp->params);
+            result = string_from_int(count);
+        }
     }
-    if (value) {
-        return string_create_from_cstr(value);
-    } else {
-        return string_create(); // Empty string if not set
+    else if (strcmp(name, "@") == 0)
+    {
+        if (exp->params)
+        {
+            result = positional_params_get_all_joined(exp->params, ' ');
+        }
     }
+    else
+    {
+        // Check if name is a digit (positional param like $1, $2, etc.)
+        char *endptr;
+        int n = (int)strtol(name, &endptr, 10);
+        if (*endptr == '\0' && n > 0 && exp->params)
+        {
+            const string_t *param = positional_params_get(exp->params, n);
+            if (param)
+            {
+                result = string_create_from(param);
+            }
+        }
+    }
+
+    // If not a positional param, check variable store and environment
+    if (!result)
+    {
+        const char *value = NULL;
+        if (exp->vars)
+        {
+            value = variable_store_get_value_cstr(exp->vars, name);
+        }
+        if (!value)
+        {
+            value = exp->fn_getenv(exp->userdata, name);
+        }
+        if (value)
+        {
+            result = string_create_from_cstr(value);
+        }
+        else
+        {
+            result = string_create(); // Empty string if not set
+        }
+    }
+
+    return result;
 }
 
 static string_t *expand_command_subst(expander_t *exp, const part_t *part)
 {
     // Convert nested tokens to a command string
     string_t *cmd = string_create();
-    for (int i = 0; i < token_list_size(part->nested); i++) {
+    for (int i = 0; i < token_list_size(part->nested); i++)
+    {
         token_t *t = token_list_get(part->nested, i);
         string_t *ts = token_to_string(t); // Approximate stringification
         string_append(cmd, ts);
         string_destroy(&ts);
-        if (i < token_list_size(part->nested) - 1) {
+        if (i < token_list_size(part->nested) - 1)
+        {
             string_append_cstr(cmd, " "); // Space between tokens
         }
     }
@@ -144,27 +196,30 @@ static string_t *expand_tilde(expander_t *exp, const part_t *part)
 static string_t *expand_parts_to_string(expander_t *exp, const part_list_t *parts)
 {
     string_t *result = string_create();
-    for (int i = 0; i < part_list_size(parts); i++) {
+    for (int i = 0; i < part_list_size(parts); i++)
+    {
         const part_t *part = part_list_get(parts, i);
         string_t *part_expanded = NULL;
-        switch (part->type) {
-            case PART_LITERAL:
-                part_expanded = string_create_from(part->text);
-                break;
-            case PART_PARAMETER:
-                part_expanded = expand_parameter(exp, part);
-                break;
-            case PART_COMMAND_SUBST:
-                part_expanded = expand_command_subst(exp, part);
-                break;
-            case PART_ARITHMETIC:
-                part_expanded = expand_arithmetic(exp, part);
-                break;
-            case PART_TILDE:
-                part_expanded = expand_tilde(exp, part);
-                break;
+        switch (part->type)
+        {
+        case PART_LITERAL:
+            part_expanded = string_create_from(part->text);
+            break;
+        case PART_PARAMETER:
+            part_expanded = expand_parameter(exp, part);
+            break;
+        case PART_COMMAND_SUBST:
+            part_expanded = expand_command_subst(exp, part);
+            break;
+        case PART_ARITHMETIC:
+            part_expanded = expand_arithmetic(exp, part);
+            break;
+        case PART_TILDE:
+            part_expanded = expand_tilde(exp, part);
+            break;
         }
-        if (part_expanded) {
+        if (part_expanded)
+        {
             string_append(result, part_expanded);
             string_destroy(&part_expanded);
         }
@@ -178,11 +233,13 @@ static string_t *expand_parts_to_string(expander_t *exp, const part_list_t *part
 
 string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
 {
-    if (!tok || tok->type != TOKEN_WORD) {
+    if (!tok || tok->type != TOKEN_WORD)
+    {
         return NULL;
     }
 
-    if (!tok->needs_expansion) {
+    if (!tok->needs_expansion)
+    {
         // No expansion needed: return literal text as single string
         string_t *text = token_get_all_text(tok);
         string_list_t *result = string_list_create();
@@ -195,64 +252,83 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
 
     // Get IFS for field splitting
     const char *ifs = NULL;
-    if (exp->vars) {
+    if (exp->vars)
+    {
         ifs = variable_store_get_value_cstr(exp->vars, "IFS");
     }
-    if (!ifs) {
+    if (!ifs)
+    {
         ifs = exp->fn_getenv(exp->userdata, "IFS");
     }
-    if (!ifs) {
+    if (!ifs)
+    {
         ifs = " \t\n"; // Default IFS
     }
 
     // Field splitting: only if needs_field_splitting and IFS is not empty
     string_list_t *fields = string_list_create();
     bool do_split = tok->needs_field_splitting && *ifs != '\0';
-    if (do_split) {
+    if (do_split)
+    {
         char *str = string_release(&expanded);
         char *token = strtok(str, ifs);
-        while (token) {
+        while (token)
+        {
             string_list_push_back(fields, string_create_from_cstr(token));
             token = strtok(NULL, ifs);
         }
         xfree(str);
-    } else {
+    }
+    else
+    {
         string_list_move_push_back(fields, expanded);
     }
 
     // Pathname expansion (globbing)
-    if (tok->needs_pathname_expansion) {
+    if (tok->needs_pathname_expansion)
+    {
         string_list_t *globs = string_list_create();
-        for (int i = 0; i < string_list_size(fields); i++) {
+        for (int i = 0; i < string_list_size(fields); i++)
+        {
             const string_t *pattern = string_list_at(fields, i);
             string_list_t *matches = exp->fn_glob(exp->userdata, pattern);
-            if (matches) {
-                for (int j = 0; j < string_list_size(matches); j++) {
+            if (matches)
+            {
+                for (int j = 0; j < string_list_size(matches); j++)
+                {
                     string_list_move_push_back(globs, string_list_at(matches, j));
                 }
                 string_list_destroy(&matches);
-            } else {
+            }
+            else
+            {
                 string_list_push_back(globs, pattern);
             }
         }
         string_list_destroy(&fields);
         return globs;
-    } else {
+    }
+    else
+    {
         return fields;
     }
 }
 
 string_list_t *expander_expand_words(expander_t *exp, const token_list_t *tokens)
 {
-    if (!tokens) {
+    if (!tokens)
+    {
         return NULL;
     }
     string_list_t *result = string_list_create();
-    for (int i = 0; i < token_list_size(tokens); i++) {
+    for (int i = 0; i < token_list_size(tokens); i++)
+    {
         token_t *tok = token_list_get(tokens, i);
         string_list_t *expanded = expander_expand_word(exp, tok);
-        if (expanded) {
-            for (int j = 0; j < string_list_size(expanded); j++) {
+        if (expanded)
+        {
+            for (int j = 0; j < string_list_size(expanded); j++)
+            {
                 string_list_push_back(result, string_list_at(expanded, j));
             }
             string_list_destroy(&expanded);
@@ -263,20 +339,37 @@ string_list_t *expander_expand_words(expander_t *exp, const token_list_t *tokens
 
 string_t *expander_expand_redirection_target(expander_t *exp, const token_t *tok)
 {
-    if (!tok || tok->type != TOKEN_WORD) {
+    if (!tok || tok->type != TOKEN_WORD)
+    {
         return NULL;
     }
-    // Redirection targets undergo tilde, parameter, command, arithmetic expansion, but no field splitting or pathname expansion
+    // Redirection targets undergo tilde, parameter, command, arithmetic expansion, but no field
+    // splitting or pathname expansion
     return expand_parts_to_string(exp, token_get_parts_const(tok));
 }
 
 string_t *expander_expand_assignment_value(expander_t *exp, const token_t *tok)
 {
-    if (!tok || tok->type != TOKEN_ASSIGNMENT_WORD) {
+    if (!tok || tok->type != TOKEN_ASSIGNMENT_WORD)
+    {
         return NULL;
     }
-    // Assignment values undergo tilde, parameter, command, arithmetic expansion, but no field splitting or pathname expansion
+    // Assignment values undergo tilde, parameter, command, arithmetic expansion, but no field
+    // splitting or pathname expansion
     return expand_parts_to_string(exp, tok->assignment_value);
+}
+
+string_t *expander_expand_heredoc(expander_t *exp, const string_t *body, bool is_quoted)
+{
+    if (is_quoted)
+    {
+        return string_create_from(body);
+    }
+    // For unquoted heredocs, perform parameter, command, arithmetic expansions
+    // Assume body is tokenized into parts, but for simplicity, treat as literal with expansions
+    // This is a stub; proper implementation would require tokenizing the heredoc body
+    (void)exp;
+    return string_create_from(body);
 }
 
 /* ============================================================================
@@ -284,7 +377,7 @@ string_t *expander_expand_assignment_value(expander_t *exp, const token_t *tok)
  * ============================================================================
  */
 
-const char* expander_getenv(void* userdata, const char* name)
+const char *expander_getenv(void *userdata, const char *name)
 {
     (void)userdata;
 #ifdef POSIX_API
@@ -374,7 +467,7 @@ string_t *expander_tilde_expand(void *userdata, const string_t *text)
 #endif
 }
 
-string_list_t* expander_glob(void* user_data, const string_t* pattern)
+string_list_t *expander_glob(void *user_data, const string_t *pattern)
 {
 #ifdef POSIX_API
     (void)user_data; // unused
@@ -476,7 +569,7 @@ string_list_t* expander_glob(void* user_data, const string_t* pattern)
 #endif
 }
 
-string_t* expander_command_subst(void* user_data, const string_t* command)
+string_t *expander_command_subst(void *user_data, const string_t *command)
 {
 #ifdef POSIX_API
     (void)user_data; // unused for now
@@ -505,8 +598,7 @@ string_t* expander_command_subst(void* user_data, const string_t* command)
     int exit_code = pclose(pipe);
     if (exit_code != 0)
     {
-        log_debug("command substitution: child exited with code %d for '%s'", exit_code,
-                  cmd);
+        log_debug("command substitution: child exited with code %d for '%s'", exit_code, cmd);
     }
 
     // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
@@ -551,8 +643,7 @@ string_t* expander_command_subst(void* user_data, const string_t* command)
     int exit_code = _pclose(pipe);
     if (exit_code != 0)
     {
-        log_debug("command substitution: child exited with code %d for '%s'", exit_code,
-                  cmd);
+        log_debug("command substitution: child exited with code %d for '%s'", exit_code, cmd);
     }
 
     // Trim trailing newlines/carriage returns to approximate shell command substitution behavior

@@ -850,7 +850,9 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     string_t *result = string_create();
     
     // Set the variable store once before the loop
-    expander_set_variable_store(exp, vars);
+    // FIXME: use new expander API to set variable store
+    // expander_set_variable_store(exp, vars);
+    abort(); // Placeholder until expander API is updated
     
     for (int i = 0; i < token_list_size(aliased_tokens); i++) {
         token_t *tok = token_list_get(aliased_tokens, i);

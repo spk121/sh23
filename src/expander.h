@@ -2,7 +2,6 @@
 #define EXPANDER_H
 
 #include "positional_params.h"
-#include "string_list.h"
 #include "string_t.h"
 #include "token.h"
 #include "variable_store.h"

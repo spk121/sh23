@@ -12,7 +12,21 @@
 #error "POSITIONAL_PARAMS_MAX must be a positive integer less than INT_MAX"
 #endif
 
-// Opaque types
+struct positional_params_t
+{
+    string_t **params; // params[0] is $1
+    int count;         // number of params
+};
+
+struct positional_params_stack_t
+{
+    struct positional_params_t **frames;
+    int depth;
+    int capacity;
+    string_t *zero; // $0 stored separately
+    int max_params; // Maximum number of positional parameters allowed
+};
+
 typedef struct positional_params_t positional_params_t;
 typedef struct positional_params_stack_t positional_params_stack_t;
 
