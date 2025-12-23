@@ -354,7 +354,7 @@ static void executor_remove_special_variables_from_store(variable_store_t *store
  * 
  * This implements the variable resolution order: temp_store → persistent_store → environment
  * 
- * @param userdata Pointer to executor_t
+ * @param userdata Pointer to executor_t (set by executor_create_expander)
  * @param name     Variable name to look up
  * @return The value of the variable, or NULL if not found
  */
@@ -362,6 +362,8 @@ static const char *executor_getenv_callback(void *userdata, const char *name)
 {
     executor_t *executor = (executor_t *)userdata;
     
+    // userdata is always set to a valid executor by executor_create_expander
+    // but we check defensively since this is a callback that could be called in various contexts
     if (executor && executor->variables)
     {
         // Check persistent store first
