@@ -349,16 +349,30 @@ static void executor_remove_special_variables_from_store(variable_store_t *store
  * getenv callback for the expander.
  * 
  * This is called by the expander when it doesn't find a variable in its
- * variable stores. We delegate to the system's getenv() to check environment
- * variables.
+ * variable stores (the temp store). We check the executor's persistent store
+ * first, then fall back to the system's getenv() to check environment variables.
  * 
- * @param userdata Pointer to executor_t (not used in this implementation)
+ * This implements the variable resolution order: temp_store → persistent_store → environment
+ * 
+ * @param userdata Pointer to executor_t
  * @param name     Variable name to look up
- * @return The value of the environment variable, or NULL if not found
+ * @return The value of the variable, or NULL if not found
  */
 static const char *executor_getenv_callback(void *userdata, const char *name)
 {
-    (void)userdata; // executor context not needed for basic getenv
+    executor_t *executor = (executor_t *)userdata;
+    
+    if (executor && executor->variables)
+    {
+        // Check persistent store first
+        const char *value = variable_store_get_value_cstr(executor->variables, name);
+        if (value)
+        {
+            return value;
+        }
+    }
+    
+    // Fall back to system environment
     return getenv(name);
 }
 
@@ -494,22 +508,29 @@ static string_t *executor_command_subst_callback_wrapper(void *userdata, const s
  * 
  * This function creates a new expander instance and wires up all the necessary
  * system callbacks. The expander is configured with:
- * - Persistent variable store from the executor
+ * - A temporary variable store (containing special variables and assignments)
  * - Positional parameters stack from the executor
- * - System callbacks for getenv, tilde expansion, globbing, and command substitution
+ * - System callbacks for getenv (which falls back to persistent store), tilde expansion,
+ *   globbing, and command substitution
  * - The executor itself as userdata for callbacks
+ * 
+ * Variable resolution order: temp_store → persistent_store (via getenv callback) → environment
  * 
  * The caller is responsible for destroying the expander when done.
  * 
- * @param ex Executor context
+ * @param ex         Executor context
+ * @param temp_store Temporary variable store with special variables and assignments
  * @return A newly created and configured expander_t (caller must destroy)
  */
-static expander_t *executor_create_expander(executor_t *ex)
+static expander_t *executor_create_expander(executor_t *ex, variable_store_t *temp_store)
 {
     Expects_not_null(ex);
+    Expects_not_null(temp_store);
     
-    // Create expander with persistent stores from executor
-    expander_t *exp = expander_create(ex->variables, ex->positional_params);
+    // Create expander with temporary store and positional params
+    // The temp store contains special variables and assignments
+    // The getenv callback will fall back to persistent store
+    expander_t *exp = expander_create(temp_store, ex->positional_params);
     if (!exp)
     {
         return NULL;
@@ -521,7 +542,7 @@ static expander_t *executor_create_expander(executor_t *ex)
     expander_set_glob(exp, executor_glob_callback);
     expander_set_command_substitute(exp, executor_command_subst_callback_wrapper);
     
-    // Pass executor as userdata for callbacks
+    // Pass executor as userdata for callbacks (so getenv can access persistent store)
     expander_set_userdata(exp, ex);
     
     return exp;
@@ -898,26 +919,25 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     }
 
     // ------------------------------------------------------------
-    // Add special variables temporarily to the persistent store
-    // This allows the expander to access them during expansion
-    // ------------------------------------------------------------
-    executor_add_special_variables_to_store(executor->variables, executor);
-
-    // ------------------------------------------------------------
-    // Prepare temporary variable store (for assignment words)
-    // This is used for building envp when executing external commands
+    // Prepare temporary variable store with special variables and assignments
+    // This creates a layered variable resolution:
+    //   1. temp_store (special vars + assignments) - checked by expander
+    //   2. persistent_store (shell variables) - checked by getenv callback
+    //   3. environment - checked by getenv callback as final fallback
+    // 
+    // The tmpvars will also be used in Phase 4 to build envp for external commands
+    // via variable_store_update_envp_with_parent(tmpvars, executor->variables)
     // ------------------------------------------------------------
     variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
 
     // ------------------------------------------------------------
     // Create and configure expander with system callbacks
-    // The expander will use the persistent store which now includes special variables
+    // The expander uses the temp store, and the getenv callback falls back to persistent store
     // ------------------------------------------------------------
-    expander_t *exp = executor_create_expander(executor);
+    expander_t *exp = executor_create_expander(executor, tmpvars);
     if (!exp)
     {
         variable_store_destroy(&tmpvars);
-        executor_remove_special_variables_from_store(executor->variables);
         executor_set_error(executor, "Failed to create expander");
         return EXEC_ERROR;
     }
@@ -933,9 +953,6 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         expander_destroy(&exp);
         variable_store_destroy(&tmpvars);
         string_list_destroy(expanded_words);
-        
-        // Remove special variables from persistent store
-        executor_remove_special_variables_from_store(executor->variables);
         
         executor->last_exit_status = 0;
         return EXEC_OK;
@@ -973,9 +990,6 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     string_list_destroy(expanded_words);
     expander_destroy(&exp);
     variable_store_destroy(&tmpvars);
-    
-    // Remove special variables from persistent store
-    executor_remove_special_variables_from_store(executor->variables);
 
     return status;
 }
