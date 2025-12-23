@@ -280,7 +280,7 @@ bool lexer_input_starts_with(const lexer_t *lx, const char *str)
 {
     Expects_not_null(lx);
     Expects_not_null(str);
-    Expects_gt(strlen(str), 0);
+    Expects_lt(strlen(str), (size_t)INT_MAX);
 
     int len = strlen(str);
     if (lx->pos + len > string_length(lx->input))
@@ -945,4 +945,30 @@ token_t *lexer_pop_first_token(lexer_t *lx)
     }
     lx->tokens->size--;
     return first_token;
+}
+
+/* ============================================================================
+ * Test functions
+ * ============================================================================ */
+
+lexer_t *lexer_create_with_input_cstr(const char *input)
+{
+    Expects_not_null(input);
+    lexer_t *lx = lexer_create();
+    lexer_append_input_cstr(lx, input);
+    return lx;
+}
+
+lex_status_t lex_cstr_to_tokens(const char *input, token_list_t *out_tokens)
+{
+    Expects_not_null(input);
+    Expects_not_null(out_tokens);
+    lexer_t *lx = lexer_create_with_input_cstr(input);
+    if (!lx)
+    {
+        return LEX_INTERNAL_ERROR;
+    }
+    lex_status_t status = lexer_tokenize(lx, out_tokens, NULL);
+    lexer_destroy(&lx);
+    return status;
 }

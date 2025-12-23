@@ -295,7 +295,7 @@ static ArithmeticResult parse_comma(math_parser_t *parser) {
     ArithmeticResult left = parse_ternary(parser);
     if (left.failed) return left;
 
-    size_t saved_pos = parser->pos;
+    int saved_pos = parser->pos;
     math_token_t token = get_token(parser);
     if (token.type != MATH_TOKEN_COMMA) {
         parser->pos = saved_pos; // Rewind to start of token
@@ -317,7 +317,7 @@ static ArithmeticResult parse_ternary(math_parser_t *parser) {
     ArithmeticResult cond = parse_logical_or(parser);
     if (cond.failed) return cond;
 
-    size_t saved_pos = parser->pos;
+    int saved_pos = parser->pos;
     math_token_t token = get_token(parser);
     if (token.type != MATH_TOKEN_QUESTION) {
         parser->pos = saved_pos; // Rewind to start of token
@@ -356,7 +356,7 @@ static ArithmeticResult parse_logical_or(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_LOGICAL_OR) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -386,7 +386,7 @@ static ArithmeticResult parse_logical_and(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_LOGICAL_AND) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -416,7 +416,7 @@ static ArithmeticResult parse_bit_or(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_BIT_OR) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -441,7 +441,7 @@ static ArithmeticResult parse_bit_xor(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_BIT_XOR) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -466,7 +466,7 @@ static ArithmeticResult parse_bit_and(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_BIT_AND) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -491,7 +491,7 @@ static ArithmeticResult parse_equality(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_EQUAL && token.type != MATH_TOKEN_NOT_EQUAL) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -520,7 +520,7 @@ static ArithmeticResult parse_comparison(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_LESS && token.type != MATH_TOKEN_GREATER &&
             token.type != MATH_TOKEN_LESS_EQUAL && token.type != MATH_TOKEN_GREATER_EQUAL) {
@@ -552,7 +552,7 @@ static ArithmeticResult parse_shift(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_LEFT_SHIFT && token.type != MATH_TOKEN_RIGHT_SHIFT) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -581,7 +581,7 @@ static ArithmeticResult parse_additive(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_PLUS && token.type != MATH_TOKEN_MINUS) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -610,7 +610,7 @@ static ArithmeticResult parse_multiplicative(math_parser_t *parser) {
     if (left.failed) return left;
 
     while (1) {
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_MULTIPLY && token.type != MATH_TOKEN_DIVIDE && token.type != MATH_TOKEN_MODULO) {
             parser->pos = saved_pos; // Rewind to start of token
@@ -647,7 +647,7 @@ static ArithmeticResult parse_multiplicative(math_parser_t *parser) {
 
 // Unary
 static ArithmeticResult parse_unary(math_parser_t *parser) {
-    size_t saved_pos = parser->pos;
+    int saved_pos = parser->pos;
     math_token_t token = get_token(parser);
     if (token.type == MATH_TOKEN_PLUS || token.type == MATH_TOKEN_MINUS ||
         token.type == MATH_TOKEN_BIT_NOT || token.type == MATH_TOKEN_LOGICAL_NOT) {
@@ -679,7 +679,7 @@ static ArithmeticResult parse_primary(math_parser_t *parser) {
     if (token.type == MATH_TOKEN_VARIABLE) {
         // Check if this is a simple variable read (not followed by assignment operator)
         // We need to peek ahead to see if an assignment operator follows
-        size_t saved_pos = parser->pos;
+        int saved_pos = parser->pos;
         math_token_t next_token = get_token(parser);
         parser->pos = saved_pos; // Restore position
         

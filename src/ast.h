@@ -27,7 +27,8 @@ typedef enum
     /* Compound commands */
     AST_SUBSHELL,          // ( command_list )
     AST_BRACE_GROUP,       // { command_list; }
-    AST_IF_CLAUSE,         // if/then/else/elif/fi
+    AST_IF_CLAUSE,         // if/then/else/fi
+    AST_ELIF_CLAUSE,       // elif/then
     AST_WHILE_CLAUSE,      // while/do/done
     AST_UNTIL_CLAUSE,      // until/do/done
     AST_FOR_CLAUSE,        // for/in/do/done
@@ -50,11 +51,19 @@ typedef enum
 /**
  * Pipeline operators
  */
+#ifdef FUTURE
+typedef enum
+{
+    PIPE_NORMAL,      // pipe stdout only
+    PIPE_MERGE_STDERR // pipe stdout + stderr
+} pipe_operator_t;
+#else
 typedef enum
 {
     PIPE_OP_PIPE,       // |
     PIPE_OP_PIPE_AMPER, // |& (bash extension, not implemented yet)
 } pipe_operator_t;
+#endif
 
 /**
  * And/Or list operators
@@ -79,12 +88,21 @@ typedef enum
  *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL  
  *   Command 2: "echo baz"  -> separator: LIST_SEP_EOL (no actual token)
  */
+#ifdef FUTURE
+typedef enum
+{
+    CMD_EXEC_SEQUENTIAL, // run, wait, then run next
+    CMD_EXEC_BACKGROUND, // run without waiting
+    CMD_EXEC_END         // no more commands
+} cmd_separator_t;
+#else
 typedef enum
 {
     LIST_SEP_SEQUENTIAL, // ; or newline - execute next command after this one
     LIST_SEP_BACKGROUND, // & - run this command in background, then execute next
     LIST_SEP_EOL         // End of list - no separator token, this is the last command
 } cmd_separator_t;
+#endif
 
 /* Command separator list structure */
 typedef struct
@@ -97,6 +115,22 @@ typedef struct
 /**
  * Redirection types
  */
+#ifdef FUTURE
+typedef enum
+{
+    REDIR_READ,        // <      open file for reading
+    REDIR_WRITE,       // >      truncate + write
+    REDIR_APPEND,      // >>     append
+    REDIR_READWRITE,   // <>     read/write
+    REDIR_WRITE_FORCE, // >|     force overwrite (ignore noclobber)
+
+    REDIR_FD_DUP_IN,  // <&     duplicate input FD
+    REDIR_FD_DUP_OUT, // >&     duplicate output FD
+
+    REDIR_FROM_BUFFER,      // <<     heredoc, but now it's a buffer
+    REDIR_FROM_BUFFER_STRIP // <<-    strip leading tabs
+} redirection_type_t;
+#else
 typedef enum
 {
     REDIR_INPUT,       // <
@@ -109,7 +143,45 @@ typedef enum
     REDIR_READWRITE,   // <>
     REDIR_CLOBBER,     // >|
 } redirection_type_t;
+#endif
 
+#ifdef FUTURE
+typedef enum
+{
+    REDIR_TARGET_INVALID,
+    REDIR_TARGET_FILE,
+    REDIR_TARGET_FD,
+    REDIR_TARGET_CLOSE,
+    REDIR_TARGET_FD_STRING,
+    REDIR_TARGET_BUFFER
+} redir_target_kind_t;
+#else
+typedef enum
+{
+    REDIR_OPERAND_NONE,     // should never happen
+    REDIR_OPERAND_FILENAME, // target is a filename token
+    REDIR_OPERAND_FD,       // target is a numeric fd (from token)
+    REDIR_OPERAND_CLOSE,    // target is '-', indicating close fd
+    REDIR_OPERAND_IOLOC,    // io_location is a string (e.g., <&var). Probably UNUSED
+    REDIR_OPERAND_HEREDOC   // heredoc_content is used
+} redir_operand_kind_t;
+#endif
+
+#ifdef FUTURE
+typedef enum
+{
+    CASE_ACTION_NONE,
+    CASE_ACTION_BREAK,
+    CASE_ACTION_FALLTHROUGH
+} case_action_t;
+#else
+typedef enum
+{
+    CASE_TERM_NONE,    // for case_item_ns
+    CASE_TERM_DSEMI,   // ;;
+    CASE_TERM_SEMI_AND // ;&
+} case_terminator_t;
+#endif
 /* ============================================================================
  * Forward Declarations
  * ============================================================================ */
@@ -199,9 +271,16 @@ struct ast_node_t
         {
             ast_node_t *condition;      // condition to test
             ast_node_t *then_body;      // commands if condition is true
-            ast_node_list_t *elif_list; // list of elif nodes (each is an if_clause)
+            ast_node_list_t *elif_list; // list of elif nodes (each is an AST_ELIF_CLAUSE)
             ast_node_t *else_body;      // commands if all conditions are false (optional)
         } if_clause;
+
+        /* AST_ELIF_CLAUSE */
+        struct
+        {
+            ast_node_t *condition; // condition to test
+            ast_node_t *then_body; // commands if condition is true
+        } elif_clause;
 
         /* AST_WHILE_CLAUSE, AST_UNTIL_CLAUSE */
         struct
@@ -230,6 +309,7 @@ struct ast_node_t
         {
             token_list_t *patterns; // list of patterns
             ast_node_t *body;       // commands to execute if pattern matches
+            case_terminator_t terminator; // ;;, ;&, or none
         } case_item;
 
         /* AST_FUNCTION_DEF */
@@ -251,10 +331,12 @@ struct ast_node_t
         struct
         {
             redirection_type_t redir_type;
-            int io_number;         // file descriptor (or -1 for default)
-            string_t *io_location; // braced io location (e.g., "2" or "var")
-            token_t *target;       // filename or fd for redirection
-            string_t *heredoc_content; // for heredoc
+            int io_number;                // fd being redirected (or -1)
+            redir_operand_kind_t operand; // operand type
+
+            string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
+            token_t *target;           // used when operand == FILENAME or FD
+            string_t *heredoc_content; // used when operand == HEREDOC
         } redirection;
     } data;
 };
@@ -291,7 +373,12 @@ ast_node_type_t ast_node_get_type(const ast_node_t *node);
  * Set location information for an AST node.
  */
 void ast_node_set_location(ast_node_t *node, int first_line, int first_column, 
-                          int last_line, int last_column);
+                          int last_line,
+                           int last_column);
+
+void ast_command_list_node_append_item(ast_node_t *node, ast_node_t *item);
+
+void ast_command_list_node_append_separator(ast_node_t *node, cmd_separator_t separator);
 
 void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content);
 /* ============================================================================
@@ -411,7 +498,8 @@ ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *
  * Create a redirection node.
  * OWNERSHIP: Takes ownership of target token.
  */
-ast_node_t *ast_create_redirection(redirection_type_t redir_type, int io_number,
+ast_node_t *ast_create_redirection(redirection_type_t redir_type,
+                                   redir_operand_kind_t operand, int io_number,
                                   string_t *io_location, token_t *target);
 
 /* ============================================================================
@@ -498,7 +586,7 @@ void ast_print(const ast_node_t *root);
  * Command Separator List Functions
  * ============================================================================ */
 cmd_separator_list_t *cmd_separator_list_create(void);
-void cmd_separator_list_destroy(cmd_separator_list_t **list);
+void cmd_separator_list_destroy(cmd_separator_list_t **lst);
 void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep);
 cmd_separator_t cmd_separator_list_get(const cmd_separator_list_t *list, int index);
 

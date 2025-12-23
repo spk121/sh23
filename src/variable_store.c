@@ -357,3 +357,177 @@ string_t *variable_store_get_value_removing_largest_prefix(const variable_store_
     return variable_remove_largest_prefix(var, pattern);
 }
 
+char *const *variable_store_update_envp(variable_store_t *vs)
+{
+    if (vs == NULL)
+        return NULL;
+
+    /* ------------------------------------------------------------
+     * 1. Free old cached envp
+     * ------------------------------------------------------------ */
+    if (vs->cached_envp != NULL)
+    {
+        for (int i = 0; vs->cached_envp[i] != NULL; i++)
+        {
+            xfree(vs->cached_envp[i]);
+        }
+        xfree(vs->cached_envp);
+        vs->cached_envp = NULL;
+    }
+
+    /* ------------------------------------------------------------
+     * 2. Count exported variables
+     * ------------------------------------------------------------ */
+    int count = 0;
+    for (int i = 0; i < variable_array_size(vs->variables); i++)
+    {
+        const variable_t *v = variable_array_get(vs->variables, i);
+        if (v->exported)
+            count++;
+    }
+
+    /* ------------------------------------------------------------
+     * 3. Allocate new envp array
+     * ------------------------------------------------------------ */
+    vs->cached_envp = xcalloc((size_t)(count + 1), sizeof(char *));
+    /* All entries initialized to NULL */
+
+    /* ------------------------------------------------------------
+     * 4. Fill envp with "NAME=value" strings
+     * ------------------------------------------------------------ */
+    int j = 0;
+    for (int i = 0; i < variable_array_size(vs->variables); i++)
+    {
+        const variable_t *v = variable_array_get(vs->variables, i);
+        if (!v->exported)
+            continue;
+
+        const char *name = string_data(v->name);
+        const char *value = string_data(v->value);
+
+        size_t len = strlen(name) + 1 + strlen(value) + 1; /* name + '=' + value + '\0' */
+        char *entry = xmalloc(len);
+
+        snprintf(entry, len, "%s=%s", name, value);
+
+        vs->cached_envp[j++] = entry;
+    }
+
+    vs->cached_envp[j] = NULL; /* NULL-terminate */
+
+    /* ------------------------------------------------------------
+     * 5. Return pointer suitable for execve()
+     * ------------------------------------------------------------ */
+    return (char *const *)vs->cached_envp;
+}
+
+char *const *variable_store_update_envp_with_parent(variable_store_t *child_vs,
+                                                    variable_store_t *parent_vs)
+{
+    if (child_vs == NULL)
+        return NULL;
+
+    /* ------------------------------------------------------------
+     * 1. Free old cached envp in child_vs
+     * ------------------------------------------------------------ */
+    if (child_vs->cached_envp != NULL)
+    {
+        for (int i = 0; child_vs->cached_envp[i] != NULL; i++)
+            xfree(child_vs->cached_envp[i]);
+
+        xfree(child_vs->cached_envp);
+        child_vs->cached_envp = NULL;
+    }
+
+    /* ------------------------------------------------------------
+     * 2. Count exported variables in parent_vs
+     * ------------------------------------------------------------ */
+    int parent_exported = 0;
+    if (parent_vs != NULL)
+    {
+        for (int i = 0; i < variable_array_size(parent_vs->variables); i++)
+        {
+            const variable_t *v = variable_array_get(parent_vs->variables, i);
+            if (v->exported)
+                parent_exported++;
+        }
+    }
+
+    /* ------------------------------------------------------------
+     * 3. Count all variables in child_vs (temporary env always exported)
+     * ------------------------------------------------------------ */
+    int child_count = variable_array_size(child_vs->variables);
+
+    /* Worst-case envp size = parent_exported + child_count + 1 */
+    int max_entries = parent_exported + child_count + 1;
+
+    child_vs->cached_envp = xcalloc((size_t)max_entries, sizeof(char *));
+    int idx = 0;
+
+    /* ------------------------------------------------------------
+     * 4. Insert exported parent variables (unless overridden by child)
+     * ------------------------------------------------------------ */
+    if (parent_vs != NULL)
+    {
+        for (int i = 0; i < variable_array_size(parent_vs->variables); i++)
+        {
+            const variable_t *pv = variable_array_get(parent_vs->variables, i);
+            if (!pv->exported)
+                continue;
+
+            const char *pname = string_data(pv->name);
+
+            /* Check if child overrides this variable */
+            bool overridden = false;
+            for (int j = 0; j < variable_array_size(child_vs->variables); j++)
+            {
+                const variable_t *cv = variable_array_get(child_vs->variables, j);
+                if (strcmp(string_data(cv->name), pname) == 0)
+                {
+                    overridden = true;
+                    break;
+                }
+            }
+
+            if (overridden)
+                continue;
+
+            /* Add parent variable */
+            const char *pvalue = string_data(pv->value);
+            size_t len = strlen(pname) + 1 + strlen(pvalue) + 1;
+
+            char *entry = xmalloc(len);
+            snprintf(entry, len, "%s=%s", pname, pvalue);
+
+            child_vs->cached_envp[idx++] = entry;
+        }
+    }
+
+    /* ------------------------------------------------------------
+     * 5. Insert ALL child variables (temporary env always exported)
+     * ------------------------------------------------------------ */
+    for (int i = 0; i < variable_array_size(child_vs->variables); i++)
+    {
+        const variable_t *cv = variable_array_get(child_vs->variables, i);
+
+        const char *cname = string_data(cv->name);
+        const char *cvalue = string_data(cv->value);
+
+        size_t len = strlen(cname) + 1 + strlen(cvalue) + 1;
+
+        char *entry = xmalloc(len);
+        snprintf(entry, len, "%s=%s", cname, cvalue);
+
+        child_vs->cached_envp[idx++] = entry;
+    }
+
+    /* ------------------------------------------------------------
+     * 6. NULL-terminate
+     * ------------------------------------------------------------ */
+    child_vs->cached_envp[idx] = NULL;
+
+    /* ------------------------------------------------------------
+     * 7. Return envp suitable for execve()
+     * ------------------------------------------------------------ */
+    return (char *const *)child_vs->cached_envp;
+}

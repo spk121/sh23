@@ -37,6 +37,7 @@ static bool check_operator_at_position(const lexer_t *lx, const char *op)
 {
     Expects_not_null(lx);
     Expects_not_null(op);
+    Expects_lt(strlen(op), INT_MAX);
     Expects_not_null(lx->input);
 
     int len = strlen(op);
@@ -419,7 +420,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         }
         if (c == '$')
         {
-            char c2 = lexer_peek_ahead(lx, 1);
+            c2 = lexer_peek_ahead(lx, 1);
             if (c2 == '\0')
             {
                 return LEX_INCOMPLETE;

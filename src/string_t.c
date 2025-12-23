@@ -886,8 +886,11 @@ int string_find_first_of_predicate(const string_t *str, bool (*predicate)(char))
 int string_find_first_of_predicate_at(const string_t *str, bool (*predicate)(char), int pos);
 int string_find_first_not_of(const string_t *str, const string_t *chars);
 int string_find_first_not_of_at(const string_t *str, const string_t *chars, int pos);
-int string_find_first_not_of_cstr(const string_t *str, const char *chars);
 #endif
+int string_find_first_not_of_cstr(const string_t *str, const char *chars)
+{
+    return string_find_first_not_of_cstr_at(str, chars, 0);
+}
 
 int string_find_first_not_of_cstr_at(const string_t *str, const char *chars, int pos)
 {

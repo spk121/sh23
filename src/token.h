@@ -28,6 +28,7 @@ typedef enum
     TOKEN_LESSGREAT, // <>
     TOKEN_DLESSDASH, // <<-
     TOKEN_CLOBBER,   // >|
+    TOKEN_SEMIAND,   // ;&
     TOKEN_PIPE,      // |
     TOKEN_SEMI,      // ;
     TOKEN_AMPER,     // &
