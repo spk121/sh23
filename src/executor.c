@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <pwd.h>
 #endif
 #ifdef UCRT_API
 #include <io.h>
@@ -177,14 +178,69 @@ void executor_set_dry_run(executor_t *executor, bool dry_run)
  * Execution Functions
  * ============================================================================ */
 
+/**
+ * Prepare a temporary variable store for expansion context.
+ * 
+ * This function creates a temporary variable store populated with:
+ * 1. Special POSIX shell variables ($?, $!, $$, $_, $-)
+ * 2. Assignment words from the current command (VAR=value)
+ * 3. Function-specific variables if in function context
+ * 
+ * The temporary store is used by the expander to resolve variables
+ * before falling back to the persistent variable store.
+ * 
+ * @param ex   Executor context containing special variable state
+ * @param node AST node being executed (can be NULL for non-command contexts)
+ * @return A newly created variable_store_t (caller must destroy)
+ */
 static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node)
 {
     Expects_not_null(ex);
-    Expects_not_null(node);
 
     variable_store_t *temp_store = variable_store_create();
+    
+    /* ============================================================================
+     * Add special POSIX shell variables
+     * ============================================================================ */
+    
+    // $? - Last exit status (always available)
+    string_t *exit_str = string_from_int(ex->last_exit_status);
+    variable_store_add_cstr(temp_store, "?", string_cstr(exit_str), false, true);
+    string_destroy(&exit_str);
+    
+#ifdef POSIX_API
+    // $$ - Shell PID (POSIX only)
+    string_t *pid_str = string_from_int(ex->shell_pid);
+    variable_store_add_cstr(temp_store, "$", string_cstr(pid_str), false, true);
+    string_destroy(&pid_str);
+#endif
+    
+    // $! - Last background process PID (if available)
+    if (ex->last_background_pid > 0)
+    {
+        string_t *bg_str = string_from_int(ex->last_background_pid);
+        variable_store_add_cstr(temp_store, "!", string_cstr(bg_str), false, true);
+        string_destroy(&bg_str);
+    }
+    
+    // $_ - Last argument of previous command (if available)
+    if (string_length(ex->last_argument) > 0)
+    {
+        variable_store_add_cstr(temp_store, "_", string_cstr(ex->last_argument), false, true);
+    }
+    
+    // $- - Current shell option flags (if available)
+    if (string_length(ex->shell_flags) > 0)
+    {
+        variable_store_add_cstr(temp_store, "-", string_cstr(ex->shell_flags), false, true);
+    }
+    
+    /* ============================================================================
+     * Add context-specific variables
+     * ============================================================================ */
+    
     // Extract assignment words from current simple command or function definition
-    if (node->type == AST_SIMPLE_COMMAND)
+    if (node && node->type == AST_SIMPLE_COMMAND)
     {
         token_list_t *assignments = node->data.simple_command.assignments;
         if (assignments != NULL)
@@ -197,7 +253,7 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
             }
         }
     }
-    else if (node->type == AST_FUNCTION_DEF)
+    else if (node && node->type == AST_FUNCTION_DEF)
     {
         // Set special variables for function context if needed
         // e.g., $FUNCNAME, $BASH_SOURCE, etc. (not implemented here)
@@ -213,6 +269,164 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     }
 
     return temp_store;
+}
+
+/* ============================================================================
+ * Expander Callback Functions
+ * ============================================================================ */
+
+/**
+ * getenv callback for the expander.
+ * 
+ * This is called by the expander when it doesn't find a variable in its
+ * variable stores. We delegate to the system's getenv() to check environment
+ * variables.
+ * 
+ * @param userdata Pointer to executor_t (not used in this implementation)
+ * @param name     Variable name to look up
+ * @return The value of the environment variable, or NULL if not found
+ */
+static const char *executor_getenv_callback(void *userdata, const char *name)
+{
+    (void)userdata; // executor context not needed for basic getenv
+    return getenv(name);
+}
+
+/**
+ * Tilde expansion callback for the expander.
+ * 
+ * This callback handles tilde expansion (~, ~/path, ~user/path).
+ * For now, we delegate to a default implementation in the expander module.
+ * 
+ * @param userdata Pointer to executor_t
+ * @param input    String containing tilde expression
+ * @return Expanded string (caller must destroy), or NULL on error
+ */
+static string_t *executor_tilde_expand_callback(void *userdata, const string_t *input)
+{
+    (void)userdata; // Not needed for basic tilde expansion
+    
+#ifdef POSIX_API
+    // On POSIX systems, we can expand ~ to HOME and ~user using getpwnam
+    const char *str = string_cstr(input);
+    
+    if (str[0] != '~')
+    {
+        // No tilde, return copy
+        return string_create_from(input);
+    }
+    
+    // Find end of username (slash or end of string)
+    const char *slash = strchr(str, '/');
+    int username_len = slash ? (int)(slash - str - 1) : (int)strlen(str) - 1;
+    
+    const char *home = NULL;
+    
+    if (username_len == 0)
+    {
+        // ~ or ~/path - use HOME environment variable
+        home = getenv("HOME");
+    }
+    else
+    {
+        // ~user or ~user/path - look up user's home directory
+        char username[256];
+        if (username_len >= (int)sizeof(username))
+        {
+            username_len = (int)sizeof(username) - 1;
+        }
+        strncpy(username, str + 1, username_len);
+        username[username_len] = '\0';
+        
+        struct passwd *pw = getpwnam(username);
+        if (pw)
+        {
+            home = pw->pw_dir;
+        }
+    }
+    
+    if (!home)
+    {
+        // Cannot expand, return original
+        return string_create_from(input);
+    }
+    
+    // Build expanded path
+    string_t *result = string_create_from_cstr(home);
+    if (slash)
+    {
+        string_append_cstr(result, slash);
+    }
+    
+    return result;
+#else
+    // On non-POSIX systems, try HOME environment variable for ~
+    const char *str = string_cstr(input);
+    
+    if (str[0] != '~')
+    {
+        return string_create_from(input);
+    }
+    
+    // Only support ~ or ~/path (not ~user)
+    if (str[1] != '\0' && str[1] != '/')
+    {
+        // ~user not supported on non-POSIX
+        return string_create_from(input);
+    }
+    
+    const char *home = getenv("HOME");
+    if (!home)
+    {
+        return string_create_from(input);
+    }
+    
+    string_t *result = string_create_from_cstr(home);
+    if (str[1] == '/')
+    {
+        string_append_cstr(result, str + 1);
+    }
+    
+    return result;
+#endif
+}
+
+/**
+ * Create and configure an expander for the executor.
+ * 
+ * This function creates a new expander instance and wires up all the necessary
+ * system callbacks. The expander is configured with:
+ * - Persistent variable store from the executor
+ * - Positional parameters stack from the executor
+ * - System callbacks for getenv, tilde expansion, globbing, and command substitution
+ * - The executor itself as userdata for callbacks
+ * 
+ * The caller is responsible for destroying the expander when done.
+ * 
+ * @param ex Executor context
+ * @return A newly created and configured expander_t (caller must destroy)
+ */
+static expander_t *executor_create_expander(executor_t *ex)
+{
+    Expects_not_null(ex);
+    
+    // Create expander with persistent stores from executor
+    expander_t *exp = expander_create(ex->variables, ex->positional_params);
+    if (!exp)
+    {
+        return NULL;
+    }
+    
+    // Wire up all system callbacks
+    expander_set_getenv(exp, executor_getenv_callback);
+    expander_set_tilde_expand(exp, executor_tilde_expand_callback);
+    expander_set_glob(exp, executor_pathname_expansion_callback);
+    expander_set_command_substitute(exp, executor_command_subst_callback);
+    
+    // Pass executor as userdata for callbacks
+    expander_set_userdata(exp, ex);
+    
+    return exp;
 }
 
 exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
@@ -586,14 +800,20 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     }
 
     // ------------------------------------------------------------
-    // Prepare temporary variable store (for assignment words)
+    // Prepare temporary variable store (for assignment words and special vars)
     // ------------------------------------------------------------
     variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
 
     // ------------------------------------------------------------
-    // Create expander
+    // Create and configure expander with system callbacks
     // ------------------------------------------------------------
-    expander_t *exp = expander_create(executor->variables, executor->positional_params);
+    expander_t *exp = executor_create_expander(executor);
+    if (!exp)
+    {
+        variable_store_destroy(&tmpvars);
+        executor_set_error(executor, "Failed to create expander");
+        return EXEC_ERROR;
+    }
 
     // ------------------------------------------------------------
     // Expand command words
@@ -604,6 +824,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     {
         // Expansion produced nothing → command disappears
         expander_destroy(&exp);
+        variable_store_destroy(&tmpvars);
         string_list_destroy(expanded_words);
         executor->last_exit_status = 0;
         return EXEC_OK;
@@ -640,6 +861,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // ------------------------------------------------------------
     string_list_destroy(expanded_words);
     expander_destroy(&exp);
+    variable_store_destroy(&tmpvars);
 
     return status;
 }
