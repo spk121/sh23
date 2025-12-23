@@ -10,6 +10,7 @@
 #include "expander.h"
 #include "executor.h"
 #include "ast.h"
+#include "lower.h"
 #include "tokenizer.h"
 
 // Internal helpers used by shell_feed_line/shell_run_script

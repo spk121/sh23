@@ -1,5 +1,6 @@
 #include "gnode.h"
 #include "xalloc.h"
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -29,11 +30,34 @@ void g_list_append(gnode_list_t *list, gnode_t *node)
     list->nodes[list->size++] = node;
 }
 
+// Minimum plausible heap address threshold for detecting obviously invalid pointers
+// This is a heuristic - pointers below this value (like 0x1, 0x2) are likely corrupted
+#define MIN_PLAUSIBLE_HEAP_ADDR 4096
+
 void g_list_destroy(gnode_list_t **plist)
 {
     if (!plist || !*plist)
         return;
     gnode_list_t *list = *plist;
+
+    /* Validate list pointer before using it - check for obviously invalid addresses
+     * like 0x1 which indicate a corrupted union member or uninitialized data */
+    if ((uintptr_t)list < MIN_PLAUSIBLE_HEAP_ADDR)
+    {
+        fprintf(stderr, "g_list_destroy: invalid list pointer %p (likely uninitialized union member)\n", (void*)list);
+        *plist = NULL;
+        return;
+    }
+
+    /* Validate nodes pointer similarly */
+    if (list->nodes && (uintptr_t)list->nodes < MIN_PLAUSIBLE_HEAP_ADDR)
+    {
+        fprintf(stderr, "g_list_destroy: invalid nodes pointer %p in list %p (likely uninitialized or corrupted)\n", 
+                (void*)list->nodes, (void*)list);
+        fprintf(stderr, "  list->size=%d, list->capacity=%d\n", list->size, list->capacity);
+        *plist = NULL;
+        return;
+    }
 
     for (int i = 0; i < list->size; i++)
         g_node_destroy(&list->nodes[i]);
@@ -89,6 +113,7 @@ void g_node_destroy(gnode_t **pnode)
     case G_IN_NODE:
     case G_IO_NUMBER_NODE:
     case G_IO_LOCATION_NODE:
+    case G_SEPARATOR_OP:
         if (node->data.token)
             token_destroy(&node->data.token);
         break;
@@ -120,6 +145,7 @@ void g_node_destroy(gnode_t **pnode)
     case G_COMPOUND_LIST:
     case G_TERM:
     case G_DO_GROUP:
+    case G_NEWLINE_LIST:
         g_list_destroy(&node->data.list);
         break;
 
@@ -138,6 +164,7 @@ void g_node_destroy(gnode_t **pnode)
     case G_FUNCTION_BODY:
     case G_SEPARATOR:
     case G_LINEBREAK:
+    case G_COMPOUND_COMMAND:
         g_node_destroy(&node->data.child);
         break;
 
@@ -150,6 +177,9 @@ void g_node_destroy(gnode_t **pnode)
     case G_CASE_ITEM:
     case G_CASE_ITEM_NS:
     case G_FUNCTION_DEFINITION:
+    case G_IO_REDIRECT:
+    case G_IO_FILE:
+    case G_IO_HERE:
         g_node_destroy(&node->data.multi.a);
         g_node_destroy(&node->data.multi.b);
         g_node_destroy(&node->data.multi.c);

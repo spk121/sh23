@@ -374,7 +374,7 @@ char *const *variable_store_update_envp(variable_store_t *vs)
 }
 
 char *const *variable_store_update_envp_with_parent(variable_store_t *child_vs,
-                                                    variable_store_t *parent_vs)
+                                                    const variable_store_t *parent_vs)
 {
     if (child_vs == NULL)
         return NULL;

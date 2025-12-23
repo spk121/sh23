@@ -731,6 +731,7 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
     /* Wrap into a G_WORDLIST node */
     gnode_t *node = g_node_create(G_WORDLIST);
     node->data.list = wlist->data.list; /* steal list */
+    wlist->data.list = NULL; /* prevent double-free */
     g_node_destroy(&wlist);
 
     *out_node = node;
