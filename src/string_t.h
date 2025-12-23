@@ -4,8 +4,8 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 
 typedef struct string_t
 {
@@ -14,12 +14,12 @@ typedef struct string_t
     int capacity; // Total allocated bytes (including null terminator)
 } string_t;
 
-typedef struct string_list_t {
+typedef struct string_list_t
+{
     string_t **strings;
     int size;
     int capacity;
 } string_list_t;
-
 
 static const int INITIAL_CAPACITY = 16;
 static const int GROW_FACTOR = 2;
@@ -28,7 +28,7 @@ static const int REDUCE_THRESHOLD = 4096;
 
 // Constructors
 string_t *string_create(void);
-string_t *string_create_from_n_chars(size_t count, char ch);
+string_t *string_create_from_n_chars(int count, char ch);
 string_t *string_create_from_cstr(const char *data);
 string_t *string_create_from_cstr_len(const char *data, int len);
 string_t *string_create_from(const string_t *other);
@@ -52,7 +52,7 @@ void string_consume(string_t *str, string_t **str2);
 void string_set_cstr(string_t *str, const char *cstr);
 void string_set_char(string_t *str, char ch);
 void string_set_data(string_t *str, const char *data, int n);
-void string_set_n_chars(string_t *str, size_t count, char ch);
+void string_set_n_chars(string_t *str, int count, char ch);
 void string_set_substring(string_t *str, const string_t *str2, int begin2, int end2);
 
 // Accessors
@@ -75,7 +75,7 @@ void string_shrink_to_fit(string_t *str);
 // Modifiers
 void string_clear(string_t *str);
 void string_insert(string_t *str, int pos, const string_t *other);
-void string_insert_n_chars(string_t *str, int pos, size_t count, char ch);
+void string_insert_n_chars(string_t *str, int pos, int count, char ch);
 void string_insert_cstr(string_t *str, int pos, const char *cstr);
 void string_insert_data(string_t *str, int pos, const char *data, int len);
 void string_erase(string_t *str, int pos, int len);
@@ -84,13 +84,14 @@ void string_pop_back(string_t *str);
 void string_append(string_t *str, const string_t *other);
 void string_append_substring(string_t *str, const string_t *other, int begin, int end);
 void string_append_cstr(string_t *str, const char *cstr);
-void string_append_n_chars(string_t *str, size_t count, char ch);
+void string_append_n_chars(string_t *str, int count, char ch);
 void string_append_data(string_t *str, const char *data, int len);
 void string_append_char(string_t *str, char c);
 void string_replace(string_t *str, int pos, int len, const string_t *other);
-void string_replace_substring(string_t *str, int pos, int len, const string_t *other, int begin2, int end2);
+void string_replace_substring(string_t *str, int pos, int len, const string_t *other, int begin2,
+                              int end2);
 void string_replace_cstr(string_t *str, int pos, int len, const char *cstr);
-void string_replace_n_chars(string_t *str, int pos, int len, size_t count, char ch);
+void string_replace_n_chars(string_t *str, int pos, int len, int count, char ch);
 void string_replace_data(string_t *str, int pos, int len, const char *data, int data_len);
 void string_copy_to_cstr(const string_t *str, char *dest, int count);
 void string_copy_to_cstr_at(const string_t *str, int pos, char *dest, int count);
@@ -130,12 +131,14 @@ int string_compare(const string_t *str1, const string_t *str2);
 int string_compare_at(const string_t *str1, int pos1, const string_t *str2, int pos2);
 int string_compare_cstr(const string_t *str, const char *cstr);
 int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2);
-int string_compare_substring(const string_t *str1, int pos1, const string_t *str2, int begin2, int end2);
-int string_compare_cstr_substring(const string_t *str, int pos, const char *cstr, int begin2, int end2);
+int string_compare_substring(const string_t *str1, int pos1, const string_t *str2, int begin2,
+                             int end2);
+int string_compare_cstr_substring(const string_t *str, int pos, const char *cstr, int begin2,
+                                  int end2);
 bool string_starts_with(const string_t *str, const string_t *prefix);
 bool string_starts_with_cstr(const string_t *str, const char *prefix);
 bool string_ends_with(const string_t *str, const string_t *suffix);
-bool string_ends_with_cstr (const string_t *str, const char *suffix);
+bool string_ends_with_cstr(const string_t *str, const char *suffix);
 bool string_contains(const string_t *str, const string_t *substr);
 bool string_contains_cstr(const string_t *str, const char *substr);
 
