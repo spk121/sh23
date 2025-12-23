@@ -15,14 +15,12 @@ constexpr long ARENA_MAX_ALLOCATIONS = 1000000;
 #endif
 
 // Global singleton arena instance
-static arena_t global_arena = {
-    .rollback_in_progress = false,
-    .allocated_ptrs = NULL,
-    .allocated_count = 0,
-    .allocated_cap = 0,
-    .initial_cap = ARENA_INITIAL_CAP,
-    .max_allocations = ARENA_MAX_ALLOCATIONS
-};
+static arena_t global_arena = {.rollback_in_progress = false,
+                               .allocated_ptrs = NULL,
+                               .allocated_count = 0,
+                               .allocated_cap = 0,
+                               .initial_cap = ARENA_INITIAL_CAP,
+                               .max_allocations = ARENA_MAX_ALLOCATIONS};
 
 // Provide access to global arena for arena_start() macro
 arena_t *arena_get_global(void)
@@ -33,12 +31,66 @@ arena_t *arena_get_global(void)
 // -------------------------------------------------------------
 // Internal helpers for maintaining the sorted pointer list
 // -------------------------------------------------------------
+#ifdef ARENA_DEBUG
+// Helper function to extract basename from file path (returns pointer to basename within the
+// original string)
+static const char *get_basename(const char *file)
+{
+    const char *basename = file;
+    const char *p = file;
+    while (*p)
+    {
+        if (*p == '/' || *p == '\\')
+        {
+            basename = p + 1;
+        }
+        p++;
+    }
+    return basename;
+}
+
+// Helper function to extract basename from file path and copy to buffer with truncation handling
+static void copy_basename(char *dest, size_t dest_size, const char *file)
+{
+    const char *basename = get_basename(file);
+
+    // Copy basename to destination
+    int n = snprintf(dest, dest_size, "%s", basename);
+
+    // Check for truncation
+    if (n < 0)
+    {
+        // Encoding error - use empty string
+        dest[0] = '\0';
+    }
+    else if ((size_t)n >= dest_size)
+    {
+        // Truncation occurred - replace end with "..."
+        if (dest_size >= 4)
+        {
+            dest[dest_size - 4] = '.';
+            dest[dest_size - 3] = '.';
+            dest[dest_size - 2] = '.';
+            dest[dest_size - 1] = '\0';
+        }
+        fprintf(stderr, "WARNING: allocation file path truncated: %s\n", file);
+    }
+}
+
+static int ptr_compare(const void *a, const void *b)
+{
+    const arena_alloc_t *pa = (const arena_alloc_t *)a;
+    const arena_alloc_t *pb = (const arena_alloc_t *)b;
+    return (pa->ptr > pb->ptr) - (pa->ptr < pb->ptr);
+}
+#else
 static int ptr_compare(const void *a, const void *b)
 {
     const void *pa = *(const void **)a;
     const void *pb = *(const void **)b;
     return (pa > pb) - (pa < pb);
 }
+#endif
 
 // Find index of pointer p (returns -1 if not found)
 static long find_ptr(arena_t *arena, const void *p)
@@ -49,7 +101,14 @@ static long find_ptr(arena_t *arena, const void *p)
         abort();
     }
     // binary search because list is kept sorted
-    void **res = bsearch(&p, arena->allocated_ptrs, arena->allocated_count, sizeof(void *), ptr_compare);
+#ifdef ARENA_DEBUG
+    arena_alloc_t key = {.ptr = (void *)p};
+    arena_alloc_t *res = bsearch(&key, arena->allocated_ptrs, arena->allocated_count,
+                                 sizeof(arena_alloc_t), ptr_compare);
+#else
+    void **res =
+        bsearch(&p, arena->allocated_ptrs, arena->allocated_count, sizeof(void *), ptr_compare);
+#endif
     if (!res)
         return -1;
     return res - arena->allocated_ptrs;
@@ -66,7 +125,11 @@ static long find_insertion_index(arena_t *arena, void *new_ptr)
     while (low < high)
     {
         long mid = (low + high) / 2;
+#ifdef ARENA_DEBUG
+        if (new_ptr < arena->allocated_ptrs[mid].ptr)
+#else
         if (new_ptr < arena->allocated_ptrs[mid])
+#endif
         {
             high = mid;
         }
@@ -79,13 +142,41 @@ static long find_insertion_index(arena_t *arena, void *new_ptr)
 }
 
 // Insert pointer in sorted order (keeps the array sorted)
+#ifdef ARENA_DEBUG
+static void insert_ptr(arena_t *arena, void *p, const char *file, int line, size_t size)
+#else
 static void insert_ptr(arena_t *arena, void *p)
+#endif
 {
     if (!p)
     {
         fprintf(stderr, "insert_ptr: NULL pointer passed\n");
         abort();
     }
+
+#ifdef ARENA_DEBUG
+    // Check for ANY overlap with existing allocations
+    for (long i = 0; i < arena->allocated_count; i++)
+    {
+        void *old_begin = arena->allocated_ptrs[i].ptr;
+        void *old_end = (void *)((char *)old_begin + arena->allocated_ptrs[i].size);
+        void *new_begin = p;
+        void *new_end = (void *)((char *)p + size);
+
+        if (!(old_end <= new_begin || new_end <= old_begin))
+        {
+            fprintf(stderr,
+                    "SHADOW: existing allocation [%p-%p] %s:%d %zu overlaps new allocation [%p-%p] "
+                    "%s:%d %zu\n",
+                    old_begin, old_end, arena->allocated_ptrs[i].file,
+                    arena->allocated_ptrs[i].line, arena->allocated_ptrs[i].size, new_begin,
+                    new_end, file, line, size);
+            fprintf(stderr,
+                    "ERROR: overlapping memory allocations detected - possible heap corruption\n");
+            abort();
+        }
+    }
+#endif
 
     if (arena->allocated_count >= arena->max_allocations)
     {
@@ -102,6 +193,17 @@ static void insert_ptr(arena_t *arena, void *p)
         long new_cap = (arena->allocated_cap > 0) ? arena->allocated_cap * 2 : arena->initial_cap;
         if (new_cap > arena->max_allocations)
             new_cap = arena->max_allocations;
+#ifdef ARENA_DEBUG
+        arena_alloc_t *new_ptrs = calloc(new_cap, sizeof(arena_alloc_t));
+        if (!new_ptrs)
+        {
+            free(p);
+            if (!arena->rollback_in_progress)
+                longjmp(arena->rollback_point, 1);
+            return;
+        }
+        memmove(new_ptrs, arena->allocated_ptrs, arena->allocated_count * sizeof(arena_alloc_t));
+#else
         void **new_ptrs = calloc(new_cap, sizeof(void *));
         if (!new_ptrs)
         {
@@ -111,6 +213,7 @@ static void insert_ptr(arena_t *arena, void *p)
             return;
         }
         memmove(new_ptrs, arena->allocated_ptrs, arena->allocated_count * sizeof(void *));
+#endif
         free(arena->allocated_ptrs);
         arena->allocated_ptrs = new_ptrs;
         arena->allocated_cap = new_cap;
@@ -122,9 +225,23 @@ static void insert_ptr(arena_t *arena, void *p)
     // Shift everything right one position
     if (idx < arena->allocated_count)
     {
-        memmove(arena->allocated_ptrs + idx + 1, arena->allocated_ptrs + idx, (arena->allocated_count - idx) * sizeof(void *));
+#ifdef ARENA_DEBUG
+        memmove(arena->allocated_ptrs + idx + 1, arena->allocated_ptrs + idx,
+                (arena->allocated_count - idx) * sizeof(arena_alloc_t));
+#else
+        memmove(arena->allocated_ptrs + idx + 1, arena->allocated_ptrs + idx,
+                (arena->allocated_count - idx) * sizeof(void *));
+#endif
     }
+#ifdef ARENA_DEBUG
+    arena->allocated_ptrs[idx].ptr = p;
+    copy_basename(arena->allocated_ptrs[idx].file, sizeof(arena->allocated_ptrs[idx].file), file);
+    arena->allocated_ptrs[idx].line = line;
+    arena->allocated_ptrs[idx].size = size;
+    fprintf(stderr, "ALLOC: %p %s:%d %zu\n", p, arena->allocated_ptrs[idx].file, line, size);
+#else
     arena->allocated_ptrs[idx] = p;
+#endif
     arena->allocated_count++;
 }
 
@@ -136,14 +253,20 @@ static void remove_ptr_at(arena_t *arena, long idx)
         fprintf(stderr, "remove_ptr_at: invalid index %ld\n", idx);
         abort();
     }
-    memmove(arena->allocated_ptrs + idx, arena->allocated_ptrs + idx + 1, (arena->allocated_count - idx - 1) * sizeof(void *));
+#ifdef ARENA_DEBUG
+    memmove(arena->allocated_ptrs + idx, arena->allocated_ptrs + idx + 1,
+            (arena->allocated_count - idx - 1) * sizeof(arena_alloc_t));
+#else
+    memmove(arena->allocated_ptrs + idx, arena->allocated_ptrs + idx + 1,
+            (arena->allocated_count - idx - 1) * sizeof(void *));
+#endif
     arena->allocated_count--;
 }
 
 // -------------------------------------------------------------
 // Arena-based public API
 // -------------------------------------------------------------
-void *arena_xmalloc(arena_t *arena, size_t size)
+void *arena_xmalloc(arena_t *arena, size_t size ARENA_DEBUG_PARAMS)
 {
     if (size == 0)
     {
@@ -156,14 +279,18 @@ void *arena_xmalloc(arena_t *arena, size_t size)
     {
         if (!arena->rollback_in_progress)
             longjmp(arena->rollback_point, 1); // triggers full cleanup
-        return NULL;                          // during cleanup we must not jump again
+        return NULL;                           // during cleanup we must not jump again
     }
 
+#ifdef ARENA_DEBUG
+    insert_ptr(arena, p, file, line, size);
+#else
     insert_ptr(arena, p);
+#endif
     return p;
 }
 
-void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
+void *arena_xcalloc(arena_t *arena, size_t n, size_t size ARENA_DEBUG_PARAMS)
 {
     if (n == 0 || size == 0)
     {
@@ -175,38 +302,77 @@ void *arena_xcalloc(arena_t *arena, size_t n, size_t size)
     if (!p)
     {
         if (!arena->rollback_in_progress)
+        {
             longjmp(arena->rollback_point, 1);
+        }
         return NULL;
     }
 
+#ifdef ARENA_DEBUG
+    insert_ptr(arena, p, file, line, n * size);
+#else
     insert_ptr(arena, p);
+#endif
     return p;
 }
 
-void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size)
+void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size ARENA_DEBUG_PARAMS)
 {
-    if (new_size == 0 || old_ptr == NULL)
+    if (old_ptr == NULL)
+#ifdef ARENA_DEBUG
+        return arena_xmalloc(arena, new_size, file, line);
+#else
+        return arena_xmalloc(arena, new_size);
+#endif
+
+    if (new_size == 0)
     {
-        fprintf(stderr, "arena_xrealloc: invalid arguments (old_ptr=%p, new_size=%zu)\n", old_ptr, new_size);
-        abort();
+#ifdef ARENA_DEBUG
+        arena_xfree(arena, old_ptr, file, line);
+#else
+        arena_xfree(arena, old_ptr);
+#endif
+        return NULL;
     }
 
     long idx = find_ptr(arena, old_ptr);
+#ifdef ARENA_DEBUG
+    if (idx >= 0)
+    {
+        // Print old allocation info for tracked pointer
+        fprintf(stderr, "REALLOC: %p %s:%d %zu -> ", arena->allocated_ptrs[idx].ptr,
+                arena->allocated_ptrs[idx].file, arena->allocated_ptrs[idx].line,
+                arena->allocated_ptrs[idx].size);
+    }
+    else
+    {
+        // Pointer was not tracked; still log the reallocation for consistency
+        fprintf(stderr, "REALLOC: %p (untracked) -> ", old_ptr);
+    }
+#endif
     void *p = realloc(old_ptr, new_size);
     if (!p)
     {
         if (!arena->rollback_in_progress)
+        {
             longjmp(arena->rollback_point, 1);
+        }
         return NULL;
     }
     if (idx >= 0)
         remove_ptr_at(arena, idx);
+#ifdef ARENA_DEBUG
+    // Print new allocation info
+    fprintf(stderr, "%p %s:%d %zu\n", p, get_basename(file), line, new_size);
+    insert_ptr(arena, p, file, line, new_size);
+#else
     insert_ptr(arena, p);
+#endif
 
     return p;
 }
 
-char *arena_xstrdup(arena_t *arena, const char *s)
+char *arena_xstrdup(arena_t *arena, const char *s ARENA_DEBUG_PARAMS)
 {
     if (s == NULL)
     {
@@ -221,22 +387,40 @@ char *arena_xstrdup(arena_t *arena, const char *s)
             longjmp(arena->rollback_point, 1);
         return NULL;
     }
+#ifdef ARENA_DEBUG
+    insert_ptr(arena, p, file, line, strlen(s) + 1);
+#else
     insert_ptr(arena, p);
+#endif
     return p;
 }
 
-void arena_xfree(arena_t *arena, void *p)
+void arena_xfree(arena_t *arena, void *p ARENA_DEBUG_PARAMS)
 {
     if (!p)
         return;
 
+#ifdef ARENA_DEBUG
+    char basename[256];
+    copy_basename(basename, sizeof(basename), file);
+
+    fprintf(stderr, "FREE: %p %s:%d 0 \n", p, basename, line);
+#endif
     long idx = find_ptr(arena, p);
     if (idx < 0)
     {
+#ifdef ARENA_DEBUG
+        fprintf(stderr, "DEALLOC: %p (unknown):0 0 (double free or corruption detected)\n", p);
+#endif
         fprintf(stderr, "arena_xfree: double free or corruption detected (%p)\n", p);
         abort();
     }
 
+#ifdef ARENA_DEBUG
+    fprintf(stderr, "DEALLOC: %p %s:%d %zu -> %p (freed):0 0\n", arena->allocated_ptrs[idx].ptr,
+            arena->allocated_ptrs[idx].file, arena->allocated_ptrs[idx].line,
+            arena->allocated_ptrs[idx].size, p);
+#endif
     remove_ptr_at(arena, idx);
     free(p);
 }
@@ -244,16 +428,20 @@ void arena_xfree(arena_t *arena, void *p)
 void arena_init_ex(arena_t *arena)
 {
     // Free existing allocations if arena was previously initialized and still has allocations
-    // We check both allocated_ptrs and allocated_count to avoid false positives from uninitialized memory
+    // We check both allocated_ptrs and allocated_count to avoid false positives from uninitialized
+    // memory
     if (arena->allocated_ptrs != NULL && arena->allocated_count > 0)
     {
-        arena_reset_ex(arena, false);
+        arena_reset_ex(arena);
     }
-    
     arena->rollback_in_progress = false;
     arena->initial_cap = ARENA_INITIAL_CAP;
     arena->max_allocations = ARENA_MAX_ALLOCATIONS;
+#ifdef ARENA_DEBUG
+    arena->allocated_ptrs = calloc(arena->initial_cap, sizeof(arena_alloc_t));
+#else
     arena->allocated_ptrs = calloc(arena->initial_cap, sizeof(void *));
+#endif
     if (!arena->allocated_ptrs)
     {
         fprintf(stderr, "arena_init_ex: failed to allocate initial pointer array\n");
@@ -263,24 +451,40 @@ void arena_init_ex(arena_t *arena)
     arena->allocated_count = 0;
 }
 
-void arena_reset_ex(arena_t *arena, bool verbose)
+void arena_reset_ex(arena_t *arena)
 {
+#ifdef ARENA_DEBUG
+    long count = arena->allocated_count;
+#endif
     arena->rollback_in_progress = true;
 
     // Free from the end to avoid expensive memmove on every removal
-    long count = arena->allocated_count;
+#ifdef ARENA_DEBUG
+    for (long i = 0; i < arena->allocated_count; i++)
+    {
+        fprintf(stderr, "LEAK: %p %s:%d %zu\n", arena->allocated_ptrs[i].ptr,
+                arena->allocated_ptrs[i].file, arena->allocated_ptrs[i].line,
+                arena->allocated_ptrs[i].size);
+    }
+#endif
     while (arena->allocated_count > 0)
     {
+#ifdef ARENA_DEBUG
+        void *p = arena->allocated_ptrs[--arena->allocated_count].ptr;
+#else
         void *p = arena->allocated_ptrs[--arena->allocated_count];
+#endif
         free(p);
     }
 
     free(arena->allocated_ptrs);
     arena->allocated_ptrs = NULL;
-    if (verbose)
+#ifdef ARENA_DEBUG
+    if (count > 0)
     {
         fprintf(stderr, "Arena reset: freeing %ld allocated blocks\n", count);
     }
+#endif
     arena->allocated_cap = arena->allocated_count = 0;
 
     arena->rollback_in_progress = false;
@@ -288,16 +492,13 @@ void arena_reset_ex(arena_t *arena, bool verbose)
 
 void arena_end_ex(arena_t *arena)
 {
-#ifdef DEBUG
-    arena_reset_ex(arena, true);
-#else
-    arena_reset_ex(arena, false);
-#endif
+    arena_reset_ex(arena);
 }
 
 // -------------------------------------------------------------
 // Public API
 // -------------------------------------------------------------
+#ifndef ARENA_DEBUG
 void *xmalloc(size_t size)
 {
     return arena_xmalloc(&global_arena, size);
@@ -322,59 +523,22 @@ void xfree(void *p)
 {
     arena_xfree(&global_arena, p);
 }
+#endif
 
 void arena_init(void)
 {
-    // Free existing allocations if arena was previously used
-    if (global_arena.allocated_ptrs != NULL)
-    {
-        arena_reset(false);
-    }
-    
-    global_arena.rollback_in_progress = false;
-    global_arena.initial_cap = ARENA_INITIAL_CAP;
-    global_arena.max_allocations = ARENA_MAX_ALLOCATIONS;
-    global_arena.allocated_ptrs = calloc(global_arena.initial_cap, sizeof(void *));
-    if (!global_arena.allocated_ptrs)
-    {
-        fprintf(stderr, "arena_init: failed to allocate initial pointer array\n");
-        abort();
-    }
-    global_arena.allocated_cap = global_arena.initial_cap;
-    global_arena.allocated_count = 0;
+    arena_init_ex(&global_arena);
 }
 
 // -------------------------------------------------------------
 // Full rollback — called automatically on allocation failure
 // -------------------------------------------------------------
-void arena_reset(bool verbose)
+void arena_reset(void)
 {
-    global_arena.rollback_in_progress = true;
-
-    // Free from the end to avoid expensive memmove on every removal
-    long count = global_arena.allocated_count;
-    while (global_arena.allocated_count > 0)
-    {
-        void *p = global_arena.allocated_ptrs[--global_arena.allocated_count];
-        free(p);
-    }
-
-    free(global_arena.allocated_ptrs);
-    global_arena.allocated_ptrs = NULL;
-    if (verbose)
-    {
-        fprintf(stderr, "Arena reset: freeing %ld allocated blocks\n", count);
-    }
-    global_arena.allocated_cap = global_arena.allocated_count = 0;
-
-    global_arena.rollback_in_progress = false;
+    arena_reset_ex(&global_arena);
 }
 
 void arena_end(void)
 {
-#ifdef DEBUG
-    arena_reset(true);
-#else
-    arena_reset(false);
-#endif
+    arena_reset_ex(&global_arena);
 }
