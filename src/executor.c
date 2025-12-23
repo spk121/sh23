@@ -183,7 +183,51 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     Expects_not_null(node);
 
     variable_store_t *temp_store = variable_store_create();
+    
+    // ------------------------------------------------------------
+    // Add special shell variables from executor state
+    // ------------------------------------------------------------
+    
+    // $? - last exit status
+    char exit_status_buf[32];
+    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", ex->last_exit_status);
+    variable_store_add_cstr(temp_store, "?", exit_status_buf, false, false);
+    
+    // $! - last background PID (only if set)
+    if (ex->last_background_pid > 0)
+    {
+        char bg_pid_buf[32];
+        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", ex->last_background_pid);
+        variable_store_add_cstr(temp_store, "!", bg_pid_buf, false, false);
+    }
+    
+    // $$ - shell PID
+    if (ex->shell_pid > 0)
+    {
+        char shell_pid_buf[32];
+        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", ex->shell_pid);
+        variable_store_add_cstr(temp_store, "$", shell_pid_buf, false, false);
+    }
+    
+    // $_ - last argument
+    if (ex->last_argument != NULL && string_length(ex->last_argument) > 0)
+    {
+        string_t *underscore_name = string_create_from_cstr("_");
+        variable_store_add(temp_store, underscore_name, ex->last_argument, false, false);
+        string_destroy(&underscore_name);
+    }
+    
+    // $- - shell flags
+    if (ex->shell_flags != NULL && string_length(ex->shell_flags) > 0)
+    {
+        string_t *dash_name = string_create_from_cstr("-");
+        variable_store_add(temp_store, dash_name, ex->shell_flags, false, false);
+        string_destroy(&dash_name);
+    }
+    
+    // ------------------------------------------------------------
     // Extract assignment words from current simple command or function definition
+    // ------------------------------------------------------------
     if (node->type == AST_SIMPLE_COMMAND)
     {
         token_list_t *assignments = node->data.simple_command.assignments;
@@ -586,6 +630,47 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     }
 
     // ------------------------------------------------------------
+    // Update special shell variables in executor->variables
+    // ------------------------------------------------------------
+    
+    // $? - last exit status
+    char exit_status_buf[32];
+    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", executor->last_exit_status);
+    variable_store_add_cstr(executor->variables, "?", exit_status_buf, false, false);
+    
+    // $! - last background PID (only if set)
+    if (executor->last_background_pid > 0)
+    {
+        char bg_pid_buf[32];
+        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", executor->last_background_pid);
+        variable_store_add_cstr(executor->variables, "!", bg_pid_buf, false, false);
+    }
+    
+    // $$ - shell PID
+    if (executor->shell_pid > 0)
+    {
+        char shell_pid_buf[32];
+        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", executor->shell_pid);
+        variable_store_add_cstr(executor->variables, "$", shell_pid_buf, false, false);
+    }
+    
+    // $_ - last argument
+    if (executor->last_argument != NULL && string_length(executor->last_argument) > 0)
+    {
+        string_t *underscore_name = string_create_from_cstr("_");
+        variable_store_add(executor->variables, underscore_name, executor->last_argument, false, false);
+        string_destroy(&underscore_name);
+    }
+    
+    // $- - shell flags
+    if (executor->shell_flags != NULL && string_length(executor->shell_flags) > 0)
+    {
+        string_t *dash_name = string_create_from_cstr("-");
+        variable_store_add(executor->variables, dash_name, executor->shell_flags, false, false);
+        string_destroy(&dash_name);
+    }
+
+    // ------------------------------------------------------------
     // Prepare temporary variable store (for assignment words)
     // ------------------------------------------------------------
     variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
@@ -605,6 +690,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         // Expansion produced nothing → command disappears
         expander_destroy(&exp);
         string_list_destroy(expanded_words);
+        variable_store_destroy(&tmpvars);
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
@@ -640,6 +726,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // ------------------------------------------------------------
     string_list_destroy(expanded_words);
     expander_destroy(&exp);
+    variable_store_destroy(&tmpvars);
 
     return status;
 }
