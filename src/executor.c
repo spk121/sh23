@@ -177,6 +177,58 @@ void executor_set_dry_run(executor_t *executor, bool dry_run)
  * Execution Functions
  * ============================================================================ */
 
+/**
+ * @brief Helper function to populate special shell variables into a variable store
+ * 
+ * Populates POSIX special shell variables ($?, $!, $$, $_, $-) from executor
+ * state into the provided variable store.
+ * 
+ * @param store The variable store to populate (must not be NULL)
+ * @param ex The executor context containing special variable values (must not be NULL)
+ */
+static void executor_populate_special_variables(variable_store_t *store, const executor_t *ex)
+{
+    Expects_not_null(store);
+    Expects_not_null(ex);
+    
+    // $? - last exit status
+    char exit_status_buf[32];
+    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", ex->last_exit_status);
+    variable_store_add_cstr(store, "?", exit_status_buf, false, false);
+    
+    // $! - last background PID (only if set)
+    if (ex->last_background_pid > 0)
+    {
+        char bg_pid_buf[32];
+        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", ex->last_background_pid);
+        variable_store_add_cstr(store, "!", bg_pid_buf, false, false);
+    }
+    
+    // $$ - shell PID
+    if (ex->shell_pid > 0)
+    {
+        char shell_pid_buf[32];
+        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", ex->shell_pid);
+        variable_store_add_cstr(store, "$", shell_pid_buf, false, false);
+    }
+    
+    // $_ - last argument
+    if (ex->last_argument != NULL && string_length(ex->last_argument) > 0)
+    {
+        string_t *underscore_name = string_create_from_cstr("_");
+        variable_store_add(store, underscore_name, ex->last_argument, false, false);
+        string_destroy(&underscore_name);
+    }
+    
+    // $- - shell flags
+    if (ex->shell_flags != NULL && string_length(ex->shell_flags) > 0)
+    {
+        string_t *dash_name = string_create_from_cstr("-");
+        variable_store_add(store, dash_name, ex->shell_flags, false, false);
+        string_destroy(&dash_name);
+    }
+}
+
 static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node)
 {
     Expects_not_null(ex);
@@ -189,43 +241,7 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     // These are added per the Phase 2 requirement to populate
     // special variables in the temp variable store
     // ------------------------------------------------------------
-    
-    // $? - last exit status
-    char exit_status_buf[32];
-    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", ex->last_exit_status);
-    variable_store_add_cstr(temp_store, "?", exit_status_buf, false, false);
-    
-    // $! - last background PID (only if set)
-    if (ex->last_background_pid > 0)
-    {
-        char bg_pid_buf[32];
-        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", ex->last_background_pid);
-        variable_store_add_cstr(temp_store, "!", bg_pid_buf, false, false);
-    }
-    
-    // $$ - shell PID
-    if (ex->shell_pid > 0)
-    {
-        char shell_pid_buf[32];
-        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", ex->shell_pid);
-        variable_store_add_cstr(temp_store, "$", shell_pid_buf, false, false);
-    }
-    
-    // $_ - last argument
-    if (ex->last_argument != NULL && string_length(ex->last_argument) > 0)
-    {
-        string_t *underscore_name = string_create_from_cstr("_");
-        variable_store_add(temp_store, underscore_name, ex->last_argument, false, false);
-        string_destroy(&underscore_name);
-    }
-    
-    // $- - shell flags
-    if (ex->shell_flags != NULL && string_length(ex->shell_flags) > 0)
-    {
-        string_t *dash_name = string_create_from_cstr("-");
-        variable_store_add(temp_store, dash_name, ex->shell_flags, false, false);
-        string_destroy(&dash_name);
-    }
+    executor_populate_special_variables(temp_store, ex);
     
     // ------------------------------------------------------------
     // Extract assignment words from current simple command or function definition
@@ -634,43 +650,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // ------------------------------------------------------------
     // Update special shell variables in executor->variables
     // ------------------------------------------------------------
-    
-    // $? - last exit status
-    char exit_status_buf[32];
-    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", executor->last_exit_status);
-    variable_store_add_cstr(executor->variables, "?", exit_status_buf, false, false);
-    
-    // $! - last background PID (only if set)
-    if (executor->last_background_pid > 0)
-    {
-        char bg_pid_buf[32];
-        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", executor->last_background_pid);
-        variable_store_add_cstr(executor->variables, "!", bg_pid_buf, false, false);
-    }
-    
-    // $$ - shell PID
-    if (executor->shell_pid > 0)
-    {
-        char shell_pid_buf[32];
-        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", executor->shell_pid);
-        variable_store_add_cstr(executor->variables, "$", shell_pid_buf, false, false);
-    }
-    
-    // $_ - last argument
-    if (executor->last_argument != NULL && string_length(executor->last_argument) > 0)
-    {
-        string_t *underscore_name = string_create_from_cstr("_");
-        variable_store_add(executor->variables, underscore_name, executor->last_argument, false, false);
-        string_destroy(&underscore_name);
-    }
-    
-    // $- - shell flags
-    if (executor->shell_flags != NULL && string_length(executor->shell_flags) > 0)
-    {
-        string_t *dash_name = string_create_from_cstr("-");
-        variable_store_add(executor->variables, dash_name, executor->shell_flags, false, false);
-        string_destroy(&dash_name);
-    }
+    executor_populate_special_variables(executor->variables, executor);
 
     // ------------------------------------------------------------
     // Prepare temporary variable store (for assignment words)
