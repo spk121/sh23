@@ -51,11 +51,19 @@ typedef enum
 /**
  * Pipeline operators
  */
+#ifdef FUTURE
+typedef enum
+{
+    PIPE_NORMAL,      // pipe stdout only
+    PIPE_MERGE_STDERR // pipe stdout + stderr
+} pipe_operator_t;
+#else
 typedef enum
 {
     PIPE_OP_PIPE,       // |
     PIPE_OP_PIPE_AMPER, // |& (bash extension, not implemented yet)
 } pipe_operator_t;
+#endif
 
 /**
  * And/Or list operators
@@ -80,12 +88,21 @@ typedef enum
  *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL  
  *   Command 2: "echo baz"  -> separator: LIST_SEP_EOL (no actual token)
  */
+#ifdef FUTURE
+typedef enum
+{
+    CMD_EXEC_SEQUENTIAL, // run, wait, then run next
+    CMD_EXEC_BACKGROUND, // run without waiting
+    CMD_EXEC_END         // no more commands
+} cmd_separator_t;
+#else
 typedef enum
 {
     LIST_SEP_SEQUENTIAL, // ; or newline - execute next command after this one
     LIST_SEP_BACKGROUND, // & - run this command in background, then execute next
     LIST_SEP_EOL         // End of list - no separator token, this is the last command
 } cmd_separator_t;
+#endif
 
 /* Command separator list structure */
 typedef struct
@@ -98,6 +115,22 @@ typedef struct
 /**
  * Redirection types
  */
+#ifdef FUTURE
+typedef enum
+{
+    REDIR_READ,        // <      open file for reading
+    REDIR_WRITE,       // >      truncate + write
+    REDIR_APPEND,      // >>     append
+    REDIR_READWRITE,   // <>     read/write
+    REDIR_WRITE_FORCE, // >|     force overwrite (ignore noclobber)
+
+    REDIR_FD_DUP_IN,  // <&     duplicate input FD
+    REDIR_FD_DUP_OUT, // >&     duplicate output FD
+
+    REDIR_FROM_BUFFER,      // <<     heredoc, but now it's a buffer
+    REDIR_FROM_BUFFER_STRIP // <<-    strip leading tabs
+} redirection_type_t;
+#else
 typedef enum
 {
     REDIR_INPUT,       // <
@@ -110,7 +143,19 @@ typedef enum
     REDIR_READWRITE,   // <>
     REDIR_CLOBBER,     // >|
 } redirection_type_t;
+#endif
 
+#ifdef FUTURE
+typedef enum
+{
+    REDIR_TARGET_INVALID,
+    REDIR_TARGET_FILE,
+    REDIR_TARGET_FD,
+    REDIR_TARGET_CLOSE,
+    REDIR_TARGET_FD_STRING,
+    REDIR_TARGET_BUFFER
+} redir_target_kind_t;
+#else
 typedef enum
 {
     REDIR_OPERAND_NONE,     // should never happen
@@ -120,6 +165,7 @@ typedef enum
     REDIR_OPERAND_IOLOC,    // io_location is a string (e.g., <&var). Probably UNUSED
     REDIR_OPERAND_HEREDOC   // heredoc_content is used
 } redir_operand_kind_t;
+#endif
 
 #ifdef FUTURE
 typedef enum

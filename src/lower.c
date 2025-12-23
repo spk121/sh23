@@ -1,4 +1,4 @@
-﻿#include "lower.h"
+#include "lower.h"
 #include "logging.h"
 #include "token.h"
 #include "gnode.h"

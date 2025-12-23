@@ -1,5 +1,6 @@
-﻿#include "gparse.h"
+#include "gparse.h"
 #include "logging.h"
+#include "token.h"
 
 /* ============================================================================
  * program :
@@ -644,6 +645,13 @@ parse_status_t gparse_for_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * Optional: 'in' wordlist separator
      * ------------------------------------------------------------ */
+    // Promote 'in' if it's a WORD
+    token_t *maybe_in = parser_current_token(parser);
+    if (maybe_in != NULL && token_get_type(maybe_in) == TOKEN_WORD)
+    {
+        token_try_promote_to_in(maybe_in);
+    }
+
     gnode_t *wordlist = NULL;
     parse_status_t status = gparse_in_clause(parser, &wordlist);
 
@@ -656,6 +664,13 @@ parse_status_t gparse_for_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * do_group
      * ------------------------------------------------------------ */
+    // Promote 'do' if it's a WORD
+    token_t *maybe_do = parser_current_token(parser);
+    if (maybe_do != NULL && token_get_type(maybe_do) == TOKEN_WORD)
+    {
+        token_try_promote_to_do(maybe_do);
+    }
+
     gnode_t *do_group = NULL;
     status = gparse_do_group(parser, &do_group);
 
@@ -787,6 +802,13 @@ parse_status_t gparse_case_clause(parser_t *parser, gnode_t **out_node)
     parser_skip_newlines(parser);
 
     /* 'in' */
+    // Promote 'in' if it's a WORD
+    token_t *maybe_in = parser_current_token(parser);
+    if (maybe_in != NULL && token_get_type(maybe_in) == TOKEN_WORD)
+    {
+        token_try_promote_to_reserved_word(maybe_in, true);
+    }
+
     if (!parser_accept(parser, TOKEN_IN))
     {
         g_node_destroy(&subject);
@@ -814,6 +836,13 @@ parse_status_t gparse_case_clause(parser_t *parser, gnode_t **out_node)
     }
 
     /* Expect 'esac' */
+    // Promote 'esac' if it's a WORD
+    token_t *maybe_esac = parser_current_token(parser);
+    if (maybe_esac != NULL && token_get_type(maybe_esac) == TOKEN_WORD)
+    {
+        token_try_promote_to_reserved_word(maybe_esac, true);
+    }
+
     if (!parser_accept(parser, TOKEN_ESAC))
     {
         g_node_destroy(&subject);
@@ -845,6 +874,15 @@ parse_status_t gparse_case_list_ns(parser_t *parser, gnode_t **out_node)
 
     while (true)
     {
+        // Allow promoting 'esac' if it's still a WORD so loop can terminate
+        token_t *ctok = parser_current_token(parser);
+        if (ctok != NULL && token_get_type(ctok) == TOKEN_WORD)
+        {
+            token_try_promote_to_reserved_word(ctok, true);
+            if (token_get_type(ctok) == TOKEN_ESAC)
+                break;
+        }
+
         gnode_t *item = NULL;
         parse_status_t status = gparse_case_item_ns(parser, &item);
 
@@ -878,6 +916,15 @@ parse_status_t gparse_case_list(parser_t *parser, gnode_t **out_node)
 
     while (true)
     {
+        // Allow promoting 'esac' if it's still a WORD so loop can terminate
+        token_t *ctok = parser_current_token(parser);
+        if (ctok != NULL && token_get_type(ctok) == TOKEN_WORD)
+        {
+            token_try_promote_to_reserved_word(ctok, true);
+            if (token_get_type(ctok) == TOKEN_ESAC)
+                break;
+        }
+
         gnode_t *item = NULL;
         parse_status_t status = gparse_case_item(parser, &item);
 
@@ -1019,7 +1066,6 @@ parse_status_t gparse_case_item(parser_t *parser, gnode_t **out_node)
     return PARSE_OK;
 }
 
-
 /* ============================================================================
  * pattern_list     :                  WORD    (Apply rule 4)
  *                  | '(' WORD                 (Do not apply rule 4)
@@ -1098,6 +1144,13 @@ parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * Expect 'then'
      * ------------------------------------------------------------ */
+    // Promote 'then' if it's a WORD
+    token_t *maybe_then = parser_current_token(parser);
+    if (maybe_then != NULL && token_get_type(maybe_then) == TOKEN_WORD)
+    {
+        token_try_promote_to_then(maybe_then);
+    }
+
     if (!parser_accept(parser, TOKEN_THEN))
     {
         g_node_destroy(&cond);
@@ -1120,6 +1173,13 @@ parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * Optional else_part
      * ------------------------------------------------------------ */
+    // Promote reserved words for else_part
+    token_t *maybe_kw = parser_current_token(parser);
+    if (maybe_kw != NULL && token_get_type(maybe_kw) == TOKEN_WORD)
+    {
+        token_try_promote_to_reserved_word(maybe_kw, false);
+    }
+
     gnode_t *else_part = NULL;
     status = gparse_else_part(parser, &else_part);
 
@@ -1133,6 +1193,13 @@ parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * Expect 'fi'
      * ------------------------------------------------------------ */
+    // Promote 'fi' if it's a WORD
+    token_t *maybe_fi = parser_current_token(parser);
+    if (maybe_fi != NULL && token_get_type(maybe_fi) == TOKEN_WORD)
+    {
+        token_try_promote_to_fi(maybe_fi);
+    }
+
     if (!parser_accept(parser, TOKEN_FI))
     {
         g_node_destroy(&cond);
@@ -1208,6 +1275,13 @@ parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
             return status;
 
         /* then */
+        // Promote 'then' if it's a WORD
+        token_t *maybe_then = parser_current_token(parser);
+        if (maybe_then != NULL && token_get_type(maybe_then) == TOKEN_WORD)
+        {
+            token_try_promote_to_then(maybe_then);
+        }
+
         if (!parser_accept(parser, TOKEN_THEN))
         {
             g_node_destroy(&cond);
@@ -1226,6 +1300,13 @@ parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
         }
 
         /* recursive else_part */
+        // Promote reserved words for else_part
+        token_t *maybe_kw2 = parser_current_token(parser);
+        if (maybe_kw2 != NULL && token_get_type(maybe_kw2) == TOKEN_WORD)
+        {
+            token_try_promote_to_reserved_word(maybe_kw2, false);
+        }
+
         gnode_t *next_else = NULL;
         status = gparse_else_part(parser, &next_else);
 
@@ -1281,6 +1362,13 @@ parse_status_t gparse_while_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * Parse do_group
      * ------------------------------------------------------------ */
+    // Promote 'do' if it's a WORD
+    token_t *maybe_do = parser_current_token(parser);
+    if (maybe_do != NULL && token_get_type(maybe_do) == TOKEN_WORD)
+    {
+        token_try_promote_to_do(maybe_do);
+    }
+
     gnode_t *do_group = NULL;
     status = gparse_do_group(parser, &do_group);
 
@@ -1333,6 +1421,13 @@ parse_status_t gparse_until_clause(parser_t *parser, gnode_t **out_node)
     /* ------------------------------------------------------------
      * Parse do_group
      * ------------------------------------------------------------ */
+    // Promote 'do' if it's a WORD
+    token_t *maybe_do = parser_current_token(parser);
+    if (maybe_do != NULL && token_get_type(maybe_do) == TOKEN_WORD)
+    {
+        token_try_promote_to_do(maybe_do);
+    }
+
     gnode_t *do_group = NULL;
     status = gparse_do_group(parser, &do_group);
 
@@ -1417,6 +1512,12 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
      *      compound_command
      *    | compound_command redirect_list
      * ------------------------------------------------------------ */
+    // Promote reserved words if necessary
+    if (parser_current_token_type(parser) == TOKEN_WORD)
+    {
+        token_try_promote_to_reserved_word(parser_current_token(parser), false);
+    }
+
     gnode_t *body = NULL;
     parse_status_t status = gparse_compound_command(parser, &body);
 
@@ -1469,7 +1570,6 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
  * ============================================================================
  */
 
-
 /* ============================================================================
  * brace_group      : Lbrace compound_list Rbrace
  * ============================================================================
@@ -1496,6 +1596,13 @@ parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
         return status;
 
     /* Expect '}' */
+    // Promote '}' if it's a WORD
+    token_t *maybe_rbrace = parser_current_token(parser);
+    if (maybe_rbrace != NULL && token_get_type(maybe_rbrace) == TOKEN_WORD)
+    {
+        token_try_promote_to_rbrace(maybe_rbrace);
+    }
+
     if (!parser_accept(parser, TOKEN_RBRACE))
     {
         g_node_destroy(&clist);
@@ -1523,6 +1630,13 @@ parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     /* Expect 'do' */
+    // Promote 'do' if it's a WORD
+    token_t *maybe_do = parser_current_token(parser);
+    if (maybe_do != NULL && token_get_type(maybe_do) == TOKEN_WORD)
+    {
+        token_try_promote_to_do(maybe_do);
+    }
+
     if (!parser_accept(parser, TOKEN_DO))
     {
         parser_set_error(parser, "Expected 'do' in for-clause");
@@ -1537,6 +1651,13 @@ parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node)
         return status;
 
     /* Expect 'done' */
+    // Promote 'done' if it's a WORD
+    token_t *maybe_done = parser_current_token(parser);
+    if (maybe_done != NULL && token_get_type(maybe_done) == TOKEN_WORD)
+    {
+        token_try_promote_to_done(maybe_done);
+    }
+
     if (!parser_accept(parser, TOKEN_DONE))
     {
         g_node_destroy(&clist);
@@ -1719,7 +1840,6 @@ parse_status_t gparse_redirect_list(parser_t *parser, gnode_t **out_node)
     *out_node = list;
     return PARSE_OK;
 }
-
 
 /* ============================================================================
  * io_redirect      :             io_file
@@ -1959,7 +2079,6 @@ parse_status_t gparse_separator_op(parser_t *parser, gnode_t **out_node)
     *out_node = node;
     return PARSE_OK;
 }
-
 
 /* ============================================================================
  * separator : separator_op linebreak | newline_list;

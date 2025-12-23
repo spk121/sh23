@@ -1,6 +1,9 @@
 #include "executor.h"
 #include "logging.h"
 #include "xalloc.h"
+#include "string_t.h"
+#include "token.h"
+#include "variable_store.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,6 +140,44 @@ void executor_set_dry_run(executor_t *executor, bool dry_run)
 /* ============================================================================
  * Execution Functions
  * ============================================================================ */
+
+static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node)
+{
+    Expects_not_null(ex);
+    Expects_not_null(node);
+
+    variable_store_t *temp_store = variable_store_create();
+    // Extract assignment words from current simple command or function definition
+    if (node->type == AST_SIMPLE_COMMAND)
+    {
+        token_list_t *assignments = node->data.simple_command.assignments;
+        if (assignments != NULL)
+        {
+            for (int i = 0; i < token_list_size(assignments); i++)
+            {
+                token_t *tok = token_list_get(assignments, i);
+                variable_store_add(temp_store, tok->assignment_name, tok->assignment_value, false,
+                                   false);
+            }
+        }
+    }
+    else if (node->type == AST_FUNCTION_DEF)
+    {
+        // Set special variables for function context if needed
+        // e.g., $FUNCNAME, $BASH_SOURCE, etc. (not implemented here)
+
+        const string_t *fname = node->data.function_def.name;
+        string_t *name = string_create_from_cstr("FUNCNAME");
+        variable_store_add(temp_store, name, fname, false, false);
+        string_destroy(&name);
+    }
+    else
+    {
+        // Other node types can be handled here if needed
+    }
+
+    return temp_store;
+}
 
 exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
 {
@@ -459,11 +500,13 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     Expects_not_null(node);
     Expects_eq(node->type, AST_SIMPLE_COMMAND);
 
-    // For now, just validate and print what would be executed
+    // ------------------------------------------------------------
+    // DRY RUN MODE
+    // ------------------------------------------------------------
     if (executor->dry_run)
     {
         printf("[DRY RUN] Simple command: ");
-        if (node->data.simple_command.words != NULL)
+        if (node->data.simple_command.words)
         {
             for (int i = 0; i < token_list_size(node->data.simple_command.words); i++)
             {
@@ -478,26 +521,89 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         return EXEC_OK;
     }
 
-    // POSIX: a simple command with no command name (e.g., only assignments or
-    // redirections) completes with the status of the last command substitution
-    // performed (or 0 if none). Since we already record substitution status in
-    // executor_record_subst_status, we treat a command with no words as
-    // successful and leave last_exit_status as-is.
-    bool has_words = (node->data.simple_command.words != NULL &&
-                      token_list_size(node->data.simple_command.words) > 0);
-    if (!has_words)
+    // ------------------------------------------------------------
+    // Detect assignment-only simple commands
+    // ------------------------------------------------------------
+    bool has_words =
+        (node->data.simple_command.words && token_list_size(node->data.simple_command.words) > 0);
+
+    bool has_assignments = executor_simple_command_has_assignments(node);
+
+    if (!has_words && has_assignments)
     {
+        // Apply assignments to current environment
+        executor_apply_assignments(executor, node);
+        executor->last_exit_status = 0;
         return EXEC_OK;
     }
 
-    // Real execution would:
-    // 1. Expand words (parameter expansion, command substitution, etc.)
-    // 2. Apply redirections
-    // 3. Execute the command (builtin or external)
-    // 4. Restore redirections
-    // For now, we just mark as not implemented for actual execution
-    executor_set_error(executor, "Actual command execution not yet implemented");
-    return EXEC_NOT_IMPL;
+    if (!has_words)
+    {
+        // No words, no assignments → nothing to do
+        executor->last_exit_status = 0;
+        return EXEC_OK;
+    }
+
+    // ------------------------------------------------------------
+    // Prepare temporary variable store (for assignment words)
+    // ------------------------------------------------------------
+    variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
+
+    // ------------------------------------------------------------
+    // Create expander
+    // ------------------------------------------------------------
+    expander_t *exp = expander_create(executor->variables, executor->positional_params);
+
+    expander_set_getenv(exp, executor_getenv);
+    expander_set_tilde_expand(exp, executor_tilde_expand);
+    expander_set_glob(exp, executor_glob);
+    expander_set_command_substitute(exp, executor_command_substitute);
+    expander_set_userdata(exp, executor);
+
+    // ------------------------------------------------------------
+    // Expand command words
+    // ------------------------------------------------------------
+    string_list_t *expanded_words = expander_expand_words(exp, node->data.simple_command.words);
+
+    if (!expanded_words || string_list_size(expanded_words) == 0)
+    {
+        // Expansion produced nothing → command disappears
+        expander_destroy(&exp);
+        string_list_destroy(expanded_words);
+        executor->last_exit_status = 0;
+        return EXEC_OK;
+    }
+
+    // First expanded word is the command name
+    string_t *cmd_name = string_list_get(expanded_words, 0);
+
+    // ------------------------------------------------------------
+    // Expand redirections
+    // ------------------------------------------------------------
+    const ast_node_list_t *redirs = node->data.simple_command.redirections;
+
+    for (int i = 0; i < ast_node_list_size(redirs); i++)
+    {
+        const ast_node_t *redir = ast_node_list_get(redirs, i);
+
+        string_t *target = expander_expand_redirection_target(exp, redir->data.redirection.target);
+
+        // TODO: apply redirection using expanded target
+        string_destroy(&target);
+    }
+
+    // ------------------------------------------------------------
+    // Execute the command
+    // ------------------------------------------------------------
+    exec_status_t status = executor_run_command(executor, expanded_words);
+
+    // ------------------------------------------------------------
+    // Cleanup
+    // ------------------------------------------------------------
+    string_list_destroy(expanded_words);
+    expander_destroy(&exp);
+
+    return status;
 }
 
 #if defined(POSIX_API)
@@ -706,7 +812,7 @@ static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
             string_append_cstr(cmd, lex);
     }
 
-    /* Execute via system() � no control over child environment */
+    /* Execute via system() — no control over child environment */
     int rc = system(string_data(cmd));
     string_destroy(&cmd);
     variable_store_destroy(&tmp_vars);
@@ -747,7 +853,7 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
 
     if (redirs == NULL || ast_node_list_size(redirs) == 0)
     {
-        // No redirections � just execute the command
+        // No redirections — just execute the command
         return executor_execute(executor, command);
     }
 
