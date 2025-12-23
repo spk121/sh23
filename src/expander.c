@@ -1,6 +1,10 @@
 #include "expander.h"
 #include "xalloc.h"
 #include <stdlib.h>
+#ifdef POSIX_API
+#include <pwd.h>
+#include <glob.h>
+#endif
 
 /*
  * Internal structure for the expander.
@@ -93,6 +97,11 @@ void expander_set_userdata(expander_t *exp, void *userdata)
 
 static string_t *expand_parameter(expander_t *exp, const part_t *part)
 {
+    if (!part->param_name)
+    {
+        return string_create(); // Empty string if param_name is NULL
+    }
+    
     const char *name = string_cstr(part->param_name);
     string_t *result = NULL;
 
@@ -238,7 +247,8 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
         return NULL;
     }
 
-    if (!tok->needs_expansion)
+    // Check if we need any processing at all
+    if (!tok->needs_expansion && !tok->needs_field_splitting && !tok->needs_pathname_expansion)
     {
         // No expansion needed: return literal text as single string
         string_t *text = token_get_all_text(tok);
@@ -271,17 +281,35 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
     if (do_split)
     {
         char *str = string_release(&expanded);
-        char *token = strtok(str, ifs);
-        while (token)
+        if (str && *str != '\0')
         {
-            string_list_push_back(fields, string_create_from_cstr(token));
-            token = strtok(NULL, ifs);
+            char *token = strtok(str, ifs);
+            while (token)
+            {
+                string_list_push_back(fields, string_create_from_cstr(token));
+                token = strtok(NULL, ifs);
+            }
         }
         xfree(str);
+        
+        // If field splitting produced zero fields, add one empty field
+        // This handles cases like $empty_var where the var is empty
+        if (string_list_size(fields) == 0)
+        {
+            string_list_push_back(fields, string_create());
+        }
     }
     else
     {
-        string_list_move_push_back(fields, expanded);
+        if (expanded)
+        {
+            string_list_move_push_back(fields, expanded);
+        }
+        else
+        {
+            // If expanded is NULL, create an empty string
+            string_list_move_push_back(fields, string_create());
+        }
     }
 
     // Pathname expansion (globbing)
@@ -296,13 +324,14 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
             {
                 for (int j = 0; j < string_list_size(matches); j++)
                 {
-                    string_list_move_push_back(globs, string_list_at(matches, j));
+                    string_list_push_back(globs, string_list_at(matches, j));
                 }
                 string_list_destroy(&matches);
             }
             else
             {
-                string_list_push_back(globs, pattern);
+                const string_t *pat = string_list_at(fields, i);
+                string_list_push_back(globs, pat);
             }
         }
         string_list_destroy(&fields);
@@ -446,7 +475,7 @@ string_t *expander_tilde_expand(void *userdata, const string_t *text)
 
 #ifdef POSIX_API
     string_t *usrname = string_substring(text, 1, name_len);
-    struct passwd *pw = getpwnam(string_data(usrname));
+    struct passwd *pw = getpwnam(string_cstr(usrname));
     string_destroy(&usrname);
 
     if (pw == NULL || pw->pw_dir == NULL)
@@ -472,7 +501,7 @@ string_list_t *expander_glob(void *user_data, const string_t *pattern)
 #ifdef POSIX_API
     (void)user_data; // unused
 
-    const char *pattern_str = string_data(pattern);
+    const char *pattern_str = string_cstr(pattern);
     glob_t glob_result;
 
     // Perform glob matching
@@ -514,7 +543,7 @@ string_list_t *expander_glob(void *user_data, const string_t *pattern)
 #elifdef UCRT_API
     (void)user_data; // unused
 
-    const char *pattern_str = string_data(pattern);
+    const char *pattern_str = string_cstr(pattern);
     log_debug("glob expansion: glob pattern='%s'", pattern_str);
     struct _finddata_t fd;
     intptr_t handle;
