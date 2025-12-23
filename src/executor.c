@@ -318,7 +318,7 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
     
     // Find end of username (slash or end of string)
     const char *slash = strchr(str, '/');
-    int username_len = slash ? (int)(slash - str - 1) : (int)strlen(str) - 1;
+    size_t username_len = slash ? (size_t)(slash - str - 1) : strlen(str) - 1;
     
     const char *home = NULL;
     
@@ -330,12 +330,15 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
     else
     {
         // ~user or ~user/path - look up user's home directory
-        char username[256];
-        if (username_len >= (int)sizeof(username))
+        // Use dynamic allocation to handle any username length safely
+        char *username = (char *)malloc(username_len + 1);
+        if (!username)
         {
-            username_len = (int)sizeof(username) - 1;
+            // Memory allocation failed, return original
+            return string_create_from(input);
         }
-        strncpy(username, str + 1, username_len);
+        
+        memcpy(username, str + 1, username_len);
         username[username_len] = '\0';
         
         struct passwd *pw = getpwnam(username);
@@ -343,6 +346,8 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
         {
             home = pw->pw_dir;
         }
+        
+        free(username);
     }
     
     if (!home)
@@ -800,17 +805,58 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     }
 
     // ------------------------------------------------------------
-    // Prepare temporary variable store (for assignment words and special vars)
+    // Add special variables temporarily to the persistent store
+    // This allows the expander to access them during expansion
+    // ------------------------------------------------------------
+    string_t *exit_str = string_from_int(executor->last_exit_status);
+    variable_store_add_cstr(executor->variables, "?", string_cstr(exit_str), false, true);
+    string_destroy(&exit_str);
+    
+#ifdef POSIX_API
+    string_t *pid_str = string_from_int(executor->shell_pid);
+    variable_store_add_cstr(executor->variables, "$", string_cstr(pid_str), false, true);
+    string_destroy(&pid_str);
+#endif
+    
+    if (executor->last_background_pid > 0)
+    {
+        string_t *bg_str = string_from_int(executor->last_background_pid);
+        variable_store_add_cstr(executor->variables, "!", string_cstr(bg_str), false, true);
+        string_destroy(&bg_str);
+    }
+    
+    if (string_length(executor->last_argument) > 0)
+    {
+        variable_store_add_cstr(executor->variables, "_", string_cstr(executor->last_argument), false, true);
+    }
+    
+    if (string_length(executor->shell_flags) > 0)
+    {
+        variable_store_add_cstr(executor->variables, "-", string_cstr(executor->shell_flags), false, true);
+    }
+
+    // ------------------------------------------------------------
+    // Prepare temporary variable store (for assignment words)
+    // This is used for building envp when executing external commands
     // ------------------------------------------------------------
     variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
 
     // ------------------------------------------------------------
     // Create and configure expander with system callbacks
+    // The expander will use the persistent store which now includes special variables
     // ------------------------------------------------------------
     expander_t *exp = executor_create_expander(executor);
     if (!exp)
     {
         variable_store_destroy(&tmpvars);
+        // Clean up special variables from persistent store
+        variable_store_remove_cstr(executor->variables, "?");
+#ifdef POSIX_API
+        variable_store_remove_cstr(executor->variables, "$");
+#endif
+        variable_store_remove_cstr(executor->variables, "!");
+        variable_store_remove_cstr(executor->variables, "_");
+        variable_store_remove_cstr(executor->variables, "-");
         executor_set_error(executor, "Failed to create expander");
         return EXEC_ERROR;
     }
@@ -826,6 +872,16 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         expander_destroy(&exp);
         variable_store_destroy(&tmpvars);
         string_list_destroy(expanded_words);
+        
+        // Remove special variables from persistent store
+        variable_store_remove_cstr(executor->variables, "?");
+#ifdef POSIX_API
+        variable_store_remove_cstr(executor->variables, "$");
+#endif
+        variable_store_remove_cstr(executor->variables, "!");
+        variable_store_remove_cstr(executor->variables, "_");
+        variable_store_remove_cstr(executor->variables, "-");
+        
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
@@ -862,6 +918,15 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     string_list_destroy(expanded_words);
     expander_destroy(&exp);
     variable_store_destroy(&tmpvars);
+    
+    // Remove special variables from persistent store
+    variable_store_remove_cstr(executor->variables, "?");
+#ifdef POSIX_API
+    variable_store_remove_cstr(executor->variables, "$");
+#endif
+    variable_store_remove_cstr(executor->variables, "!");
+    variable_store_remove_cstr(executor->variables, "_");
+    variable_store_remove_cstr(executor->variables, "-");
 
     return status;
 }
