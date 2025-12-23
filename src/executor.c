@@ -61,6 +61,11 @@ executor_t *executor_create(void)
     executor->error_msg = string_create();
     executor->last_exit_status = 0;
     executor->dry_run = false;
+    
+    // Initialize persistent stores
+    executor->variables = variable_store_create();
+    executor->positional_params = positional_params_stack_create();
+    
     return executor;
 }
 
@@ -75,6 +80,16 @@ void executor_destroy(executor_t **executor)
     if (e->error_msg != NULL)
     {
         string_destroy(&e->error_msg);
+    }
+    
+    if (e->variables != NULL)
+    {
+        variable_store_destroy(&e->variables);
+    }
+    
+    if (e->positional_params != NULL)
+    {
+        positional_params_stack_destroy(&e->positional_params);
     }
 
     xfree(e);
@@ -938,7 +953,10 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
         {
 
         case REDIR_OPERAND_FILENAME: {
-            const char *fname = token_lexeme(r->data.redirection.target);
+            // Get the filename from the token
+            // TODO: Use expander_expand_redirection_target for proper expansion
+            string_t *fname_str = token_get_all_text(r->data.redirection.target);
+            const char *fname = string_cstr(fname_str);
             int flags = 0;
             mode_t mode = 0666;
 
@@ -961,6 +979,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
                 break;
             default:
                 executor_set_error(executor, "Invalid filename redirection");
+                string_destroy(&fname_str);
                 free(saved);
                 return EXEC_ERROR;
             }
@@ -969,6 +988,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (newfd < 0)
             {
                 executor_set_error(executor, "Failed to open '%s'", fname);
+                string_destroy(&fname_str);
                 free(saved);
                 return EXEC_ERROR;
             }
@@ -976,25 +996,32 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (dup2(newfd, fd) < 0)
             {
                 executor_set_error(executor, "dup2() failed");
+                string_destroy(&fname_str);
                 close(newfd);
                 free(saved);
                 return EXEC_ERROR;
             }
 
             close(newfd);
+            string_destroy(&fname_str);
             break;
         }
 
         case REDIR_OPERAND_FD: {
-            const char *lex = token_lexeme(r->data.redirection.target);
+            // Get the FD number from the token
+            // TODO: Use expander_expand_redirection_target for proper expansion
+            string_t *fd_str = token_get_all_text(r->data.redirection.target);
+            const char *lex = string_cstr(fd_str);
             int src = atoi(lex);
 
             if (dup2(src, fd) < 0)
             {
                 executor_set_error(executor, "dup2(%d,%d) failed", src, fd);
+                string_destroy(&fd_str);
                 free(saved);
                 return EXEC_ERROR;
             }
+            string_destroy(&fd_str);
             break;
         }
 
@@ -1013,7 +1040,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             }
 
             const char *content = r->data.redirection.heredoc_content
-                                      ? string_data(r->data.redirection.heredoc_content)
+                                      ? string_cstr(r->data.redirection.heredoc_content)
                                       : "";
 
             write(pipefd[1], content, strlen(content));
