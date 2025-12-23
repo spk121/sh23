@@ -215,17 +215,13 @@ static void executor_populate_special_variables(variable_store_t *store, const e
     // $_ - last argument
     if (ex->last_argument != NULL && string_length(ex->last_argument) > 0)
     {
-        string_t *underscore_name = string_create_from_cstr("_");
-        variable_store_add(store, underscore_name, ex->last_argument, false, false);
-        string_destroy(&underscore_name);
+        variable_store_add_cstr(store, "_", string_cstr(ex->last_argument), false, false);
     }
     
     // $- - shell flags
     if (ex->shell_flags != NULL && string_length(ex->shell_flags) > 0)
     {
-        string_t *dash_name = string_create_from_cstr("-");
-        variable_store_add(store, dash_name, ex->shell_flags, false, false);
-        string_destroy(&dash_name);
+        variable_store_add_cstr(store, "-", string_cstr(ex->shell_flags), false, false);
     }
 }
 
