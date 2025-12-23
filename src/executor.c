@@ -271,6 +271,76 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     return temp_store;
 }
 
+/**
+ * Add special POSIX shell variables to a variable store.
+ * 
+ * This helper function adds the current values of special variables ($?, $!, $$, $_, $-)
+ * to the provided variable store. This is used to make special variables visible
+ * during expansion by temporarily adding them to the persistent store.
+ * 
+ * @param store    Variable store to add special variables to
+ * @param executor Executor context containing special variable values
+ */
+static void executor_add_special_variables_to_store(variable_store_t *store, const executor_t *executor)
+{
+    Expects_not_null(store);
+    Expects_not_null(executor);
+    
+    // $? - Last exit status (always available)
+    string_t *exit_str = string_from_int(executor->last_exit_status);
+    variable_store_add_cstr(store, "?", string_cstr(exit_str), false, true);
+    string_destroy(&exit_str);
+    
+#ifdef POSIX_API
+    // $$ - Shell PID (POSIX only)
+    string_t *pid_str = string_from_int(executor->shell_pid);
+    variable_store_add_cstr(store, "$", string_cstr(pid_str), false, true);
+    string_destroy(&pid_str);
+#endif
+    
+    // $! - Last background process PID (if available)
+    if (executor->last_background_pid > 0)
+    {
+        string_t *bg_str = string_from_int(executor->last_background_pid);
+        variable_store_add_cstr(store, "!", string_cstr(bg_str), false, true);
+        string_destroy(&bg_str);
+    }
+    
+    // $_ - Last argument of previous command (if available)
+    if (string_length(executor->last_argument) > 0)
+    {
+        variable_store_add_cstr(store, "_", string_cstr(executor->last_argument), false, true);
+    }
+    
+    // $- - Current shell option flags (if available)
+    if (string_length(executor->shell_flags) > 0)
+    {
+        variable_store_add_cstr(store, "-", string_cstr(executor->shell_flags), false, true);
+    }
+}
+
+/**
+ * Remove special POSIX shell variables from a variable store.
+ * 
+ * This helper function removes special variables ($?, $!, $$, $_, $-) from
+ * the provided variable store. This is used to clean up after expansion when
+ * special variables were temporarily added to the persistent store.
+ * 
+ * @param store Variable store to remove special variables from
+ */
+static void executor_remove_special_variables_from_store(variable_store_t *store)
+{
+    Expects_not_null(store);
+    
+    variable_store_remove_cstr(store, "?");
+#ifdef POSIX_API
+    variable_store_remove_cstr(store, "$");
+#endif
+    variable_store_remove_cstr(store, "!");
+    variable_store_remove_cstr(store, "_");
+    variable_store_remove_cstr(store, "-");
+}
+
 /* ============================================================================
  * Expander Callback Functions
  * ============================================================================ */
@@ -331,7 +401,7 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
     {
         // ~user or ~user/path - look up user's home directory
         // Use dynamic allocation to handle any username length safely
-        char *username = (char *)malloc(username_len + 1);
+        char *username = malloc(username_len + 1);
         if (!username)
         {
             // Memory allocation failed, return original
@@ -808,32 +878,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // Add special variables temporarily to the persistent store
     // This allows the expander to access them during expansion
     // ------------------------------------------------------------
-    string_t *exit_str = string_from_int(executor->last_exit_status);
-    variable_store_add_cstr(executor->variables, "?", string_cstr(exit_str), false, true);
-    string_destroy(&exit_str);
-    
-#ifdef POSIX_API
-    string_t *pid_str = string_from_int(executor->shell_pid);
-    variable_store_add_cstr(executor->variables, "$", string_cstr(pid_str), false, true);
-    string_destroy(&pid_str);
-#endif
-    
-    if (executor->last_background_pid > 0)
-    {
-        string_t *bg_str = string_from_int(executor->last_background_pid);
-        variable_store_add_cstr(executor->variables, "!", string_cstr(bg_str), false, true);
-        string_destroy(&bg_str);
-    }
-    
-    if (string_length(executor->last_argument) > 0)
-    {
-        variable_store_add_cstr(executor->variables, "_", string_cstr(executor->last_argument), false, true);
-    }
-    
-    if (string_length(executor->shell_flags) > 0)
-    {
-        variable_store_add_cstr(executor->variables, "-", string_cstr(executor->shell_flags), false, true);
-    }
+    executor_add_special_variables_to_store(executor->variables, executor);
 
     // ------------------------------------------------------------
     // Prepare temporary variable store (for assignment words)
@@ -849,14 +894,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     if (!exp)
     {
         variable_store_destroy(&tmpvars);
-        // Clean up special variables from persistent store
-        variable_store_remove_cstr(executor->variables, "?");
-#ifdef POSIX_API
-        variable_store_remove_cstr(executor->variables, "$");
-#endif
-        variable_store_remove_cstr(executor->variables, "!");
-        variable_store_remove_cstr(executor->variables, "_");
-        variable_store_remove_cstr(executor->variables, "-");
+        executor_remove_special_variables_from_store(executor->variables);
         executor_set_error(executor, "Failed to create expander");
         return EXEC_ERROR;
     }
@@ -874,13 +912,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         string_list_destroy(expanded_words);
         
         // Remove special variables from persistent store
-        variable_store_remove_cstr(executor->variables, "?");
-#ifdef POSIX_API
-        variable_store_remove_cstr(executor->variables, "$");
-#endif
-        variable_store_remove_cstr(executor->variables, "!");
-        variable_store_remove_cstr(executor->variables, "_");
-        variable_store_remove_cstr(executor->variables, "-");
+        executor_remove_special_variables_from_store(executor->variables);
         
         executor->last_exit_status = 0;
         return EXEC_OK;
@@ -920,13 +952,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     variable_store_destroy(&tmpvars);
     
     // Remove special variables from persistent store
-    variable_store_remove_cstr(executor->variables, "?");
-#ifdef POSIX_API
-    variable_store_remove_cstr(executor->variables, "$");
-#endif
-    variable_store_remove_cstr(executor->variables, "!");
-    variable_store_remove_cstr(executor->variables, "_");
-    variable_store_remove_cstr(executor->variables, "-");
+    executor_remove_special_variables_from_store(executor->variables);
 
     return status;
 }
