@@ -979,6 +979,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
                 break;
             default:
                 executor_set_error(executor, "Invalid filename redirection");
+                string_destroy(&fname_str);
                 free(saved);
                 return EXEC_ERROR;
             }
@@ -987,6 +988,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (newfd < 0)
             {
                 executor_set_error(executor, "Failed to open '%s'", fname);
+                string_destroy(&fname_str);
                 free(saved);
                 return EXEC_ERROR;
             }
@@ -994,6 +996,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (dup2(newfd, fd) < 0)
             {
                 executor_set_error(executor, "dup2() failed");
+                string_destroy(&fname_str);
                 close(newfd);
                 free(saved);
                 return EXEC_ERROR;
