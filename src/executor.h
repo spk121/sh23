@@ -38,6 +38,11 @@ typedef struct executor_t
 
     positional_params_stack_t *positional_params;
 
+    /* Special variables for POSIX shell */
+    int last_background_pid;    // $! - PID of last background command
+    int shell_pid;              // $$ - PID of the shell process
+    string_t *last_argument;    // $_ - Last argument of previous command
+    string_t *shell_flags;      // $- - Current shell option flags
 
 } executor_t;
 
