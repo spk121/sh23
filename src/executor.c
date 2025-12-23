@@ -401,12 +401,7 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
     {
         // ~user or ~user/path - look up user's home directory
         // Use dynamic allocation to handle any username length safely
-        char *username = malloc(username_len + 1);
-        if (!username)
-        {
-            // Memory allocation failed, return original
-            return string_create_from(input);
-        }
+        char *username = xmalloc(username_len + 1);
         
         memcpy(username, str + 1, username_len);
         username[username_len] = '\0';
@@ -417,7 +412,7 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
             home = pw->pw_dir;
         }
         
-        free(username);
+        xfree(username);
     }
     
     if (!home)
@@ -467,6 +462,34 @@ static string_t *executor_tilde_expand_callback(void *userdata, const string_t *
 }
 
 /**
+ * Glob callback wrapper for the expander.
+ * Adapts executor_pathname_expansion_callback to the expander's expected signature.
+ * 
+ * @param userdata Pointer to executor_t
+ * @param pattern  Glob pattern to expand
+ * @return List of matching paths, or NULL on no matches/error
+ */
+static string_list_t *executor_glob_callback(void *userdata, const string_t *pattern)
+{
+    // Call existing function with parameters in expected order
+    return executor_pathname_expansion_callback(pattern, userdata);
+}
+
+/**
+ * Command substitution callback wrapper for the expander.
+ * Adapts executor_command_subst_callback to the expander's expected signature.
+ * 
+ * @param userdata Pointer to executor_t
+ * @param command  Command string to execute
+ * @return Command output as a string, or NULL on error
+ */
+static string_t *executor_command_subst_callback_wrapper(void *userdata, const string_t *command)
+{
+    // Call existing function with parameters in expected order
+    return executor_command_subst_callback(command, userdata, NULL);
+}
+
+/**
  * Create and configure an expander for the executor.
  * 
  * This function creates a new expander instance and wires up all the necessary
@@ -495,8 +518,8 @@ static expander_t *executor_create_expander(executor_t *ex)
     // Wire up all system callbacks
     expander_set_getenv(exp, executor_getenv_callback);
     expander_set_tilde_expand(exp, executor_tilde_expand_callback);
-    expander_set_glob(exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_glob(exp, executor_glob_callback);
+    expander_set_command_substitute(exp, executor_command_subst_callback_wrapper);
     
     // Pass executor as userdata for callbacks
     expander_set_userdata(exp, ex);
