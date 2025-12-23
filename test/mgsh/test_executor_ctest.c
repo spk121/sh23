@@ -3,6 +3,7 @@
 #include "string_t.h"
 #include "logging.h"
 #include <stdio.h>
+#include <string.h>
 
 /* ============================================================================
  * Test: Executor Creation and Destruction
@@ -75,6 +76,7 @@ int main(void)
     g_log_threshold = LOG_ERROR;
     
     CTest ctest = {0};
+    int previous_failures = 0;
     
     printf("TAP version 14\n");
     printf("1..2\n");
@@ -82,12 +84,13 @@ int main(void)
     // Run tests
     ctest.current_test = "test_executor_create_destroy";
     test_executor_create_destroy(&ctest);
-    if (ctest.tests_failed == 0)
+    if (ctest.tests_failed == previous_failures)
         printf("ok 1 - test_executor_create_destroy\n");
+    previous_failures = ctest.tests_failed;
     
     ctest.current_test = "test_executor_special_variables";
     test_executor_special_variables(&ctest);
-    if (ctest.tests_failed == 0)
+    if (ctest.tests_failed == previous_failures)
         printf("ok 2 - test_executor_special_variables\n");
     
     // Print summary
