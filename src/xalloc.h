@@ -5,18 +5,22 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#define ARENA_DEBUG
 #ifdef ARENA_DEBUG
 /**
  * Structure to track allocation information in ARENA_DEBUG mode.
  */
+#define ARENA_DEBUG_FILENAME_MAX_LEN 256
 typedef struct
 {
     void *ptr;
-    char file[256];
+    char file[ARENA_DEBUG_FILENAME_MAX_LEN];
     int line;
     size_t size;
 } arena_alloc_t;
 #endif
+
+typedef void (*arena_resource_cleanup_fn)(void *user_data);
 
 /**
  * Arena allocator state structure.
@@ -35,6 +39,8 @@ typedef struct arena_t
     long allocated_cap;
     long initial_cap;     // initial capacity for allocated_ptrs array
     long max_allocations; // maximum number of allocations allowed
+    arena_resource_cleanup_fn resource_cleanup;
+    void *resource_cleanup_user_data;
 } arena_t;
 
 // Access to global singleton arena for use in arena_start() macro
@@ -114,6 +120,8 @@ void xfree(void *ptr);
  */
 void arena_init(void);
 
+void arena_set_cleanup(arena_resource_cleanup_fn fn, void *user_data);
+
 /**
  * Free all allocated memory tracked by the arena.
  * This is called automatically on out-of-memory conditions.
@@ -145,9 +153,10 @@ void *arena_xmalloc(arena_t *arena, size_t size ARENA_DEBUG_PARAMS);
 void *arena_xcalloc(arena_t *arena, size_t n, size_t size ARENA_DEBUG_PARAMS);
 void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size ARENA_DEBUG_PARAMS);
 char *arena_xstrdup(arena_t *arena, const char *s ARENA_DEBUG_PARAMS);
-void arena_xfree(arena_t *arena, void *ptr ARENA_DEBUG_PARAMS);
+void arena_xfree(arena_t *arena, void *p ARENA_DEBUG_PARAMS);
 
 void arena_init_ex(arena_t *arena);
+void arena_set_cleanup_ex(arena_t *arena, arena_resource_cleanup_fn fn, void *user_data);
 void arena_reset_ex(arena_t *arena);
 void arena_end_ex(arena_t *arena);
 
