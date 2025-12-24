@@ -76,7 +76,7 @@ CTEST(test_executor_special_variables)
 int main(void)
 {
     // Set log level to suppress debug output during tests
-    g_log_threshold = LOG_ERROR;
+	log_set_level(LOG_LEVEL_ERROR);
     
     CTestEntry *suite[] = {
         CTEST_ENTRY(test_executor_create_destroy),

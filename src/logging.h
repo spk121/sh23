@@ -19,11 +19,11 @@
  */
 typedef enum
 {
-    LOG_DEBUG = 0, /**< Debug level - detailed diagnostic information */
-    LOG_WARN = 1,  /**< Warning level - potential issues */
-    LOG_ERROR = 2, /**< Error level - error conditions */
-    LOG_FATAL = 3, /**< Fatal level - unrecoverable errors, aborts program */
-    LOG_NONE = 4   /**< No logging - disable all output */
+    LOG_LEVEL_DEBUG = 0, /**< Debug level - detailed diagnostic information */
+    LOG_LEVEL_WARN = 1,  /**< Warning level - potential issues */
+    LOG_LEVEL_ERROR = 2, /**< Error level - error conditions */
+    LOG_LEVEL_FATAL = 3, /**< Fatal level - unrecoverable errors, aborts program */
+    LOG_LEVEL_NONE = 4   /**< No logging - disable all output */
 } LogLevel;
 
 /**

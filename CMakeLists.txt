@@ -94,6 +94,8 @@ set(MGSH_LIB_SOURCES
     src/shell.h
     src/positional_params.c
     src/positional_params.h
+    src/lib.c
+    src/lib.h
 )
 
 add_library(mgsh_lib STATIC ${MGSH_LIB_SOURCES})

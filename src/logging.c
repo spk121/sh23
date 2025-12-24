@@ -2,11 +2,19 @@
 // #include <strings.h> // For strcasecmp
 #include "logging.h"
 
+#ifdef POSIX_API
+#include <strings.h> // For strcasecmp
+#elifdef UCRT_API
+#include <string.h> // For _stricmp
+#else
+#include "lib.h" // For ascii_strcasecmp
+#endif
+
 // Define the global threshold
-LogLevel g_log_threshold = LOG_ERROR; // Default to ERROR level
+LogLevel g_log_threshold = LOG_LEVEL_ERROR; // Default to ERROR level
 
 // Define the abort level
-static LogLevel g_log_abort_level = LOG_NONE; // Default to no aborting
+static LogLevel g_log_abort_level = LOG_LEVEL_FATAL; // Default to no aborting, except for FATAL
 
 // Internal logging function
 static void log_message(LogLevel level, const char *level_str, const char *format, va_list args)
@@ -30,10 +38,22 @@ static void log_message(LogLevel level, const char *level_str, const char *forma
     free(buffer);
 
     // Check if this level should trigger abort
-    if (level >= g_log_abort_level && level != LOG_NONE)
+    if (level >= g_log_abort_level && level != LOG_LEVEL_NONE)
     {
         abort();
     }
+}
+
+static int strcompare(const char *s1, const char *s2)
+{
+#ifdef POSIX_API
+    return strcasecmp(s1, s2);
+#elifdef UCRT_API
+    return _stricmp(s1, s2);
+#else
+    // Fallback for ISO_C: ASCII-only case-sensitive comparison
+    return ascii_strcasecmp(s1, s2);
+#endif
 }
 
 // Initialization function checking environment variables
@@ -41,37 +61,33 @@ void log_init(void)
 {
     // Set logging threshold
     const char *env_level = getenv("LOG_LEVEL");
-    // FIXME: on Windows, strcasecmp is _stricmp
-#ifdef _WIN32
-#define strcasecmp _stricmp
-#endif
+
     if (env_level != NULL)
     {
-        if (strcasecmp(env_level, "DEBUG") == 0)
+        if (strcompare(env_level, "DEBUG") == 0)
         {
-            g_log_threshold = LOG_DEBUG;
+            g_log_threshold = LOG_LEVEL_DEBUG;
         }
-        else if (strcasecmp(env_level, "WARN") == 0)
+        else if (strcompare(env_level, "WARN") == 0)
         {
-            g_log_threshold = LOG_WARN;
+            g_log_threshold = LOG_LEVEL_WARN;
         }
-        else if (strcasecmp(env_level, "ERROR") == 0)
+        else if (strcompare(env_level, "ERROR") == 0)
         {
-            g_log_threshold = LOG_ERROR;
+            g_log_threshold = LOG_LEVEL_ERROR;
         }
-        else if (strcasecmp(env_level, "FATAL") == 0)
+        else if (strcompare(env_level, "FATAL") == 0)
         {
-            g_log_threshold = LOG_FATAL;
+            g_log_threshold = LOG_LEVEL_FATAL;
         }
-        else if (strcasecmp(env_level, "NONE") == 0)
+        else if (strcompare(env_level, "NONE") == 0)
         {
-            g_log_threshold = LOG_NONE;
+            g_log_threshold = LOG_LEVEL_NONE;
         }
     }
     else
     {
-        // g_log_threshold = LOG_ERROR;
-        g_log_threshold = LOG_DEBUG;
+        g_log_threshold = LOG_LEVEL_ERROR;
     }
 
     // Set abort level
@@ -79,26 +95,26 @@ void log_init(void)
 
     if (env_abort_level != NULL)
     {
-        if (strcasecmp(env_abort_level, "WARN") == 0)
+        if (strcompare(env_abort_level, "WARN") == 0)
         {
-            g_log_abort_level = LOG_WARN;
+            g_log_abort_level = LOG_LEVEL_WARN;
         }
-        else if (strcasecmp(env_abort_level, "ERROR") == 0)
+        else if (strcompare(env_abort_level, "ERROR") == 0)
         {
-            g_log_abort_level = LOG_ERROR;
+            g_log_abort_level = LOG_LEVEL_ERROR;
         }
-        else if (strcasecmp(env_abort_level, "FATAL") == 0)
+        else if (strcompare(env_abort_level, "FATAL") == 0)
         {
-            g_log_abort_level = LOG_FATAL;
+            g_log_abort_level = LOG_LEVEL_FATAL;
         }
-        else if (strcasecmp(env_abort_level, "NONE") == 0)
+        else if (strcompare(env_abort_level, "NONE") == 0)
         {
-            g_log_abort_level = LOG_NONE;
+            g_log_abort_level = LOG_LEVEL_NONE;
         }
     }
     else
     {
-        g_log_abort_level = LOG_FATAL;
+        g_log_abort_level = LOG_LEVEL_FATAL;
     }
 }
 
@@ -109,8 +125,8 @@ LogLevel log_level(void)
 
 void log_set_level(LogLevel lv)
 {
-    Expects_ge(lv, LOG_DEBUG);
-    Expects_le(lv, LOG_NONE);
+    Expects_ge(lv, LOG_LEVEL_DEBUG);
+    Expects_le(lv, LOG_LEVEL_NONE);
 
     g_log_threshold = lv;
 }
@@ -120,7 +136,7 @@ void log_debug(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    log_message(LOG_DEBUG, "DEBUG", format, args);
+    log_message(LOG_LEVEL_DEBUG, "DEBUG", format, args);
     va_end(args);
 }
 
@@ -128,7 +144,7 @@ void log_warn(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    log_message(LOG_WARN, "WARN", format, args);
+    log_message(LOG_LEVEL_WARN, "WARN", format, args);
     va_end(args);
 }
 
@@ -136,7 +152,7 @@ void log_error(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    log_message(LOG_ERROR, "ERROR", format, args);
+    log_message(LOG_LEVEL_ERROR, "ERROR", format, args);
     va_end(args);
 }
 
@@ -144,9 +160,8 @@ void log_fatal(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    log_message(LOG_FATAL, "FATAL", format, args);
+    log_message(LOG_LEVEL_FATAL, "FATAL", format, args);
     va_end(args);
-    abort(); // Ensure abort even if LOG_ABORT_LEVEL is not set
 }
 
 #ifdef EXAMPLE_USAGE

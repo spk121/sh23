@@ -155,7 +155,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     int num_tokens_read = 0;
 
     lex_status_t lex_status = lexer_tokenize(sh->lexer, tokens, &num_tokens_read);
-    if (log_level() == LOG_DEBUG)
+    if (log_level() == LOG_LEVEL_DEBUG)
     {
         string_t *token_str = token_list_to_string(tokens, 0);
         log_debug("shell_feed_line: lexed tokens: %s", string_data(token_str));
@@ -275,7 +275,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     xfree(out_tokens);
 
     // Debug: print the AST
-    if (log_level() == LOG_DEBUG)
+    if (log_level() == LOG_LEVEL_DEBUG)
     {
         ast_print(ast);
     }
@@ -292,7 +292,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     }
 
     // Debug: print the expanded AST
-    if (log_level() == LOG_DEBUG)
+    if (log_level() == LOG_LEVEL_DEBUG)
     {
         log_debug("shell_feed_line: expanded AST:");
         ast_print(expanded_ast);
