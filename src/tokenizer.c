@@ -136,7 +136,7 @@ void tokenizer_mark_alias_expanded(tokenizer_t *tok, const char *alias_name)
                 return;
             }
         }
-        
+
         tok->expanded_aliases = xrealloc(tok->expanded_aliases, new_capacity * sizeof(char *));
         tok->expanded_aliases_capacity = new_capacity;
     }
@@ -313,20 +313,20 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
 
     // Insert the re-lexed tokens into our input stream at the current position
     int num_new_tokens = token_list_size(relexed_tokens);
-    
+
     if (num_new_tokens > 0)
     {
         // Detach tokens from relexed_tokens list
         int detached_size;
         token_t **detached_tokens = token_list_release(relexed_tokens, &detached_size);
-        
+
         // Insert them into input_tokens at current position
-        int result = token_list_insert_range(tok->input_tokens, tok->input_pos, 
+        int result = token_list_insert_range(tok->input_tokens, tok->input_pos,
                                               detached_tokens, detached_size);
-        
+
         // Free the detached array (tokens are now owned by input_tokens)
         xfree(detached_tokens);
-        
+
         if (result != 0)
         {
             tokenizer_set_error(tok, "Failed to insert re-lexed tokens");
@@ -335,7 +335,7 @@ tok_status_t tokenizer_relex_text(tokenizer_t *tok, const char *text)
             return TOK_ERROR;
         }
     }
-    
+
     token_list_destroy(&relexed_tokens);
     lexer_destroy(&lx);
 
@@ -451,7 +451,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
     // No alias expansion - check if this WORD token should be converted to TOKEN_IO_NUMBER
-    // A WORD that consists only of digits and is immediately followed by a 
+    // A WORD that consists only of digits and is immediately followed by a
     // redirection operator should be an IO_NUMBER
     if (token_get_type(token) == TOKEN_WORD)
     {
@@ -460,9 +460,9 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
         {
             token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
             token_type_t next_type = token_get_type(next_token);
-            
+
             // List of redirection operators
-            bool is_redir = (next_type == TOKEN_LESS || 
+            bool is_redir = (next_type == TOKEN_LESS ||
                            next_type == TOKEN_GREATER ||
                            next_type == TOKEN_DGREAT ||
                            next_type == TOKEN_DLESS ||
@@ -471,7 +471,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
                            next_type == TOKEN_GREATAND ||
                            next_type == TOKEN_LESSGREAT ||
                            next_type == TOKEN_CLOBBER);
-            
+
             if (is_redir)
             {
                 // Check if the word is all digits
@@ -487,7 +487,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
                             break;
                         }
                     }
-                    
+
                     if (all_digits)
                     {
                         // Convert to TOKEN_IO_NUMBER

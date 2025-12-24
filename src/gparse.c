@@ -731,6 +731,7 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
     /* Wrap into a G_WORDLIST node */
     gnode_t *node = g_node_create(G_WORDLIST);
     node->data.list = wlist->data.list; /* steal list */
+    wlist->data.list = NULL; /* prevent double-free */
     g_node_destroy(&wlist);
 
     *out_node = node;
@@ -1070,7 +1071,7 @@ parse_status_t gparse_case_item(parser_t *parser, gnode_t **out_node)
  * pattern_list     :                  WORD    (Apply rule 4)
  *                  | '(' WORD                 (Do not apply rule 4)
  *                  | pattern_list '|' WORD    (Do not apply rule 4)
- * 
+ *
  * Rule 4: When the TOKEN is exactly the reserved word esac, the token
  *         identifier for esac shall result. Otherwise, the token WORD shal
  *         be returned.
@@ -1565,7 +1566,7 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
 
 /* ============================================================================
  * fname            : NAME                            (Apply rule 8)
- * 
+ *
  * This is done inline
  * ============================================================================
  */
@@ -2033,7 +2034,7 @@ parse_status_t gparse_io_here(parser_t *parser, gnode_t **out_node)
 
 /* ============================================================================
  * here_end         : WORD                      (Apply rule 3)
- * 
+ *
  * This is done inline
  * ============================================================================
  */

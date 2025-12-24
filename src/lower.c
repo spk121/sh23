@@ -383,7 +383,7 @@ static ast_node_t *lower_command(const gnode_t *g)
     /* We re-dispatch based on child kind, mirroring gparse_command */
     const gnode_t *child = NULL;
 
-    /* In your grammar AST, G_COMMAND is not explicitly represented as a node;
+    /* In the grammar AST, G_COMMAND is not explicitly represented as a node;
        gparse_command() returns simple/compound directly. Here we assume g
        is itself that node, not a wrapper. If you actually had a G_COMMAND
        wrapper, adjust this logic to use g->data.child/multi. */

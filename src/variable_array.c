@@ -18,7 +18,7 @@ variable_array_t *variable_array_create_with_free(variable_array_free_func_t fre
 void variable_array_destroy(variable_array_t **array) {
     Expects_not_null(array);
     variable_array_t *a = *array;
-    
+
     if (!a) return;
     if (a->free_func) {
         for (size_t i = 0; i < a->len; ++i) {
@@ -55,7 +55,7 @@ int variable_array_is_empty(const variable_array_t *array) {
 void variable_array_resize(variable_array_t *array, size_t new_capacity) {
     Expects_not_null(array);
     Expects_ge(new_capacity, array->len);
-    
+
     variable_t **newv;
     if (array->data == NULL) {
         // Initial allocation
@@ -64,7 +64,7 @@ void variable_array_resize(variable_array_t *array, size_t new_capacity) {
         // Resize existing allocation
         newv = xrealloc(array->data, new_capacity * sizeof *newv);
     }
-    
+
     array->data = newv;
     array->cap = new_capacity;
 }

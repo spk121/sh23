@@ -24,7 +24,7 @@ int main(void)
         .initial_funcs = NULL,
         .initial_vars = NULL
     };
-    
+
     // Create shell (shell takes ownership of initial_aliases)
     shell_t *sh = shell_create(&cfg);
     // Don't destroy initial_aliases - shell owns it now

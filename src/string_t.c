@@ -573,7 +573,7 @@ void string_append(string_t *str, const string_t *other)
     return_if_null(other);
     return_if_null(other->data);
     return_if_lt(other->length, 0);
-    
+
     int other_length = other->length;
     // Check that combined length does not exceed INT_MAX - 1
     if (other->length > INT_MAX - 1 - str->length)
@@ -631,7 +631,7 @@ void string_append_cstr(string_t *str, const char *cstr)
     string_ensure_capacity(str, needed_capacity);
     return_if_null(str->data);
     memcpy(str->data + str->length, cstr, cstr_len);
-    str->length += cstr_len;
+    str->length += (int)cstr_len;
     str->data[str->length] = '\0';
 }
 
@@ -1008,7 +1008,8 @@ int string_compare_at(const string_t *str1, int pos1, const string_t *str2, int 
 
 int string_compare_cstr(const string_t *str, const char *cstr)
 {
-    char *buf1, *buf2;
+    const char *buf1;
+    const char *buf2;
     if (str == NULL || str->data == NULL)
         buf1 = "";
     else

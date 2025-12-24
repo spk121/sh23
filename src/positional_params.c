@@ -34,7 +34,7 @@ static void positional_params_destroy_frame(positional_params_t **pf)
 static void positional_params_stack_ensure_capacity(positional_params_stack_t *stack, int needed)
 {
     Expects_not_null(stack);
-    
+
     if (stack->capacity >= needed) return;
     int newcap = stack->capacity ? stack->capacity * 2 : 4;
     if (newcap < needed) newcap = needed;
@@ -172,10 +172,10 @@ static bool positional_params_replace_frame(positional_params_stack_t *stack, st
         Expects_not_null(params);
         Expects_not_null(*params);
     }
-    
+
     if (count > stack->max_params)
         return false;
-    
+
     positional_params_t *cur = positional_params_current(stack);
     if (!cur) return false;
     positional_params_destroy_frame(&stack->frames[stack->depth - 1]);
@@ -230,14 +230,14 @@ void positional_params_set_max(positional_params_stack_t *stack, int max_params)
 {
     Expects_not_null(stack);
     Expects(max_params > 0);
-    
+
     stack->max_params = max_params;
 }
 
 int positional_params_get_max(const positional_params_stack_t *stack)
 {
     Expects_not_null(stack);
-    
+
     return stack->max_params;
 }
 
@@ -245,7 +245,7 @@ void positional_params_set_zero(positional_params_stack_t *stack, const string_t
 {
     Expects_not_null(name);
     Expects_not_null(stack);
-    
+
     if (stack->zero)
         string_destroy(&stack->zero);
     stack->zero = string_create_from(name);

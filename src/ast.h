@@ -76,16 +76,16 @@ typedef enum
 
 /**
  * Command list separators.
- * 
+ *
  * DESIGN DECISION: Each command in a command_list has an associated separator,
  * including the last command (which gets LIST_SEP_EOL). This ensures:
  *   - items.size == separators.len (1:1 correspondence)
  *   - Simpler indexing: separator[i] describes what follows command[i]
  *   - Executor can easily determine if a command should run in background
- * 
+ *
  * Example: "echo foo; echo bar; echo baz"
  *   Command 0: "echo foo"  -> separator: LIST_SEP_SEQUENTIAL
- *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL  
+ *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL
  *   Command 2: "echo baz"  -> separator: LIST_SEP_EOL (no actual token)
  */
 #ifdef FUTURE
@@ -372,7 +372,7 @@ ast_node_type_t ast_node_get_type(const ast_node_t *node);
 /**
  * Set location information for an AST node.
  */
-void ast_node_set_location(ast_node_t *node, int first_line, int first_column, 
+void ast_node_set_location(ast_node_t *node, int first_line, int first_column,
                           int last_line,
                            int last_column);
 
@@ -387,22 +387,22 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
 
 /*
  * OWNERSHIP POLICY FOR TOKENS IN AST:
- * 
+ *
  * The AST takes FULL OWNERSHIP of all token_t pointers and token_list_t
  * structures passed to ast_create_* functions. This includes:
  *   - Individual token_t* (e.g., for case_clause.word, redirection.target)
  *   - token_list_t* (e.g., for simple_command.words, for_clause.words)
- * 
+ *
  * When an AST node is destroyed via ast_node_destroy():
  *   - All token_t objects are destroyed via token_destroy()
  *   - All token_list_t structures are destroyed via token_list_destroy()
  *   - This recursively destroys all tokens within the lists
- * 
+ *
  * The caller must NOT:
  *   - Destroy tokens after passing them to AST
- *   - Keep references to tokens after passing them to AST  
+ *   - Keep references to tokens after passing them to AST
  *   - Use token_list_destroy() on lists after passing them to AST
- * 
+ *
  * The caller should:
  *   - Call token_list_release_tokens() on the original token_list from
  *     the parser to clear pointers without destroying tokens
@@ -419,7 +419,7 @@ ast_node_t *ast_create_program(void);
  * Create a simple command node.
  * OWNERSHIP: Takes ownership of words, redirections, and assignments.
  */
-ast_node_t *ast_create_simple_command(token_list_t *words, 
+ast_node_t *ast_create_simple_command(token_list_t *words,
                                      ast_node_list_t *redirections,
                                      token_list_t *assignments);
 
@@ -431,7 +431,7 @@ ast_node_t *ast_create_pipeline(ast_node_list_t *commands, bool is_negated);
 /**
  * Create an and/or list node.
  */
-ast_node_t *ast_create_andor_list(ast_node_t *left, ast_node_t *right, 
+ast_node_t *ast_create_andor_list(ast_node_t *left, ast_node_t *right,
                                  andor_operator_t op);
 
 /**
@@ -468,7 +468,7 @@ ast_node_t *ast_create_until_clause(ast_node_t *condition, ast_node_t *body);
  * Create a for clause node.
  * OWNERSHIP: Takes ownership of words token list (clones variable string).
  */
-ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words, 
+ast_node_t *ast_create_for_clause(const string_t *variable, token_list_t *words,
                                  ast_node_t *body);
 
 /**

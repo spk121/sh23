@@ -27,15 +27,6 @@ typedef enum
 } LogLevel;
 
 /**
- * @var g_log_threshold
- * @brief Global logging threshold
- *
- * Controls which log messages are output based on their level.
- * Messages below this threshold are suppressed.
- */
-extern LogLevel g_log_threshold;
-
-/**
  * @brief Initialize the logging system
  *
  * Reads the LOG_LEVEL environment variable to set the logging threshold.
@@ -45,7 +36,17 @@ extern LogLevel g_log_threshold;
  */
 void log_init(void);
 
+/**
+ * Returns the current log level.
+ */
 LogLevel log_level(void);
+
+/**
+ * Overrides the LOG_LEVEL environment variable to set the logging
+ * threshold.
+ * Messages below this threshold are suppressed.
+ */
+void log_set_level(LogLevel lv);
 
 /**
  * @brief Log a debug message

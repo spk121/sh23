@@ -23,6 +23,13 @@ typedef enum
  * Executor Context
  * ============================================================================ */
 
+/**
+ * @brief Executor context for shell command execution
+ *
+ * The executor_t structure maintains the execution state for a shell session,
+ * including exit status tracking, error reporting, variables, and special
+ * POSIX shell variables.
+ */
 typedef struct executor_t
 {
     /* Exit status from last command */
@@ -34,10 +41,15 @@ typedef struct executor_t
     /* Execution state */
     bool dry_run; // if true, don't actually execute, just validate
 
+    /* Variable and parameter storage */
     variable_store_t *variables;
-
     positional_params_stack_t *positional_params;
 
+    /* Special variables for POSIX shell */
+    int last_background_pid;    // $! - PID of last background command
+    int shell_pid;              // $$ - PID of the shell process (set via getpid() on POSIX)
+    string_t *last_argument;    // $_ - Last argument of previous command
+    string_t *shell_flags;      // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
 
 } executor_t;
 
@@ -62,10 +74,10 @@ void executor_destroy(executor_t **executor);
 
 /**
  * Execute an AST.
- * 
+ *
  * @param executor The executor context
  * @param root The root AST node to execute
- * 
+ *
  * @return EXEC_OK on success, EXEC_ERROR on error, EXEC_NOT_IMPL for unsupported node types
  */
 exec_status_t executor_execute(executor_t *executor, const ast_node_t *root);
@@ -147,11 +159,11 @@ typedef bool (*ast_visitor_fn)(const ast_node_t *node, void *user_data);
 
 /**
  * Traverse an AST in pre-order, calling the visitor function for each node.
- * 
+ *
  * @param root The root node to start traversal from
  * @param visitor The visitor function to call for each node
  * @param user_data User data to pass to the visitor function
- * 
+ *
  * @return true if traversal completed, false if stopped early
  */
 bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_data);
@@ -199,7 +211,7 @@ void executor_set_dry_run(executor_t *executor, bool dry_run);
 /**
  * Command substitution callback for the expander.
  * Executes a command and returns its output.
- * 
+ *
  * @param command The command string to execute
  * @param executor_ctx Pointer to the executor context
  * @param user_data Pointer to optional user context

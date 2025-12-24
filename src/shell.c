@@ -10,6 +10,7 @@
 #include "expander.h"
 #include "executor.h"
 #include "ast.h"
+#include "lower.h"
 #include "tokenizer.h"
 
 // Internal helpers used by shell_feed_line/shell_run_script
@@ -68,7 +69,7 @@ shell_t *shell_create(const shell_config_t *cfg)
         sh->aliases = (alias_store_t *)cfg->initial_aliases;
     else
         sh->aliases = alias_store_create();
-    
+
     if (cfg && cfg->initial_funcs)
         sh->funcs = (function_store_t *)cfg->initial_funcs;
     else
@@ -84,14 +85,14 @@ shell_t *shell_create(const shell_config_t *cfg)
     sh->parser = parser_create();
     sh->executor = executor_create();
     sh->error = string_create();
-    
+
     // Hook executor callbacks into expander
     sh->expander = expander_create(sh->vars, NULL);
     // FIXME: fix parameter store handling in expander here
     // expander_set_variable_store(sh->expander, sh->vars);
     // expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh->executor, NULL);
     // expander_set_pathname_expansion_callback(sh->expander, executor_pathname_expansion_callback, sh);
-    
+
 
     return sh;
 }
@@ -100,7 +101,7 @@ void shell_destroy(shell_t **sh)
 {
     Expects_not_null(sh);
     shell_t *s = *sh;
-    
+
     if (s == NULL)
         return;
 
@@ -134,7 +135,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     Expects_not_null(sh);
     Expects_not_null(line);
     Expects_not_null(sh->lexer);
-    
+
     // Append line to lexer
     if (sh->eol_norm) {
         char *buf = normalize_newlines(line);
@@ -199,7 +200,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     {
         token_t *first = token_list_get(tokens, 0);
         token_t *second = token_list_get(tokens, 1);
-        if (token_get_type(first) == TOKEN_WORD && 
+        if (token_get_type(first) == TOKEN_WORD &&
             token_get_type(second) == TOKEN_END_OF_HEREDOC)
         {
             log_debug("shell_feed_line: skipping heredoc completion tokens");
@@ -263,7 +264,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         token_list_destroy(&out_tokens);
         return SH_INTERNAL_ERROR;
     }
- 
+
     // Now convert grammar AST to shell AST
     ast_node_t *ast = ast_lower(gast);
     g_node_destroy(&gast);
@@ -272,7 +273,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     token_list_release_tokens(out_tokens);
     xfree(out_tokens->tokens);
     xfree(out_tokens);
- 
+
     // Debug: print the AST
     if (log_level() == LOG_DEBUG)
     {
@@ -306,7 +307,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     // FIXME: the new API is to just add a temp variable of the exit status
     // into the variable store used by the expander.
     // expander_set_last_exit_status(sh->expander, executor_get_exit_status(sh->executor));
-    
+
     // Cleanup AST (expanded_ast may be the same pointer as ast)
     ast_node_destroy(&ast);
 

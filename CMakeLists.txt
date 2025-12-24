@@ -107,7 +107,7 @@ set_target_properties(mgsh PROPERTIES
 
 enable_testing()
 
-# Object library for the shared CTest framework used by all ed tests
+# Object library for the shared CTest framework used by all shell tests
 add_library(ctest_obj OBJECT
     test/ctest/ctest.c
     test/ctest/ctest.h
@@ -128,6 +128,7 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_ast_ctest.c
     test/mgsh/test_expander_ctest.c
     test/mgsh/test_ast_heredoc_ctest.c
+    test/mgsh/test_executor_ctest.c
     test/test_xalloc_ctest.c
 )
 

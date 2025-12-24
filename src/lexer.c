@@ -155,7 +155,7 @@ void lexer_destroy(lexer_t **lx)
 {
     Expects_not_null(lx);
     lexer_t *l = *lx;
-    
+
     if (!l) return;
 
     if (l->input)
@@ -487,7 +487,7 @@ static bool try_promote_to_assignment(token_t *tok) {
     bool equals_at_end = (idx == string_length(first_part->text) - 1);
     if (equals_at_end && part_list_size(parts) == 1)
         return false;
-    
+
     // OK, can promote to assignment.
     tok->type = TOKEN_ASSIGNMENT_WORD;
     tok->assignment_name = string_substring(first_part->text, 0, idx);

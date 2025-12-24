@@ -107,6 +107,14 @@ LogLevel log_level(void)
     return g_log_threshold;
 }
 
+void log_set_level(LogLevel lv)
+{
+    Expects_ge(lv, LOG_DEBUG);
+    Expects_le(lv, LOG_NONE);
+
+    g_log_threshold = lv;
+}
+
 // Public logging functions
 void log_debug(const char *format, ...)
 {

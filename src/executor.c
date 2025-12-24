@@ -61,6 +61,21 @@ executor_t *executor_create(void)
     executor->error_msg = string_create();
     executor->last_exit_status = 0;
     executor->dry_run = false;
+
+    // Initialize persistent stores
+    executor->variables = variable_store_create();
+    executor->positional_params = positional_params_stack_create();
+
+    // Initialize special variable fields
+    executor->last_background_pid = 0;
+#ifdef POSIX_API
+    executor->shell_pid = (int)getpid();
+#else
+    executor->shell_pid = 0;
+#endif
+    executor->last_argument = string_create();
+    executor->shell_flags = string_create();
+
     return executor;
 }
 
@@ -68,13 +83,34 @@ void executor_destroy(executor_t **executor)
 {
     if (!executor) return;
     executor_t *e = *executor;
-    
+
     if (e == NULL)
         return;
 
     if (e->error_msg != NULL)
     {
         string_destroy(&e->error_msg);
+    }
+
+    if (e->variables != NULL)
+    {
+        variable_store_destroy(&e->variables);
+    }
+
+    if (e->positional_params != NULL)
+    {
+        positional_params_stack_destroy(&e->positional_params);
+    }
+
+    // Clean up special variable fields
+    if (e->last_argument != NULL)
+    {
+        string_destroy(&e->last_argument);
+    }
+
+    if (e->shell_flags != NULL)
+    {
+        string_destroy(&e->shell_flags);
     }
 
     xfree(e);
@@ -141,13 +177,71 @@ void executor_set_dry_run(executor_t *executor, bool dry_run)
  * Execution Functions
  * ============================================================================ */
 
+/**
+ * @brief Helper function to populate special shell variables into a variable store
+ *
+ * Populates POSIX special shell variables ($?, $!, $$, $_, $-) from executor
+ * state into the provided variable store.
+ *
+ * @param store The variable store to populate (must not be NULL)
+ * @param ex The executor context containing special variable values (must not be NULL)
+ */
+static void executor_populate_special_variables(variable_store_t *store, const executor_t *ex)
+{
+    Expects_not_null(store);
+    Expects_not_null(ex);
+
+    // $? - last exit status
+    char exit_status_buf[32];
+    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", ex->last_exit_status);
+    variable_store_add_cstr(store, "?", exit_status_buf, false, false);
+
+    // $! - last background PID (only if set)
+    if (ex->last_background_pid > 0)
+    {
+        char bg_pid_buf[32];
+        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", ex->last_background_pid);
+        variable_store_add_cstr(store, "!", bg_pid_buf, false, false);
+    }
+
+    // $$ - shell PID
+    if (ex->shell_pid > 0)
+    {
+        char shell_pid_buf[32];
+        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", ex->shell_pid);
+        variable_store_add_cstr(store, "$", shell_pid_buf, false, false);
+    }
+
+    // $_ - last argument
+    if (ex->last_argument != NULL && string_length(ex->last_argument) > 0)
+    {
+        variable_store_add_cstr(store, "_", string_cstr(ex->last_argument), false, false);
+    }
+
+    // $- - shell flags
+    if (ex->shell_flags != NULL && string_length(ex->shell_flags) > 0)
+    {
+        variable_store_add_cstr(store, "-", string_cstr(ex->shell_flags), false, false);
+    }
+}
+
 static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node)
 {
     Expects_not_null(ex);
     Expects_not_null(node);
 
     variable_store_t *temp_store = variable_store_create();
+
+    // ------------------------------------------------------------
+    // Add special shell variables from executor state
+    // These are added per the Phase 2 requirement to populate
+    // special variables in the temp variable store
+    // ------------------------------------------------------------
+    executor_populate_special_variables(temp_store, ex);
+
+    // ------------------------------------------------------------
     // Extract assignment words from current simple command or function definition
+    // ------------------------------------------------------------
     if (node->type == AST_SIMPLE_COMMAND)
     {
         token_list_t *assignments = node->data.simple_command.assignments;
@@ -155,9 +249,32 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
         {
             for (int i = 0; i < token_list_size(assignments); i++)
             {
+                // An assignment value can be multiple parts, eachof
+                // which could require expansion. They are contatenated
+                // to make a full value. So they need to have already been
+                // expanded here.
                 token_t *tok = token_list_get(assignments, i);
-                variable_store_add(temp_store, tok->assignment_name, tok->assignment_value, false,
+                if (token_needs_expansion(tok))
+                {
+                    log_error(
+                        "%s: attempting to apply unexpanded assignment to temp variable store",
+                        __func__);
+                }
+                string_t *value_str = string_create();
+                for (int j = 0; j < part_list_size(tok->assignment_value); j ++)
+                {
+                    part_t *val_part = part_list_get(tok->assignment_value, j);
+                    // FIXME: add logic here to recursively handle parts that haven't
+                    // already been expanded.
+                    if (part_get_type(val_part) != PART_LITERAL)
+                    {
+                        log_error("%s: attempting to add a non-literal part as a variable value");
+                    }
+                    string_append(value_str, part_get_text(val_part));
+                }
+                variable_store_add(temp_store, tok->assignment_name, value_str, false,
                                    false);
+                string_destroy(&value_str);
             }
         }
     }
@@ -550,6 +667,11 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     }
 
     // ------------------------------------------------------------
+    // Update special shell variables in executor->variables
+    // ------------------------------------------------------------
+    executor_populate_special_variables(executor->variables, executor);
+
+    // ------------------------------------------------------------
     // Prepare temporary variable store (for assignment words)
     // ------------------------------------------------------------
     variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
@@ -569,12 +691,13 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         // Expansion produced nothing → command disappears
         expander_destroy(&exp);
         string_list_destroy(expanded_words);
+        variable_store_destroy(&tmpvars);
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
 
     // First expanded word is the command name
-    string_t *cmd_name = string_list_at(expanded_words, 0);
+    // const string_t *cmd_name = string_list_at(expanded_words, 0);
 
     // ------------------------------------------------------------
     // Expand redirections
@@ -602,8 +725,9 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // ------------------------------------------------------------
     // Cleanup
     // ------------------------------------------------------------
-    string_list_destroy(expanded_words);
+    string_list_destroy(&expanded_words);
     expander_destroy(&exp);
+    variable_store_destroy(&tmpvars);
 
     return status;
 }
@@ -740,7 +864,7 @@ static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
     if (!has_words)
     {
         /* These persist in the shell's variable namespace */
-        executor_apply_assignments_to_store(executor, assigns);
+        // executor_apply_assignments_to_store(executor, assigns);
         executor_set_exit_status(executor, 0);
         return EXEC_OK;
     }
@@ -764,6 +888,7 @@ static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
      * but as a temporary hack you might adapt it. Here we inline a
      * simple "assignments -> tmp_vars" equivalent.
      */
+#if 0
     if (assigns && token_list_size(assigns) > 0)
     {
         for (int i = 0; i < token_list_size(assigns); i++)
@@ -794,14 +919,14 @@ static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
             string_destroy(&value);
         }
     }
-
+#endif
     /*
      * At this point, the *ideal* behavior is:
      *  - expansions see tmp_vars + executor->variables
      * But since the expander isn't wired through here yet, we just
      * build a literal command string from the words.
      */
-
+#if 0
     string_t *cmd = string_create();
     int word_count = token_list_size(words);
     for (int i = 0; i < word_count; i++)
@@ -818,6 +943,9 @@ static exec_status_t executor_execute_simple_command_iso_c(executor_t *executor,
     int rc = system(string_data(cmd));
     string_destroy(&cmd);
     variable_store_destroy(&tmp_vars);
+#else
+    int rc = -1;
+#endif
 
     if (rc == -1)
     {
@@ -938,7 +1066,10 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
         {
 
         case REDIR_OPERAND_FILENAME: {
-            const char *fname = token_lexeme(r->data.redirection.target);
+            // Get the filename from the token
+            // TODO: Use expander_expand_redirection_target for proper expansion
+            string_t *fname_str = token_get_all_text(r->data.redirection.target);
+            const char *fname = string_cstr(fname_str);
             int flags = 0;
             mode_t mode = 0666;
 
@@ -961,6 +1092,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
                 break;
             default:
                 executor_set_error(executor, "Invalid filename redirection");
+                string_destroy(&fname_str);
                 free(saved);
                 return EXEC_ERROR;
             }
@@ -969,6 +1101,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (newfd < 0)
             {
                 executor_set_error(executor, "Failed to open '%s'", fname);
+                string_destroy(&fname_str);
                 free(saved);
                 return EXEC_ERROR;
             }
@@ -976,25 +1109,32 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (dup2(newfd, fd) < 0)
             {
                 executor_set_error(executor, "dup2() failed");
+                string_destroy(&fname_str);
                 close(newfd);
                 free(saved);
                 return EXEC_ERROR;
             }
 
             close(newfd);
+            string_destroy(&fname_str);
             break;
         }
 
         case REDIR_OPERAND_FD: {
-            const char *lex = token_lexeme(r->data.redirection.target);
+            // Get the FD number from the token
+            // TODO: Use expander_expand_redirection_target for proper expansion
+            string_t *fd_str = token_get_all_text(r->data.redirection.target);
+            const char *lex = string_cstr(fd_str);
             int src = atoi(lex);
 
             if (dup2(src, fd) < 0)
             {
                 executor_set_error(executor, "dup2(%d,%d) failed", src, fd);
+                string_destroy(&fd_str);
                 free(saved);
                 return EXEC_ERROR;
             }
+            string_destroy(&fd_str);
             break;
         }
 
@@ -1013,7 +1153,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             }
 
             const char *content = r->data.redirection.heredoc_content
-                                      ? string_data(r->data.redirection.heredoc_content)
+                                      ? string_cstr(r->data.redirection.heredoc_content)
                                       : "";
 
             write(pipefd[1], content, strlen(content));
@@ -1098,7 +1238,7 @@ exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t 
         for (int i = 0; i < node->data.if_clause.elif_list->size; i++)
         {
             ast_node_t *elif_node = node->data.if_clause.elif_list->nodes[i];
-            
+
             // Execute elif condition
             status = executor_execute(executor, elif_node->data.if_clause.condition);
             if (status != EXEC_OK)
@@ -1605,15 +1745,15 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
 {
 #ifdef POSIX_API
     (void)user_data;  // unused
-    
+
     const char *pattern_str = string_data(pattern);
     glob_t glob_result;
-    
+
     // Perform glob matching
     // GLOB_NOCHECK: If no matches, return the pattern itself
     // GLOB_TILDE: Expand ~ for home directory
     int ret = glob(pattern_str, GLOB_TILDE, NULL, &glob_result);
-    
+
     if (ret != 0) {
         // On error or no matches (when not using GLOB_NOCHECK), return NULL
         if (ret == GLOB_NOMATCH) {
@@ -1622,33 +1762,33 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
         // GLOB_NOSPACE or GLOB_ABORTED
         return NULL;
     }
-    
+
     // No matches found
     if (glob_result.gl_pathc == 0) {
         globfree(&glob_result);
         return NULL;
     }
-    
+
     // Create result list
     string_list_t *result = string_list_create();
-    
+
     // Add all matched paths
     for (size_t i = 0; i < glob_result.gl_pathc; i++) {
         string_t *path = string_create_from_cstr(glob_result.gl_pathv[i]);
         string_list_move_push_back(result, path);
     }
-    
+
     globfree(&glob_result);
     return result;
-    
+
 #elifdef UCRT_API
     (void)user_data;  // unused
-    
+
     const char *pattern_str = string_data(pattern);
     log_debug("executor_pathname_expansion_callback: UCRT glob pattern='%s'", pattern_str);
     struct _finddata_t fd;
     intptr_t handle;
-    
+
     // Attempt to find first matching file
     handle = _findfirst(pattern_str, &fd);
     if (handle == -1L) {
@@ -1659,32 +1799,32 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
         // Other error (access denied, etc.)
         return NULL;
     }
-    
+
     // Create result list
     string_list_t *result = string_list_create();
-    
+
     // Add all matching files
     do {
         // Skip . and .. entries
         if (strcmp(fd.name, ".") == 0 || strcmp(fd.name, "..") == 0)
             continue;
-        
+
         // Add the matched filename to the result list
         string_t *filename = string_create_from_cstr(fd.name);
         string_list_move_push_back(result, filename);
-        
+
     } while (_findnext(handle, &fd) == 0);
-    
+
     _findclose(handle);
-    
+
     // If no files were added (only . and .. were found), return NULL
     if (string_list_size(result) == 0) {
         string_list_destroy(&result);
         return NULL;
     }
-    
+
     return result;
-    
+
 #else
     /* In ISO_C environments, no glob implementation is available */
     (void)user_data;  // unused

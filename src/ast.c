@@ -25,7 +25,7 @@ void ast_node_destroy(ast_node_t **node)
 {
     if (!node) return;
     ast_node_t *n = *node;
-    
+
     if (n == NULL)
         return;
 
@@ -405,7 +405,7 @@ void ast_node_list_destroy(ast_node_list_t **list)
 {
     if (!list) return;
     ast_node_list_t *l = *list;
-    
+
     if (l == NULL)
         return;
 

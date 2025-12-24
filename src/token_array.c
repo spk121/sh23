@@ -66,7 +66,7 @@ void token_array_destroy(token_array_t **array)
 {
     if (!array) return;
     token_array_t *a = *array;
-    
+
     if (a)
     {
         log_debug("token_array_destroy: freeing array %p, size %zu", a, a->size);

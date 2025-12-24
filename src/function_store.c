@@ -38,7 +38,7 @@ function_store_t *function_store_create(void) {
 void function_store_destroy(function_store_t **store) {
     if (!store) return;
     function_store_t *s = *store;
-    
+
     if (!s) return;
     function_array_destroy(&s->functions); // frees elements via function_free
     xfree(s);

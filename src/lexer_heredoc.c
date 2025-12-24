@@ -66,10 +66,10 @@ bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool stri
         int after_tabs = string_find_first_not_of_cstr_at(lx->input, "\t", pos);
         if (after_tabs != -1)
             pos = after_tabs;
-    }   
+    }
 
     if (string_compare_substring(lx->input, pos, delim, 0, string_length(delim)) != 0)
-        return false;   
+        return false;
 
     pos += string_length(delim);
 

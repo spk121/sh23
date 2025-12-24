@@ -18,7 +18,7 @@ function_array_t *function_array_create_with_free(function_array_free_func_t fre
 void function_array_destroy(function_array_t **array) {
     if (!array) return;
     function_array_t *a = *array;
-    
+
     if (!a) return;
     if (a->free_func) {
         for (size_t i = 0; i < a->len; ++i) {
@@ -54,7 +54,7 @@ int function_array_is_empty(const function_array_t *array) {
 void function_array_resize(function_array_t *array, size_t new_capacity) {
     Expects_not_null(array);
     Expects(new_capacity >= array->len);
-    
+
     function_t **newv;
     if (array->data == NULL) {
         // Initial allocation
@@ -63,7 +63,7 @@ void function_array_resize(function_array_t *array, size_t new_capacity) {
         // Resize existing allocation
         newv = xrealloc(array->data, new_capacity * sizeof *newv);
     }
-    
+
     array->data = newv;
     array->cap = new_capacity;
 }
