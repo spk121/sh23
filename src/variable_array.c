@@ -59,10 +59,10 @@ void variable_array_resize(variable_array_t *array, size_t new_capacity) {
     variable_t **newv;
     if (array->data == NULL) {
         // Initial allocation
-        newv = xmalloc(new_capacity * sizeof *newv);
+        newv = xmalloc(new_capacity * sizeof(variable_t *));
     } else {
         // Resize existing allocation
-        newv = xrealloc(array->data, new_capacity * sizeof *newv);
+        newv = xrealloc(array->data, new_capacity * sizeof(variable_t *));
     }
 
     array->data = newv;
@@ -79,7 +79,7 @@ void variable_array_append(variable_array_t *array, variable_t *element) {
 
 void variable_array_set(variable_array_t *array, size_t index, variable_t *element) {
     Expects_not_null(array);
-    Expects(index < array->len);
+    Expects_lt(index, array->len);
     if (array->free_func && array->data[index] && array->data[index] != element) {
         array->free_func(&array->data[index]);
     }
@@ -88,7 +88,7 @@ void variable_array_set(variable_array_t *array, size_t index, variable_t *eleme
 
 void variable_array_remove(variable_array_t *array, size_t index) {
     Expects_not_null(array);
-    Expects(index < array->len);
+    Expects_lt(index, array->len);
     if (array->free_func && array->data[index]) {
         array->free_func(&array->data[index]);
     }
