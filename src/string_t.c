@@ -1135,8 +1135,13 @@ string_t *string_substring(const string_t *str, int begin, int end)
     return string_create_from_range(str, begin, end);
 }
 
+bool string_eq(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2) == 0;
+}
+
+
 #if 0
-bool string_eq(const string_t *str1, const string_t *str2);
 bool string_lt(const string_t *str1, const string_t *str2);
 bool string_le(const string_t *str1, const string_t *str2);
 bool string_gt(const string_t *str1, const string_t *str2);

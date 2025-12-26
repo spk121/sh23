@@ -1,23 +1,105 @@
 #include "variable_store.h"
+#include "string_t.h"
+#include "variable_map.h"
 #include "xalloc.h"
+#include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
-// Comparison function for finding variable_t by name
-static int compare_variable_name(const variable_t *variable, const void *name)
+// POSIX limits for variable names and values
+#define MAX_VAR_NAME_LENGTH 1024
+#define MAX_VAR_VALUE_LENGTH (128 * 1024) // 128KB
+
+// Helper function to validate variable name according to POSIX rules
+static var_store_error_t validate_variable_name(const string_t *name)
 {
-    return string_compare(variable_get_name(variable), (const string_t *)name);
+    if (string_empty(name))
+    {
+        return VAR_STORE_ERROR_EMPTY_NAME;
+    }
+
+    int len = string_length(name);
+    if (len > MAX_VAR_NAME_LENGTH)
+    {
+        return VAR_STORE_ERROR_NAME_TOO_LONG;
+    }
+
+    const char *str = string_cstr(name);
+
+    if (len == 1)
+    {
+        // Single character name may be special parameters.
+        // '@', '*', '#', and digits are handled by the positional parameters stack.
+        // There are four other special parameters may be allowed as single character names.
+        char ch = str[0];
+        if (ch == '?' || ch == '-' || ch == '$' || ch == '!')
+        {
+            return VAR_STORE_ERROR_NONE;
+        }
+    }
+
+#ifdef SH23_EXTENSIONS
+    // sh23 special extensions.
+    if (len == 3)
+    {
+        if (strcmp(str, ":-)") == 0 || strcmp(str, ":-|") == 0 || strcmp(str, ":-(") == 0)
+        {
+            return VAR_STORE_ERROR_NONE;
+        }
+    }
+#endif
+
+    // First character must be a letter or underscore
+    if (!isalpha((unsigned char)str[0]) && str[0] != '_')
+    {
+        if (isdigit((unsigned char)str[0]))
+        {
+            return VAR_STORE_ERROR_NAME_STARTS_WITH_DIGIT;
+        }
+        return VAR_STORE_ERROR_NAME_INVALID_CHARACTER;
+    }
+
+    // Remaining characters must be alphanumeric or underscore
+    for (int i = 1; i < len; i++)
+    {
+        if (!isalnum((unsigned char)str[i]) && str[i] != '_')
+        {
+            return VAR_STORE_ERROR_NAME_INVALID_CHARACTER;
+        }
+    }
+
+    return VAR_STORE_ERROR_NONE;
 }
 
-static int compare_variable_name_cstr(const variable_t *variable, const void *name)
+// Helper function to validate variable value
+static var_store_error_t validate_variable_value(const string_t *value)
 {
-    return string_compare_cstr(variable_get_name(variable), (const char *)name);
+    if (value && string_length(value) > MAX_VAR_VALUE_LENGTH)
+    {
+        return VAR_STORE_ERROR_VALUE_TOO_LONG;
+    }
+    return VAR_STORE_ERROR_NONE;
 }
 
-// Constructors
+// Helper function to free cached envp array
+static void free_cached_envp(variable_store_t *store)
+{
+    if (store->cached_envp)
+    {
+        for (int i = 0; store->cached_envp[i] != NULL; i++)
+        {
+            xfree(store->cached_envp[i]);
+        }
+        xfree(store->cached_envp);
+        store->cached_envp = NULL;
+    }
+}
+
 variable_store_t *variable_store_create(void)
 {
     variable_store_t *store = xmalloc(sizeof(variable_store_t));
-    store->variables = variable_array_create_with_free((variable_array_free_func_t)variable_destroy);
+    store->map = variable_map_create();
+    store->cached_envp = NULL;
     return store;
 }
 
@@ -25,461 +107,458 @@ variable_store_t *variable_store_create_from_envp(char **envp)
 {
     variable_store_t *store = variable_store_create();
 
-    if (envp) {
-        for (char **env = envp; *env; env++) {
-            char *name = *env;
-            char *eq = strchr(name, '=');
-            if (!eq) {
-                continue;
+    if (envp)
+    {
+        for (int i = 0; envp[i] != NULL; i++)
+        {
+            // Parse "NAME=VALUE" format
+            char *equals = strchr(envp[i], '=');
+            if (equals)
+            {
+                size_t name_len = equals - envp[i];
+                string_t *name = string_create_from_cstr_len(envp[i], name_len);
+                string_t *value = string_create_from_cstr(equals + 1);
+
+                // Environment variables are exported by default and not read-only
+                variable_store_add(store, name, value, true, false);
+
+                string_destroy(&name);
+                string_destroy(&value);
             }
-            *eq = '\0';
-            char *value = eq + 1;
-            variable_store_add_cstr(store, name, value, true, false);
-            *eq = '='; // Restore for safety
         }
     }
 
     return store;
 }
 
-// Destructor
 void variable_store_destroy(variable_store_t **store)
 {
-    Expects_not_null(store);
-    variable_store_t *s = *store;
-    Expects_not_null(s);
+    if (!store || !*store)
+    {
+        return;
+    }
 
-    log_debug("variable_store_destroy: freeing store %p, variables %zu",
-              s,
-              variable_array_size(s->variables));
-    variable_array_destroy(&s->variables);
-    xfree(s);
+    free_cached_envp(*store);
+    variable_map_destroy(&(*store)->map);
+    xfree(*store);
     *store = NULL;
 }
 
-// Clear all variables and parameters
 int variable_store_clear(variable_store_t *store)
 {
-    Expects_not_null(store);
+    if (!store)
+    {
+        return -1;
+    }
 
-    log_debug("variable_store_clear: clearing store %p, variables %zu",
-              store,
-              variable_array_size(store->variables));
-
-    variable_array_clear(store->variables);
+    variable_map_clear(store->map);
+    free_cached_envp(store);
     return 0;
 }
 
-// variable_t management
-void variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only)
+var_store_error_t variable_store_add(variable_store_t *store, const string_t *name,
+                                     const string_t *value, bool exported, bool read_only)
 {
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(value);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0) {
-        // Replace existing variable
-        variable_t *new_var = variable_create(name, value, exported, read_only);
-        variable_array_set(store->variables, index, new_var);
-    } else {
-        // Add new variable
-        variable_t *var = variable_create(name, value, exported, read_only);
-        variable_array_append(store->variables, var);
+    if (!store || !name)
+    {
+        return VAR_STORE_ERROR_NOT_FOUND;
     }
+
+    // Validate name
+    var_store_error_t err = validate_variable_name(name);
+    if (err != VAR_STORE_ERROR_NONE)
+    {
+        return err;
+    }
+
+    // Validate value
+    err = validate_variable_value(value);
+    if (err != VAR_STORE_ERROR_NONE)
+    {
+        return err;
+    }
+
+    // Check if variable exists and is read-only
+    const variable_map_entry_t *existing = variable_store_get_variable(store, name);
+    if (existing && existing->mapped.read_only)
+    {
+        return VAR_STORE_ERROR_READ_ONLY;
+    }
+
+    // Create mapped value
+    variable_map_mapped_t mapped;
+    if (value)
+    {
+        mapped.value = string_create_from(value);
+    }
+    else
+    {
+        mapped.value = string_create();
+    }
+    mapped.exported = exported;
+    mapped.read_only = read_only;
+
+    // Insert or update the variable
+    variable_map_insert_or_assign_move(store->map, name, &mapped);
+
+    // Invalidate cached envp
+    free_cached_envp(store);
+
+    return VAR_STORE_ERROR_NONE;
 }
 
-void variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only)
+var_store_error_t variable_store_add_cstr(variable_store_t *store, const char *name,
+                                          const char *value, bool exported, bool read_only)
 {
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(value);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0) {
-        // Replace existing variable
-        variable_t *new_var = variable_create_from_cstr(name, value, exported, read_only);
-        variable_array_set(store->variables, index, new_var);
-    } else {
-        // Add new variable
-        variable_t *var = variable_create_from_cstr(name, value, exported, read_only);
-        variable_array_append(store->variables, var);
+    if (!name)
+    {
+        return VAR_STORE_ERROR_EMPTY_NAME;
     }
+
+    string_t *name_str = string_create_from_cstr(name);
+    string_t *value_str = value ? string_create_from_cstr(value) : NULL;
+
+    var_store_error_t err = variable_store_add(store, name_str, value_str, exported, read_only);
+
+    string_destroy(&name_str);
+    if (value_str)
+    {
+        string_destroy(&value_str);
+    }
+
+    return err;
 }
 
 void variable_store_remove(variable_store_t *store, const string_t *name)
 {
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0) {
-        variable_array_remove(store->variables, index);
+    if (!store || !name)
+    {
+        return;
     }
+
+    variable_map_erase(store->map, name);
+    free_cached_envp(store);
 }
 
 void variable_store_remove_cstr(variable_store_t *store, const char *name)
 {
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0) {
-        variable_array_remove(store->variables, index);
-    }
-}
-
-int variable_store_has_name(const variable_store_t *store, const string_t *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    return variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) == 0 ? 1 : 0;
-}
-
-int variable_store_has_name_cstr(const variable_store_t *store, const char *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    return variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) == 0 ? 1 : 0;
-}
-
-const variable_t *variable_store_get_variable(const variable_store_t *store, const string_t *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
-        return NULL; // Name not found
+    if (!name)
+    {
+        return;
     }
 
-    return variable_array_get(store->variables, index);
+    string_t *name_str = string_create_from_cstr(name);
+    variable_store_remove(store, name_str);
+    string_destroy(&name_str);
 }
 
-const variable_t *variable_store_get_variable_cstr(const variable_store_t *store, const char *name)
+bool variable_store_has_name(const variable_store_t *store, const string_t *name)
 {
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
-        return NULL; // Name not found
+    if (!store || !name)
+    {
+        return false;
     }
 
-    return variable_array_get(store->variables, index);
+    return variable_map_contains(store->map, name);
+}
+
+bool variable_store_has_name_cstr(const variable_store_t *store, const char *name)
+{
+    if (!name)
+    {
+        return false;
+    }
+
+    string_t *name_str = string_create_from_cstr(name);
+    bool result = variable_store_has_name(store, name_str);
+    string_destroy(&name_str);
+    return result;
+}
+
+const variable_map_entry_t *variable_store_get_variable(const variable_store_t *store,
+                                                        const string_t *name)
+{
+    if (!store || !name)
+    {
+        return NULL;
+    }
+
+    int32_t pos = variable_map_find(store->map, name);
+    if (pos == -1)
+    {
+        return NULL;
+    }
+
+    return &store->map->entries[pos];
+}
+
+const variable_map_entry_t *variable_store_get_variable_cstr(const variable_store_t *store,
+                                                             const char *name)
+{
+    if (!name)
+    {
+        return NULL;
+    }
+
+    string_t *name_str = string_create_from_cstr(name);
+    const variable_map_entry_t *result = variable_store_get_variable(store, name_str);
+    string_destroy(&name_str);
+    return result;
 }
 
 const string_t *variable_store_get_value(const variable_store_t *store, const string_t *name)
 {
-    const variable_t *var = variable_store_get_variable(store, name);
-    return var ? variable_get_value(var) : NULL;
+    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    return entry ? entry->mapped.value : NULL;
 }
 
 const char *variable_store_get_value_cstr(const variable_store_t *store, const char *name)
 {
-    const variable_t *var = variable_store_get_variable_cstr(store, name);
-    return var ? variable_get_value_cstr(var) : NULL;
-}
+    const string_t *value = NULL;
 
-int variable_store_is_read_only(const variable_store_t *store, const string_t *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return -1; // Name not found
-    }
-
-    return variable_is_read_only(var) ? 1 : 0;
-}
-
-int variable_store_is_read_only_cstr(const variable_store_t *store, const char *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    const variable_t *var = variable_store_get_variable_cstr(store, name);
-    if (!var) {
-        return -1; // Name not found
-    }
-
-    return variable_is_read_only(var) ? 1 : 0;
-}
-
-int variable_store_is_exported(const variable_store_t *store, const string_t *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return -1; // Name not found
-    }
-
-    return variable_is_exported(var) ? 1 : 0;
-}
-
-int variable_store_is_exported_cstr(const variable_store_t *store, const char *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    const variable_t *var = variable_store_get_variable_cstr(store, name);
-    if (!var) {
-        return -1; // Name not found
-    }
-
-    return variable_is_exported(var) ? 1 : 0;
-}
-
-int variable_store_set_read_only(variable_store_t *store, const string_t *name, bool read_only)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
-        log_fatal("variable_store_set_read_only: variable %s not found", string_cstr(name));
-        return -1; // Name not found
-    }
-
-    variable_t *var = (variable_t *)variable_array_get(store->variables, index);
-    return variable_set_read_only(var, read_only);
-}
-
-int variable_store_set_read_only_cstr(variable_store_t *store, const char *name, bool read_only)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
-        log_fatal("variable_store_set_read_only_cstr: variable %s not found", name);
-        return -1; // Name not found
-    }
-
-    variable_t *var = (variable_t *)variable_array_get(store->variables, index);
-    return variable_set_read_only(var, read_only);
-}
-
-int variable_store_set_exported(variable_store_t *store, const string_t *name, bool exported)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name, &index) != 0) {
-        log_fatal("variable_store_set_exported: variable %s not found", string_cstr(name));
-        return -1; // Name not found
-    }
-
-    variable_t *var = (variable_t *)variable_array_get(store->variables, index);
-    return variable_set_exported(var, exported);
-}
-
-int variable_store_set_exported_cstr(variable_store_t *store, const char *name, bool exported)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-
-    size_t index;
-    if (variable_array_find_with_compare(store->variables, name, compare_variable_name_cstr, &index) != 0) {
-        log_fatal("variable_store_set_exported_cstr: variable %s not found", name);
-        return -1; // Name not found
-    }
-
-    variable_t *var = (variable_t *)variable_array_get(store->variables, index);
-    return variable_set_exported(var, exported);
-}
-
-// Value helper wrappers
-int variable_store_get_value_length(const variable_store_t *store, const string_t *name)
-{
-    Expects_not_null(store);
-    Expects_not_null(name);
-    const variable_t *var = variable_store_get_variable(store, name);
-    if (!var) {
-        return -1;
-    }
-    return variable_get_value_length(var);
-}
-
-char *const *variable_store_update_envp(variable_store_t *vs)
-{
-    if (vs == NULL)
-        return NULL;
-
-    /* ------------------------------------------------------------
-     * 1. Free old cached envp
-     * ------------------------------------------------------------ */
-    if (vs->cached_envp != NULL)
+    if (name)
     {
-        for (int i = 0; vs->cached_envp[i] != NULL; i++)
-        {
-            xfree(vs->cached_envp[i]);
-        }
-        xfree(vs->cached_envp);
-        vs->cached_envp = NULL;
+        string_t *name_str = string_create_from_cstr(name);
+        value = variable_store_get_value(store, name_str);
+        string_destroy(&name_str);
     }
 
-    /* ------------------------------------------------------------
-     * 2. Count exported variables
-     * ------------------------------------------------------------ */
+    return value ? string_cstr(value) : NULL;
+}
+
+bool variable_store_is_read_only(const variable_store_t *store, const string_t *name)
+{
+    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    return entry ? entry->mapped.read_only : false;
+}
+
+bool variable_store_is_read_only_cstr(const variable_store_t *store, const char *name)
+{
+    if (!name)
+    {
+        return false;
+    }
+
+    string_t *name_str = string_create_from_cstr(name);
+    bool result = variable_store_is_read_only(store, name_str);
+    string_destroy(&name_str);
+    return result;
+}
+
+bool variable_store_is_exported(const variable_store_t *store, const string_t *name)
+{
+    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    return entry ? entry->mapped.exported : false;
+}
+
+bool variable_store_is_exported_cstr(const variable_store_t *store, const char *name)
+{
+    if (!name)
+    {
+        return false;
+    }
+
+    string_t *name_str = string_create_from_cstr(name);
+    bool result = variable_store_is_exported(store, name_str);
+    string_destroy(&name_str);
+    return result;
+}
+
+var_store_error_t variable_store_set_read_only(variable_store_t *store, const string_t *name,
+                                               bool read_only)
+{
+    if (!store || !name)
+    {
+        return VAR_STORE_ERROR_NOT_FOUND;
+    }
+
+    variable_map_mapped_t *mapped = variable_map_data_at(store->map, name);
+    if (!mapped)
+    {
+        return VAR_STORE_ERROR_NOT_FOUND;
+    }
+
+    // Cannot unset read-only flag on a read-only variable
+    if (mapped->read_only && !read_only)
+    {
+        return VAR_STORE_ERROR_READ_ONLY;
+    }
+
+    mapped->read_only = read_only;
+    return VAR_STORE_ERROR_NONE;
+}
+
+var_store_error_t variable_store_set_read_only_cstr(variable_store_t *store, const char *name,
+                                                    bool read_only)
+{
+    if (!name)
+    {
+        return VAR_STORE_ERROR_EMPTY_NAME;
+    }
+
+    string_t *name_str = string_create_from_cstr(name);
+    var_store_error_t err = variable_store_set_read_only(store, name_str, read_only);
+    string_destroy(&name_str);
+    return err;
+}
+
+var_store_error_t variable_store_set_exported(variable_store_t *store, const string_t *name,
+                                              bool exported)
+{
+    if (!store || !name)
+    {
+        return VAR_STORE_ERROR_NOT_FOUND;
+    }
+
+    variable_map_mapped_t *mapped = variable_map_data_at(store->map, name);
+    if (!mapped)
+    {
+        return VAR_STORE_ERROR_NOT_FOUND;
+    }
+
+    if (mapped->read_only)
+    {
+        return VAR_STORE_ERROR_READ_ONLY;
+    }
+
+    mapped->exported = exported;
+    free_cached_envp(store);
+
+    return VAR_STORE_ERROR_NONE;
+}
+
+var_store_error_t variable_store_set_exported_cstr(variable_store_t *store, const char *name,
+                                                   bool exported)
+{
+    if (!name)
+    {
+        return VAR_STORE_ERROR_EMPTY_NAME;
+    }
+
+    string_t *name_str = string_create_from_cstr(name);
+    var_store_error_t err = variable_store_set_exported(store, name_str, exported);
+    string_destroy(&name_str);
+    return err;
+}
+
+int32_t variable_store_get_value_length(const variable_store_t *store, const string_t *name)
+{
+    const string_t *value = variable_store_get_value(store, name);
+    return value ? string_length(value) : 0;
+}
+
+char *const *variable_store_update_envp(variable_store_t *store)
+{
+    return variable_store_update_envp_with_parent(store, NULL);
+}
+
+char *const *variable_store_update_envp_with_parent(variable_store_t *store,
+                                                    const variable_store_t *parent)
+{
+    if (!store)
+    {
+        return NULL;
+    }
+
+    // Free old cached envp
+    free_cached_envp(store);
+
+    // Count exported variables from both stores
     int count = 0;
-    for (int i = 0; i < variable_array_size(vs->variables); i++)
+
+    // Count from current store
+    for (int32_t i = 0; i < store->map->capacity; i++)
     {
-        const variable_t *v = variable_array_get(vs->variables, i);
-        if (v->exported)
-            count++;
-    }
-
-    /* ------------------------------------------------------------
-     * 3. Allocate new envp array
-     * ------------------------------------------------------------ */
-    vs->cached_envp = xcalloc((size_t)(count + 1), sizeof(char *));
-    /* All entries initialized to NULL */
-
-    /* ------------------------------------------------------------
-     * 4. Fill envp with "NAME=value" strings
-     * ------------------------------------------------------------ */
-    int j = 0;
-    for (int i = 0; i < variable_array_size(vs->variables); i++)
-    {
-        const variable_t *v = variable_array_get(vs->variables, i);
-        if (!v->exported)
-            continue;
-
-        const char *name = string_data(v->name);
-        const char *value = string_data(v->value);
-
-        size_t len = strlen(name) + 1 + strlen(value) + 1; /* name + '=' + value + '\0' */
-        char *entry = xmalloc(len);
-
-        snprintf(entry, len, "%s=%s", name, value);
-
-        vs->cached_envp[j++] = entry;
-    }
-
-    vs->cached_envp[j] = NULL; /* NULL-terminate */
-
-    /* ------------------------------------------------------------
-     * 5. Return pointer suitable for execve()
-     * ------------------------------------------------------------ */
-    return (char *const *)vs->cached_envp;
-}
-
-char *const *variable_store_update_envp_with_parent(variable_store_t *child_vs,
-                                                    const variable_store_t *parent_vs)
-{
-    if (child_vs == NULL)
-        return NULL;
-
-    /* ------------------------------------------------------------
-     * 1. Free old cached envp in child_vs
-     * ------------------------------------------------------------ */
-    if (child_vs->cached_envp != NULL)
-    {
-        for (int i = 0; child_vs->cached_envp[i] != NULL; i++)
-            xfree(child_vs->cached_envp[i]);
-
-        xfree(child_vs->cached_envp);
-        child_vs->cached_envp = NULL;
-    }
-
-    /* ------------------------------------------------------------
-     * 2. Count exported variables in parent_vs
-     * ------------------------------------------------------------ */
-    int parent_exported = 0;
-    if (parent_vs != NULL)
-    {
-        for (int i = 0; i < variable_array_size(parent_vs->variables); i++)
+        if (store->map->entries[i].occupied && store->map->entries[i].mapped.exported)
         {
-            const variable_t *v = variable_array_get(parent_vs->variables, i);
-            if (v->exported)
-                parent_exported++;
+            count++;
         }
     }
 
-    /* ------------------------------------------------------------
-     * 3. Count all variables in child_vs (temporary env always exported)
-     * ------------------------------------------------------------ */
-    int child_count = variable_array_size(child_vs->variables);
-
-    /* Worst-case envp size = parent_exported + child_count + 1 */
-    int max_entries = parent_exported + child_count + 1;
-
-    child_vs->cached_envp = xcalloc((size_t)max_entries, sizeof(char *));
-    int idx = 0;
-
-    /* ------------------------------------------------------------
-     * 4. Insert exported parent variables (unless overridden by child)
-     * ------------------------------------------------------------ */
-    if (parent_vs != NULL)
+    // Count from parent store (only if not overridden)
+    if (parent)
     {
-        for (int i = 0; i < variable_array_size(parent_vs->variables); i++)
+        for (int32_t i = 0; i < parent->map->capacity; i++)
         {
-            const variable_t *pv = variable_array_get(parent_vs->variables, i);
-            if (!pv->exported)
-                continue;
-
-            const char *pname = string_data(pv->name);
-
-            /* Check if child overrides this variable */
-            bool overridden = false;
-            for (int j = 0; j < variable_array_size(child_vs->variables); j++)
+            if (parent->map->entries[i].occupied && parent->map->entries[i].mapped.exported)
             {
-                const variable_t *cv = variable_array_get(child_vs->variables, j);
-                if (strcmp(string_data(cv->name), pname) == 0)
+                // Check if this variable is overridden in the current store
+                if (!variable_map_contains(store->map, parent->map->entries[i].key))
                 {
-                    overridden = true;
-                    break;
+                    count++;
                 }
             }
-
-            if (overridden)
-                continue;
-
-            /* Add parent variable */
-            const char *pvalue = string_data(pv->value);
-            size_t len = strlen(pname) + 1 + strlen(pvalue) + 1;
-
-            char *entry = xmalloc(len);
-            snprintf(entry, len, "%s=%s", pname, pvalue);
-
-            child_vs->cached_envp[idx++] = entry;
         }
     }
 
-    /* ------------------------------------------------------------
-     * 5. Insert ALL child variables (temporary env always exported)
-     * ------------------------------------------------------------ */
-    for (int i = 0; i < variable_array_size(child_vs->variables); i++)
+    // Allocate envp array (NULL-terminated)
+    store->cached_envp = xcalloc(count + 1, sizeof(char *));
+
+    int idx = 0;
+
+    // Add exported variables from current store
+    for (int32_t i = 0; i < store->map->capacity; i++)
     {
-        const variable_t *cv = variable_array_get(child_vs->variables, i);
+        if (store->map->entries[i].occupied && store->map->entries[i].mapped.exported)
+        {
+            const string_t *name = store->map->entries[i].key;
+            const string_t *value = store->map->entries[i].mapped.value;
 
-        const char *cname = string_data(cv->name);
-        const char *cvalue = string_data(cv->value);
+            // Format: NAME=VALUE
+            int name_len = string_length(name);
+            int value_len = value ? string_length(value) : 0;
+            int total_len = name_len + 1 + value_len + 1; // name + '=' + value + '\0'
 
-        size_t len = strlen(cname) + 1 + strlen(cvalue) + 1;
+            char *env_str = xmalloc(total_len);
+            memcpy(env_str, string_cstr(name), name_len);
+            env_str[name_len] = '=';
+            if (value)
+            {
+                memcpy(env_str + name_len + 1, string_cstr(value), value_len);
+            }
+            env_str[name_len + 1 + value_len] = '\0';
 
-        char *entry = xmalloc(len);
-        snprintf(entry, len, "%s=%s", cname, cvalue);
-
-        child_vs->cached_envp[idx++] = entry;
+            store->cached_envp[idx++] = env_str;
+        }
     }
 
-    /* ------------------------------------------------------------
-     * 6. NULL-terminate
-     * ------------------------------------------------------------ */
-    child_vs->cached_envp[idx] = NULL;
+    // Add exported variables from parent (if not overridden)
+    if (parent)
+    {
+        for (int32_t i = 0; i < parent->map->capacity; i++)
+        {
+            if (parent->map->entries[i].occupied && parent->map->entries[i].mapped.exported)
+            {
+                const string_t *name = parent->map->entries[i].key;
 
-    /* ------------------------------------------------------------
-     * 7. Return envp suitable for execve()
-     * ------------------------------------------------------------ */
-    return (char *const *)child_vs->cached_envp;
+                // Skip if overridden in current store
+                if (variable_map_contains(store->map, name))
+                {
+                    continue;
+                }
+
+                const string_t *value = parent->map->entries[i].mapped.value;
+
+                // Format: NAME=VALUE
+                int name_len = string_length(name);
+                int value_len = value ? string_length(value) : 0;
+                int total_len = name_len + 1 + value_len + 1;
+
+                char *env_str = xmalloc(total_len);
+                memcpy(env_str, string_cstr(name), name_len);
+                env_str[name_len] = '=';
+                if (value)
+                {
+                    memcpy(env_str + name_len + 1, string_cstr(value), value_len);
+                }
+                env_str[name_len + 1 + value_len] = '\0';
+
+                store->cached_envp[idx++] = env_str;
+            }
+        }
+    }
+
+    store->cached_envp[idx] = NULL; // NULL-terminate the array
+
+    return store->cached_envp;
 }

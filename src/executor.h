@@ -23,6 +23,7 @@ typedef enum
  * Executor Context
  * ============================================================================ */
 
+
 /**
  * @brief Executor context for shell command execution
  *
@@ -33,23 +34,31 @@ typedef enum
 typedef struct executor_t
 {
     /* Exit status from last command */
+    bool last_exit_status_set;
     int last_exit_status;
 
     /* Error reporting */
     string_t *error_msg;
-
-    /* Execution state */
-    bool dry_run; // if true, don't actually execute, just validate
 
     /* Variable and parameter storage */
     variable_store_t *variables;
     positional_params_stack_t *positional_params;
 
     /* Special variables for POSIX shell */
-    int last_background_pid;    // $! - PID of last background command
-    int shell_pid;              // $$ - PID of the shell process (set via getpid() on POSIX)
-    string_t *last_argument;    // $_ - Last argument of previous command
-    string_t *shell_flags;      // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
+    bool last_background_pid_set; // $! - PID of last background command
+    int last_background_pid; 
+    bool shell_pid_set;           // $$ - PID of the shell process
+    int shell_pid;  
+    bool last_argument_set;       // $_ - Last argument of previous command
+    string_t *last_argument;
+    bool shell_flags_set;         // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
+    string_t *shell_flags;
+#ifdef SH23_EXTENSIONS
+    // Additional fields for sh23 extensions can be added here
+
+    /* Execution state */
+    bool dry_run; // if true, don't actually execute, just validate
+#endif
 
 } executor_t;
 
@@ -235,4 +244,5 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
  */
 string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data);
 
-#endif /* EXECUTOR_H */
+#endif
+

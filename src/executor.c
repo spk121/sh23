@@ -59,21 +59,31 @@ executor_t *executor_create(void)
 {
     executor_t *executor = (executor_t *)xcalloc(1, sizeof(executor_t));
     executor->error_msg = string_create();
+    executor->last_exit_status_set = false;
     executor->last_exit_status = 0;
+#ifdef SH23_EXTENSIONS
     executor->dry_run = false;
-
+#endif
     // Initialize persistent stores
     executor->variables = variable_store_create();
     executor->positional_params = positional_params_stack_create();
 
     // Initialize special variable fields
+    executor->last_background_pid_set = false;
     executor->last_background_pid = 0;
 #ifdef POSIX_API
-    executor->shell_pid = (int)getpid();
+    executor->shell_pid_set = true;
+    executor->shell_pid = getpid();
+#elifdef UCRT_API
+    executor->shell_pid_set = true;
+    executor->shell_pid = _getpid();
 #else
+    executor->shell_pid_set = false;
     executor->shell_pid = 0;
 #endif
+    executor->last_argument_set = false;
     executor->last_argument = string_create();
+    executor->shell_flags_set = false;
     executor->shell_flags = string_create();
 
     return executor;
@@ -170,7 +180,9 @@ void executor_clear_error(executor_t *executor)
 void executor_set_dry_run(executor_t *executor, bool dry_run)
 {
     Expects_not_null(executor);
+#ifdef SH23_EXTENSIONS
     executor->dry_run = dry_run;
+#endif
 }
 
 /* ============================================================================
@@ -190,45 +202,47 @@ static void executor_populate_special_variables(variable_store_t *store, const e
 {
     Expects_not_null(store);
     Expects_not_null(ex);
+    uint8_t buf[32];
 
     // $? - last exit status
-    char exit_status_buf[32];
-    snprintf(exit_status_buf, sizeof(exit_status_buf), "%d", ex->last_exit_status);
-    variable_store_add_cstr(store, "?", exit_status_buf, false, false);
+    if (ex->last_exit_status_set)
+    {
+        snprintf(buf, sizeof(buf), "%d", ex->last_exit_status);
+        variable_store_add_cstr(store, "?", buf, false, false);
+    }
 
     // $! - last background PID (only if set)
-    if (ex->last_background_pid > 0)
+    if (ex->last_background_pid_set)
     {
-        char bg_pid_buf[32];
-        snprintf(bg_pid_buf, sizeof(bg_pid_buf), "%d", ex->last_background_pid);
-        variable_store_add_cstr(store, "!", bg_pid_buf, false, false);
+        snprintf(buf, sizeof(buf), "%d", ex->last_background_pid);
+        variable_store_add_cstr(store, "!", buf, false, false);
     }
 
     // $$ - shell PID
-    if (ex->shell_pid > 0)
+    if (ex->shell_pid_set)
     {
-        char shell_pid_buf[32];
-        snprintf(shell_pid_buf, sizeof(shell_pid_buf), "%d", ex->shell_pid);
-        variable_store_add_cstr(store, "$", shell_pid_buf, false, false);
+        snprintf(buf, sizeof(buf), "%d", ex->shell_pid);
+        variable_store_add_cstr(store, "$", buf, false, false);
     }
 
     // $_ - last argument
-    if (ex->last_argument != NULL && string_length(ex->last_argument) > 0)
+    if (ex->last_argument_set)
     {
-        variable_store_add_cstr(store, "_", string_cstr(ex->last_argument), false, false);
+        variable_store_add(store, "_", ex->last_argument, false, false);
     }
 
     // $- - shell flags
-    if (ex->shell_flags != NULL && string_length(ex->shell_flags) > 0)
+    if (ex->shell_flags_set)
     {
-        variable_store_add_cstr(store, "-", string_cstr(ex->shell_flags), false, false);
+        variable_store_add(store, "-", ex->shell_flags, false, false);
     }
 }
 
-static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node)
+static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node, expander_t *exp)
 {
     Expects_not_null(ex);
     Expects_not_null(node);
+    Expects_not_null(exp);
 
     variable_store_t *temp_store = variable_store_create();
 
@@ -249,32 +263,10 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
         {
             for (int i = 0; i < token_list_size(assignments); i++)
             {
-                // An assignment value can be multiple parts, eachof
-                // which could require expansion. They are contatenated
-                // to make a full value. So they need to have already been
-                // expanded here.
                 token_t *tok = token_list_get(assignments, i);
-                if (token_needs_expansion(tok))
-                {
-                    log_error(
-                        "%s: attempting to apply unexpanded assignment to temp variable store",
-                        __func__);
-                }
-                string_t *value_str = string_create();
-                for (int j = 0; j < part_list_size(tok->assignment_value); j ++)
-                {
-                    part_t *val_part = part_list_get(tok->assignment_value, j);
-                    // FIXME: add logic here to recursively handle parts that haven't
-                    // already been expanded.
-                    if (part_get_type(val_part) != PART_LITERAL)
-                    {
-                        log_error("%s: attempting to add a non-literal part as a variable value");
-                    }
-                    string_append(value_str, part_get_text(val_part));
-                }
-                variable_store_add(temp_store, tok->assignment_name, value_str, false,
-                                   false);
-                string_destroy(&value_str);
+                string_t *value = expander_expand_assignment_value(exp, tok);
+                variable_store_add(temp_store, tok->assignment_name, value, false, false);
+                string_destroy(&value);
             }
         }
     }
@@ -617,6 +609,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     Expects_not_null(node);
     Expects_eq(node->type, AST_SIMPLE_COMMAND);
 
+#ifdef SH23_EXTENSIONS
     // ------------------------------------------------------------
     // DRY RUN MODE
     // ------------------------------------------------------------
@@ -637,6 +630,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
+#endif
 
     // ------------------------------------------------------------
     // Detect assignment-only simple commands
@@ -644,17 +638,29 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     bool has_words =
         (node->data.simple_command.words && token_list_size(node->data.simple_command.words) > 0);
 
-    // FIXME: implement executor_simple_command_has_assignments()
-    //bool has_assignments = executor_simple_command_has_assignments(node);
     bool has_assignments =
         (node->data.simple_command.assignments &&
-                            token_list_size(node->data.simple_command.assignments) > 0);
+         token_list_size(node->data.simple_command.assignments) > 0);
 
     if (!has_words && has_assignments)
     {
         // Apply assignments to current environment
-        // FIXME: implement executor_apply_assignments()
-        // executor_apply_assignments(executor, node);
+        // Create expander for expanding assignment values
+        expander_t *exp = expander_create(executor->variables, executor->positional_params);
+        expander_set_getenv(exp, getenv);
+        expander_set_tilde_expand(exp, NULL);
+        expander_set_glob(exp, executor_pathname_expansion_callback);
+        expander_set_command_substitute(exp, executor_command_subst_callback);
+        expander_set_userdata(exp, executor);
+
+        for (int i = 0; i < token_list_size(node->data.simple_command.assignments); i++)
+        {
+            token_t *tok = token_list_get(node->data.simple_command.assignments, i);
+            string_t *value = expander_expand_assignment_value(exp, tok);
+            variable_store_add(executor->variables, tok->assignment_name, value, false, false);
+            string_destroy(&value);
+        }
+        expander_destroy(&exp);
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
@@ -672,14 +678,19 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     executor_populate_special_variables(executor->variables, executor);
 
     // ------------------------------------------------------------
-    // Prepare temporary variable store (for assignment words)
-    // ------------------------------------------------------------
-    variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node);
-
-    // ------------------------------------------------------------
     // Create expander
     // ------------------------------------------------------------
     expander_t *exp = expander_create(executor->variables, executor->positional_params);
+    expander_set_getenv(exp, getenv);
+    expander_set_tilde_expand(exp, NULL);
+    expander_set_glob(exp, executor_pathname_expansion_callback);
+    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_userdata(exp, executor);
+
+    // ------------------------------------------------------------
+    // Prepare temporary variable store (for assignment words)
+    // ------------------------------------------------------------
+    variable_store_t *tmpvars = executor_prepare_temp_variable_store(executor, node, exp);
 
     // ------------------------------------------------------------
     // Expand command words
@@ -690,37 +701,46 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     {
         // Expansion produced nothing → command disappears
         expander_destroy(&exp);
-        string_list_destroy(expanded_words);
+        string_list_destroy(&expanded_words);
         variable_store_destroy(&tmpvars);
         executor->last_exit_status = 0;
         return EXEC_OK;
     }
 
-    // First expanded word is the command name
-    // const string_t *cmd_name = string_list_at(expanded_words, 0);
-
     // ------------------------------------------------------------
-    // Expand redirections
+    // Apply redirections
     // ------------------------------------------------------------
     const ast_node_list_t *redirs = node->data.simple_command.redirections;
-
-    for (int i = 0; i < ast_node_list_size(redirs); i++)
+    saved_fd_t *saved = NULL;
+    int saved_count = 0;
+    exec_status_t st = executor_apply_redirections_posix(executor, exp, redirs, &saved, &saved_count);
+    if (st != EXEC_OK)
     {
-        const ast_node_t *redir = ast_node_list_get(redirs, i);
-
-        string_t *target = expander_expand_redirection_target(exp, redir->data.redirection.target);
-
-        // TODO: apply redirection using expanded target
-        string_destroy(&target);
+        string_list_destroy(&expanded_words);
+        expander_destroy(&exp);
+        variable_store_destroy(&tmpvars);
+        return st;
     }
 
     // ------------------------------------------------------------
     // Execute the command
     // ------------------------------------------------------------
+    st = executor_run_command(executor, expanded_words, tmpvars);
 
-    // FIXME: implement executor_run_command()
-    // exec_status_t status = executor_run_command(executor, expanded_words);
-    exec_status_t status = EXEC_NOT_IMPL;
+    // ------------------------------------------------------------
+    // Restore redirections
+    // ------------------------------------------------------------
+    executor_restore_redirections_posix(saved, saved_count);
+    xfree(saved);
+
+    // ------------------------------------------------------------
+    // Update last argument
+    // ------------------------------------------------------------
+    if (string_list_size(expanded_words) > 0)
+    {
+        executor->last_argument_set = true;
+        string_set(executor->last_argument, string_list_at(expanded_words, string_list_size(expanded_words) - 1));
+    }
 
     // ------------------------------------------------------------
     // Cleanup
@@ -729,7 +749,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     expander_destroy(&exp);
     variable_store_destroy(&tmpvars);
 
-    return status;
+    return st;
 }
 
 #if defined(POSIX_API)
@@ -968,6 +988,7 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
     Expects_not_null(node);
     Expects_eq(node->type, AST_REDIRECTED_COMMAND);
 
+#ifdef SH23_EXTENSIONS
     if (executor->dry_run)
     {
         int redir_count = node->data.redirected_command.redirections == NULL
@@ -977,6 +998,7 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
                (redir_count == 1) ? "" : "s");
         return EXEC_OK;
     }
+#endif
 
     const ast_node_list_t *redirs = node->data.redirected_command.redirections;
     const ast_node_t *command = node->data.redirected_command.command;
@@ -1016,17 +1038,18 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
 }
 
 #ifdef POSIX_API
-static exec_status_t executor_apply_redirections_posix(executor_t *executor,
+static exec_status_t executor_apply_redirections_posix(executor_t *executor, expander_t *exp,
                                                        const ast_node_list_t *redirs,
                                                        saved_fd_t **out_saved, int *out_saved_count)
 {
     Expects_not_null(executor);
+    Expects_not_null(exp);
     Expects_not_null(redirs);
     Expects_not_null(out_saved);
     Expects_not_null(out_saved_count);
 
     int count = ast_node_list_size(redirs);
-    saved_fd_t *saved = calloc(count, sizeof(saved_fd_t));
+    saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
     if (!saved)
     {
         executor_set_error(executor, "Out of memory");
@@ -1037,7 +1060,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
 
     for (int i = 0; i < count; i++)
     {
-        const ast_node_t *r = redirs->nodes[i];
+        const ast_node_t *r = ast_node_list_get(redirs, i);
         Expects_eq(r->type, AST_REDIRECTION);
 
         int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
@@ -1052,7 +1075,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
         if (backup < 0)
         {
             executor_set_error(executor, "dup() failed");
-            free(saved);
+            xfree(saved);
             return EXEC_ERROR;
         }
 
@@ -1066,9 +1089,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
         {
 
         case REDIR_OPERAND_FILENAME: {
-            // Get the filename from the token
-            // TODO: Use expander_expand_redirection_target for proper expansion
-            string_t *fname_str = token_get_all_text(r->data.redirection.target);
+            string_t *fname_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             const char *fname = string_cstr(fname_str);
             int flags = 0;
             mode_t mode = 0666;
@@ -1093,7 +1114,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             default:
                 executor_set_error(executor, "Invalid filename redirection");
                 string_destroy(&fname_str);
-                free(saved);
+                xfree(saved);
                 return EXEC_ERROR;
             }
 
@@ -1102,7 +1123,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             {
                 executor_set_error(executor, "Failed to open '%s'", fname);
                 string_destroy(&fname_str);
-                free(saved);
+                xfree(saved);
                 return EXEC_ERROR;
             }
 
@@ -1111,7 +1132,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
                 executor_set_error(executor, "dup2() failed");
                 string_destroy(&fname_str);
                 close(newfd);
-                free(saved);
+                xfree(saved);
                 return EXEC_ERROR;
             }
 
@@ -1121,9 +1142,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
         }
 
         case REDIR_OPERAND_FD: {
-            // Get the FD number from the token
-            // TODO: Use expander_expand_redirection_target for proper expansion
-            string_t *fd_str = token_get_all_text(r->data.redirection.target);
+            string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             const char *lex = string_cstr(fd_str);
             int src = atoi(lex);
 
@@ -1131,7 +1150,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             {
                 executor_set_error(executor, "dup2(%d,%d) failed", src, fd);
                 string_destroy(&fd_str);
-                free(saved);
+                xfree(saved);
                 return EXEC_ERROR;
             }
             string_destroy(&fd_str);
@@ -1148,7 +1167,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             if (pipe(pipefd) < 0)
             {
                 executor_set_error(executor, "pipe() failed");
-                free(saved);
+                xfree(saved);
                 return EXEC_ERROR;
             }
 
@@ -1163,7 +1182,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
             {
                 executor_set_error(executor, "dup2() failed for heredoc");
                 close(pipefd[0]);
-                free(saved);
+                xfree(saved);
                 return EXEC_ERROR;
             }
 
@@ -1173,7 +1192,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor,
 
         default:
             executor_set_error(executor, "Unknown redirection operand");
-            free(saved);
+            xfree(saved);
             return EXEC_ERROR;
         }
     }
