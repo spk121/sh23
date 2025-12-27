@@ -144,16 +144,15 @@ void variable_store_destroy(variable_store_t **store)
     *store = NULL;
 }
 
-int variable_store_clear(variable_store_t *store)
+void variable_store_clear(variable_store_t *store)
 {
     if (!store)
     {
-        return -1;
+        return;
     }
 
     variable_map_clear(store->map);
     free_cached_envp(store);
-    return 0;
 }
 
 var_store_error_t variable_store_add(variable_store_t *store, const string_t *name,

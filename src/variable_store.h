@@ -6,6 +6,7 @@
 #include "string_t.h"
 #include "logging.h"
 #include "variable_map.h"
+#include "ast.h"
 
 typedef struct variable_store_t
 {
@@ -33,7 +34,7 @@ variable_store_t *variable_store_create_from_envp(char **envp);
 void variable_store_destroy(variable_store_t **store);
 
 // Clear all variables and parameters
-int variable_store_clear(variable_store_t *store);
+void variable_store_clear(variable_store_t *store);
 
 // Variable management
 var_store_error_t variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only);

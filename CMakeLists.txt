@@ -82,10 +82,8 @@ set(MGSH_LIB_SOURCES
     src/executor.h
     src/expander.c
     src/expander.h
-    src/variable.c
-    src/variable.h
-    src/variable_array.c
-    src/variable_array.h
+    src/variable_map.c
+    src/variable_map.h
     src/variable_store.c
     src/variable_store.h
     src/pattern_removal.c
@@ -137,7 +135,7 @@ set(MGSH_TEST_SOURCES
 foreach(test_src ${MGSH_TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
 
-    add_executable(${test_name} ${test_src} $<TARGET_OBJECTS:ctest_obj>)
+    add_executable(${test_name} ${test_src} $<TARGET_OBJECTS:ctest_obj> "src/variable_map.h")
     # Let's define an 'IN_CTEST' variable just in case
     # one of our test cases needs to #ifdef around normal
     # behavior.    

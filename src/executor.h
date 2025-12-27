@@ -4,10 +4,145 @@
 #include "ast.h"
 #include "string_t.h"
 #include "expander.h"
+#include "alias_store.h"
 #include "variable_store.h"
 #include "positional_params.h"
+#include "func_store.h"
 #include <stdbool.h>
 
+
+#if 1
+// ============================================================================
+// FIXME: Implement all these structures and types fully.
+// ============================================================================
+
+// ============================================================================
+// TRAP STORE
+// ============================================================================
+
+// Signals KILL and STOP are not catchable or ignorable.
+// POSIX <signal.h> requires ABRT, ALRM, BUS, CHLD, CONT, FPE, HUP,
+//   ILL, INT, KILL, PIPE, QUIT, SEGV, STOP, TERM,
+//   TSTP, TTIN, TTOU, USR1, USR2, WINCH
+// UCRT defines ABRT, FPE, ILL, INT, SEGV, TERM.
+// ISO C only defines ABRT, FPE, ILL, INT, SEGV, TERM.
+
+typedef struct trap_action_t
+{
+    int signal_number; // Signal number (SIGINT, SIGTERM, etc.)
+    string_t *action;  // Command string to execute, or NULL for default action
+    bool is_ignored;   // true if trap is set to ignore (trap '' SIGNAL)
+    bool is_default;   // true if trap is set to default (trap - SIGNAL)
+} trap_action_t;
+
+typedef struct trap_store_t
+{
+    trap_action_t *traps;  // Array of trap actions, indexed by signal number
+    size_t capacity;       // Size of array (typically NSIG or _NSIG)
+    bool exit_trap_set;    // Special case: trap on EXIT (signal 0)
+    string_t *exit_action; // Action for EXIT trap
+} trap_store_t;
+
+// ============================================================================
+// SIGNAL DISPOSITIONS
+// ============================================================================
+
+typedef struct sig_act_t
+{
+    int signal_number;
+#ifdef POSIX_API
+    struct sigaction original_action; // Original sigaction structure
+#else
+    void (*original_handler)(int); // Original signal handler (signal() style)
+#endif
+    bool was_ignored; // Whether signal was originally ignored
+} sig_act_t;
+
+typedef struct sig_act_store_t
+{
+    sig_act_t *actions; // Array indexed by signal number
+    size_t capacity;                    // Size of array 
+} sig_act_store_t;
+
+// ============================================================================
+// JOB TABLE
+// ============================================================================
+
+typedef enum job_state_t
+{
+    JOB_RUNNING,
+    JOB_STOPPED,
+    JOB_DONE,
+    JOB_TERMINATED
+} job_state_t;
+
+typedef struct process_t
+{
+#ifdef POSIX_API
+    pid_t pid;              // Process ID
+#else
+    int pid;
+#endif
+    string_t *command;      // Command string for this process
+    job_state_t state;      // Current state of this process
+    int exit_status;        // Exit status (if done) or signal number (if terminated)
+    struct process_t *next; // Next process in pipeline
+} process_t;
+
+typedef struct job_t
+{
+    int job_id;             // Job number (for %1, %2, etc.)
+#ifdef POSIX_API
+    pid_t pgid; // Process group ID
+#else
+    int pgid;   // Process group ID
+#endif
+    process_t *processes;   // Linked list of processes in this job (pipeline)
+    string_t *command_line; // Full command line as typed by user
+    job_state_t state;      // Overall state of the job
+    bool is_background;     // Whether job was started with &
+    bool is_notified;       // Whether user has been notified of status change
+    struct job_t *next;     // Next job in table
+} job_t;
+
+typedef struct job_table_t
+{
+    job_t *jobs;         // Linked list of jobs
+    int next_job_id;     // Next job ID to assign
+    job_t *current_job;  // Job referenced by %% or %+
+    job_t *previous_job; // Job referenced by %-
+} job_table_t;
+
+// ============================================================================
+// FILE DESCRIPTOR TABLE
+// ============================================================================
+
+typedef enum fd_flags_t
+{
+    FD_NONE = 0,
+    FD_CLOEXEC = 1 << 0,    // Close-on-exec flag
+    FD_REDIRECTED = 1 << 1, // FD was created by redirection
+    FD_SAVED = 1 << 2,      // FD is a saved copy of another FD
+} fd_flags_t;
+
+typedef struct fd_entry_t
+{
+    int fd;           // File descriptor number
+    int original_fd;  // If saved, what FD was this a copy of? (-1 if not saved)
+    fd_flags_t flags; // Flags for this FD
+    string_t *path;   // Path if opened from file (NULL otherwise)
+    bool is_open;     // Whether this FD is currently open
+} fd_entry_t;
+
+typedef struct fd_table_t
+{
+    fd_entry_t *entries; // Dynamic array of FD entries
+    size_t capacity;     // Current capacity of array
+    size_t count;        // Number of entries in use
+    int highest_fd;      // Highest FD number in use
+} fd_table_t;
+
+#endif
 /* ============================================================================
  * Executor Status (return codes)
  * ============================================================================ */
@@ -25,43 +160,115 @@ typedef enum
 
 
 /**
- * @brief Executor context for shell command execution
- *
  * The executor_t structure maintains the execution state for a shell session,
  * including exit status tracking, error reporting, variables, and special
  * POSIX shell variables.
  */
 typedef struct executor_t
 {
-    /* Exit status from last command */
-    bool last_exit_status_set;
-    int last_exit_status;
+    struct executor_t *parent; // NULL if top-level, else points to parent environment
+    bool is_subshell;          // True if this is a subshell environment
+    bool is_interactive;       // Whether shell is interactive
+    bool is_login_shell;       // Whether this is a login shell
 
-    /* Error reporting */
-    string_t *error_msg;
+    // Working directory as set by cd
+    string_t *working_directory;   // POSIX getcwd(), UCRT _getcwd(), ISO_C no standard way
 
-    /* Variable and parameter storage */
-    variable_store_t *variables;
-    positional_params_stack_t *positional_params;
-
-    /* Special variables for POSIX shell */
-    bool last_background_pid_set; // $! - PID of last background command
-    int last_background_pid; 
-    bool shell_pid_set;           // $$ - PID of the shell process
-    int shell_pid;  
-    bool last_argument_set;       // $_ - Last argument of previous command
-    string_t *last_argument;
-    bool shell_flags_set;         // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
-    string_t *shell_flags;
-#ifdef SH23_EXTENSIONS
-    // Additional fields for sh23 extensions can be added here
-
-    /* Execution state */
-    bool dry_run; // if true, don't actually execute, just validate
+    // File creation mask set by umask.
+    // These are the permissions that should be masked off when creating new files.
+#ifdef POSIX_API
+    mode_t file_creation_mask;  // return value of umask()
+#elifdef UCRT_API
+    int file_creation_mask;     // return value of _umask()
+#else
+    // ISO_C does not define umask
 #endif
 
+    // File size limit as set by ulimit
+#ifdef POSIX_API
+    rlim_t file_size_limit;     // getrlimit(RLIMIT_FSIZE)
+#else
+    // UCRT_API and ISO_C_API do  not define file size limits
+#endif
+
+    // Current traps set by trap
+    trap_store_t *traps;
+    // Original signal dispositions (to restore after traps)
+    signal_dispositions_t *original_signals;
+
+    // Shell parameters that are set by variable assignment and shell
+    // parameters that are set from the environment inherited by the shell
+    // when it begins.
+    variable_store_t *variables;
+    positional_params_t *positional_params; // Derive $@, $*, $1, $2, ...
+
+    // Shell parameters that are special built-ins
+    bool last_exit_status_set;
+    int last_exit_status;
+    bool last_background_pid_set; // $! - PID of last background command
+#ifdef POSIX_API
+    pid_t last_background_pid;
+#else // UCRT_API and ISO_C
+    int last_background_pid;
+#endif
+    bool shell_pid_set;           // $$ - PID of the shell process
+#ifdef POSIX_API
+    pid_t shell_pid;
+#else // UCRT_API and ISO_C
+    int shell_pid;
+#endif
+    bool last_argument_set;       // $_ - Last argument of previous command
+    string_t *last_argument;
+    string_t *shell_name;         // $0 - Name of the shell or shell script
+
+    // Shell functions
+    func_store_t *functions;
+
+    // Options turned on at invocation or by set
+    bool shell_flags_set; // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
+    bool flag_allexport; // -a
+    bool flag_errexit;             // -e
+    bool flag_ignoreeof;           // no flag
+    bool flag_noclobber;           // -C
+    bool flag_noglob; // -f
+    bool flag_noexec;              // -n
+    bool flag_nounset; // -u
+    bool flag_pipefail;            // no flag
+    bool flag_verbose;  // -v
+    bool flag_vi;
+    bool flag_xtrace; // -x
+
+    // Background jobs and their associated process IDs, and process IDs of
+    // child processes created to execute asynchronous AND-OR lists while job
+    // control is disabled; together these process IDs constitute the process
+    // IDs "known to this shell environment".
+    // Job control
+    job_table_t *jobs;        // Background jobs
+    bool job_control_enabled; // Whether job control is active
+#ifdef POSIX_API
+    pid_t pgid;      // Process group ID for job control
+#else
+    // No PGID on non-POSIX systems
+#endif
+
+#if defined(POSIX_API) || defined(UCRT_API)
+    // Open file descriptors (for managing redirections)
+    fd_table_t *open_fds; // Track which FDs are open and their state
+    int next_fd;          // For allocating new FDs in redirections
+#else
+    // There are no file descriptors in ISO C
+#endif
+
+    // Shell aliases
+    alias_store_t *aliases;
+
+    // Error reporting
+    string_t *error_msg;
 } executor_t;
 
+/**
+
+*/
 /* ============================================================================
  * Executor Lifecycle Functions
  * ============================================================================ */
@@ -70,6 +277,7 @@ typedef struct executor_t
  * Create a new executor.
  */
 executor_t *executor_create(void);
+executor_t *executor_clone(const executor_t *src);
 
 /**
  * Destroy an executor and free all associated memory.
