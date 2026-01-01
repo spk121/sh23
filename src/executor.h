@@ -7,7 +7,7 @@
 #include "alias_store.h"
 #include "variable_store.h"
 #include "positional_params.h"
-#include "func_store.h"
+//#include "func_store.h"
 #include <stdbool.h>
 
 
@@ -158,15 +158,29 @@ typedef enum
  * Executor Context
  * ============================================================================ */
 
+typedef struct
+{
+    bool allexport; // -a
+    bool errexit;   // -e
+    bool ignoreeof; // no flag
+    bool noclobber; // -C
+    bool noglob;    // -f
+    bool noexec;    // -n
+    bool nounset;   // -u
+    bool pipefail;  // no flag
+    bool verbose;   // -v
+    bool vi;
+    bool xtrace; // -x
+} exec_opt_flags_t;
 
 /**
- * The executor_t structure maintains the execution state for a shell session,
+ * The exec_t structure maintains the execution state for a shell session,
  * including exit status tracking, error reporting, variables, and special
  * POSIX shell variables.
  */
-typedef struct executor_t
+typedef struct exec_t
 {
-    struct executor_t *parent; // NULL if top-level, else points to parent environment
+    struct exec_t *parent; // NULL if top-level, else points to parent environment
     bool is_subshell;          // True if this is a subshell environment
     bool is_interactive;       // Whether shell is interactive
     bool is_login_shell;       // Whether this is a login shell
@@ -225,18 +239,8 @@ typedef struct executor_t
     func_store_t *functions;
 
     // Options turned on at invocation or by set
-    bool shell_flags_set; // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
-    bool flag_allexport; // -a
-    bool flag_errexit;             // -e
-    bool flag_ignoreeof;           // no flag
-    bool flag_noclobber;           // -C
-    bool flag_noglob; // -f
-    bool flag_noexec;              // -n
-    bool flag_nounset; // -u
-    bool flag_pipefail;            // no flag
-    bool flag_verbose;  // -v
-    bool flag_vi;
-    bool flag_xtrace; // -x
+    bool opt_flags_set; // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
+    exec_opt_flags_t opt;
 
     // Background jobs and their associated process IDs, and process IDs of
     // child processes created to execute asynchronous AND-OR lists while job
@@ -264,11 +268,19 @@ typedef struct executor_t
 
     // Error reporting
     string_t *error_msg;
-} executor_t;
+} exec_t;
 
-/**
+typedef struct
+{
+    // Start-up environment
+    int argc;
+    char *const *argv;
+    char *const *envp;
 
-*/
+    // Flags
+    exec_opt_flags_t opt;
+} exec_cfg_t;
+
 /* ============================================================================
  * Executor Lifecycle Functions
  * ============================================================================ */
@@ -276,14 +288,14 @@ typedef struct executor_t
 /**
  * Create a new executor.
  */
-executor_t *executor_create(void);
-executor_t *executor_clone(const executor_t *src);
+exec_t *exec_create_from_cfg(exec_cfg_t *cfg);
+exec_t *exec_create_from_parent(exec_t *parent);
 
 /**
  * Destroy an executor and free all associated memory.
- * Safe to call with NULL.
+ * Safe to call with nullptr.
  */
-void executor_destroy(executor_t **executor);
+void exec_destroy(exec_t **executor);
 
 /* ============================================================================
  * Execution Functions

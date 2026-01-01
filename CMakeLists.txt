@@ -38,10 +38,12 @@ set(MGSH_LIB_SOURCES
     src/alias_array.h
     src/arithmetic.c
     src/arithmetic.h
-    src/function_store.c
-    src/function_store.h
-    src/function_array.c
-    src/function_array.h
+    src/func_store.c
+    src/func_store.h
+    src/func_array.c
+    src/func_array.h
+    src/getopt.c
+    src/getopt.h
     src/gnode.c
     src/gnode.h
     src/gprint.c

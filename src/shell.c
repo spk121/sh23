@@ -2,16 +2,23 @@
 #include "logging.h"
 #include "xalloc.h"
 #include "string_t.h"
-#include "alias_store.h"
-#include "function_store.h"
-#include "variable_store.h"
-#include "lexer.h"
-#include "parser.h"
-#include "expander.h"
+//#include "alias_store.h"
+//#include "function_store.h"
+//#include "variable_store.h"
+//#include "lexer.h"
+//#include "parser.h"
+//#include "expander.h"
 #include "executor.h"
-#include "ast.h"
-#include "lower.h"
-#include "tokenizer.h"
+//#include "ast.h"
+//#include "lower.h"
+//#include "tokenizer.h"
+#include <stddef.h>
+#include "lib.h"  // for backup def'n of nullptr
+
+struct shell_t
+{
+    executor_t *root_exec;
+} shell_t;
 
 // Internal helpers used by shell_feed_line/shell_run_script
 #if 0
@@ -57,43 +64,18 @@ static char *normalize_newlines(const char *input)
     return string_release(&str);
 }
 
-shell_t *shell_create(const shell_config_t *cfg)
+shell_t *shell_create(const shell_cfg_t *cfg)
 {
     shell_t *sh = xcalloc(1, sizeof(shell_t));
+    exec_cfg_t exec_cfg;
 
-    sh->ps1 = string_create_from_cstr(cfg && cfg->ps1 ? cfg->ps1 : "shell> ");
-    sh->ps2 = string_create_from_cstr(cfg && cfg->ps2 ? cfg->ps2 : "> ");
-
-    // Stores
-    if (cfg && cfg->initial_aliases)
-        sh->aliases = (alias_store_t *)cfg->initial_aliases;
-    else
-        sh->aliases = alias_store_create();
-
-    if (cfg && cfg->initial_funcs)
-        sh->funcs = (function_store_t *)cfg->initial_funcs;
-    else
-        sh->funcs = function_store_create();
-
-    if (cfg && cfg->initial_vars)
-        sh->vars = (variable_store_t *)cfg->initial_vars;
-    else
-        sh->vars = variable_store_create();
-
-    // Components
-    sh->lexer = lexer_create();
-    sh->parser = parser_create();
-    sh->executor = executor_create();
-    sh->error = string_create();
-
-    // Hook executor callbacks into expander
-    sh->expander = expander_create(sh->vars, NULL);
-    // FIXME: fix parameter store handling in expander here
-    // expander_set_variable_store(sh->expander, sh->vars);
-    // expander_set_command_subst_callback(sh->expander, executor_command_subst_callback, sh->executor, NULL);
-    // expander_set_pathname_expansion_callback(sh->expander, executor_pathname_expansion_callback, sh);
-
-
+    exec_cfg.argc = cfg->argc;
+    exec_cfg.argv = cfg->argv;
+    exec_cfg.envp = cfg->envp;
+    exec_cfg.flags.allexport = cfg->flags.allexport;
+    // etc, carry on with rest of flags
+    
+    sh->root_exec = executor_create_from_cfg(exec_cfg);
     return sh;
 }
 
@@ -102,32 +84,14 @@ void shell_destroy(shell_t **sh)
     Expects_not_null(sh);
     shell_t *s = *sh;
 
-    if (s == NULL)
+    if (s == nullptr)
         return;
-
-    if (s->ps1 != NULL)
-        string_destroy(&s->ps1);
-    if (s->ps2 != NULL)
-        string_destroy(&s->ps2);
-    if (s->lexer != NULL)
-        lexer_destroy(&s->lexer);
-    if (s->parser != NULL)
-        parser_destroy(&s->parser);
-    if (s->expander != NULL)
-        expander_destroy(&s->expander);
-    if (s->executor != NULL)
-        executor_destroy(&s->executor);
-    if (s->aliases != NULL)
-        alias_store_destroy(&s->aliases);
-    if (s->funcs != NULL)
-        function_store_destroy(&s->funcs);
-    if (s->vars != NULL)
-        variable_store_destroy(&s->vars);
-    if (s->error != NULL)
-        string_destroy(&s->error);
+    if (s->root_exec == nullptr)
+        executor_destroy(&s->root_exec);
+    s->root_exec = nullptr;
 
     xfree(s);
-    *sh = NULL;
+    *sh = nullptr;
 }
 
 sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
@@ -363,6 +327,31 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
         ast_node_destroy(&ast);
     token_list_destroy(&tokens);
 #endif
+    return SH_OK;
+}
+
+sh_status_t shell_execute(shell_t *sh)
+{
+    Expects_not_null(sh);
+    if (sh->cfg.mode == SHELL_MODE_INTERACTIVE)
+    {
+        // Interactive mode execution loop
+        // TBD: implement interactive shell loop
+        bool interactive = (sh->cfg.mode == SHELL_MODE_INTERACTIVE);
+        return shell_run_stdin(sh, interactive);
+    }
+    else
+    {
+        // Non-interactive mode execution
+        if (sh->cfg.mode == SHELL_MODE_COMMAND_STRING)
+        {
+            return shell_run_string(sh, sh->cfg.command_string);
+        }
+        else if (sh->cfg.mode == SHELL_MODE_SCRIPT_FILE)
+        {
+            return shell_run_script_file(sh, sh->cfg.command_file);
+        }
+    }
     return SH_OK;
 }
 

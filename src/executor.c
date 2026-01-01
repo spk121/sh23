@@ -57,9 +57,9 @@ static exec_status_t executor_apply_redirections_iso_c(executor_t *executor,
  * Executor Lifecycle Functions
  * ============================================================================ */
 
-executor_t *executor_create(void)
+exec_t *exec_create_f(void)
 {
-    executor_t *executor = (executor_t *)xcalloc(1, sizeof(executor_t));
+    exec_t *e = (exec_t *)xcalloc(1, sizeof(exec_t));
     executor->error_msg = string_create();
     executor->last_exit_status_set = false;
     executor->last_exit_status = 0;
@@ -140,30 +140,30 @@ void executor_destroy(executor_t **executor)
 // EXECUTOR INITIALIZATION (Top-Level Shell)
 // ============================================================================
 
-executor_t *executor_init(int argc, char **argv, char **envp)
+exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
 {
-    executor_t *executor = xcalloc(1, sizeof(executor_t));
+    exec_t *e = xcalloc(1, sizeof(exec_t));
 
     // ========================================================================
     // Subshell Tracking
     // ========================================================================
-    executor->parent = NULL;
-    executor->is_subshell = false;
+    e->parent = NULL;
+    e->is_subshell = false;
 
     // Check if interactive: stdin is a tty
 #ifdef POSIX_API
-    executor->is_interactive = isatty(STDIN_FILENO);
+    e->is_interactive = isatty(STDIN_FILENO);
 #elifdef UCRT_API
-    executor->is_interactive = _isatty(_fileno(stdin));
+    e->is_interactive = _isatty(_fileno(stdin));
 #else
-    executor->is_interactive = false; // Conservative default for ISO C
+    e->is_interactive = false; // Conservative default for ISO C
 #endif
 
 #ifdef POSIX_API
     // Check if login shell: argv[0] starts with '-'
-    executor->is_login_shell = (argc > 0 && argv[0] && argv[0][0] == '-');
+    e->is_login_shell = (cfg->argc > 0 && cfg->argv[0] && cfg->argv[0][0] == '-');
 #else
-    executor->is_login_shell = false; // No standard way in UCRT/ISO C
+    e->is_login_shell = false; // No standard way in UCRT/ISO C
 #endif
 
     // ========================================================================
@@ -172,14 +172,14 @@ executor_t *executor_init(int argc, char **argv, char **envp)
 #ifdef POSIX_API
     char cwd_buffer[PATH_MAX];
     char *cwd = getcwd(cwd_buffer, sizeof(cwd_buffer));
-    executor->working_directory = cwd ? string_create(cwd) : string_create("/");
+    e->working_directory = cwd ? string_create(cwd) : string_create("/");
 #elifdef UCRT_API
     char cwd_buffer[_MAX_PATH];
     char *cwd = _getcwd(cwd_buffer, sizeof(cwd_buffer));
-    executor->working_directory = cwd ? string_create(cwd) : string_create("C:\\");
+    e->working_directory = cwd ? string_create(cwd) : string_create("C:\\");
 #else
     // ISO C has no standard way to get cwd
-    executor->working_directory = string_create(".");
+    e->working_directory = string_create(".");
 #endif
 
     // ========================================================================
@@ -189,22 +189,22 @@ executor_t *executor_init(int argc, char **argv, char **envp)
     // Read current umask by setting and restoring
     mode_t current_mask = umask(0);
     umask(current_mask);
-    executor->file_creation_mask = current_mask;
+    e->umask = current_mask;
 
     // Get file size limit
     struct rlimit rlim;
     if (getrlimit(RLIMIT_FSIZE, &rlim) == 0)
     {
-        executor->file_size_limit = rlim.rlim_cur;
+        e->file_size_limit = rlim.rlim_cur;
     }
     else
     {
-        executor->file_size_limit = RLIM_INFINITY;
+        e->file_size_limit = RLIM_INFINITY;
     }
 #elifdef UCRT_API
     int current_mask = _umask(0);
     _umask(current_mask);
-    executor->file_creation_mask = current_mask;
+    e->umask = current_mask;
     // No file_size_limit on UCRT
 #else
     // No umask or file size limits in ISO C
@@ -213,107 +213,95 @@ executor_t *executor_init(int argc, char **argv, char **envp)
     // ========================================================================
     // Signal Handling
     // ========================================================================
-    executor->traps = trap_store_create();
-    executor->original_signals = signal_dispositions_capture();
+    e->traps = trap_store_create();
+    e->original_signals = signal_dispositions_capture();
 
     // ========================================================================
     // Variables & Parameters
     // ========================================================================
-    executor->variables = variable_store_create();
+    e->variables = variable_store_create();
 
     // Import environment variables
-    if (envp)
+    if (cfg->envp)
     {
-        for (int i = 0; envp[i] != NULL; i++)
+        for (int i = 0; cfg->envp[i] != NULL; i++)
         {
-            variable_store_import_from_env(executor->variables, envp[i]);
+            variable_store_import_from_env(e->variables, cfg->envp[i]);
         }
     }
 
     // Set standard shell variables
-    variable_store_set(executor->variables, "PWD", string_get_cstr(executor->working_directory));
-    variable_store_set(executor->variables, "SHELL", argv[0]);
+    variable_store_set_cstr(e->variables, "PWD", string_get_cstr(e->working_directory));
+    variable_store_set_cstr(e->variables, "SHELL", cfg->argv[0]);
 
     // Initialize positional parameters from command line
-    executor->positional_params = positional_params_create();
-    if (argc > 1)
+    e->positional_params = positional_params_create();
+    if (cfg->argc > 1)
     {
-        positional_params_set_from_argv(executor->positional_params, argc - 1, &argv[1]);
+        positional_params_set_from_argv(e->positional_params, cfg->argc - 1, &(cfg->argv[1]));
     }
-    executor->argument_count = positional_params_count(executor->positional_params);
+    e->argument_count = positional_params_count(e->positional_params);
 
     // ========================================================================
     // Special Parameters
     // ========================================================================
-    executor->last_exit_status_set = true;
-    executor->last_exit_status = 0;
+    e->last_exit_status_set = true;
+    e->last_exit_status = 0;
 
-    executor->last_background_pid_set = false;
-    executor->last_background_pid = 0;
+    e->last_background_pid_set = false;
+    e->last_background_pid = 0;
 
-    executor->shell_pid_set = true;
 #ifdef POSIX_API
-    executor->shell_pid = getpid();
+    e->shell_pid_set = true;
+    e->shell_pid = getpid();
 #elifdef UCRT_API
-    executor->shell_pid = _getpid();
+    e->shell_pid_set = true;
+    e->shell_pid = _getpid();
 #else
-    executor->shell_pid = 0; // ISO C has no getpid
+    e->shell_pid_set = false;
+    e->shell_pid = 0; // ISO C has no getpid
 #endif
 
-    executor->last_argument_set = false;
-    executor->last_argument = NULL;
+    e->last_argument_set = false;
+    e->last_argument = NULL;
 
-    executor->shell_name = string_create(argv[0]);
+    e->shell_name = string_create_from_cstr(cfg->argv[0]);
 
     // ========================================================================
     // Functions
     // ========================================================================
-    executor->functions = func_store_create();
+    e->functions = func_store_create();
 
     // ========================================================================
     // Shell Options
     // ========================================================================
-    executor->shell_flags_set = true;
-
-    // Parse command line options (simplified - you'd do proper getopt here)
-    executor->flag_allexport = false;
-    executor->flag_errexit = false;
-    executor->flag_ignoreeof = false;
-    executor->flag_noclobber = false;
-    executor->flag_noglob = false;
-    executor->flag_noexec = false;
-    executor->flag_nounset = false;
-    executor->flag_pipefail = false;
-    executor->flag_verbose = false;
-    executor->flag_vi = false;
-    executor->flag_xtrace = false;
-
-    // TODO: Parse argv for options like -e, -u, -x, etc.
+    e->opt_flags_set = true;
+    e->opt = cfg->opt;  // structure value copy
 
     // ========================================================================
     // Job Control
     // ========================================================================
-    executor->jobs = job_table_create();
-    executor->job_control_enabled = executor->is_interactive;
+    e->jobs = job_table_create();
+    e->job_control_enabled = e->is_interactive;
 
 #ifdef POSIX_API
-    executor->pgid = getpgrp();
+    e->pgid = getpgrp();
 
     // If interactive, set up job control
-    if (executor->is_interactive)
+    if (->is_interactive)
     {
         // Make sure we're in our own process group
-        executor->pgid = getpid();
-        if (setpgid(0, executor->pgid) < 0)
+        e->pgid = getpid();
+        if (setpgid(0, e->pgid) < 0)
         {
             // Ignore errors - might already be in correct group
         }
 
         // Take control of the terminal
-        tcsetpgrp(STDIN_FILENO, executor->pgid);
+        tcsetpgrp(STDIN_FILENO, e->pgid);
 
         // Save terminal settings
-        // tcgetattr(STDIN_FILENO, &executor->terminal_settings);
+        // tcgetattr(STDIN_FILENO, &e->terminal_settings);
     }
 #endif
 
@@ -321,138 +309,128 @@ executor_t *executor_init(int argc, char **argv, char **envp)
     // File Descriptors
     // ========================================================================
 #if defined(POSIX_API) || defined(UCRT_API)
-    executor->open_fds = fd_table_create();
+    e->open_fds = fd_table_create();
 
     // Track standard file descriptors
-    fd_table_add(executor->open_fds, STDIN_FILENO, NULL, FD_NONE);
-    fd_table_add(executor->open_fds, STDOUT_FILENO, NULL, FD_NONE);
-    fd_table_add(executor->open_fds, STDERR_FILENO, NULL, FD_NONE);
+    fd_table_add(e->open_fds, STDIN_FILENO, NULL, FD_NONE);
+    fd_table_add(e->open_fds, STDOUT_FILENO, NULL, FD_NONE);
+    fd_table_add(e->open_fds, STDERR_FILENO, NULL, FD_NONE);
 
-    executor->next_fd = 3; // First available FD after standard FDs
+    e->next_fd = 3; // First available FD after standard FDs
 #endif
 
     // ========================================================================
     // Aliases
     // ========================================================================
-    executor->aliases = alias_store_create();
+    e->aliases = alias_store_create();
 
     // TODO: Load aliases from init files (.bashrc, .profile, etc.)
 
     // ========================================================================
     // Error Reporting
     // ========================================================================
-    executor->error_msg = NULL;
+    e->error_msg = NULL;
 
-    return executor;
+    return e;
 }
 
 // ============================================================================
 // EXECUTOR FORK SUBSHELL (Create Subshell Environment)
 // ============================================================================
 
-executor_t *executor_fork_subshell(executor_t *parent)
+exec_t *exec_create_subshell(exec_t *parent)
 {
     Expects_not_null(parent);
 
-    executor_t *subshell = xcalloc(1, sizeof(executor_t));
+    exec_t *e = xcalloc(1, sizeof(exec_t));
 
     // ========================================================================
     // Subshell Tracking
     // ========================================================================
-    subshell->parent = parent;
-    subshell->is_subshell = true;
-    subshell->is_interactive = parent->is_interactive;
-    subshell->is_login_shell = false; // Subshells are never login shells
+    e->parent = parent;
+    e->is_subshell = true;
+    e->is_interactive = parent->is_interactive;
+    e->is_login_shell = false; // Subshells are never login shells
 
     // ========================================================================
     // Working Directory
     // ========================================================================
-    subshell->working_directory = string_dup(parent->working_directory);
+    e->working_directory = string_dup(parent->working_directory);
 
     // ========================================================================
     // File Permissions
     // ========================================================================
 #ifdef POSIX_API
-    subshell->file_creation_mask = parent->file_creation_mask;
-    subshell->file_size_limit = parent->file_size_limit;
+    e->umaks = parent->umask;
+    e->file_size_limit = parent->file_size_limit;
 #elifdef UCRT_API
-    subshell->file_creation_mask = parent->file_creation_mask;
+    e->umask = parent->umask;
 #endif
 
     // ========================================================================
     // Signal Handling
     // ========================================================================
-    subshell->traps = trap_store_copy(parent->traps);
+    e->traps = trap_store_copy(parent->traps);
 
     // Re-capture signal dispositions in child (they may have changed)
 #ifdef POSIX_API
-    subshell->original_signals = signal_dispositions_capture();
+    e->original_signals = signal_dispositions_capture();
 #else
-    subshell->original_signals = signal_dispositions_copy(parent->original_signals);
+    e->original_signals = signal_dispositions_copy(parent->original_signals);
 #endif
 
     // ========================================================================
     // Variables & Parameters
     // ========================================================================
-    subshell->variables = variable_store_copy(parent->variables);
-    subshell->positional_params = positional_params_copy(parent->positional_params);
-    subshell->argument_count = parent->argument_count;
+    e->variables = variable_store_copy(parent->variables);
+    e->positional_params = positional_params_copy(parent->positional_params);
+    e->argument_count = parent->argument_count;
 
     // ========================================================================
     // Special Parameters
     // ========================================================================
-    subshell->last_exit_status_set = parent->last_exit_status_set;
-    subshell->last_exit_status = parent->last_exit_status;
+    e->last_exit_status_set = parent->last_exit_status_set;
+    e->last_exit_status = parent->last_exit_status;
 
-    subshell->last_background_pid_set = parent->last_background_pid_set;
-    subshell->last_background_pid = parent->last_background_pid;
+    e->last_background_pid_set = parent->last_background_pid_set;
+    e->last_background_pid = parent->last_background_pid;
 
     // CRITICAL: Shell PID must be queried fresh in subshell!
-    subshell->shell_pid_set = true;
+    e->shell_pid_set = true;
 #ifdef POSIX_API
-    subshell->shell_pid = getpid();
+    e->shell_pid = getpid();
 #elifdef UCRT_API
-    subshell->shell_pid = _getpid();
+    e->shell_pid = _getpid();
 #else
-    subshell->shell_pid = parent->shell_pid; // Fallback for ISO C
+    e->shell_pid = parent->shell_pid; // Fallback for ISO C
 #endif
 
-    subshell->last_argument_set = parent->last_argument_set;
-    subshell->last_argument = parent->last_argument ? string_dup(parent->last_argument) : NULL;
+    e->last_argument_set = parent->last_argument_set;
+    e->last_argument = parent->last_argument ? string_dup(parent->last_argument) : NULL;
 
-    subshell->shell_name = string_dup(parent->shell_name);
+    e->shell_name = string_dup(parent->shell_name);
 
     // ========================================================================
     // Functions
     // ========================================================================
-    subshell->functions = func_store_copy(parent->functions);
+    e->functions = func_store_copy(parent->functions);
 
     // ========================================================================
     // Shell Options
     // ========================================================================
-    subshell->shell_flags_set = true;
-    subshell->flag_allexport = parent->flag_allexport;
-    subshell->flag_errexit = parent->flag_errexit;
-    subshell->flag_ignoreeof = parent->flag_ignoreeof;
-    subshell->flag_noclobber = parent->flag_noclobber;
-    subshell->flag_noglob = parent->flag_noglob;
-    subshell->flag_noexec = parent->flag_noexec;
-    subshell->flag_nounset = parent->flag_nounset;
-    subshell->flag_pipefail = parent->flag_pipefail;
-    subshell->flag_verbose = parent->flag_verbose;
-    subshell->flag_vi = parent->flag_vi;
-    subshell->flag_xtrace = parent->flag_xtrace;
+    e->opt_flags_set = true;
+    e->opt = parent->opt;  // structure value copy
 
     // ========================================================================
     // Job Control
     // ========================================================================
     // POSIX: Subshells start with empty job table and job control disabled
-    subshell->jobs = job_table_create();
-    subshell->job_control_enabled = false;
+    e->jobs = job_table_create();
+    e->job_control_enabled = false;
 
 #ifdef POSIX_API
     // Subshell gets its own process group
-    subshell->pgid = getpid();
+    e->pgid = getpid();
 
     // Don't call setpgid here - it will be done after fork in parent
     // if job control is needed
@@ -464,35 +442,32 @@ executor_t *executor_fork_subshell(executor_t *parent)
 #if defined(POSIX_API) || defined (UCRT_API)
     // Inherit parent's FDs but create new tracker
     // The actual FDs are inherited at the OS level through fork()
-    subshell->open_fds = fd_table_create();
-    fd_table_inherit_from_parent(subshell->open_fds, parent->open_fds);
+    e->open_fds = fd_table_create();
+    fd_table_inherit_from_parent(e->open_fds, e->open_fds);
 
     // Could reset to 3, or copy from parent
-    subshell->next_fd = parent->next_fd;
+    e->next_fd = parent->next_fd;
 #endif
 
     // ========================================================================
     // Aliases
     // ========================================================================
-    // Implementation choice: share aliases or deep copy
-    // Sharing is more efficient; deep copy provides isolation
-    // Most shells share aliases across subshells
-    subshell->aliases = alias_store_shallow_copy(parent->aliases);
-    // Alternative: subshell->aliases = alias_store_copy(parent->aliases);
+
+    e->aliases = alias_store_copy(parent->aliases);
 
     // ========================================================================
     // Error Reporting
     // ========================================================================
-    subshell->error_msg = NULL; // Fresh error state
+    e->error_msg = NULL; // Fresh error state
 
-    return subshell;
+    return e;
 }
 
 // ============================================================================
 // EXECUTOR CLEANUP
 // ============================================================================
 
-void executor_destroy(executor_t *executor)
+void exec_destroy(exec_t *executor)
 {
     if (!executor)
         return;
