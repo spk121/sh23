@@ -7,7 +7,7 @@
 #include "alias_store.h"
 #include "variable_store.h"
 #include "positional_params.h"
-//#include "func_store.h"
+#include "func_store.h"
 #include <stdbool.h>
 
 
@@ -152,6 +152,7 @@ typedef enum
     EXEC_OK = 0,        // successful execution
     EXEC_ERROR,         // error during execution
     EXEC_NOT_IMPL,      // feature not yet implemented
+    EXEC_OK_INTERNAL_FUNCTION_STORED, // internal: function node moved to store, don't free
 } exec_status_t;
 
 /* ============================================================================

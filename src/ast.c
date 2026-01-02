@@ -21,6 +21,11 @@ ast_node_t *ast_node_create(ast_node_type_t type)
     return node;
 }
 
+ast_node_t *ast_node_create_function_stored(void)
+{
+    return ast_node_create(AST_FUNCTION_STORED);
+}
+
 void ast_node_destroy(ast_node_t **node)
 {
     if (!node) return;

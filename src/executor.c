@@ -821,6 +821,17 @@ exec_status_t executor_execute_command_list(executor_t *executor, const ast_node
         ast_node_t *item = node->data.command_list.items->nodes[i];
         status = executor_execute(executor, item);
 
+        // Handle special case: function definition moved to function store
+        if (status == EXEC_OK_INTERNAL_FUNCTION_STORED)
+        {
+            // The AST node has been moved to the function store.
+            // Replace it with a placeholder to prevent double-free.
+            ast_node_t *placeholder = ast_node_create_function_stored();
+            node->data.command_list.items->nodes[i] = placeholder;
+            // Normalize status for upstream
+            status = EXEC_OK;
+        }
+
         if (status != EXEC_OK)
         {
             // In a command list, continue execution even if one command fails
@@ -2390,9 +2401,10 @@ exec_status_t executor_execute_function_def(executor_t *executor, const ast_node
     }
 
     // Successful definition: status 0
+    // Return special status to indicate the node has been moved (ownership transferred)
     executor_clear_error(executor);
     executor_set_exit_status(executor, 0);
-    return EXEC_OK;
+    return EXEC_OK_INTERNAL_FUNCTION_STORED;
 }
 
 

@@ -2,117 +2,173 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#include "function_store.h"
+#include "func_store.h"
+#include "func_map.h"
+#include "string_t.h"
 #include "xalloc.h"
+#include "logging.h"
 
 // Simple POSIX-like identifier validator: [A-Za-z_][A-Za-z0-9_]*
-static int is_valid_name_cstr(const char *s) {
-    Expects_not_null(s);
-    Expects_ne(*s, '\0');
+static bool is_valid_name_cstr(const char *s)
+{
+    if (!s || *s == '\0')
+        return false;
 
-    if (!(isalpha((unsigned char)*s) || *s == '_')) return 0;
-    for (const unsigned char *p = (const unsigned char *)s + 1; *p; ++p) {
-        if (!(isalnum(*p) || *p == '_')) return 0;
+    if (!(isalpha((unsigned char)*s) || *s == '_'))
+        return false;
+
+    for (const unsigned char *p = (const unsigned char *)s + 1; *p; ++p)
+    {
+        if (!(isalnum(*p) || *p == '_'))
+            return false;
     }
-    return 1;
+    return true;
 }
 
-static void function_free(function_t **func) {
-    Expects_not_null(func);
-    function_t *f = *func;
-    Expects_not_null(f);
+static bool is_valid_name(const string_t *name)
+{
+    if (!name || string_empty(name))
+        return false;
 
-    xfree(f->name);
-    if (f->body)
-    ast_node_destroy(&f->body);
-    xfree(func);
-    func = NULL;
+    const char *s = string_cstr(name);
+    return is_valid_name_cstr(s);
 }
 
-function_store_t *function_store_create(void) {
-    function_store_t *store = xcalloc(1, sizeof(function_store_t));
-    store->functions = function_array_create_with_free(function_free);
+func_store_t *func_store_create(void)
+{
+    func_store_t *store = xcalloc(1, sizeof(func_store_t));
+    store->map = func_map_create();
     return store;
 }
 
-void function_store_destroy(function_store_t **store) {
-    if (!store) return;
-    function_store_t *s = *store;
+void func_store_destroy(func_store_t **store)
+{
+    if (!store || !*store)
+        return;
 
-    if (!s) return;
-    function_array_destroy(&s->functions); // frees elements via function_free
-    xfree(s);
+    func_map_destroy(&(*store)->map);
+    xfree(*store);
     *store = NULL;
 }
 
-int function_store_set(function_store_t *store, const char *name, ast_node_t *body) {
-    Expects_not_null(store);
-    Expects_not_null(name);
-    Expects_not_null(body);
+void func_store_clear(func_store_t *store)
+{
+    if (!store || !store->map)
+        return;
 
-    if (!is_valid_name_cstr(name)) {
-        fprintf(stderr, "function_store_set: invalid function name: %s\n", name);
-        return -1;
-    }
-
-    // Update existing
-    size_t n = function_array_size(store->functions);
-    for (size_t i = 0; i < n; ++i) {
-        function_t *func = function_array_get(store->functions, i);
-        if (func && strcmp(func->name, name) == 0) {
-            if (func->body) ast_node_destroy(&func->body);
-            func->body = body;
-            return 0;
-        }
-    }
-
-    // Create new
-    function_t *func = xcalloc(1, sizeof(function_t));
-    func->name = xstrdup(name);
-    func->body = body;
-
-    function_array_append(store->functions, func);
-    return 0;
+    func_map_clear(store->map);
 }
 
-const function_t *function_store_get(const function_store_t *store, const char *name) {
-    Expects_not_null(store);
-    Expects_not_null(name);
-    size_t n = function_array_size(store->functions);
-    for (size_t i = 0; i < n; ++i) {
-        function_t *func = function_array_get(store->functions, i);
-        if (func && strcmp(func->name, name) == 0) {
-            return func;
-        }
-    }
-    return NULL;
+func_store_error_t func_store_add(func_store_t *store, const string_t *name,
+                                   ast_node_t *value)
+{
+    if (!store || !store->map)
+        return FUNC_STORE_ERROR_STORAGE_FAILURE;
+
+    if (!name)
+        return FUNC_STORE_ERROR_EMPTY_NAME;
+
+    if (string_empty(name))
+        return FUNC_STORE_ERROR_EMPTY_NAME;
+
+    if (!is_valid_name(name))
+        return FUNC_STORE_ERROR_NAME_INVALID_CHARACTER;
+
+    if (!value)
+        return FUNC_STORE_ERROR_STORAGE_FAILURE;
+
+    // Create mapped value - clone the name and take ownership of the AST node pointer
+    // The caller transfers ownership of the value pointer to this function.
+    func_map_mapped_t mapped;
+    mapped.name = string_create_from(name);
+    mapped.func = value; // Take ownership - caller must not use this pointer afterward
+    mapped.exported = false; // Default to not exported
+
+    func_map_insert_or_assign_move(store->map, name, &mapped);
+
+    return FUNC_STORE_ERROR_NONE;
 }
 
-void function_store_unset(function_store_t *store, const char *name) {
-    Expects_not_null(name);
-    Expects_not_null(store);
-    size_t n = function_array_size(store->functions);
-    for (size_t i = 0; i < n; ++i) {
-        function_t *func = function_array_get(store->functions, i);
-        if (func && strcmp(func->name, name) == 0) {
-            function_array_remove(store->functions, i);
-            return;
-        }
-    }
+func_store_error_t func_store_add_cstr(func_store_t *store, const char *name,
+                                        ast_node_t *value)
+{
+    if (!name)
+        return FUNC_STORE_ERROR_EMPTY_NAME;
+
+    string_t *name_str = string_create_from_cstr(name);
+    func_store_error_t result = func_store_add(store, name_str, value);
+    string_destroy(&name_str);
+
+    return result;
 }
 
-size_t function_store_size(const function_store_t *store) {
-    Expects_not_null(store);
-    return function_array_size(store->functions);
+func_store_error_t func_store_remove(func_store_t *store, const string_t *name)
+{
+    if (!store || !store->map)
+        return FUNC_STORE_ERROR_STORAGE_FAILURE;
+
+    if (!name || string_empty(name))
+        return FUNC_STORE_ERROR_EMPTY_NAME;
+
+    if (!func_map_contains(store->map, name))
+        return FUNC_STORE_ERROR_NOT_FOUND;
+
+    func_map_erase(store->map, name);
+    return FUNC_STORE_ERROR_NONE;
 }
 
-const function_t *function_store_at(const function_store_t *store, size_t index) {
-    Expects_not_null(store);
-    return function_array_get(store->functions, index);
+func_store_error_t func_store_remove_cstr(func_store_t *store, const char *name)
+{
+    if (!name)
+        return FUNC_STORE_ERROR_EMPTY_NAME;
+
+    string_t *name_str = string_create_from_cstr(name);
+    func_store_error_t result = func_store_remove(store, name_str);
+    string_destroy(&name_str);
+
+    return result;
 }
 
-bool function_store_exists(const function_store_t *store, const char *name) {
-    Expects_not_null(store);
-    Expects_not_null(name);
-    return function_store_get(store, name) != NULL;
+bool func_store_has_name(const func_store_t *store, const string_t *name)
+{
+    if (!store || !store->map || !name)
+        return false;
+
+    return func_map_contains(store->map, name);
+}
+
+bool func_store_has_name_cstr(const func_store_t *store, const char *name)
+{
+    if (!name)
+        return false;
+
+    string_t *name_str = string_create_from_cstr(name);
+    bool result = func_store_has_name(store, name_str);
+    string_destroy(&name_str);
+
+    return result;
+}
+
+const ast_node_t *func_store_get_def(const func_store_t *store, const string_t *name)
+{
+    if (!store || !store->map || !name)
+        return NULL;
+
+    const func_map_mapped_t *mapped = func_map_at(store->map, name);
+    if (!mapped)
+        return NULL;
+
+    return mapped->func;
+}
+
+const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char *name)
+{
+    if (!name)
+        return NULL;
+
+    string_t *name_str = string_create_from_cstr(name);
+    const ast_node_t *result = func_store_get_def(store, name_str);
+    string_destroy(&name_str);
+
+    return result;
 }

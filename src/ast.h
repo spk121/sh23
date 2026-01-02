@@ -40,6 +40,7 @@ typedef enum
     AST_REDIRECTION,       // I/O redirection
     AST_WORD,              // word node (wraps token)
     AST_CASE_ITEM,         // pattern) command_list ;;
+    AST_FUNCTION_STORED,   // placeholder for function node moved to function store
 
     AST_NODE_TYPE_COUNT
 } ast_node_type_t;
@@ -352,6 +353,13 @@ typedef struct ast_node_t ast_t;
  * Returns NULL on allocation failure.
  */
 ast_node_t *ast_node_create(ast_node_type_t type);
+
+/**
+ * Create a placeholder node indicating a function was moved to the function store.
+ * This is used to replace function definition nodes after ownership transfer.
+ * Returns NULL on allocation failure.
+ */
+ast_node_t *ast_node_create_function_stored(void);
 
 /**
  * Destroy an AST node and free all associated memory.
