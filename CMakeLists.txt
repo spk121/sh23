@@ -180,8 +180,22 @@ target_include_directories(ctest_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest
 )
 
-set(MGSH_TEST_SOURCES
+# Tests that only depend on sh23base
+set(SH23BASE_TEST_SOURCES
+    test/test_xalloc_ctest.c
+    test/mgsh/test_getopt_ctest.c
+    test/mgsh/test_string_ctest.c
+)
+
+# Tests that depend on sh23store (and sh23base)
+set(SH23STORE_TEST_SOURCES
     test/mgsh/test_alist_ctest.c
+    test/mgsh/test_ast_ctest.c
+    test/mgsh/test_ast_heredoc_ctest.c
+)
+
+# Tests that depend on full sh23logic (all libraries)
+set(SH23LOGIC_TEST_SOURCES
     test/mgsh/test_lexer_quotes_ctest.c
     test/mgsh/test_lexer_param_exp_ctest.c
     test/mgsh/test_lexer_cmd_subst_ctest.c
@@ -189,20 +203,69 @@ set(MGSH_TEST_SOURCES
     test/mgsh/test_lexer_heredoc_ctest.c
     test/mgsh/test_parser_gnode_ctest.c
     test/mgsh/test_tokenizer_ctest.c
-    test/mgsh/test_ast_ctest.c
     test/mgsh/test_expander_ctest.c
-    test/mgsh/test_ast_heredoc_ctest.c
     test/mgsh/test_executor_ctest.c
-    test/test_xalloc_ctest.c
 )
 
-foreach(test_src ${MGSH_TEST_SOURCES})
+# Build sh23base tests
+foreach(test_src ${SH23BASE_TEST_SOURCES})
     get_filename_component(test_name ${test_src} NAME_WE)
 
-    add_executable(${test_name} ${test_src} $<TARGET_OBJECTS:ctest_obj> "src/variable_map.h")
-    # Let's define an 'IN_CTEST' variable just in case
-    # one of our test cases needs to #ifdef around normal
-    # behavior.    
+    add_executable(${test_name} ${test_src} $<TARGET_OBJECTS:ctest_obj>)
+    target_compile_definitions(${test_name} PRIVATE IN_CTEST)
+    target_include_directories(${test_name} PRIVATE
+        src
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest
+    )
+    target_link_libraries(${test_name} PRIVATE sh23base)
+
+    set_target_properties(${test_name} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test
+    )
+
+    add_test(NAME ${test_name}
+        COMMAND ${test_name}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test
+    )
+
+    set_tests_properties(${test_name} PROPERTIES
+        FAIL_REGULAR_EXPRESSION "not ok|\\b(Bail out!|Bailout!)\\b"
+        PASS_REGULAR_EXPRESSION "ok"
+    )
+endforeach()
+
+# Build sh23store tests
+foreach(test_src ${SH23STORE_TEST_SOURCES})
+    get_filename_component(test_name ${test_src} NAME_WE)
+
+    add_executable(${test_name} ${test_src} $<TARGET_OBJECTS:ctest_obj>)
+    target_compile_definitions(${test_name} PRIVATE IN_CTEST)
+    target_include_directories(${test_name} PRIVATE
+        src
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest
+    )
+    target_link_libraries(${test_name} PRIVATE sh23store sh23base)
+
+    set_target_properties(${test_name} PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test
+    )
+
+    add_test(NAME ${test_name}
+        COMMAND ${test_name}
+        WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/test
+    )
+
+    set_tests_properties(${test_name} PROPERTIES
+        FAIL_REGULAR_EXPRESSION "not ok|\\b(Bail out!|Bailout!)\\b"
+        PASS_REGULAR_EXPRESSION "ok"
+    )
+endforeach()
+
+# Build sh23logic tests
+foreach(test_src ${SH23LOGIC_TEST_SOURCES})
+    get_filename_component(test_name ${test_src} NAME_WE)
+
+    add_executable(${test_name} ${test_src} $<TARGET_OBJECTS:ctest_obj>)
     target_compile_definitions(${test_name} PRIVATE IN_CTEST)
     target_include_directories(${test_name} PRIVATE
         src

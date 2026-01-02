@@ -60,7 +60,8 @@ static void exchange(char **argv, struct getopt_state *st)
 
 static int process_long_option(int argc, char **argv, const char *optstring,
                                const struct option *longopts, int *longind, int long_only,
-                               struct getopt_state *st, int print_errors, const char *prefix)
+                               struct getopt_state *st, int print_errors, const char *prefix,
+                               int plus_aware)
 {
     char *nameend;
     size_t namelen;
@@ -174,8 +175,27 @@ static int process_long_option(int argc, char **argv, const char *optstring,
         *longind = option_index;
     if (pfound->flag)
     {
-        *pfound->flag = pfound->val;
-        return 0;
+        if (plus_aware)
+        {
+            /* For option_ex: handle +/- prefix like short options */
+            const struct option_ex *pex = (const struct option_ex *)pfound;
+            if (st->opt_plus_prefix)
+            {
+                *pex->flag = 0; /* unset */
+                return 0;
+            }
+            else
+            {
+                *pex->flag = 1; /* set */
+                return pfound->val;
+            }
+        }
+        else
+        {
+            /* Standard option behavior */
+            *pfound->flag = pfound->val;
+            return 0;
+        }
     }
     return pfound->val;
 }
@@ -281,7 +301,7 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
             st->__nextchar = argv[st->optind] + 2;
             return process_long_option(argc, (char **)argv, optstring,
                                        (const struct option *)longopts, longind, long_only, st,
-                                       print_errors, "--");
+                                       print_errors, "--", plus_aware);
         }
         if (plus_aware && is_plus && argv[st->optind][1] == '+')
         {
@@ -289,7 +309,7 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
             st->__nextchar = argv[st->optind] + 2;
             return process_long_option(argc, (char **)argv, optstring,
                                        (const struct option *)longopts, longind, long_only, st,
-                                       print_errors, "++");
+                                       print_errors, "++", plus_aware);
         }
 
         /* Short option cluster or single */
@@ -332,7 +352,7 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
             st->optarg = NULL;
             return process_long_option(argc, (char **)argv, optstring,
                                        (const struct option *)longopts, longind, 0, st,
-                                       print_errors, "-W ");
+                                       print_errors, "-W ", plus_aware);
         }
 
         if (temp[1] == ':')
@@ -367,12 +387,12 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
                 st->__nextchar = NULL;
             }
         }
-        if (plus_aware)
+        if (plus_aware && longopts)
         {
             const struct option_ex *p;
             int idx = 0;
-            /* Loop through option_ex array until terminator (val == 0 and name == NULL) */
-            for (p = longopts; p && p->val; ++p, ++idx)
+            /* Loop through option_ex array until terminator (val == 0 and flag == NULL) */
+            for (p = longopts; p && !(p->val == 0 && p->flag == NULL); ++p, ++idx)
             {
                 if (p->val == c)
                 {
@@ -396,12 +416,14 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
                     }
                     else
                     {
+                        /* For minus prefix */
                         if (p->flag)
                         {
-                            *p->flag = p->val;
+                            *p->flag = 1; /* set flag to 1 (true/on) */
                             if (p->plus_used)
                                 *p->plus_used = 0;
-                            return 0;
+                            /* Return the character to indicate which option was set */
+                            return c;
                         }
                     }
                     break;

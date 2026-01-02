@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include "ctest.h"
 
 static int flag_a = 0;
 static int flag_b = 0;
@@ -74,7 +75,7 @@ CTEST(test_invalid_plus_prefix)
     struct getopt_state state = { 0 };
     state.opterr = 0;
 
-    int c = getopt_long_plus_r(argc, argv, "c:", shell_options, NULL, &state);
+    int c = getopt_long_plus_r(argc, argv, "c", shell_options, NULL, &state);
     CTEST_ASSERT_EQ(ctest, c, '?', "+c returns '?'");
     CTEST_ASSERT_EQ(ctest, state.optopt, 'c', "optopt set to 'c'");
 }
@@ -86,8 +87,13 @@ CTEST(test_c_mode_command_string)
     struct getopt_state state = { 0 };
     state.opterr = 0;
 
-    while (getopt_long_plus_r(argc, argv, "c:", shell_options, NULL, &state) != -1) {}
+    int c_seen = 0;
+    int c;
+    while ((c = getopt_long_plus_r(argc, argv, "c", shell_options, NULL, &state)) != -1) {
+        if (c == 'c') c_seen = 1;
+    }
 
+    CTEST_ASSERT_EQ(ctest, c_seen, 1, "-c flag seen");
     CTEST_ASSERT_EQ(ctest, state.optind, 2, "optind after -c");
     CTEST_ASSERT_STR_EQ(ctest, argv[state.optind], "echo hello", "first non-option is command string");
     CTEST_ASSERT_STR_EQ(ctest, argv[state.optind + 1], "myscript", "command name follows");
@@ -112,7 +118,7 @@ CTEST(test_permutation_intermixed)
 
     CTEST_ASSERT_EQ(ctest, flag_v, 1, "-v set");
     CTEST_ASSERT_EQ(ctest, flag_x, 0, "+x unset");
-    CTEST_ASSERT_EQ(ctest, state.optind, 6, "all options consumed");
+    CTEST_ASSERT_EQ(ctest, state.optind, 3, "optind points to first non-option after permutation");
     /* Non-options remain in order due to permutation */
 }
 
@@ -129,14 +135,103 @@ CTEST(test_unknown_option)
 
 CTEST(test_optarg_required)
 {
-    char* argv[] = { "prog", "-c", "cmd", NULL };
+    char* argv[] = { "prog", "-o", "noclobber", NULL };
     int argc = 3;
     struct getopt_state state = { 0 };
     state.opterr = 0;
 
-    int c = getopt_long_plus_r(argc, argv, "c:", shell_options, NULL, &state);
-    CTEST_ASSERT_EQ(ctest, c, 'c', "returns 'c'");
-    CTEST_ASSERT_STR_EQ(ctest, state.optarg, "cmd", "optarg set correctly");
+    int c = getopt_long_plus_r(argc, argv, "o:", shell_options, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, 'o', "returns 'o'");
+    CTEST_ASSERT_STR_EQ(ctest, state.optarg, "noclobber", "optarg set correctly");
+}
+
+CTEST(test_optarg_missing)
+{
+    char* argv[] = { "prog", "-o", NULL };
+    int argc = 2;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+
+    int c = getopt_long_plus_r(argc, argv, "o:", shell_options, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, '?', "missing argument returns '?'");
+    CTEST_ASSERT_EQ(ctest, state.optopt, 'o', "optopt set to 'o'");
+}
+
+CTEST(test_long_option_basic)
+{
+    static struct option_ex long_opts[] = {
+        {"verbose", no_argument, 1, &flag_v, 'v', NULL},
+        {"xtrace", no_argument, 1, &flag_x, 'x', NULL},
+        {NULL, 0, 0, NULL, 0, NULL}
+    };
+    
+    char* argv[] = { "prog", "--verbose", NULL };
+    int argc = 2;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    flag_v = 0;
+
+    int c = getopt_long_plus_r(argc, argv, "vx", long_opts, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, 'v', "returns 'v'");
+    CTEST_ASSERT_EQ(ctest, flag_v, 1, "--verbose sets flag_v to 1");
+    CTEST_ASSERT_EQ(ctest, state.optind, 2, "optind advanced");
+}
+
+CTEST(test_long_option_with_plus)
+{
+    static struct option_ex long_opts[] = {
+        {"verbose", no_argument, 1, &flag_v, 'v', NULL},
+        {NULL, 0, 0, NULL, 0, NULL}
+    };
+    
+    char* argv[] = { "prog", "++verbose", NULL };
+    int argc = 2;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    flag_v = 1; /* precondition: set to 1 */
+
+    int c = getopt_long_plus_r(argc, argv, "v", long_opts, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, 0, "++verbose returns 0 (flag handled)");
+    CTEST_ASSERT_EQ(ctest, flag_v, 0, "++verbose clears flag_v");
+    CTEST_ASSERT_EQ(ctest, state.optind, 2, "optind advanced");
+}
+
+CTEST(test_optional_argument_present)
+{
+    char* argv[] = { "prog", "-ovalue", NULL };
+    int argc = 2;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+
+    int c = getopt_long_plus_r(argc, argv, "o::", shell_options, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, 'o', "returns 'o'");
+    CTEST_ASSERT_STR_EQ(ctest, state.optarg, "value", "optarg set to 'value'");
+}
+
+CTEST(test_optional_argument_missing)
+{
+    char* argv[] = { "prog", "-o", "next_arg", NULL };
+    int argc = 3;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+
+    int c = getopt_long_plus_r(argc, argv, "o::", shell_options, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, 'o', "returns 'o'");
+    CTEST_ASSERT_NULL(ctest, state.optarg, "optarg is NULL when optional arg missing");
+    CTEST_ASSERT_EQ(ctest, state.optind, 2, "optind doesn't consume next_arg");
+}
+
+CTEST(test_colon_prefix_missing_arg)
+{
+    char* argv[] = { "prog", "-o", NULL };
+    int argc = 2;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+
+    /* Leading ':' means return ':' instead of '?' for missing arg */
+    int c = getopt_long_plus_r(argc, argv, ":o:", shell_options, NULL, &state);
+    CTEST_ASSERT_EQ(ctest, c, ':', "missing arg with ':' prefix returns ':'");
+    CTEST_ASSERT_EQ(ctest, state.optopt, 'o', "optopt set to 'o'");
 }
 
 int main()
@@ -149,6 +244,12 @@ int main()
         CTEST_ENTRY(test_permutation_intermixed),
         CTEST_ENTRY(test_unknown_option),
         CTEST_ENTRY(test_optarg_required),
+        CTEST_ENTRY(test_optarg_missing),
+        CTEST_ENTRY(test_long_option_basic),
+        CTEST_ENTRY(test_long_option_with_plus),
+        CTEST_ENTRY(test_optional_argument_present),
+        CTEST_ENTRY(test_optional_argument_missing),
+        CTEST_ENTRY(test_colon_prefix_missing_arg),
         NULL
     };
 

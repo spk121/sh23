@@ -383,10 +383,10 @@ void *arena_xrealloc(arena_t *arena, void *old_ptr, size_t new_size ARENA_DEBUG_
     }
     if (idx >= 0)
         remove_ptr_at(arena, idx);
+    bool inserted;
 #ifdef ARENA_DEBUG
     // Print new allocation info
     fprintf(stderr, "%p %s:%d %zu\n", p, get_basename(file), line, new_size);
-    bool inserted;
     inserted = insert_ptr(arena, p, file, line, new_size);
 #else
     inserted = insert_ptr(arena, p);
