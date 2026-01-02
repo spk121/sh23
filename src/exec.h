@@ -83,7 +83,7 @@ typedef struct exec_t
     // Current traps set by trap
     trap_store_t *traps;
     // Original signal dispositions (to restore after traps)
-    sig_act_t *original_signals;
+    sig_act_store_t *original_signals;
 
     // Shell parameters that are set by variable assignment and shell
     // parameters that are set from the environment inherited by the shell
@@ -164,7 +164,7 @@ typedef struct
  * Create a new executor.
  */
 exec_t *exec_create_from_cfg(exec_cfg_t *cfg);
-exec_t *exec_create_from_parent(exec_t *parent);
+exec_t *exec_create_subshell(exec_t *parent);
 
 /**
  * Destroy an executor and free all associated memory.
@@ -317,12 +317,12 @@ void exec_set_dry_run(exec_t *executor, bool dry_run);
  * Executes a command and returns its output.
  *
  * @param command The command string to execute
- * @param exec_ctx Pointer to the executor context
- * @param user_data Pointer to optional user context
+ * @param userdata Pointer to the executor context
+ * @param command The command to execute
  * @return The output of the command as a newly allocated string_t (caller must free),
  *         or NULL on error
  */
-string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, void *user_data);
+string_t *exec_command_subst_callback(void *userdata, const string_t *command);
 
 /**
  * Pathname expansion (glob) callback for the expander.
@@ -333,11 +333,12 @@ string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, v
  *
  * @param pattern The glob pattern to expand
  * @param user_data Pointer to the shell_t context (opaque to this function)
+ * @param pattern The glob pattern to expand
  * @return On success with matches: a newly allocated list of filenames
  *         (caller must free with string_list_destroy). On no matches or error:
  *         returns NULL, signaling the expander to leave the pattern unexpanded.
  */
-string_list_t *exec_pathname_expansion_callback(const string_t *pattern, void *user_data);
+string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t *pattern);
 
 #endif
 

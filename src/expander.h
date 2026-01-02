@@ -98,4 +98,18 @@ void expander_set_command_substitute(expander_t *exp, expander_command_subst_fn 
  */
 void expander_set_userdata(expander_t *exp, void *userdata);
 
+/* ============================================================================
+ * Default system interaction implementations
+ * ============================================================================
+ */
+
+/*
+ * Default implementations of system interaction functions.
+ * These can be used as the callbacks for expander_set_* functions.
+ */
+const char *expander_getenv(void *userdata, const char *name);
+string_t *expander_tilde_expand(void *userdata, const string_t *text);
+string_list_t *expander_glob(void *user_data, const string_t *pattern);
+string_t *expander_command_subst(void *user_data, const string_t *command);
+
 #endif /* EXPANDER_H */

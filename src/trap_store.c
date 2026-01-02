@@ -126,10 +126,12 @@ trap_store_t *trap_store_create(void)
     return store;
 }
 
-void trap_store_destroy(trap_store_t *store)
+void trap_store_destroy(trap_store_t **store_ptr)
 {
-    if (!store)
+    if (!store_ptr || !*store_ptr)
         return;
+
+    trap_store_t *store = *store_ptr;
 
     // Free all trap action strings
     for (size_t i = 0; i < store->capacity; i++)
@@ -144,6 +146,7 @@ void trap_store_destroy(trap_store_t *store)
         string_destroy(&store->exit_action);
 
     xfree(store);
+    *store_ptr = NULL;
 }
 
 trap_store_t *trap_store_copy(const trap_store_t *store)

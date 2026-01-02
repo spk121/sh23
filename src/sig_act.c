@@ -84,13 +84,15 @@ sig_act_store_t *sig_act_store_create(void)
     return store;
 }
 
-void sig_act_store_destroy(sig_act_store_t *store)
+void sig_act_store_destroy(sig_act_store_t **store_ptr)
 {
-    if (!store)
+    if (!store_ptr || !*store_ptr)
         return;
 
+    sig_act_store_t *store = *store_ptr;
     xfree(store->actions);
     xfree(store);
+    *store_ptr = NULL;
 }
 
 // ============================================================================

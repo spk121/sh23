@@ -5,6 +5,8 @@
 #include "token.h"
 #include "variable_store.h"
 #include "func_store.h"
+#include "trap_store.h"
+#include "sig_act.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,89 +59,6 @@ static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
  * Executor Lifecycle Functions
  * ============================================================================ */
 
-exec_t *exec_create(void)
-{
-    exec_t *e = (exec_t *)xcalloc(1, sizeof(exec_t));
-    e->error_msg = string_create();
-    e->last_exit_status_set = false;
-    e->last_exit_status = 0;
-#ifdef SH23_EXTENSIONS
-    e->dry_run = false;
-#endif
-    // Initialize persistent stores
-    e->variables = variable_store_create();
-    e->positional_params = positional_params_create();
-    e->functions = func_store_create();
-
-    // Initialize special variable fields
-    e->last_background_pid_set = false;
-    e->last_background_pid = 0;
-#ifdef POSIX_API
-    e->shell_pid_set = true;
-    e->shell_pid = getpid();
-#elifdef UCRT_API
-    e->shell_pid_set = true;
-    e->shell_pid = _getpid();
-#else
-    e->shell_pid_set = false;
-    e->shell_pid = 0;
-#endif
-    e->last_argument_set = false;
-    e->last_argument = string_create();
-    e->shell_flags_set = false;
-    e->shell_flags = string_create();
-
-    return e;
-}
-
-void exec_destroy(exec_t **executor)
-{
-    if (!executor) return;
-    exec_t *e = *executor;
-
-    if (e == NULL)
-        return;
-
-    if (e->error_msg != NULL)
-    {
-        string_destroy(&e->error_msg);
-    }
-
-    if (e->variables != NULL)
-    {
-        variable_store_destroy(&e->variables);
-    }
-
-    if (e->positional_params != NULL)
-    {
-        positional_params_destroy(&e->positional_params);
-    }
-
-    if (e->functions != NULL)
-    {
-        func_store_destroy(&e->functions);
-    }
-
-    // Clean up special variable fields
-    if (e->last_argument != NULL)
-    {
-        string_destroy(&e->last_argument);
-    }
-
-    if (e->shell_flags != NULL)
-    {
-        string_destroy(&e->shell_flags);
-    }
-
-    xfree(e);
-    *executor = NULL;
-}
-
-
-// ============================================================================
-// EXECUTOR INITIALIZATION (Top-Level Shell)
-// ============================================================================
-
 exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
 {
     exec_t *e = xcalloc(1, sizeof(exec_t));
@@ -179,7 +98,7 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     e->working_directory = cwd ? string_create(cwd) : string_create("C:\\");
 #else
     // ISO C has no standard way to get cwd
-    e->working_directory = string_create(".");
+    e->working_directory = string_create_from_cstr(".");
 #endif
 
     // ========================================================================
@@ -214,7 +133,7 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     // Signal Handling
     // ========================================================================
     e->traps = trap_store_create();
-    e->original_signals = signal_dispositions_capture();
+    e->original_signals = sig_act_store_create();
 
     // ========================================================================
     // Variables & Parameters
@@ -283,14 +202,14 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     // ========================================================================
     // Job Control
     // ========================================================================
-    e->jobs = job_table_create();
+    e->jobs = job_store_create();
     e->job_control_enabled = e->is_interactive;
 
 #ifdef POSIX_API
     e->pgid = getpgrp();
 
     // If interactive, set up job control
-    if (->is_interactive)
+    if (e->is_interactive)
     {
         // Make sure we're in our own process group
         e->pgid = getpid();
@@ -357,7 +276,7 @@ exec_t *exec_create_subshell(exec_t *parent)
     // ========================================================================
     // Working Directory
     // ========================================================================
-    e->working_directory = string_dup(parent->working_directory);
+    e->working_directory = string_create_from(parent->working_directory);
 
     // ========================================================================
     // File Permissions
@@ -374,17 +293,17 @@ exec_t *exec_create_subshell(exec_t *parent)
     // ========================================================================
     e->traps = trap_store_copy(parent->traps);
 
-    // Re-capture signal dispositions in child (they may have changed)
-#ifdef POSIX_API
-    e->original_signals = signal_dispositions_capture();
-#else
-    e->original_signals = signal_dispositions_copy(parent->original_signals);
-#endif
+    // Subshells create their own signal disposition tracking
+    // (they inherit parent's handlers but track their own changes)
+    e->original_signals = sig_act_store_create();
 
     // ========================================================================
     // Variables & Parameters
     // ========================================================================
-    e->variables = variable_store_copy(parent->variables);
+    // TODO: Implement variable_store_copy or use alternative approach
+    e->variables = variable_store_create();
+    // For now, subshells start with empty variable store
+    // In future, this should copy or reference parent variables
     e->positional_params = positional_params_copy(parent->positional_params);
 
     // ========================================================================
@@ -407,9 +326,9 @@ exec_t *exec_create_subshell(exec_t *parent)
 #endif
 
     e->last_argument_set = parent->last_argument_set;
-    e->last_argument = parent->last_argument ? string_dup(parent->last_argument) : NULL;
+    e->last_argument = parent->last_argument ? string_create_from(parent->last_argument) : NULL;
 
-    e->shell_name = string_dup(parent->shell_name);
+    e->shell_name = string_create_from(parent->shell_name);
 
     // ========================================================================
     // Functions
@@ -426,7 +345,7 @@ exec_t *exec_create_subshell(exec_t *parent)
     // Job Control
     // ========================================================================
     // POSIX: Subshells start with empty job table and job control disabled
-    e->jobs = job_table_create();
+    e->jobs = job_store_create();
     e->job_control_enabled = false;
 
 #ifdef POSIX_API
@@ -443,10 +362,10 @@ exec_t *exec_create_subshell(exec_t *parent)
 #if defined(POSIX_API) || defined (UCRT_API)
     // Inherit parent's FDs but create new tracker
     // The actual FDs are inherited at the OS level through fork()
+    // TODO: Implement proper FD table copying if needed
     e->open_fds = fd_table_create();
-    fd_table_inherit_from_parent(e->open_fds, e->open_fds);
 
-    // Could reset to 3, or copy from parent
+    // Copy parent's next_fd
     e->next_fd = parent->next_fd;
 #endif
 
@@ -468,37 +387,40 @@ exec_t *exec_create_subshell(exec_t *parent)
 // EXECUTOR CLEANUP
 // ============================================================================
 
-void exec_destroy(exec_t *executor)
+void exec_destroy(exec_t **executor_ptr)
 {
-    if (!executor)
+    if (!executor_ptr || !*executor_ptr)
         return;
 
-    string_destroy(executor->working_directory);
+    exec_t *executor = *executor_ptr;
 
-    trap_store_destroy(executor->traps);
-    signal_dispositions_destroy(executor->original_signals);
+    string_destroy(&executor->working_directory);
 
-    variable_store_destroy(executor->variables);
-    positional_params_destroy(executor->positional_params);
+    trap_store_destroy(&executor->traps);
+    sig_act_store_destroy(&executor->original_signals);
+
+    variable_store_destroy(&executor->variables);
+    positional_params_destroy(&executor->positional_params);
 
     if (executor->last_argument)
-        string_destroy(executor->last_argument);
-    string_destroy(executor->shell_name);
+        string_destroy(&executor->last_argument);
+    string_destroy(&executor->shell_name);
 
-    func_store_destroy(executor->functions);
+    func_store_destroy(&executor->functions);
 
-    job_table_destroy(executor->jobs);
+    job_store_destroy(&executor->jobs);
 
-#if defined(POSIX_API) || defined(UCR_API)
-    fd_table_destroy(executor->open_fds);
+#if defined(POSIX_API) || defined(UCRT_API)
+    fd_table_destroy(&executor->open_fds);
 #endif
 
-    alias_store_destroy(executor->aliases);
+    alias_store_destroy(&executor->aliases);
 
     if (executor->error_msg)
-        string_destroy(executor->error_msg);
+        string_destroy(&executor->error_msg);
 
     xfree(executor);
+    *executor_ptr = NULL;
 }
 
 /* ============================================================================
@@ -605,10 +527,25 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
         variable_store_add(store, "_", ex->last_argument, false, false);
     }
 
-    // $- - shell flags
-    if (ex->shell_flags_set)
+    // $- - shell flags (construct from opt flags)
+    if (ex->opt_flags_set)
     {
-        variable_store_add(store, "-", ex->shell_flags, false, false);
+        char flags[16];
+        int idx = 0;
+        
+        // Add single-letter flags
+        if (ex->opt.allexport) flags[idx++] = 'a';
+        if (ex->opt.errexit) flags[idx++] = 'e';
+        if (ex->opt.noclobber) flags[idx++] = 'C';
+        if (ex->opt.noglob) flags[idx++] = 'f';
+        if (ex->opt.noexec) flags[idx++] = 'n';
+        if (ex->opt.nounset) flags[idx++] = 'u';
+        if (ex->opt.verbose) flags[idx++] = 'v';
+        if (ex->opt.xtrace) flags[idx++] = 'x';
+        if (ex->is_interactive) flags[idx++] = 'i';
+        
+        flags[idx] = '\0';
+        variable_store_add_cstr(store, "-", flags, false, false);
     }
 }
 
@@ -673,10 +610,10 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
 
         // install same system hooks as base_exp
         expander_set_userdata(assign_exp, ex);
-        expander_set_getenv(assign_exp, base_exp->fn_getenv);
-        expander_set_tilde_expand(assign_exp, base_exp->fn_tilde_expand);
-        expander_set_glob(assign_exp, base_exp->fn_glob);
-        expander_set_command_substitute(assign_exp, base_exp->fn_command_subst);
+        expander_set_getenv(assign_exp, expander_getenv);
+        expander_set_tilde_expand(assign_exp, expander_tilde_expand);
+        expander_set_glob(assign_exp, exec_pathname_expansion_callback);
+        expander_set_command_substitute(assign_exp, exec_command_subst_callback);
 
         for (int i = 0; i < token_list_size(assignments); i++)
         {
@@ -935,7 +872,7 @@ exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node)
 #endif
 }
 
-// #ifdef POSIX_API
+#ifdef POSIX_API
 static exec_status_t exec_execute_pipeline_posix(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -1422,6 +1359,7 @@ out_base_exp:
  *
  * It MUST NOT modify executor->variables or other parent state.
  */
+__attribute__((unused))
 static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -2628,12 +2566,10 @@ static void exec_record_subst_status(exec_t *executor, int raw_status)
  * For now, this is a stub that returns empty output.
  * In a full implementation, this would parse and execute the command.
  */
-string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, void *user_data)
+string_t *exec_command_subst_callback(void *userdata, const string_t *command)
 {
 #ifdef POSIX_API
-    (void)user_data;  // unused for now
-
-    exec_t *executor = (exec_t *)exec_ctx;
+    exec_t *executor = (exec_t *)userdata;
     const char *cmd = string_cstr(command);
     if (cmd == NULL || *cmd == '\0')
     {
@@ -2732,7 +2668,7 @@ string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, v
     // There is no portable way to do command substitution in ISO_C.
     // You could run a shell process via system(), but, without capturing output.
     (void)command;    // unused
-    exec_record_subst_status((exec_t *)exec_ctx, 0);
+    exec_record_subst_status((exec_t *)userdata, 0);
     return string_create();
 #endif
 }
@@ -2752,7 +2688,7 @@ string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, v
  * - On no matches or on error: returns NULL, signaling the expander to keep
  *   the original pattern literal per POSIX behavior.
  */
-string_list_t *exec_pathname_expansion_callback(const string_t *pattern, void *user_data)
+string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t *pattern)
 {
 #ifdef POSIX_API
     (void)user_data;  // unused

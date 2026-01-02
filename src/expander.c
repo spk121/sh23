@@ -106,15 +106,9 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     string_t *result = NULL;
 
     // Check for positional parameters
-    if (strcmp(name, "0") == 0)
-    {
-        if (exp->params && positional_params_has_zero(exp->params))
-        {
-            const string_t *zero = positional_params_get_zero(exp->params);
-            result = string_create_from(zero);
-        }
-    }
-    else if (strcmp(name, "#") == 0)
+    // Note: $0 is not in positional_params; it's managed by the executor as shell_name
+    // and should be provided via the variable store
+    if (strcmp(name, "#") == 0)
     {
         if (exp->params)
         {

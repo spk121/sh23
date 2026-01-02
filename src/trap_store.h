@@ -37,7 +37,7 @@ typedef struct trap_store_t
 trap_store_t *trap_store_create(void);
 
 // Destroy a trap store and free all resources
-void trap_store_destroy(trap_store_t *store);
+void trap_store_destroy(trap_store_t **store);
 
 // Create a deep copy of a trap store
 trap_store_t *trap_store_copy(const trap_store_t *store);

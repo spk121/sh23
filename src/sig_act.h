@@ -46,7 +46,7 @@ typedef struct sig_act_store_t
 sig_act_store_t *sig_act_store_create(void);
 
 // Destroy a signal disposition store and free all resources
-void sig_act_store_destroy(sig_act_store_t *store);
+void sig_act_store_destroy(sig_act_store_t **store);
 
 // Set a new signal handler AND save the previous one (if not already saved)
 // This is the primary way handlers get saved in the store
