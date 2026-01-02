@@ -1,6 +1,6 @@
 #include "token_array.h"
 #include "logging.h"
-#include "token_wip.h"
+#include "token.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -38,7 +38,7 @@ token_array_t *token_array_create(void)
     return token_array_create_with_free(NULL);
 }
 
-token_array_t *token_array_create_with_free(token_array_tFreeFunc free_func)
+token_array_t *token_array_create_with_free(TokenArrayFreeFunc free_func)
 {
     token_array_t *array = malloc(sizeof(token_array_t));
     if (!array)
@@ -220,7 +220,7 @@ int token_array_resize(token_array_t *array, size_t new_capacity)
 }
 
 // Operations
-void token_array_foreach(token_array_t *array, token_array_tApplyFunc apply_func, void *user_data)
+void token_array_foreach(token_array_t *array, TokenArrayApplyFunc apply_func, void *user_data)
 {
     if (!array || !apply_func)
     {
@@ -251,7 +251,7 @@ int token_array_find(token_array_t *array, token_t *element, size_t *index)
 }
 
 int token_array_find_with_compare(token_array_t *array, const void *data,
-                                  token_array_tCompareFunc compare_func, size_t *index)
+                                  TokenArrayCompareFunc compare_func, size_t *index)
 {
     return_val_if_null(array, -1);
     return_val_if_null(data, -1);

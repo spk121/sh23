@@ -4,7 +4,8 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 project(mgsh LANGUAGES C)
 
-
+# Export compile commands for IDE integration
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # API selection option
 set(API_TYPE "ISO_C" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
 set_property(CACHE API_TYPE PROPERTY STRINGS "POSIX" "UCRT" "ISO_C")
@@ -25,37 +26,105 @@ endif()
 if(MSVC)
     add_compile_options(/std:clatest /W4 /Od /Zi)
 else()
-    add_compile_options(-Wall -Wextra -fanalyzer -fdiagnostics-color=never -g3 -O2)
+    add_compile_options(
+        -Wall                          # Enable common warnings
+        -Wextra                        # Extra warnings
+        -Wpedantic                     # Strict ISO C compliance
+        -Wshadow                       # Warn about variable shadowing
+        -Wformat=2                     # Enhanced format string checking
+        -Wconversion                   # Warn on implicit type conversions
+        -Wsign-conversion              # Warn on sign conversions
+        -Wnull-dereference             # Warn about null pointer dereferences
+        -Wdouble-promotion             # Warn on float to double promotion
+        -Wstrict-prototypes            # Require function prototypes
+        -Wmissing-prototypes           # Warn if global function has no prototype
+        -Wold-style-definition         # Warn about old-style function definitions
+        -Wmissing-declarations         # Warn if a global function is defined without a declaration
+        -Wcast-align                   # Warn about pointer casts with alignment issues
+        -Wcast-qual                    # Warn about casts that discard qualifiers
+        -Wunused                       # Warn on unused entities
+        -fanalyzer                     # Enable static analysis (GCC 10+)
+        -g3                            # Maximum debug info
+        -O2                            # Optimization level
+
+        )
 endif()
 
-# Collect all sources except main.c
-set(MGSH_LIB_SOURCES
+# ============================================================================
+# Library type configuration
+# ============================================================================
+if(UNIX AND NOT APPLE)
+    set(SH23_LIBRARY_TYPE SHARED)
+    # Enforce no undefined symbols in shared libraries (like Windows DLLs)
+    add_link_options(-Wl,--no-undefined)
+    message(STATUS "Building shared libraries with strict linking")
+else()
+    set(SH23_LIBRARY_TYPE STATIC)
+    message(STATUS "Building static libraries")
+endif()
+
+# ============================================================================
+# Library 1: sh23base - Base utilities
+# ============================================================================
+set(SH23BASE_SOURCES
+    src/getopt.c
+    src/getopt.h
+    src/lib.c
+    src/lib.h
+    src/logging.c
+    src/logging.h
+    src/string_t.c
+    src/string_t.h
+    src/xalloc.c
+    src/xalloc.h
+)
+
+add_library(sh23base ${SH23_LIBRARY_TYPE} ${SH23BASE_SOURCES})
+
+# ============================================================================
+# Library 2: sh23store - Data stores (depends on sh23base)
+# ============================================================================
+set(SH23STORE_SOURCES
     src/alias.c
     src/alias.h
     src/alias_store.c
     src/alias_store.h
     src/alias_array.c
     src/alias_array.h
-    src/arithmetic.c
-    src/arithmetic.h
+    src/func_map.c
+    src/func_map.h
     src/func_store.c
     src/func_store.h
-    src/func_array.c
-    src/func_array.h
-    src/getopt.c
-    src/getopt.h
     src/gnode.c
     src/gnode.h
     src/gprint.c
-    src/gprint.h
-    src/logging.c
-    src/logging.h
+    src/gprint.h    
+    src/variable_map.c
+    src/variable_map.h
+    src/variable_store.c
+    src/variable_store.h
+    src/token.c
+    src/token.h
+    src/token_array.c
+    src/token_array.h
+    src/ast.c
+    src/ast.h
+    src/pattern_removal.c
+    src/pattern_removal.h
+)
+
+add_library(sh23store ${SH23_LIBRARY_TYPE} ${SH23STORE_SOURCES})
+target_include_directories(sh23store PUBLIC src)
+target_link_libraries(sh23store PUBLIC sh23base)
+
+# ============================================================================
+# Library 3: sh23logic - Core shell logic (depends on sh23store and sh23base)
+# ============================================================================
+set(SH23LOGIC_SOURCES
+    src/arithmetic.c
+    src/arithmetic.h
     src/lower.c
     src/lower.h
-    src/string_t.c
-    src/string_t.h
-    src/xalloc.c
-    src/xalloc.h
     src/lexer.c
     src/lexer.h
     src/lexer_arith_exp.c
@@ -72,37 +141,30 @@ set(MGSH_LIB_SOURCES
     src/lexer_dquote.h
     src/lexer_param_exp.c
     src/lexer_param_exp.h
-    src/token.c
-    src/token.h
     src/tokenizer.c
     src/tokenizer.h
-    src/ast.c
-    src/ast.h
     src/parser.c
     src/parser.h
     src/executor.c
     src/executor.h
     src/expander.c
     src/expander.h
-    src/variable_map.c
-    src/variable_map.h
-    src/variable_store.c
-    src/variable_store.h
-    src/pattern_removal.c
-    src/pattern_removal.h
     src/shell.c
     src/shell.h
     src/positional_params.c
     src/positional_params.h
-    src/lib.c
-    src/lib.h
 )
 
-add_library(mgsh_lib STATIC ${MGSH_LIB_SOURCES})
-target_include_directories(mgsh_lib PUBLIC src)
+add_library(sh23logic ${SH23_LIBRARY_TYPE} ${SH23LOGIC_SOURCES})
+target_include_directories(sh23logic PUBLIC src)
+target_link_libraries(sh23logic PUBLIC sh23store sh23base)
+
+add_library(sh23interface INTERFACE)
+target_link_libraries(sh23interface INTERFACE sh23logic sh23store sh23base)
+
 
 add_executable(mgsh src/main.c)
-target_link_libraries(mgsh PRIVATE mgsh_lib)
+target_link_libraries(mgsh PRIVATE sh23interface)
 set_target_properties(mgsh PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
@@ -146,7 +208,7 @@ foreach(test_src ${MGSH_TEST_SOURCES})
         src
         ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest
     )
-    target_link_libraries(${test_name} PRIVATE mgsh_lib)
+    target_link_libraries(${test_name} PRIVATE sh23interface)
 
     set_target_properties(${test_name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/test

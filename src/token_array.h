@@ -1,8 +1,13 @@
 #ifndef TOKEN_ARRAY_H
 #define TOKEN_ARRAY_H
 
-#include "token_wip.h"
+#include "token.h"
 #include <stddef.h>
+
+// Function pointer types
+typedef void (*TokenArrayFreeFunc)(token_t **element);
+typedef void (*TokenArrayApplyFunc)(token_t *element, void *user_data);
+typedef int (*TokenArrayCompareFunc)(const token_t *element, const void *user_data);
 
 typedef struct token_array_t
 {
@@ -11,11 +16,6 @@ typedef struct token_array_t
     size_t capacity;              // allocated capacity
     TokenArrayFreeFunc free_func; // optional function to free elements
 } token_array_t;
-
-// Function pointer types
-typedef void (*TokenArrayFreeFunc)(token_t **element);
-typedef void (*TokenArrayApplyFunc)(token_t *element, void *user_data);
-typedef int (*TokenArrayCompareFunc)(const token_t *element, const void *user_data);
 
 // Create and destroy
 token_array_t *token_array_create(void);
