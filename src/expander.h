@@ -14,7 +14,7 @@ typedef struct expander_t expander_t;
 /*
  * Function pointer types for injected system operations.
  *
- * userdata is typically an executor_t*, but the expander does not
+ * userdata is typically an exec_t*, but the expander does not
  * know or care what it actually is.
  */
 

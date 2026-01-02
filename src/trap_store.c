@@ -3,7 +3,7 @@
 // ============================================================================
 
 #include "trap_store.h"
-#include "xmalloc.h" // Assuming xcalloc, xfree, etc.
+#include "xalloc.h"
 #include <string.h>
 
 // Platform-specific signal count based on explicitly supported signals
@@ -135,13 +135,13 @@ void trap_store_destroy(trap_store_t *store)
     for (size_t i = 0; i < store->capacity; i++)
     {
         if (store->traps[i].action)
-            string_destroy(store->traps[i].action);
+            string_destroy(&store->traps[i].action);
     }
 
     xfree(store->traps);
 
     if (store->exit_action)
-        string_destroy(store->exit_action);
+        string_destroy(&store->exit_action);
 
     xfree(store);
 }
@@ -157,14 +157,14 @@ trap_store_t *trap_store_copy(const trap_store_t *store)
     for (size_t i = 0; i < store->capacity && i < copy->capacity; i++)
     {
         copy->traps[i].signal_number = store->traps[i].signal_number;
-        copy->traps[i].action = store->traps[i].action ? string_dup(store->traps[i].action) : NULL;
+        copy->traps[i].action = store->traps[i].action ? string_create_from(store->traps[i].action) : NULL;
         copy->traps[i].is_ignored = store->traps[i].is_ignored;
         copy->traps[i].is_default = store->traps[i].is_default;
     }
 
     // Copy EXIT trap
     copy->exit_trap_set = store->exit_trap_set;
-    copy->exit_action = store->exit_action ? string_dup(store->exit_action) : NULL;
+    copy->exit_action = store->exit_action ? string_create_from(store->exit_action) : NULL;
 
     return copy;
 }
@@ -183,10 +183,10 @@ void trap_store_set(trap_store_t *store, int signal_number, string_t *action, bo
 
     // Free old action if it exists
     if (trap->action)
-        string_destroy(trap->action);
+        string_destroy(&trap->action);
 
     trap->signal_number = signal_number;
-    trap->action = action ? string_dup(action) : NULL;
+    trap->action = action ? string_create_from(action) : NULL;
     trap->is_ignored = is_ignored;
     trap->is_default = is_default;
 }
@@ -197,10 +197,10 @@ void trap_store_set_exit(trap_store_t *store, string_t *action, bool is_ignored,
         return;
 
     if (store->exit_action)
-        string_destroy(store->exit_action);
+        string_destroy(&store->exit_action);
 
     store->exit_trap_set = true;
-    store->exit_action = action ? string_dup(action) : NULL;
+    store->exit_action = action ? string_create_from(action) : NULL;
 
     // Note: EXIT trap doesn't use is_ignored/is_default the same way
     // as signal traps, but we could extend the struct to track this if needed
@@ -252,7 +252,7 @@ void trap_store_clear(trap_store_t *store, int signal_number)
     trap_action_t *trap = &store->traps[signal_number];
 
     if (trap->action)
-        string_destroy(trap->action);
+        string_destroy(&trap->action);
 
     trap->action = NULL;
     trap->is_ignored = false;
@@ -265,7 +265,7 @@ void trap_store_clear_exit(trap_store_t *store)
         return;
 
     if (store->exit_action)
-        string_destroy(store->exit_action);
+        string_destroy(&store->exit_action);
 
     store->exit_trap_set = false;
     store->exit_action = NULL;

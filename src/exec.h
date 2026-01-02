@@ -8,6 +8,7 @@
 #include "variable_store.h"
 #include "positional_params.h"
 #include "func_store.h"
+#include "sig_act.h"
 #include <stdbool.h>
 
 
@@ -43,26 +44,7 @@ typedef struct trap_store_t
     string_t *exit_action; // Action for EXIT trap
 } trap_store_t;
 
-// ============================================================================
-// SIGNAL DISPOSITIONS
-// ============================================================================
 
-typedef struct sig_act_t
-{
-    int signal_number;
-#ifdef POSIX_API
-    struct sigaction original_action; // Original sigaction structure
-#else
-    void (*original_handler)(int); // Original signal handler (signal() style)
-#endif
-    bool was_ignored; // Whether signal was originally ignored
-} sig_act_t;
-
-typedef struct sig_act_store_t
-{
-    sig_act_t *actions; // Array indexed by signal number
-    size_t capacity;                    // Size of array 
-} sig_act_store_t;
 
 // ============================================================================
 // JOB TABLE
@@ -209,7 +191,7 @@ typedef struct exec_t
     // Current traps set by trap
     trap_store_t *traps;
     // Original signal dispositions (to restore after traps)
-    signal_dispositions_t *original_signals;
+    sig_act_t *original_signals;
 
     // Shell parameters that are set by variable assignment and shell
     // parameters that are set from the environment inherited by the shell
@@ -310,72 +292,72 @@ void exec_destroy(exec_t **executor);
  *
  * @return EXEC_OK on success, EXEC_ERROR on error, EXEC_NOT_IMPL for unsupported node types
  */
-exec_status_t executor_execute(executor_t *executor, const ast_node_t *root);
+exec_status_t exec_execute(exec_t *executor, const ast_node_t *root);
 
 /**
  * Execute a command list.
  */
-exec_status_t executor_execute_command_list(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute an and/or list.
  */
-exec_status_t executor_execute_andor_list(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_andor_list(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a pipeline.
  */
-exec_status_t executor_execute_pipeline(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a simple command.
  */
-exec_status_t executor_execute_simple_command(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a redirected command wrapper.
  */
-exec_status_t executor_execute_redirected_command(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute an if clause.
  */
-exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_if_clause(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a while clause.
  */
-exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute an until clause.
  */
-exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a for clause.
  */
-exec_status_t executor_execute_for_clause(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a case clause.
  */
-exec_status_t executor_execute_case_clause(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a subshell.
  */
-exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a brace group.
  */
-exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node);
 
 /**
  * Execute a function definition.
  */
-exec_status_t executor_execute_function_def(executor_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 
 /* ============================================================================
  * Visitor Pattern Support
@@ -405,34 +387,34 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
 /**
  * Get the last exit status.
  */
-int executor_get_exit_status(const executor_t *executor);
+int exec_get_exit_status(const exec_t *executor);
 
 /**
  * Set the exit status.
  */
-void executor_set_exit_status(executor_t *executor, int status);
+void exec_set_exit_status(exec_t *executor, int status);
 
 /**
  * Get the error message from the last failed operation.
  * Returns NULL if no error.
  */
-const char *executor_get_error(const executor_t *executor);
+const char *exec_get_error(const exec_t *executor);
 
 /**
  * Set an error message.
  */
-void executor_set_error(executor_t *executor, const char *format, ...);
+void exec_set_error(exec_t *executor, const char *format, ...);
 
 /**
  * Clear the error state.
  */
-void executor_clear_error(executor_t *executor);
+void exec_clear_error(exec_t *executor);
 
 /**
  * Enable or disable dry-run mode.
  * In dry-run mode, commands are validated but not executed.
  */
-void executor_set_dry_run(executor_t *executor, bool dry_run);
+void exec_set_dry_run(exec_t *executor, bool dry_run);
 
 /* ============================================================================
  * Expander Callbacks
@@ -443,12 +425,12 @@ void executor_set_dry_run(executor_t *executor, bool dry_run);
  * Executes a command and returns its output.
  *
  * @param command The command string to execute
- * @param executor_ctx Pointer to the executor context
+ * @param exec_ctx Pointer to the executor context
  * @param user_data Pointer to optional user context
  * @return The output of the command as a newly allocated string_t (caller must free),
  *         or NULL on error
  */
-string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx, void *user_data);
+string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, void *user_data);
 
 /**
  * Pathname expansion (glob) callback for the expander.
@@ -463,7 +445,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
  *         (caller must free with string_list_destroy). On no matches or error:
  *         returns NULL, signaling the expander to leave the pattern unexpanded.
  */
-string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data);
+string_list_t *exec_pathname_expansion_callback(const string_t *pattern, void *user_data);
 
 #endif
 

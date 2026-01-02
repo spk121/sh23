@@ -1,4 +1,4 @@
-#include "executor.h"
+#include "exec.h"
 #include "logging.h"
 #include "xalloc.h"
 #include "string_t.h"
@@ -39,17 +39,17 @@ typedef struct saved_fd_t
  * ============================================================================ */
 
 #ifdef POSIX_API
-static exec_status_t executor_apply_redirections_posix(executor_t *executor, expander_t *exp,
+static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t *exp,
                                                        const ast_node_list_t *redirs,
                                                        saved_fd_t **out_saved,
                                                        int *out_saved_count);
 
 
-static void executor_restore_redirections_posix(saved_fd_t *saved, int saved_count);
-static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const ast_node_t *node);
+static void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count);
+static exec_status_t exec_execute_pipeline_posix(exec_t *executor, const ast_node_t *node);
 
 #else
-static exec_status_t executor_apply_redirections_iso_c(executor_t *executor,
+static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
                                                        const ast_node_list_t *redirs);
 #endif
 
@@ -57,45 +57,45 @@ static exec_status_t executor_apply_redirections_iso_c(executor_t *executor,
  * Executor Lifecycle Functions
  * ============================================================================ */
 
-exec_t *exec_create_f(void)
+exec_t *exec_create(void)
 {
     exec_t *e = (exec_t *)xcalloc(1, sizeof(exec_t));
-    executor->error_msg = string_create();
-    executor->last_exit_status_set = false;
-    executor->last_exit_status = 0;
+    e->error_msg = string_create();
+    e->last_exit_status_set = false;
+    else->last_exit_status = 0;
 #ifdef SH23_EXTENSIONS
-    executor->dry_run = false;
+    e->dry_run = false;
 #endif
     // Initialize persistent stores
-    executor->variables = variable_store_create();
-    executor->positional_params = positional_params_stack_create();
-    executor->functions = func_store_create();
+    e->variables = variable_store_create();
+    e->positional_params = positional_params_stack_create();
+    e->functions = func_store_create();
 
     // Initialize special variable fields
-    executor->last_background_pid_set = false;
-    executor->last_background_pid = 0;
+    e->last_background_pid_set = false;
+    e->last_background_pid = 0;
 #ifdef POSIX_API
-    executor->shell_pid_set = true;
-    executor->shell_pid = getpid();
+    e->shell_pid_set = true;
+    e->shell_pid = getpid();
 #elifdef UCRT_API
-    executor->shell_pid_set = true;
-    executor->shell_pid = _getpid();
+    e->shell_pid_set = true;
+    e->shell_pid = _getpid();
 #else
-    executor->shell_pid_set = false;
-    executor->shell_pid = 0;
+    e->shell_pid_set = false;
+    e->shell_pid = 0;
 #endif
-    executor->last_argument_set = false;
-    executor->last_argument = string_create();
-    executor->shell_flags_set = false;
-    executor->shell_flags = string_create();
+    e->last_argument_set = false;
+    e->last_argument = string_create();
+    e->shell_flags_set = false;
+    e->shell_flags = string_create();
 
-    return executor;
+    return e;
 }
 
-void executor_destroy(executor_t **executor)
+void exec_destroy(exec_t **executor)
 {
     if (!executor) return;
-    executor_t *e = *executor;
+    exec_t *e = *executor;
 
     if (e == NULL)
         return;
@@ -504,19 +504,19 @@ void exec_destroy(exec_t *executor)
  * Utility Functions
  * ============================================================================ */
 
-int executor_get_exit_status(const executor_t *executor)
+int exec_get_exit_status(const exec_t *executor)
 {
     Expects_not_null(executor);
     return executor->last_exit_status;
 }
 
-void executor_set_exit_status(executor_t *executor, int status)
+void exec_set_exit_status(exec_t *executor, int status)
 {
     Expects_not_null(executor);
     executor->last_exit_status = status;
 }
 
-const char *executor_get_error(const executor_t *executor)
+const char *exec_get_error(const exec_t *executor)
 {
     Expects_not_null(executor);
 
@@ -527,7 +527,7 @@ const char *executor_get_error(const executor_t *executor)
     return string_data(executor->error_msg);
 }
 
-void executor_set_error(executor_t *executor, const char *format, ...)
+void exec_set_error(exec_t *executor, const char *format, ...)
 {
     Expects_not_null(executor);
     Expects_not_null(format);
@@ -544,13 +544,13 @@ void executor_set_error(executor_t *executor, const char *format, ...)
     string_append_cstr(executor->error_msg, buffer);
 }
 
-void executor_clear_error(executor_t *executor)
+void exec_clear_error(exec_t *executor)
 {
     Expects_not_null(executor);
     string_clear(executor->error_msg);
 }
 
-void executor_set_dry_run(executor_t *executor, bool dry_run)
+void exec_set_dry_run(exec_t *executor, bool dry_run)
 {
     Expects_not_null(executor);
 #ifdef SH23_EXTENSIONS
@@ -571,7 +571,7 @@ void executor_set_dry_run(executor_t *executor, bool dry_run)
  * @param store The variable store to populate (must not be NULL)
  * @param ex The executor context containing special variable values (must not be NULL)
  */
-static void executor_populate_special_variables(variable_store_t *store, const executor_t *ex)
+static void exec_populate_special_variables(variable_store_t *store, const exec_t *ex)
 {
     Expects_not_null(store);
     Expects_not_null(ex);
@@ -639,7 +639,7 @@ static void variable_store_copy_all(variable_store_t *dst, const variable_store_
  *
  * Returns NULL on error.
  */
-static variable_store_t *executor_build_temp_store_for_simple_command(executor_t *ex,
+static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
                                                                       const ast_node_t *node,
                                                                       expander_t *base_exp)
 {
@@ -656,7 +656,7 @@ static variable_store_t *executor_build_temp_store_for_simple_command(executor_t
     variable_store_copy_all(temp, ex->variables);
 
     // 2. Populate special vars from executor state
-    executor_populate_special_variables(temp, ex);
+    exec_populate_special_variables(temp, ex);
 
     // 3. Overlay assignment words
     token_list_t *assignments = node->data.simple_command.assignments;
@@ -707,7 +707,8 @@ static variable_store_t *executor_build_temp_store_for_simple_command(executor_t
     return temp;
 }
 
-static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, const ast_node_t *node, expander_t *exp)
+__attribute__((unused))
+static variable_store_t *exec_prepare_temp_variable_store(exec_t *ex, const ast_node_t *node, expander_t *exp)
 {
     Expects_not_null(ex);
     Expects_not_null(node);
@@ -720,7 +721,7 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     // These are added per the Phase 2 requirement to populate
     // special variables in the temp variable store
     // ------------------------------------------------------------
-    executor_populate_special_variables(temp_store, ex);
+    exec_populate_special_variables(temp_store, ex);
 
     // ------------------------------------------------------------
     // Extract assignment words from current simple command or function definition
@@ -757,7 +758,7 @@ static variable_store_t *executor_prepare_temp_variable_store(executor_t *ex, co
     return temp_store;
 }
 
-exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
+exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
 {
     Expects_not_null(executor);
 
@@ -766,44 +767,44 @@ exec_status_t executor_execute(executor_t *executor, const ast_node_t *root)
         return EXEC_OK;
     }
 
-    executor_clear_error(executor);
+    exec_clear_error(executor);
 
     switch (root->type)
     {
     case AST_SIMPLE_COMMAND:
-        return executor_execute_simple_command(executor, root);
+        return exec_execute_simple_command(executor, root);
     case AST_PIPELINE:
-        return executor_execute_pipeline(executor, root);
+        return exec_execute_pipeline(executor, root);
     case AST_AND_OR_LIST:
-        return executor_execute_andor_list(executor, root);
+        return exec_execute_andor_list(executor, root);
     case AST_COMMAND_LIST:
-        return executor_execute_command_list(executor, root);
+        return exec_execute_command_list(executor, root);
     case AST_SUBSHELL:
-        return executor_execute_subshell(executor, root);
+        return exec_execute_subshell(executor, root);
     case AST_BRACE_GROUP:
-        return executor_execute_brace_group(executor, root);
+        return exec_execute_brace_group(executor, root);
     case AST_IF_CLAUSE:
-        return executor_execute_if_clause(executor, root);
+        return exec_execute_if_clause(executor, root);
     case AST_WHILE_CLAUSE:
-        return executor_execute_while_clause(executor, root);
+        return exec_execute_while_clause(executor, root);
     case AST_UNTIL_CLAUSE:
-        return executor_execute_until_clause(executor, root);
+        return exec_execute_until_clause(executor, root);
     case AST_FOR_CLAUSE:
-        return executor_execute_for_clause(executor, root);
+        return exec_execute_for_clause(executor, root);
     case AST_CASE_CLAUSE:
-        return executor_execute_case_clause(executor, root);
+        return exec_execute_case_clause(executor, root);
     case AST_FUNCTION_DEF:
-        return executor_execute_function_def(executor, root);
+        return exec_execute_function_def(executor, root);
     case AST_REDIRECTED_COMMAND:
-        return executor_execute_redirected_command(executor, root);
+        return exec_execute_redirected_command(executor, root);
     default:
-        executor_set_error(executor, "Unsupported AST node type: %s",
+        exec_set_error(executor, "Unsupported AST node type: %s",
                           ast_node_type_to_string(root->type));
         return EXEC_NOT_IMPL;
     }
 }
 
-exec_status_t executor_execute_command_list(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -819,7 +820,7 @@ exec_status_t executor_execute_command_list(executor_t *executor, const ast_node
     for (int i = 0; i < node->data.command_list.items->size; i++)
     {
         ast_node_t *item = node->data.command_list.items->nodes[i];
-        status = executor_execute(executor, item);
+        status = exec_execute(executor, item);
 
         // Handle special case: function definition moved to function store
         if (status == EXEC_OK_INTERNAL_FUNCTION_STORED)
@@ -854,14 +855,14 @@ exec_status_t executor_execute_command_list(executor_t *executor, const ast_node
     return status;
 }
 
-exec_status_t executor_execute_andor_list(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_andor_list(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
     Expects_eq(node->type, AST_AND_OR_LIST);
 
     // Execute left side
-    exec_status_t status = executor_execute(executor, node->data.andor_list.left);
+    exec_status_t status = exec_execute(executor, node->data.andor_list.left);
     if (status != EXEC_OK)
     {
         return status;
@@ -875,7 +876,7 @@ exec_status_t executor_execute_andor_list(executor_t *executor, const ast_node_t
         // && - execute right only if left succeeded
         if (left_exit == 0)
         {
-            status = executor_execute(executor, node->data.andor_list.right);
+            status = exec_execute(executor, node->data.andor_list.right);
         }
     }
     else // ANDOR_OP_OR
@@ -883,7 +884,7 @@ exec_status_t executor_execute_andor_list(executor_t *executor, const ast_node_t
         // || - execute right only if left failed
         if (left_exit != 0)
         {
-            status = executor_execute(executor, node->data.andor_list.right);
+            status = exec_execute(executor, node->data.andor_list.right);
         }
     }
 
@@ -891,7 +892,7 @@ exec_status_t executor_execute_andor_list(executor_t *executor, const ast_node_t
 }
 
 
-exec_status_t executor_execute_pipeline(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -911,30 +912,30 @@ exec_status_t executor_execute_pipeline(executor_t *executor, const ast_node_t *
     if (n == 1)
     {
         const ast_node_t *only = ast_node_list_get(cmds, 0);
-        exec_status_t st = executor_execute(executor, only);
+        exec_status_t st = exec_execute(executor, only);
 
         if (st == EXEC_OK && is_negated)
         {
-            int s = executor_get_exit_status(executor);
-            executor_set_exit_status(executor, s == 0 ? 1 : 0);
+            int s = exec_get_exit_status(executor);
+            exec_set_exit_status(executor, s == 0 ? 1 : 0);
         }
 
         return st;
     }
 
 #ifdef POSIX_API
-    return executor_execute_pipeline_posix(executor, node);
+    return exec_execute_pipeline_posix(executor, node);
 #elifdef UCRT_API
-    executor_set_error(executor, "Pipelines are not yet supported in UCRT_API mode");
+    exec_set_error(executor, "Pipelines are not yet supported in UCRT_API mode");
     return EXEC_NOT_IMPL;
 #else
-    executor_set_error(executor, "Pipelines are not supported in ISO_C_API mode");
+    exec_set_error(executor, "Pipelines are not supported in ISO_C_API mode");
     return EXEC_ERROR;
 #endif
 }
 
 // #ifdef POSIX_API
-static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const ast_node_t *node)
+static exec_status_t exec_execute_pipeline_posix(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -958,7 +959,7 @@ static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const
         {
             if (pipe(pipes[i]) < 0)
             {
-                executor_set_error(executor, "pipe() failed");
+                exec_set_error(executor, "pipe() failed");
                 for (int j = 0; j < i; j++)
                 {
                     close(pipes[j][0]);
@@ -981,7 +982,7 @@ static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const
         pid_t pid = fork();
         if (pid < 0)
         {
-            executor_set_error(executor, "fork() failed");
+            exec_set_error(executor, "fork() failed");
 
             /* Close all pipes */
             for (int k = 0; k < num_pipes; k++)
@@ -1028,19 +1029,19 @@ static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const
             switch (cmd->type)
             {
             case AST_SIMPLE_COMMAND:
-                executor_run_simple_command_child(executor, cmd);
+                exec_run_simple_command_child(executor, cmd);
                 break;
             case AST_REDIRECTED_COMMAND:
-                executor_run_redirected_command_child(executor, cmd);
+                exec_run_redirected_command_child(executor, cmd);
                 break;
             case AST_SUBSHELL:
-                executor_run_subshell_child(executor, cmd);
+                exec_run_subshell_child(executor, cmd);
                 break;
             case AST_BRACE_GROUP:
-                executor_run_brace_group_child(executor, cmd);
+                exec_run_brace_group_child(executor, cmd);
                 break;
             case AST_FUNCTION_DEF:
-                executor_run_function_def_child(executor, cmd);
+                exec_run_function_def_child(executor, cmd);
                 break;
             default:
                 _exit(127);
@@ -1093,7 +1094,7 @@ static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const
     if (is_negated)
         last_status = (last_status == 0) ? 1 : 0;
 
-    executor_set_exit_status(executor, last_status);
+    exec_set_exit_status(executor, last_status);
     return EXEC_OK;
 }
 #endif /* POSIX_API */
@@ -1102,7 +1103,7 @@ static exec_status_t executor_execute_pipeline_posix(executor_t *executor, const
 /* ============================================================================
  * Execute a simple command
  * ============================================================================ */
-exec_status_t executor_execute_simple_command(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -1112,7 +1113,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     if (executor->dry_run)
     {
         // In dry-run mode we only validate – no execution, no side effects
-        executor_set_exit_status(executor, 0);
+        exec_set_exit_status(executor, 0);
         return EXEC_OK;
     }
 #endif
@@ -1133,15 +1134,15 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     expander_t *base_exp = expander_create(executor->variables, executor->positional_params);
     if (!base_exp)
     {
-        executor_set_error(executor, "failed to create expander");
+        exec_set_error(executor, "failed to create expander");
         return EXEC_ERROR;
     }
 
     expander_set_userdata(base_exp, executor);
     expander_set_getenv(base_exp, expander_getenv);
     expander_set_tilde_expand(base_exp, expander_tilde_expand);
-    expander_set_glob(base_exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(base_exp, executor_command_subst_callback);
+    expander_set_glob(base_exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(base_exp, exec_command_subst_callback);
 
     /* ============================================================
      * 1. Assignment-only command: VAR=VAL VAR2=VAL2
@@ -1158,7 +1159,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
                 string_t *value = expander_expand_assignment_value(base_exp, tok);
                 if (!value)
                 {
-                    executor_set_error(executor, "assignment expansion failed");
+                    exec_set_error(executor, "assignment expansion failed");
                     status = EXEC_ERROR;
                     goto out_base_exp;
                 }
@@ -1171,14 +1172,14 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
 
                 if (err != VAR_STORE_ERROR_NONE)
                 {
-                    executor_set_error(executor, "cannot assign variable (error %d)", err);
+                    exec_set_error(executor, "cannot assign variable (error %d)", err);
                     status = EXEC_ERROR;
                     goto out_base_exp;
                 }
             }
         }
 
-        executor_set_exit_status(executor, 0);
+        exec_set_exit_status(executor, 0);
         status = EXEC_OK;
         goto out_base_exp;
     }
@@ -1194,10 +1195,10 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
      *    All expansions for this command use this temp store.
      * ============================================================ */
     variable_store_t *temp_vars =
-        executor_build_temp_store_for_simple_command(executor, node, base_exp);
+        exec_build_temp_store_for_simple_command(executor, node, base_exp);
     if (!temp_vars)
     {
-        executor_set_error(executor, "failed to build temporary variable store");
+        exec_set_error(executor, "failed to build temporary variable store");
         status = EXEC_ERROR;
         goto out_base_exp;
     }
@@ -1205,7 +1206,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     expander_t *exp = expander_create(temp_vars, executor->positional_params);
     if (!exp)
     {
-        executor_set_error(executor, "failed to create expander");
+        exec_set_error(executor, "failed to create expander");
         variable_store_destroy(&temp_vars);
         status = EXEC_ERROR;
         goto out_base_exp;
@@ -1214,8 +1215,8 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     expander_set_userdata(exp, executor);
     expander_set_getenv(exp, expander_getenv);
     expander_set_tilde_expand(exp, expander_tilde_expand);
-    expander_set_glob(exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_glob(exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(exp, exec_command_subst_callback);
 
     /* ============================================================
      * 3. Expand command words with full word expansion
@@ -1224,7 +1225,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     if (!expanded_words || string_list_size(expanded_words) == 0)
     {
         // Empty after expansion: POSIX makes this a successful no-op
-        executor_set_exit_status(executor, 0);
+        exec_set_exit_status(executor, 0);
         if (expanded_words)
             string_list_destroy(&expanded_words);
         status = EXEC_OK;
@@ -1241,14 +1242,14 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
-    status = executor_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
+    status = exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
     if (status != EXEC_OK)
     {
         string_list_destroy(&expanded_words);
         goto out_exp_temp;
     }
 #elif defined(UCRT_API)
-    status = executor_apply_redirections_ucrt_c(executor, redirs);
+    status = exec_apply_redirections_ucrt_c(executor, redirs);
     if (status != EXEC_OK)
     {
         string_list_destroy(&expanded_words);
@@ -1257,7 +1258,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
 #else
     if (redirs && ast_node_list_size(redirs) > 0)
     {
-        executor_set_error(executor, "redirections not supported in ISO_C_API mode");
+        exec_set_error(executor, "redirections not supported in ISO_C_API mode");
         string_list_destroy(&expanded_words);
         status = EXEC_ERROR;
         goto out_exp_temp;
@@ -1303,7 +1304,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         pid_t pid = fork();
         if (pid == -1)
         {
-            executor_set_error(executor, "fork failed");
+            exec_set_error(executor, "fork failed");
             cmd_exit_status = 127;
         }
         else if (pid == 0)
@@ -1344,7 +1345,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
 
 #elif defined(UCRT_API)
         // TODO: build argv + _spawnve/_spawnvpe with envp from temp_vars
-        executor_set_error(executor, "UCRT simple command execution not yet implemented");
+        exec_set_error(executor, "UCRT simple command execution not yet implemented");
         cmd_exit_status = 127;
 #else
         // ISO_C: fall back to system(), but temp_vars can't influence env
@@ -1359,7 +1360,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
         string_destroy(&cmdline);
         if (rc == -1)
         {
-            executor_set_error(executor, "system() failed");
+            exec_set_error(executor, "system() failed");
             cmd_exit_status = 127;
         }
         else
@@ -1372,7 +1373,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     /* ============================================================
      * 6. Update special variables and exit status
      * ============================================================ */
-    executor_set_exit_status(executor, cmd_exit_status);
+    exec_set_exit_status(executor, cmd_exit_status);
 
     // Update $_ with last argument, if any
     if (string_list_size(expanded_words) > 1)
@@ -1390,7 +1391,7 @@ exec_status_t executor_execute_simple_command(executor_t *executor, const ast_no
     // Restore redirections
     if (redirs && saved_fds)
     {
-        executor_restore_redirections_posix(saved_fds, saved_count);
+        exec_restore_redirections_posix(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
@@ -1420,7 +1421,7 @@ out_base_exp:
  *
  * It MUST NOT modify executor->variables or other parent state.
  */
-static void executor_run_simple_command_child(executor_t *executor, const ast_node_t *node)
+static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -1448,14 +1449,14 @@ static void executor_run_simple_command_child(executor_t *executor, const ast_no
     expander_set_userdata(base_exp, executor);
     expander_set_getenv(base_exp, expander_getenv);
     expander_set_tilde_expand(base_exp, expander_tilde_expand);
-    expander_set_glob(base_exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(base_exp, executor_command_subst_callback);
+    expander_set_glob(base_exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(base_exp, exec_command_subst_callback);
 
     /* ============================================================
      * 2. Build temporary variable store for this command
      * ============================================================ */
     variable_store_t *temp_vars =
-        executor_build_temp_store_for_simple_command(executor, node, base_exp);
+        exec_build_temp_store_for_simple_command(executor, node, base_exp);
     if (!temp_vars)
     {
 #ifdef POSIX_API
@@ -1485,8 +1486,8 @@ static void executor_run_simple_command_child(executor_t *executor, const ast_no
     expander_set_userdata(exp, executor);
     expander_set_getenv(exp, expander_getenv);
     expander_set_tilde_expand(exp, expander_tilde_expand);
-    expander_set_glob(exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_glob(exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(exp, exec_command_subst_callback);
 
     /* ============================================================
      * 4. Expand command words
@@ -1515,7 +1516,7 @@ static void executor_run_simple_command_child(executor_t *executor, const ast_no
     int saved_count = 0;
 
     exec_status_t st =
-        executor_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
+        exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
         _exit(127);
 #else
@@ -1575,7 +1576,7 @@ static void executor_run_simple_command_child(executor_t *executor, const ast_no
  *
  * It NEVER returns; it always calls _exit().
  */
-static void executor_run_redirected_command_child(executor_t *executor, const ast_node_t *node)
+static void exec_run_redirected_command_child(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -1598,14 +1599,14 @@ static void executor_run_redirected_command_child(executor_t *executor, const as
     expander_set_userdata(exp, executor);
     expander_set_getenv(exp, expander_getenv);
     expander_set_tilde_expand(exp, expander_tilde_expand);
-    expander_set_glob(exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_glob(exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(exp, exec_command_subst_callback);
 
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
     exec_status_t st =
-        executor_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
+        exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
         // Redirection failure: in a child, just exit with failure.
@@ -1619,16 +1620,16 @@ static void executor_run_redirected_command_child(executor_t *executor, const as
     switch (inner->type)
     {
     case AST_SIMPLE_COMMAND:
-        executor_run_simple_command_child(executor, inner);
+        exec_run_simple_command_child(executor, inner);
         break;
 
     case AST_REDIRECTED_COMMAND:
         // Nested redirected-command: recurse in child space.
-        executor_run_redirected_command_child(executor, inner);
+        exec_run_redirected_command_child(executor, inner);
         break;
 
     case AST_SUBSHELL:
-        // You can later introduce executor_run_subshell_child().
+        // You can later introduce exec_run_subshell_child().
         // For now, treat as not supported in pipeline children.
         _exit(127);
         break;
@@ -1659,7 +1660,7 @@ static void executor_run_redirected_command_child(executor_t *executor, const as
  *
  * It NEVER returns; it always calls _exit().
  */
-static void executor_run_subshell_child(executor_t *executor, const ast_node_t *node)
+static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -1670,7 +1671,7 @@ static void executor_run_subshell_child(executor_t *executor, const ast_node_t *
     /* ------------------------------------------------------------
      * 1. Create a child executor
      * ------------------------------------------------------------ */
-    executor_t *child = executor_create();
+    exec_t *child = exec_create();
 
     /* Copy variable store */
     variable_store_destroy(&child->variables);
@@ -1702,7 +1703,7 @@ static void executor_run_subshell_child(executor_t *executor, const ast_node_t *
     /* ------------------------------------------------------------
      * 2. Execute the subshell body
      * ------------------------------------------------------------ */
-    exec_status_t st = executor_execute(child, body);
+    exec_status_t st = exec_execute(child, body);
 
     int exit_code = 0;
     if (st == EXEC_OK)
@@ -1710,7 +1711,7 @@ static void executor_run_subshell_child(executor_t *executor, const ast_node_t *
     else
         exit_code = 127;
 
-    executor_destroy(&child);
+    exec_destroy(&child);
     _exit(exit_code);
 }
 #endif /* POSIX_API */
@@ -1726,7 +1727,7 @@ static void executor_run_subshell_child(executor_t *executor, const ast_node_t *
  *
  * It NEVER returns; it always calls _exit().
  */
-static void executor_run_brace_group_child(executor_t *executor, const ast_node_t *node)
+static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -1737,7 +1738,7 @@ static void executor_run_brace_group_child(executor_t *executor, const ast_node_
     /* ------------------------------------------------------------
      * 1. Create a child executor
      * ------------------------------------------------------------ */
-    executor_t *child = executor_create();
+    exec_t *child = exec_create();
 
     /* Copy variable store */
     variable_store_destroy(&child->variables);
@@ -1769,7 +1770,7 @@ static void executor_run_brace_group_child(executor_t *executor, const ast_node_
     /* ------------------------------------------------------------
      * 2. Execute the brace group body
      * ------------------------------------------------------------ */
-    exec_status_t st = executor_execute(child, body);
+    exec_status_t st = exec_execute(child, body);
 
     int exit_code = 0;
     if (st == EXEC_OK)
@@ -1777,12 +1778,12 @@ static void executor_run_brace_group_child(executor_t *executor, const ast_node_
     else
         exit_code = 127;
 
-    executor_destroy(&child);
+    exec_destroy(&child);
     _exit(exit_code);
 }
 #endif /* POSIX_API */
 
-exec_status_t executor_execute_redirected_command(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -1807,29 +1808,29 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
     expander_t *exp = expander_create(executor->variables, executor->positional_params);
     if (!exp)
     {
-        executor_set_error(executor, "failed to create expander");
+        exec_set_error(executor, "failed to create expander");
         return EXEC_ERROR;
     }
 
     expander_set_userdata(exp, executor);
     expander_set_getenv(exp, expander_getenv);
     expander_set_tilde_expand(exp, expander_tilde_expand);
-    expander_set_glob(exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_glob(exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(exp, exec_command_subst_callback);
 
 #ifdef POSIX_API
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
     exec_status_t st =
-        executor_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
+        exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
         expander_destroy(&exp);
         return st;
     }
 #else
-    exec_status_t st = executor_apply_redirections_iso_c(executor, redirs);
+    exec_status_t st = exec_apply_redirections_iso_c(executor, redirs);
     if (st != EXEC_OK)
     {
         expander_destroy(&exp);
@@ -1838,13 +1839,13 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
 #endif
 
     // Execute the wrapped command
-    st = executor_execute(executor, inner);
+    st = exec_execute(executor, inner);
 
 #ifdef POSIX_API
     // Restore redirections
     if (saved_fds)
     {
-        executor_restore_redirections_posix(saved_fds, saved_count);
+        exec_restore_redirections_posix(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
@@ -1855,7 +1856,7 @@ exec_status_t executor_execute_redirected_command(executor_t *executor, const as
 
 
 #ifdef POSIX_API
-static exec_status_t executor_apply_redirections_posix(executor_t *executor, expander_t *exp,
+static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t *exp,
                                                        const ast_node_list_t *redirs,
                                                        saved_fd_t **out_saved, int *out_saved_count)
 {
@@ -1869,7 +1870,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
     saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
     if (!saved)
     {
-        executor_set_error(executor, "Out of memory");
+        exec_set_error(executor, "Out of memory");
         return EXEC_ERROR;
     }
 
@@ -1891,7 +1892,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
         int backup = dup(fd);
         if (backup < 0)
         {
-            executor_set_error(executor, "dup() failed");
+            exec_set_error(executor, "dup() failed");
             xfree(saved);
             return EXEC_ERROR;
         }
@@ -1929,7 +1930,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
                 flags = O_WRONLY | O_CREAT | O_TRUNC;
                 break;
             default:
-                executor_set_error(executor, "Invalid filename redirection");
+                exec_set_error(executor, "Invalid filename redirection");
                 string_destroy(&fname_str);
                 xfree(saved);
                 return EXEC_ERROR;
@@ -1938,7 +1939,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
             int newfd = open(fname, flags, mode);
             if (newfd < 0)
             {
-                executor_set_error(executor, "Failed to open '%s'", fname);
+                exec_set_error(executor, "Failed to open '%s'", fname);
                 string_destroy(&fname_str);
                 xfree(saved);
                 return EXEC_ERROR;
@@ -1946,7 +1947,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
 
             if (dup2(newfd, fd) < 0)
             {
-                executor_set_error(executor, "dup2() failed");
+                exec_set_error(executor, "dup2() failed");
                 string_destroy(&fname_str);
                 close(newfd);
                 xfree(saved);
@@ -1965,7 +1966,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
 
             if (dup2(src, fd) < 0)
             {
-                executor_set_error(executor, "dup2(%d,%d) failed", src, fd);
+                exec_set_error(executor, "dup2(%d,%d) failed", src, fd);
                 string_destroy(&fd_str);
                 xfree(saved);
                 return EXEC_ERROR;
@@ -1983,7 +1984,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
             int pipefd[2];
             if (pipe(pipefd) < 0)
             {
-                executor_set_error(executor, "pipe() failed");
+                exec_set_error(executor, "pipe() failed");
                 xfree(saved);
                 return EXEC_ERROR;
             }
@@ -1997,7 +1998,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
 
             if (dup2(pipefd[0], fd) < 0)
             {
-                executor_set_error(executor, "dup2() failed for heredoc");
+                exec_set_error(executor, "dup2() failed for heredoc");
                 close(pipefd[0]);
                 xfree(saved);
                 return EXEC_ERROR;
@@ -2008,7 +2009,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
         }
 
         default:
-            executor_set_error(executor, "Unknown redirection operand");
+            exec_set_error(executor, "Unknown redirection operand");
             xfree(saved);
             return EXEC_ERROR;
         }
@@ -2019,7 +2020,7 @@ static exec_status_t executor_apply_redirections_posix(executor_t *executor, exp
     return EXEC_OK;
 }
 
-static void executor_restore_redirections_posix(saved_fd_t *saved, int saved_count)
+static void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count)
 {
     for (int i = 0; i < saved_count; i++)
     {
@@ -2029,33 +2030,33 @@ static void executor_restore_redirections_posix(saved_fd_t *saved, int saved_cou
 }
 
 #elifdef UCRT_API
-static exec_status_t executor_apply_redirections_ucrt_c(executor_t *executor,
+static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
                                                          const ast_node_list_t *redirs)
 {
     (void)redirs;
-    executor_set_error(executor, "Redirections are not yet supported in UCRT_API mode");
+    exec_set_error(executor, "Redirections are not yet supported in UCRT_API mode");
     return EXEC_NOT_IMPL;
 }
 #else
-static exec_status_t executor_apply_redirections_iso_c(executor_t *executor,
+static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
                                                        const ast_node_list_t *redirs)
 {
     (void)redirs;
 
-    executor_set_error(executor, "Redirections are not supported in ISO_C_API mode");
+    exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
 
     return EXEC_ERROR;
 }
 #endif
 
-exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_if_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
     Expects_eq(node->type, AST_IF_CLAUSE);
 
     // Execute condition
-    exec_status_t status = executor_execute(executor, node->data.if_clause.condition);
+    exec_status_t status = exec_execute(executor, node->data.if_clause.condition);
     if (status != EXEC_OK)
     {
         return status;
@@ -2065,7 +2066,7 @@ exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t 
     if (executor->last_exit_status == 0)
     {
         // Condition succeeded - execute then body
-        return executor_execute(executor, node->data.if_clause.then_body);
+        return exec_execute(executor, node->data.if_clause.then_body);
     }
 
     // Try elif clauses
@@ -2076,7 +2077,7 @@ exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t 
             ast_node_t *elif_node = node->data.if_clause.elif_list->nodes[i];
 
             // Execute elif condition
-            status = executor_execute(executor, elif_node->data.if_clause.condition);
+            status = exec_execute(executor, elif_node->data.if_clause.condition);
             if (status != EXEC_OK)
             {
                 return status;
@@ -2085,7 +2086,7 @@ exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t 
             if (executor->last_exit_status == 0)
             {
                 // Elif condition succeeded
-                return executor_execute(executor, elif_node->data.if_clause.then_body);
+                return exec_execute(executor, elif_node->data.if_clause.then_body);
             }
         }
     }
@@ -2093,13 +2094,13 @@ exec_status_t executor_execute_if_clause(executor_t *executor, const ast_node_t 
     // Execute else body if present
     if (node->data.if_clause.else_body != NULL)
     {
-        return executor_execute(executor, node->data.if_clause.else_body);
+        return exec_execute(executor, node->data.if_clause.else_body);
     }
 
     return EXEC_OK;
 }
 
-exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2110,7 +2111,7 @@ exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node
     while (true)
     {
         // Execute condition
-        status = executor_execute(executor, node->data.loop_clause.condition);
+        status = exec_execute(executor, node->data.loop_clause.condition);
         if (status != EXEC_OK)
         {
             break;
@@ -2124,7 +2125,7 @@ exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node
         }
 
         // Execute body
-        status = executor_execute(executor, node->data.loop_clause.body);
+        status = exec_execute(executor, node->data.loop_clause.body);
         if (status != EXEC_OK)
         {
             break;
@@ -2134,7 +2135,7 @@ exec_status_t executor_execute_while_clause(executor_t *executor, const ast_node
     return status;
 }
 
-exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2145,7 +2146,7 @@ exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node
     while (true)
     {
         // Execute condition
-        status = executor_execute(executor, node->data.loop_clause.condition);
+        status = exec_execute(executor, node->data.loop_clause.condition);
         if (status != EXEC_OK)
         {
             break;
@@ -2159,7 +2160,7 @@ exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node
         }
 
         // Execute body
-        status = executor_execute(executor, node->data.loop_clause.body);
+        status = exec_execute(executor, node->data.loop_clause.body);
         if (status != EXEC_OK)
         {
             break;
@@ -2169,7 +2170,7 @@ exec_status_t executor_execute_until_clause(executor_t *executor, const ast_node
     return status;
 }
 
-exec_status_t executor_execute_for_clause(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2179,11 +2180,11 @@ exec_status_t executor_execute_for_clause(executor_t *executor, const ast_node_t
     // Would need to:
     // 1. Expand word list
     // 2. For each word, set variable and execute body
-    executor_set_error(executor, "For loop execution not yet implemented");
+    exec_set_error(executor, "For loop execution not yet implemented");
     return EXEC_NOT_IMPL;
 }
 
-exec_status_t executor_execute_case_clause(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2194,11 +2195,11 @@ exec_status_t executor_execute_case_clause(executor_t *executor, const ast_node_
     // 1. Expand the word to match
     // 2. For each case item, check if pattern matches
     // 3. Execute matching case body
-    executor_set_error(executor, "Case statement execution not yet implemented");
+    exec_set_error(executor, "Case statement execution not yet implemented");
     return EXEC_NOT_IMPL;
 }
 
-exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2210,7 +2211,7 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
     pid_t pid = fork();
     if (pid < 0)
     {
-        executor_set_error(executor, "fork() failed for subshell");
+        exec_set_error(executor, "fork() failed for subshell");
         return EXEC_ERROR;
     }
 
@@ -2219,7 +2220,7 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
         /* ---------------- CHILD PROCESS ---------------- */
 
         /* Create a child executor */
-        executor_t *child = executor_create();
+        exec_t *child = exec_create();
 
         /* Copy variable store */
         variable_store_destroy(&child->variables);
@@ -2249,7 +2250,7 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
         child->shell_flags = string_create_from(executor->shell_flags);
 
         /* Execute the body */
-        exec_status_t st = executor_execute(child, body);
+        exec_status_t st = exec_execute(child, body);
 
         int exit_code = 0;
         if (st == EXEC_OK)
@@ -2257,7 +2258,7 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
         else
             exit_code = 127;
 
-        executor_destroy(&child);
+        exec_destroy(&child);
         _exit(exit_code);
     }
 
@@ -2266,7 +2267,7 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
     int status = 0;
     if (waitpid(pid, &status, 0) < 0)
     {
-        executor_set_error(executor, "waitpid() failed for subshell");
+        exec_set_error(executor, "waitpid() failed for subshell");
         return EXEC_ERROR;
     }
 
@@ -2278,16 +2279,16 @@ exec_status_t executor_execute_subshell(executor_t *executor, const ast_node_t *
     else
         exit_code = 127;
 
-    executor_set_exit_status(executor, exit_code);
+    exec_set_exit_status(executor, exit_code);
     return EXEC_OK;
 
 #else
-    executor_set_error(executor, "subshells not supported in this build");
+    exec_set_error(executor, "subshells not supported in this build");
     return EXEC_NOT_IMPL;
 #endif
 }
 
-exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2299,21 +2300,21 @@ exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_
     expander_t *exp = expander_create(executor->variables, executor->positional_params);
     if (!exp)
     {
-        executor_set_error(executor, "failed to create expander");
+        exec_set_error(executor, "failed to create expander");
         return EXEC_ERROR;
     }
 
     expander_set_userdata(exp, executor);
     expander_set_getenv(exp, expander_getenv);
     expander_set_tilde_expand(exp, expander_tilde_expand);
-    expander_set_glob(exp, executor_pathname_expansion_callback);
-    expander_set_command_substitute(exp, executor_command_subst_callback);
+    expander_set_glob(exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(exp, exec_command_subst_callback);
 
 #ifdef POSIX_API
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
-    exec_status_t st = executor_apply_redirections_posix(
+    exec_status_t st = exec_apply_redirections_posix(
         executor, exp, node->data.redirected_command.redirections, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
@@ -2322,7 +2323,7 @@ exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_
     }
 #else
     exec_status_t st =
-        executor_apply_redirections_iso_c(executor, node->data.redirected_command.redirections);
+        exec_apply_redirections_iso_c(executor, node->data.redirected_command.redirections);
     if (st != EXEC_OK)
     {
         expander_destroy(&exp);
@@ -2331,13 +2332,13 @@ exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_
 #endif
 
     // Execute the body in the current shell (no fork)
-    st = executor_execute(executor, body);
+    st = exec_execute(executor, body);
 
 #ifdef POSIX_API
     // Restore redirections
     if (saved_fds)
     {
-        executor_restore_redirections_posix(saved_fds, saved_count);
+        exec_restore_redirections_posix(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
@@ -2347,7 +2348,7 @@ exec_status_t executor_execute_brace_group(executor_t *executor, const ast_node_
 }
 
 
-exec_status_t executor_execute_function_def(executor_t *executor, const ast_node_t *node)
+exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -2357,8 +2358,8 @@ exec_status_t executor_execute_function_def(executor_t *executor, const ast_node
 
     if (!executor->functions)
     {
-        executor_set_error(executor, "function store is not initialized");
-        executor_set_exit_status(executor, 1);
+        exec_set_error(executor, "function store is not initialized");
+        exec_set_exit_status(executor, 1);
         return EXEC_ERROR;
     }
 
@@ -2369,31 +2370,31 @@ exec_status_t executor_execute_function_def(executor_t *executor, const ast_node
         switch (err)
         {
         case FUNC_STORE_ERROR_EMPTY_NAME:
-            executor_set_error(executor, "empty function name");
-            executor_set_exit_status(executor, 1);
+            exec_set_error(executor, "empty function name");
+            exec_set_exit_status(executor, 1);
             break;
 
         case FUNC_STORE_ERROR_NAME_TOO_LONG:
-            executor_set_error(executor, "function name too long");
-            executor_set_exit_status(executor, 1);
+            exec_set_error(executor, "function name too long");
+            exec_set_exit_status(executor, 1);
             break;
 
         case FUNC_STORE_ERROR_NAME_INVALID_CHARACTER:
         case FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT:
-            executor_set_error(executor, "invalid function name");
-            executor_set_exit_status(executor, 1);
+            exec_set_error(executor, "invalid function name");
+            exec_set_exit_status(executor, 1);
             break;
 
         case FUNC_STORE_ERROR_STORAGE_FAILURE:
-            executor_set_error(executor, "failed to store function definition");
-            executor_set_exit_status(executor, 1);
+            exec_set_error(executor, "failed to store function definition");
+            exec_set_exit_status(executor, 1);
             break;
 
         case FUNC_STORE_ERROR_NOT_FOUND:
         default:
             // NOT_FOUND shouldn't really occur on add, but handle generically
-            executor_set_error(executor, "internal function store error");
-            executor_set_exit_status(executor, 1);
+            exec_set_error(executor, "internal function store error");
+            exec_set_exit_status(executor, 1);
             break;
         }
 
@@ -2402,8 +2403,8 @@ exec_status_t executor_execute_function_def(executor_t *executor, const ast_node
 
     // Successful definition: status 0
     // Return special status to indicate the node has been moved (ownership transferred)
-    executor_clear_error(executor);
-    executor_set_exit_status(executor, 0);
+    exec_clear_error(executor);
+    exec_set_exit_status(executor, 0);
     return EXEC_OK_INTERNAL_FUNCTION_STORED;
 }
 
@@ -2597,7 +2598,7 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
 // that a simple command with no command name (e.g., pure assignments containing
 // substitutions) inherits the last substitution's status is enforced by the
 // caller; here we merely stash the status on the executor for later use.
-static void executor_record_subst_status(executor_t *executor, int raw_status)
+static void exec_record_subst_status(exec_t *executor, int raw_status)
 {
     if (executor == NULL)
     {
@@ -2618,7 +2619,7 @@ static void executor_record_subst_status(executor_t *executor, int raw_status)
     int status = raw_status;
 #endif
 
-    executor_set_exit_status(executor, status);
+    exec_set_exit_status(executor, status);
 }
 
 /**
@@ -2626,24 +2627,24 @@ static void executor_record_subst_status(executor_t *executor, int raw_status)
  * For now, this is a stub that returns empty output.
  * In a full implementation, this would parse and execute the command.
  */
-string_t *executor_command_subst_callback(const string_t *command, void *executor_ctx, void *user_data)
+string_t *exec_command_subst_callback(const string_t *command, void *exec_ctx, void *user_data)
 {
 #ifdef POSIX_API
     (void)user_data;  // unused for now
 
-    executor_t *executor = (executor_t *)executor_ctx;
+    exec_t *executor = (exec_t *)exec_ctx;
     const char *cmd = string_cstr(command);
     if (cmd == NULL || *cmd == '\0')
     {
-        executor_record_subst_status(executor, 0);
+        exec_record_subst_status(executor, 0);
         return string_create();
     }
 
     FILE *pipe = popen(cmd, "r");
     if (pipe == NULL)
     {
-        log_error("executor_command_subst_callback: popen failed for '%s'", cmd);
-        executor_record_subst_status(executor, 1);
+        log_error("exec_command_subst_callback: popen failed for '%s'", cmd);
+        exec_record_subst_status(executor, 1);
         return string_create();
     }
 
@@ -2658,9 +2659,9 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
     int exit_code = pclose(pipe);
     if (exit_code != 0)
     {
-        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
+        log_debug("exec_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
     }
-    executor_record_subst_status(executor, exit_code);
+    exec_record_subst_status(executor, exit_code);
 
     // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
     while (string_length(output) > 0)
@@ -2680,19 +2681,19 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
 #elifdef UCRT_API
     (void)user_data;  // unused for now
 
-    executor_t *executor = (executor_t *)executor_ctx;
+    exec_t *executor = (exec_t *)exec_ctx;
     const char *cmd = string_cstr(command);
     if (cmd == NULL || *cmd == '\0')
     {
-        executor_record_subst_status(executor, 0);
+        exec_record_subst_status(executor, 0);
         return string_create();
     }
 
     FILE *pipe = _popen(cmd, "r");
     if (pipe == NULL)
     {
-        log_error("executor_command_subst_callback: _popen failed for '%s'", cmd);
-        executor_record_subst_status(executor, 1);
+        log_error("exec_command_subst_callback: _popen failed for '%s'", cmd);
+        exec_record_subst_status(executor, 1);
         return string_create();
     }
 
@@ -2707,9 +2708,9 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
     int exit_code = _pclose(pipe);
     if (exit_code != 0)
     {
-        log_debug("executor_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
+        log_debug("exec_command_subst_callback: child exited with code %d for '%s'", exit_code, cmd);
     }
-    executor_record_subst_status(executor, exit_code);
+    exec_record_subst_status(executor, exit_code);
 
     // Trim trailing newlines/carriage returns to approximate shell command substitution behavior
     while (string_length(output) > 0)
@@ -2730,7 +2731,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
     // There is no portable way to do command substitution in ISO_C.
     // You could run a shell process via system(), but, without capturing output.
     (void)command;    // unused
-    executor_record_subst_status((executor_t *)executor_ctx, 0);
+    exec_record_subst_status((exec_t *)exec_ctx, 0);
     return string_create();
 #endif
 }
@@ -2750,7 +2751,7 @@ string_t *executor_command_subst_callback(const string_t *command, void *executo
  * - On no matches or on error: returns NULL, signaling the expander to keep
  *   the original pattern literal per POSIX behavior.
  */
-string_list_t *executor_pathname_expansion_callback(const string_t *pattern, void *user_data)
+string_list_t *exec_pathname_expansion_callback(const string_t *pattern, void *user_data)
 {
 #ifdef POSIX_API
     (void)user_data;  // unused
@@ -2794,7 +2795,7 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
     (void)user_data;  // unused
 
     const char *pattern_str = string_data(pattern);
-    log_debug("executor_pathname_expansion_callback: UCRT glob pattern='%s'", pattern_str);
+    log_debug("exec_pathname_expansion_callback: UCRT glob pattern='%s'", pattern_str);
     struct _finddata_t fd;
     intptr_t handle;
 
@@ -2839,7 +2840,7 @@ string_list_t *executor_pathname_expansion_callback(const string_t *pattern, voi
     (void)user_data;  // unused
     string_list_t *result = string_list_create();
     string_list_push_back(result, pattern);
-    log_warn("executor_pathname_expansion_callback: No glob implementation available");
+    log_warn("exec_pathname_expansion_callback: No glob implementation available");
     return result;
 #endif
 }

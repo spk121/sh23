@@ -1,6 +1,6 @@
 #include <string.h>
 #include "ctest.h"
-#include "executor.h"
+#include "exec.h"
 #include "string_t.h"
 #include "logging.h"
 
@@ -8,9 +8,9 @@
  * Test: Executor Creation and Destruction
  * ============================================================================ */
 
-CTEST(test_executor_create_destroy)
+CTEST(test_exec_create_destroy)
 {
-    executor_t *executor = executor_create();
+    exec_t *executor = exec_create();
     
     // Verify executor was created
     CTEST_ASSERT_NOT_NULL(ctest, executor, "executor should be created");
@@ -37,7 +37,7 @@ CTEST(test_executor_create_destroy)
     CTEST_ASSERT_EQ(ctest, string_length(executor->shell_flags), 0, "shell_flags should be empty");
     
     // Clean up
-    executor_destroy(&executor);
+    exec_destroy(&executor);
     CTEST_ASSERT_NULL(ctest, executor, "executor should be NULL after destroy");
     
     (void)ctest;
@@ -47,9 +47,9 @@ CTEST(test_executor_create_destroy)
  * Test: Executor Special Variables
  * ============================================================================ */
 
-CTEST(test_executor_special_variables)
+CTEST(test_exec_special_variables)
 {
-    executor_t *executor = executor_create();
+    exec_t *executor = exec_create();
     
     // Test that we can modify special variable fields
     executor->last_background_pid = 12345;
@@ -65,7 +65,7 @@ CTEST(test_executor_special_variables)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(executor->shell_flags), "ix", "shell_flags should contain 'ix'");
     
     // Clean up (this verifies that string_destroy is called properly)
-    executor_destroy(&executor);
+    exec_destroy(&executor);
     CTEST_ASSERT_NULL(ctest, executor, "executor should be NULL after destroy");
     
     (void)ctest;
@@ -81,8 +81,8 @@ int main(void)
 	log_set_level(LOG_LEVEL_ERROR);
     
     CTestEntry *suite[] = {
-        CTEST_ENTRY(test_executor_create_destroy),
-        CTEST_ENTRY(test_executor_special_variables),
+        CTEST_ENTRY(test_exec_create_destroy),
+        CTEST_ENTRY(test_exec_special_variables),
         NULL
     };
     

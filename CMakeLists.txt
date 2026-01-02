@@ -98,7 +98,11 @@ set(SH23STORE_SOURCES
     src/gnode.c
     src/gnode.h
     src/gprint.c
-    src/gprint.h    
+    src/gprint.h
+    src/sig_act.c
+    src/sig_act.h
+    src/trap_store.c
+    src/trap_store.h
     src/variable_map.c
     src/variable_map.h
     src/variable_store.c
@@ -145,8 +149,8 @@ set(SH23LOGIC_SOURCES
     src/tokenizer.h
     src/parser.c
     src/parser.h
-    src/executor.c
-    src/executor.h
+    src/exec.c
+    src/exec.h
     src/expander.c
     src/expander.h
     src/shell.c
@@ -192,6 +196,7 @@ set(SH23STORE_TEST_SOURCES
     test/mgsh/test_alist_ctest.c
     test/mgsh/test_ast_ctest.c
     test/mgsh/test_ast_heredoc_ctest.c
+    test/mgsh/test_sig_act_ctest.c
 )
 
 # Tests that depend on full sh23logic (all libraries)
@@ -204,7 +209,7 @@ set(SH23LOGIC_TEST_SOURCES
     test/mgsh/test_parser_gnode_ctest.c
     test/mgsh/test_tokenizer_ctest.c
     test/mgsh/test_expander_ctest.c
-    test/mgsh/test_executor_ctest.c
+    test/mgsh/test_exec_ctest.c
 )
 
 # Build sh23base tests

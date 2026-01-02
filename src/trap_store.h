@@ -8,7 +8,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <signal.h>
-#include "string.h"  // Assuming you have a string_t type
+#include "string_t.h"
 
 // Signals KILL and STOP are not catchable or ignorable.
 // POSIX <signal.h> requires ABRT, ALRM, BUS, CHLD, CONT, FPE, HUP,

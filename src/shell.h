@@ -77,6 +77,7 @@ typedef struct
     shell_flags_t flags;
 } shell_cfg_t;
 
+typedef struct shell_t shell_t;
 
 shell_t *shell_create(const shell_cfg_t *opts);
 void     shell_destroy(shell_t **sh);

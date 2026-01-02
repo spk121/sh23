@@ -1,7 +1,7 @@
 #include "ctest.h"
 #include "parser.h"
 #include "ast.h"
-#include "executor.h"
+#include "exec.h"
 #include "lexer.h"
 #include "string_t.h"
 #include "token.h"
@@ -709,29 +709,29 @@ CTEST(test_parser_braced_io_invalid_redirection)
  * Executor Tests
  * ============================================================================ */
 
-CTEST(test_executor_create_destroy)
+CTEST(test_exec_create_destroy)
 {
-    executor_t *executor = executor_create();
+    exec_t *executor = exec_create();
     CTEST_ASSERT_NOT_NULL(ctest, executor, "executor created");
-    CTEST_ASSERT_EQ(ctest, executor_get_exit_status(executor), 0, "initial exit status is 0");
-    executor_destroy(&executor);
+    CTEST_ASSERT_EQ(ctest, exec_get_exit_status(executor), 0, "initial exit status is 0");
+    exec_destroy(&executor);
     (void)ctest;
 }
 
-CTEST(test_executor_dry_run)
+CTEST(test_exec_dry_run)
 {
     ast_node_t *ast = parse_string("echo hello");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
     
     if (ast != NULL)
     {
-        executor_t *executor = executor_create();
-        executor_set_dry_run(executor, true);
+        exec_t *executor = exec_create();
+        exec_set_dry_run(executor, true);
         
-        exec_status_t status = executor_execute(executor, ast);
+        exec_status_t status = exec_execute(executor, ast);
         CTEST_ASSERT_EQ(ctest, status, EXEC_OK, "dry run execution succeeded");
         
-        executor_destroy(&executor);
+        exec_destroy(&executor);
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -1026,8 +1026,8 @@ int main(void)
         CTEST_ENTRY(test_parser_braced_io_invalid_redirection),
 
         // Executor Tests
-        CTEST_ENTRY(test_executor_create_destroy),
-        CTEST_ENTRY(test_executor_dry_run),
+        CTEST_ENTRY(test_exec_create_destroy),
+        CTEST_ENTRY(test_exec_dry_run),
 
         // Visitor Pattern Tests
         CTEST_ENTRY(test_ast_traverse),

@@ -8,7 +8,7 @@
 //#include "lexer.h"
 //#include "parser.h"
 //#include "expander.h"
-#include "executor.h"
+#include "exec.h"
 //#include "ast.h"
 //#include "lower.h"
 //#include "tokenizer.h"
@@ -17,8 +17,8 @@
 
 struct shell_t
 {
-    executor_t *root_exec;
-} shell_t;
+    exec_t *root_exec;
+};
 
 // Internal helpers used by shell_feed_line/shell_run_script
 #if 0
@@ -75,7 +75,7 @@ shell_t *shell_create(const shell_cfg_t *cfg)
     exec_cfg.flags.allexport = cfg->flags.allexport;
     // etc, carry on with rest of flags
     
-    sh->root_exec = executor_create_from_cfg(exec_cfg);
+    sh->root_exec = exec_create_from_cfg(exec_cfg);
     return sh;
 }
 
@@ -87,7 +87,7 @@ void shell_destroy(shell_t **sh)
     if (s == nullptr)
         return;
     if (s->root_exec == nullptr)
-        executor_destroy(&s->root_exec);
+        exec_destroy(&s->root_exec);
     s->root_exec = nullptr;
 
     xfree(s);
@@ -263,14 +263,14 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     }
 
     // Execute the expanded AST
-    exec_status_t exec_status = executor_execute(sh->executor, expanded_ast);
+    exec_status_t exec_status = exec_execute(sh->executor, expanded_ast);
     // Propagate the last exit status into the expander so subsequent `$?`
     // expansions see the most recent command status (including the POSIX
     // assignment-only + command-substitution case).
 
     // FIXME: the new API is to just add a temp variable of the exit status
     // into the variable store used by the expander.
-    // expander_set_last_exit_status(sh->expander, executor_get_exit_status(sh->executor));
+    // expander_set_last_exit_status(sh->expander, exec_get_exit_status(sh->executor));
 
     // Cleanup AST (expanded_ast may be the same pointer as ast)
     ast_node_destroy(&ast);
