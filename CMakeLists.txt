@@ -91,6 +91,8 @@ set(SH23STORE_SOURCES
     src/alias_store.h
     src/alias_array.c
     src/alias_array.h
+    src/fd_table.c
+    src/fd_table.h
     src/func_map.c
     src/func_map.h
     src/func_store.c
@@ -99,6 +101,8 @@ set(SH23STORE_SOURCES
     src/gnode.h
     src/gprint.c
     src/gprint.h
+    src/job_store.c
+    src/job_store.h
     src/sig_act.c
     src/sig_act.h
     src/trap_store.c

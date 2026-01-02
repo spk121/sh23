@@ -30,11 +30,11 @@ typedef string_t *(*expander_command_subst_fn)(void *userdata, const string_t *c
  * Create a new expander.
  *
  * vars   - variable store (persistent or temporary)
- * params - positional parameter stack
+ * params - positional parameters (not owned by expander)
  *
  * The expander does NOT take ownership of vars or params.
  */
-expander_t *expander_create(variable_store_t *vars, positional_params_stack_t *params);
+expander_t *expander_create(variable_store_t *vars, positional_params_t *params);
 
 /*
  * Destroy an expander.

@@ -62,13 +62,13 @@ exec_t *exec_create(void)
     exec_t *e = (exec_t *)xcalloc(1, sizeof(exec_t));
     e->error_msg = string_create();
     e->last_exit_status_set = false;
-    else->last_exit_status = 0;
+    e->last_exit_status = 0;
 #ifdef SH23_EXTENSIONS
     e->dry_run = false;
 #endif
     // Initialize persistent stores
     e->variables = variable_store_create();
-    e->positional_params = positional_params_stack_create();
+    e->positional_params = positional_params_create();
     e->functions = func_store_create();
 
     // Initialize special variable fields
@@ -112,7 +112,7 @@ void exec_destroy(exec_t **executor)
 
     if (e->positional_params != NULL)
     {
-        positional_params_stack_destroy(&e->positional_params);
+        positional_params_destroy(&e->positional_params);
     }
 
     if (e->functions != NULL)
@@ -235,12 +235,14 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     variable_store_set_cstr(e->variables, "SHELL", cfg->argv[0]);
 
     // Initialize positional parameters from command line
-    e->positional_params = positional_params_create();
     if (cfg->argc > 1)
     {
-        positional_params_set_from_argv(e->positional_params, cfg->argc - 1, &(cfg->argv[1]));
+        e->positional_params = positional_params_create_from_argv(cfg->argc - 1, (const char **)&(cfg->argv[1]));
     }
-    e->argument_count = positional_params_count(e->positional_params);
+    else
+    {
+        e->positional_params = positional_params_create();
+    }
 
     // ========================================================================
     // Special Parameters
@@ -384,7 +386,6 @@ exec_t *exec_create_subshell(exec_t *parent)
     // ========================================================================
     e->variables = variable_store_copy(parent->variables);
     e->positional_params = positional_params_copy(parent->positional_params);
-    e->argument_count = parent->argument_count;
 
     // ========================================================================
     // Special Parameters
@@ -1679,8 +1680,8 @@ static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node)
     variable_store_copy_all(child->variables, executor->variables);
 
     /* Copy positional parameters */
-    positional_params_stack_destroy(&child->positional_params);
-    child->positional_params = positional_params_stack_clone(executor->positional_params);
+    positional_params_destroy(&child->positional_params);
+    child->positional_params = positional_params_copy(executor->positional_params);
 
     /* Copy special variables */
     child->last_exit_status_set = executor->last_exit_status_set;
@@ -1746,8 +1747,8 @@ static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
     variable_store_copy_all(child->variables, executor->variables);
 
     /* Copy positional parameters */
-    positional_params_stack_destroy(&child->positional_params);
-    child->positional_params = positional_params_stack_clone(executor->positional_params);
+    positional_params_destroy(&child->positional_params);
+    child->positional_params = positional_params_copy(executor->positional_params);
 
     /* Copy special variables */
     child->last_exit_status_set = executor->last_exit_status_set;
@@ -2228,8 +2229,8 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
         variable_store_copy_all(child->variables, executor->variables);
 
         /* Copy positional parameters */
-        positional_params_stack_destroy(&child->positional_params);
-        child->positional_params = positional_params_stack_clone(executor->positional_params);
+        positional_params_destroy(&child->positional_params);
+        child->positional_params = positional_params_copy(executor->positional_params);
 
         /* Copy special variables */
         child->last_exit_status_set = executor->last_exit_status_set;

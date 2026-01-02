@@ -12,7 +12,7 @@
 struct expander_t
 {
     variable_store_t *vars;
-    positional_params_stack_t *params;
+    positional_params_t *params;
 
     /* System interaction hooks */
     expander_getenv_fn fn_getenv;
@@ -33,7 +33,7 @@ string_t *expander_command_subst(void *user_data, const string_t *command);
      * ============================================================================
      */
 
-    expander_t *expander_create(variable_store_t *vars, positional_params_stack_t *params)
+    expander_t *expander_create(variable_store_t *vars, positional_params_t *params)
 {
     expander_t *exp = xcalloc(1, sizeof(expander_t));
     if (!exp)

@@ -9,122 +9,14 @@
 #include "positional_params.h"
 #include "func_store.h"
 #include "sig_act.h"
+#include "job_store.h"
+#if defined(POSIX_API) || defined(UCRT_API)
+#include "fd_table.h"
+#endif
+#include "trap_store.h"
 #include <stdbool.h>
 
 
-#if 1
-// ============================================================================
-// FIXME: Implement all these structures and types fully.
-// ============================================================================
-
-// ============================================================================
-// TRAP STORE
-// ============================================================================
-
-// Signals KILL and STOP are not catchable or ignorable.
-// POSIX <signal.h> requires ABRT, ALRM, BUS, CHLD, CONT, FPE, HUP,
-//   ILL, INT, KILL, PIPE, QUIT, SEGV, STOP, TERM,
-//   TSTP, TTIN, TTOU, USR1, USR2, WINCH
-// UCRT defines ABRT, FPE, ILL, INT, SEGV, TERM.
-// ISO C only defines ABRT, FPE, ILL, INT, SEGV, TERM.
-
-typedef struct trap_action_t
-{
-    int signal_number; // Signal number (SIGINT, SIGTERM, etc.)
-    string_t *action;  // Command string to execute, or NULL for default action
-    bool is_ignored;   // true if trap is set to ignore (trap '' SIGNAL)
-    bool is_default;   // true if trap is set to default (trap - SIGNAL)
-} trap_action_t;
-
-typedef struct trap_store_t
-{
-    trap_action_t *traps;  // Array of trap actions, indexed by signal number
-    size_t capacity;       // Size of array (typically NSIG or _NSIG)
-    bool exit_trap_set;    // Special case: trap on EXIT (signal 0)
-    string_t *exit_action; // Action for EXIT trap
-} trap_store_t;
-
-
-
-// ============================================================================
-// JOB TABLE
-// ============================================================================
-
-typedef enum job_state_t
-{
-    JOB_RUNNING,
-    JOB_STOPPED,
-    JOB_DONE,
-    JOB_TERMINATED
-} job_state_t;
-
-typedef struct process_t
-{
-#ifdef POSIX_API
-    pid_t pid;              // Process ID
-#else
-    int pid;
-#endif
-    string_t *command;      // Command string for this process
-    job_state_t state;      // Current state of this process
-    int exit_status;        // Exit status (if done) or signal number (if terminated)
-    struct process_t *next; // Next process in pipeline
-} process_t;
-
-typedef struct job_t
-{
-    int job_id;             // Job number (for %1, %2, etc.)
-#ifdef POSIX_API
-    pid_t pgid; // Process group ID
-#else
-    int pgid;   // Process group ID
-#endif
-    process_t *processes;   // Linked list of processes in this job (pipeline)
-    string_t *command_line; // Full command line as typed by user
-    job_state_t state;      // Overall state of the job
-    bool is_background;     // Whether job was started with &
-    bool is_notified;       // Whether user has been notified of status change
-    struct job_t *next;     // Next job in table
-} job_t;
-
-typedef struct job_table_t
-{
-    job_t *jobs;         // Linked list of jobs
-    int next_job_id;     // Next job ID to assign
-    job_t *current_job;  // Job referenced by %% or %+
-    job_t *previous_job; // Job referenced by %-
-} job_table_t;
-
-// ============================================================================
-// FILE DESCRIPTOR TABLE
-// ============================================================================
-
-typedef enum fd_flags_t
-{
-    FD_NONE = 0,
-    FD_CLOEXEC = 1 << 0,    // Close-on-exec flag
-    FD_REDIRECTED = 1 << 1, // FD was created by redirection
-    FD_SAVED = 1 << 2,      // FD is a saved copy of another FD
-} fd_flags_t;
-
-typedef struct fd_entry_t
-{
-    int fd;           // File descriptor number
-    int original_fd;  // If saved, what FD was this a copy of? (-1 if not saved)
-    fd_flags_t flags; // Flags for this FD
-    string_t *path;   // Path if opened from file (NULL otherwise)
-    bool is_open;     // Whether this FD is currently open
-} fd_entry_t;
-
-typedef struct fd_table_t
-{
-    fd_entry_t *entries; // Dynamic array of FD entries
-    size_t capacity;     // Current capacity of array
-    size_t count;        // Number of entries in use
-    int highest_fd;      // Highest FD number in use
-} fd_table_t;
-
-#endif
 /* ============================================================================
  * Executor Status (return codes)
  * ============================================================================ */
@@ -230,7 +122,7 @@ typedef struct exec_t
     // control is disabled; together these process IDs constitute the process
     // IDs "known to this shell environment".
     // Job control
-    job_table_t *jobs;        // Background jobs
+    job_store_t *jobs;        // Background jobs
     bool job_control_enabled; // Whether job control is active
 #ifdef POSIX_API
     pid_t pgid;      // Process group ID for job control

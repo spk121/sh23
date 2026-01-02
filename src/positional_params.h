@@ -1,4 +1,13 @@
-// positional_params.h
+/**
+ * @file positional_params.h
+ * @brief Positional parameters ($1, $2, ..., $#) for a single executor context
+ *
+ * This module manages the positional parameters for a single exec_t instance.
+ * Each executor has its own independent set of positional parameters.
+ * When creating subshells or calling functions, a new exec_t is created with
+ * its own positional_params_t copied or created from scratch.
+ */
+
 #ifndef POSITIONAL_PARAMS_H
 #define POSITIONAL_PARAMS_H
 
@@ -12,174 +21,160 @@
 #error "POSITIONAL_PARAMS_MAX must be a positive integer less than INT_MAX"
 #endif
 
-struct positional_params_t
-{
-    string_t **params; // params[0] is $1
-    int count;         // number of params
-};
-
-struct positional_params_stack_t
-{
-    struct positional_params_t **frames;
-    int depth;
-    int capacity;
-    string_t *zero; // $0 stored separately
-    int max_params; // Maximum number of positional parameters allowed
-};
-
-typedef struct positional_params_t positional_params_t;
-typedef struct positional_params_stack_t positional_params_stack_t;
-
-// ============================================================================
-// Stack Lifecycle
-// ============================================================================
-
 /**
- * Create a new positional parameter stack.
- * Initializes with an empty parameter set.
- */
-positional_params_stack_t *positional_params_stack_create(void);
-
-/**
- * Destroy the stack and free all parameter sets.
- */
-void positional_params_stack_destroy(positional_params_stack_t **stack);
-
-// ============================================================================
-// Stack Operations (for function calls)
-// ============================================================================
-
-/**
- * Push a new set of positional parameters onto the stack.
- * Takes ownership of the parameter array.
+ * @brief Positional parameters for a single executor context
  *
- * @param stack The parameter stack
- * @param params Array of parameters (params[0] is $1)
+ * Contains the positional parameters ($1, $2, ...) for one execution context.
+ * $0 is stored separately in the executor itself since it represents the
+ * shell/script name and doesn't change with function calls.
+ */
+typedef struct positional_params_t
+{
+    string_t **params;  ///< Array of parameters (params[0] is $1)
+    int count;          ///< Number of parameters
+    int max_params;     ///< Maximum allowed (for validation)
+} positional_params_t;
+
+// ============================================================================
+// Lifecycle Management
+// ============================================================================
+
+/**
+ * @brief Create a new empty positional parameters set
+ *
+ * Creates a parameter set with no parameters ($# = 0).
+ *
+ * @return New positional_params_t, or NULL on allocation failure
+ */
+positional_params_t *positional_params_create(void);
+
+/**
+ * @brief Create positional parameters from an argv-style array
+ *
+ * Takes ownership of the params array.
+ *
+ * @param params Array of string_t* (params[0] is $1)
  * @param count Number of parameters
- * @return true if successful, false if count exceeds maximum allowed
+ * @return New positional_params_t, or NULL if count exceeds maximum
  */
-bool positional_params_push(positional_params_stack_t *stack,
-                            string_t **params, int count);
+positional_params_t *positional_params_create_from_array(string_t **params, int count);
 
 /**
- * Pop the top parameter set from the stack.
- * Restores the previous parameter set.
+ * @brief Create positional parameters from C-style argv
  *
- * @param stack The parameter stack
+ * Creates string_t copies of the C strings.
+ *
+ * @param argc Number of arguments
+ * @param argv Array of C strings
+ * @return New positional_params_t, or NULL on allocation failure
  */
-void positional_params_pop(positional_params_stack_t *stack);
+positional_params_t *positional_params_create_from_argv(int argc, const char **argv);
 
 /**
- * Get the current stack depth (for debugging).
+ * @brief Copy positional parameters
+ *
+ * Creates a deep copy of all parameter strings.
+ *
+ * @param src Source parameters to copy
+ * @return New positional_params_t copy, or NULL on allocation failure
  */
-int positional_params_stack_depth(const positional_params_stack_t *stack);
+positional_params_t *positional_params_copy(const positional_params_t *src);
+
+/**
+ * @brief Destroy positional parameters
+ *
+ * Frees all parameter strings and the structure itself.
+ *
+ * @param params Pointer to positional_params_t pointer (set to NULL after free)
+ */
+void positional_params_destroy(positional_params_t **params);
 
 // ============================================================================
 // Parameter Access
 // ============================================================================
 
 /**
- * Get a specific positional parameter.
+ * @brief Get a specific positional parameter
  *
- * @param stack The parameter stack
- * @param n The parameter number (1-based: 1 is $1, 2 is $2, etc.)
+ * @param params The positional parameters
+ * @param n Parameter number (1-based: 1 is $1, 2 is $2, etc.)
  * @return The parameter value, or NULL if n is out of range
+ */
+const string_t *positional_params_get(const positional_params_t *params, int n);
+
+/**
+ * @brief Get the count of positional parameters (for $#)
  *
- * Note: Does not return $0 (use positional_params_get_zero separately)
+ * @param params The positional parameters
+ * @return Number of positional parameters
  */
-const string_t *positional_params_get(const positional_params_stack_t *stack, int n);
+int positional_params_count(const positional_params_t *params);
 
 /**
- * Get the count of positional parameters (for $#).
- */
-int positional_params_count(const positional_params_stack_t *stack);
-
-/**
- * Get all positional parameters as a list (for $@ and $*).
+ * @brief Get all positional parameters as a list (for $@ and $*)
+ *
  * Returns a newly allocated string_list_t (caller must free).
  *
- * @param stack The parameter stack
- * @return List of all positional parameters
+ * @param params The positional parameters
+ * @return List of all positional parameters (caller must free)
  */
-string_list_t *positional_params_get_all(const positional_params_stack_t *stack);
+string_list_t *positional_params_get_all(const positional_params_t *params);
 
 /**
- * Get all positional parameters joined by a separator (for "$*").
+ * @brief Get all positional parameters joined by a separator (for "$*")
  *
- * @param stack The parameter stack
- * @param sep The separator character (typically IFS[0])
- * @return A newly allocated string with all parameters joined
+ * @param params The positional parameters
+ * @param sep Separator character (typically IFS[0])
+ * @return Newly allocated string with all parameters joined (caller must free)
  */
-string_t *positional_params_get_all_joined(const positional_params_stack_t *stack,
-                                           char sep);
+string_t *positional_params_get_all_joined(const positional_params_t *params, char sep);
 
 // ============================================================================
 // Parameter Modification (for 'set' and 'shift' builtins)
 // ============================================================================
 
 /**
- * Replace the current positional parameters (for 'set' builtin).
- * This modifies the current frame, it does NOT push a new frame.
- * Takes ownership of the parameter array.
+ * @brief Replace all positional parameters (for 'set' builtin)
  *
- * @param stack The parameter stack
- * @param params Array of new parameters (params[0] is $1)
+ * Destroys existing parameters and takes ownership of the new array.
+ *
+ * @param params The positional parameters to modify
+ * @param new_params Array of new parameters (params[0] is $1), takes ownership
  * @param count Number of parameters
- * @return true if successful, false if count exceeds maximum allowed
+ * @return true if successful, false if count exceeds maximum
  */
-bool positional_params_replace(positional_params_stack_t *stack,
-                               string_t **params, int count);
+bool positional_params_replace(positional_params_t *params,
+                               string_t **new_params, int count);
 
 /**
- * Shift positional parameters (for 'shift' builtin).
- * Removes the first n parameters from the current set.
+ * @brief Shift positional parameters (for 'shift' builtin)
  *
- * @param stack The parameter stack
- * @param n Number of parameters to shift (default 1)
+ * Removes the first n parameters. $1 is deleted, $2 becomes $1, etc.
+ *
+ * @param params The positional parameters to modify
+ * @param n Number of parameters to shift (typically 1)
  * @return true if successful, false if n > parameter count
  */
-bool positional_params_shift(positional_params_stack_t *stack, int n);
+bool positional_params_shift(positional_params_t *params, int n);
 
 // ============================================================================
-// Maximum Parameter Limit
+// Configuration
 // ============================================================================
 
 /**
- * Set the maximum number of positional parameters allowed.
+ * @brief Set the maximum number of positional parameters allowed
  *
- * @param stack The parameter stack
- * @param max_params Maximum number of positional parameters (must be > 0)
+ * @param params The positional parameters
+ * @param max_params Maximum number (must be > 0 and <= POSITIONAL_PARAMS_MAX)
  */
-void positional_params_set_max(positional_params_stack_t *stack, int max_params);
+void positional_params_set_max(positional_params_t *params, int max_params);
 
 /**
- * Get the maximum number of positional parameters allowed.
+ * @brief Get the maximum number of positional parameters allowed
  *
- * @param stack The parameter stack
+ * @param params The positional parameters
  * @return Maximum number of positional parameters
  */
-int positional_params_get_max(const positional_params_stack_t *stack);
-
-// ============================================================================
-// $0 Management (separate from positional parameters)
-// ============================================================================
-
-/**
- * Set $0 (script/shell name).
- * This is set once at shell initialization and never changes.
- */
-void positional_params_set_zero(positional_params_stack_t *stack,
-                                const string_t *name);
-
-/**
- * Check if $0 is set.
- */
-bool positional_params_has_zero(const positional_params_stack_t *stack);
-
-/**
- * Get $0 (script/shell name).
- * Will return $0. Caller must first check positional_params_has_zero().
- */
-const string_t *positional_params_get_zero(const positional_params_stack_t *stack);
+int positional_params_get_max(const positional_params_t *params);
 
 #endif
