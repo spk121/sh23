@@ -226,7 +226,7 @@ CTEST(test_string_release)
     CTEST_ASSERT_NOT_NULL(ctest, raw, "release returned buffer");
     CTEST_ASSERT_NULL(ctest, s, "string pointer null after release");
     CTEST_ASSERT_STR_EQ(ctest, raw, "xyz", "raw buffer matches");
-    free(raw);
+    xfree(raw);
 }
 
 CTEST(test_string_destroy)
