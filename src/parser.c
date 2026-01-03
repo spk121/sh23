@@ -605,6 +605,7 @@ parse_status_t gparse_command(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     gnode_t *node = g_node_create(G_COMMAND);
+    node->payload_type = GNODE_PAYLOAD_CHILD;  /* Outer wrapper uses .child */
 
     /* Try function_definition first */
     gnode_t *func = NULL;
@@ -631,6 +632,7 @@ parse_status_t gparse_command(parser_t *parser, gnode_t **out_node)
         {
             /* compound_command redirect_list */
             gnode_t *wrapper = g_node_create(G_COMMAND);
+            wrapper->payload_type = GNODE_PAYLOAD_MULTI;  /* Inner wrapper with redirects uses .multi */
             wrapper->data.multi.a = compound;
             wrapper->data.multi.b = redirects;
             node->data.child = wrapper;
@@ -974,6 +976,7 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
         return PARSE_ERROR;
 
     gnode_t *node = g_node_create(G_IN_NODE);
+    node->payload_type = GNODE_PAYLOAD_TOKEN;  /* Just 'in' keyword uses .token */
 
     /* 'in' */
     node->data.token = parser_current_token(parser);
@@ -986,6 +989,7 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
     if (status == PARSE_OK)
     {
         gnode_t *wrapper = g_node_create(G_IN_NODE);
+        wrapper->payload_type = GNODE_PAYLOAD_MULTI;  /* 'in' + wordlist uses .multi */
         wrapper->data.multi.a = node;
         wrapper->data.multi.b = words;
         *out_node = wrapper;

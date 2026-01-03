@@ -138,91 +138,34 @@ static void gprint_node(const gnode_t *node, int depth)
     indent(depth);
     printf("%s {\n", gkind_name(node->type));
 
-    switch (node->type)
+    /* Use the stored payload_type instead of computing it */
+    switch (node->payload_type)
     {
-    /* Token nodes */
-    case G_WORD_NODE:
-    case G_ASSIGNMENT_WORD:
-    case G_CMD_NAME:
-    case G_CMD_WORD:
-    case G_NAME_NODE:
-    case G_IO_NUMBER_NODE:
-    case G_IO_LOCATION_NODE:
-    case G_SEPARATOR_OP:
+    case GNODE_PAYLOAD_TOKEN:
         gprint_token(node->data.token, depth + 2);
         break;
 
-    /* String nodes */
-    case G_FNAME:
-    case G_FILENAME:
-    case G_HERE_END:
+    case GNODE_PAYLOAD_STRING:
         indent(depth + 2);
         printf("string: \"%s\"\n", node->data.string ? string_cstr(node->data.string) : "<null>");
         break;
 
-    /* Single-child nodes */
-    case G_PROGRAM:
-    case G_COMPOUND_COMMAND:
-    case G_SUBSHELL:
-    case G_BRACE_GROUP:
-    case G_FUNCTION_BODY:
-    case G_SEPARATOR:
-    case G_LINEBREAK:
+    case GNODE_PAYLOAD_CHILD:
         indent(depth + 2);
         printf("child:\n");
         gprint_node(node->data.child, depth + 4);
         break;
 
-    /* List nodes */
-    case G_COMPLETE_COMMANDS:
-    case G_LIST:
-    case G_PIPELINE:
-    case G_PIPE_SEQUENCE:
-    case G_SIMPLE_COMMAND:
-    case G_CMD_PREFIX:
-    case G_CMD_SUFFIX:
-    case G_COMPOUND_LIST:
-    case G_TERM:
-    case G_CASE_LIST:
-    case G_CASE_LIST_NS:
-    case G_PATTERN_LIST:
-    case G_WORDLIST:
-    case G_REDIRECT_LIST:
-    case G_DO_GROUP:
-    case G_NEWLINE_LIST:
+    case GNODE_PAYLOAD_LIST:
         indent(depth + 2);
         printf("list:\n");
         gprint_list(node->data.list, depth + 4);
         break;
 
-    /* Pair nodes */
-    case G_COMPLETE_COMMAND:
-    case G_ELSE_PART:
-        indent(depth + 2);
-        printf("left:\n");
-        gprint_node(node->data.pair.left, depth + 4);
-        indent(depth + 2);
-        printf("right:\n");
-        gprint_node(node->data.pair.right, depth + 4);
-        break;
-
-    /* Multi-child nodes (default case) */
-    case G_COMMAND:
-    case G_AND_OR:
-    case G_IF_CLAUSE:
-    case G_WHILE_CLAUSE:
-    case G_UNTIL_CLAUSE:
-    case G_FOR_CLAUSE:
-    case G_CASE_CLAUSE:
-    case G_CASE_ITEM:
-    case G_CASE_ITEM_NS:
-    case G_FUNCTION_DEFINITION:
-    case G_IO_REDIRECT:
-    case G_IO_FILE:
-    case G_IO_HERE:
-    case G_IN_NODE:
-    case G_SEQUENTIAL_SEP:
-    default:
+    case GNODE_PAYLOAD_PAIR:
+    case GNODE_PAYLOAD_MULTI:
+        /* PAIR uses only .a and .b, MULTI uses all four fields.
+           Print all four for consistency. */
         indent(depth + 2);
         printf("multi.a:\n");
         gprint_node(node->data.multi.a, depth + 4);
@@ -238,6 +181,18 @@ static void gprint_node(const gnode_t *node, int depth)
         indent(depth + 2);
         printf("multi.d:\n");
         gprint_node(node->data.multi.d, depth + 4);
+        break;
+
+    case GNODE_PAYLOAD_INDETERMINATE:
+        /* This should not happen - indeterminate payload should have been
+           resolved to a concrete type when the node was created/modified */
+        indent(depth + 2);
+        printf("ERROR: indeterminate payload for type %d\n", (int)node->type);
+        break;
+
+    case GNODE_PAYLOAD_NONE:
+    default:
+        /* No payload to print */
         break;
     }
 
