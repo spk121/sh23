@@ -136,6 +136,9 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_WORD_NODE:
     case G_ASSIGNMENT_WORD:
     case G_NAME_NODE:
+    case G_CMD_NAME:
+    case G_CMD_WORD:
+    case G_IN_NODE:
     case G_IO_NUMBER_NODE:
     case G_IO_LOCATION_NODE:
     case G_SEPARATOR_OP:
@@ -167,15 +170,14 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_NEWLINE_LIST:
         return GNODE_PAYLOAD_LIST;
 
-    /* Pair/Multi nodes - these have named fields from POSIX grammar */
-    case G_COMPLETE_COMMAND:
-        /* complete_command : list [separator_op] - uses multi.a and multi.b */
-        return GNODE_PAYLOAD_MULTI;
+    /* Pair nodes - NONE currently use .pair union member */
     case G_ELSE_PART:
-        /* else_part can be either simple (multi.a only) or elif (multi.a/b/c) */
-        return GNODE_PAYLOAD_MULTI;
+        /* G_ELSE_PART uses .multi, not .pair - handle below */
+        g_node_destroy(&node->data.multi.a);
+        g_node_destroy(&node->data.multi.b);
+        break;
 
-    /* Single-child nodes - these wrap a single child node */
+    /* Single-child nodes */
     case G_PROGRAM:
     case G_CMD_PREFIX:
     case G_SUBSHELL:
@@ -188,6 +190,8 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
 
     /* Multi-child nodes */
     case G_AND_OR:
+    case G_COMMAND:
+    case G_COMPLETE_COMMAND:
     case G_IF_CLAUSE:
     case G_WHILE_CLAUSE:
     case G_UNTIL_CLAUSE:

@@ -916,10 +916,12 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             continue;
         }
 
-        // Debug: Print the gnode AST before lowering
+        // Debug: Print the gnode AST before lowering (disabled)
+        #if 0
         log_debug("=== GNODE AST ===");
         gprint(gnode);
         log_debug("=================");
+        #endif
 
         // Lower the grammar tree to AST
         ast_node_t *ast = ast_lower(gnode);

@@ -138,6 +138,9 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
 /* ============================================================================
  * list: and_or (separator_op and_or)*
  * AST: COMMAND_LIST
+ *
+ * Note: The parser may return G_PIPELINE directly (not wrapped in G_AND_OR)
+ * when there are no && or || operators, so we handle both cases.
  * ============================================================================
  */
 static ast_node_t *lower_list(const gnode_t *g)
@@ -151,14 +154,26 @@ static ast_node_t *lower_list(const gnode_t *g)
     for (size_t i = 0; i < lst->size;)
     {
         const gnode_t *elem = lst->nodes[i];
-        if (elem->type != G_AND_OR)
+        ast_node_t *node = NULL;
+
+        /* The parser returns G_PIPELINE when there are no && or || operators */
+        if (elem->type == G_AND_OR)
         {
-            log_error("lower_list: expected G_AND_OR at index %zu", i);
+            node = lower_and_or(elem);
+        }
+        else if (elem->type == G_PIPELINE)
+        {
+            /* Single pipeline without operators - lower it directly */
+            node = lower_pipeline(elem);
+        }
+        else
+        {
+            log_error("lower_list: expected G_AND_OR or G_PIPELINE at index %zu, got %d",
+                      i, (int)elem->type);
             ast_node_destroy(&cl);
             return NULL;
         }
 
-        ast_node_t *node = lower_and_or(elem);
         if (!node)
         {
             ast_node_destroy(&cl);
@@ -380,18 +395,25 @@ static ast_node_t *lower_command(const gnode_t *g)
 {
     Expects_eq(g->type, G_COMMAND);
 
-    /* We re-dispatch based on child kind, mirroring gparse_command */
-    const gnode_t *child = NULL;
+    /* G_COMMAND is a wrapper node - the actual command is in data.child or data.multi.a */
+    const gnode_t *child = g->data.child;
+    if (!child)
+    {
+        /* Try multi.a if child is NULL */
+        child = g->data.multi.a;
+    }
 
-    /* In the grammar AST, G_COMMAND is not explicitly represented as a node;
-       gparse_command() returns simple/compound directly. Here we assume g
-       is itself that node, not a wrapper. If you actually had a G_COMMAND
-       wrapper, adjust this logic to use g->data.child/multi. */
+    if (!child)
+    {
+        log_error("lower_command: G_COMMAND wrapper has no child");
+        return NULL;
+    }
 
-    switch (g->type)
+    /* Dispatch based on the actual command type */
+    switch (child->type)
     {
     case G_SIMPLE_COMMAND:
-        return lower_simple_command(g);
+        return lower_simple_command(child);
     case G_SUBSHELL:
     case G_BRACE_GROUP:
     case G_FOR_CLAUSE:
@@ -399,17 +421,17 @@ static ast_node_t *lower_command(const gnode_t *g)
     case G_IF_CLAUSE:
     case G_WHILE_CLAUSE:
     case G_UNTIL_CLAUSE:
-        return lower_compound_command(g);
+        return lower_compound_command(child);
     case G_FUNCTION_DEFINITION:
-        return lower_function_definition(g);
+        return lower_function_definition(child);
+    case G_COMPOUND_COMMAND:
+        /* G_COMPOUND_COMMAND is itself a wrapper - recurse into it */
+        return lower_compound_command(child);
     default:
-        /* If g is a G_COMMAND wrapper, you’ll need to add a G_COMMAND kind in
-           ast_grammar and unpack its children. For now, assume g is already
-           the underlying node. */
         break;
     }
 
-    log_error("lower_command: unexpected kind %d", (int)g->type);
+    log_error("lower_command: unexpected child kind %d", (int)child->type);
     return NULL;
 }
 
@@ -430,6 +452,42 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
     for (size_t i = 0; i < lst->size; i++)
     {
         const gnode_t *elem = lst->nodes[i];
+
+        /* Handle G_CMD_PREFIX and G_CMD_SUFFIX wrappers created by parser */
+        if (elem->type == G_CMD_PREFIX)
+        {
+            /* G_CMD_PREFIX wraps a single assignment or redirect */
+            elem = elem->data.child;
+            if (!elem)
+                continue;
+        }
+        else if (elem->type == G_CMD_SUFFIX)
+        {
+            /* G_CMD_SUFFIX contains a list of words and redirects */
+            gnode_list_t *suffix_list = elem->data.list;
+            for (size_t j = 0; j < suffix_list->size; j++)
+            {
+                const gnode_t *suffix_elem = suffix_list->nodes[j];
+
+                if (suffix_elem->type == G_CMD_WORD || suffix_elem->type == G_WORD_NODE)
+                {
+                    token_list_append(words, suffix_elem->data.token);
+                }
+                else if (suffix_elem->type == G_IO_REDIRECT)
+                {
+                    ast_node_t *r = lower_io_redirect(suffix_elem);
+                    if (!r)
+                    {
+                        token_list_destroy(&assignments);
+                        token_list_destroy(&words);
+                        ast_node_list_destroy(&redirs);
+                        return NULL;
+                    }
+                    ast_node_list_append(redirs, r);
+                }
+            }
+            continue;
+        }
 
         switch (elem->type)
         {
