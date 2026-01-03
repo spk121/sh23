@@ -94,19 +94,15 @@ gnode_t *g_node_create_string(gnode_type_t type, const string_t *str)
 }
 
 /* ============================================================================
- * Node Destruction
+ * Payload Type Mapping
  * ============================================================================
  */
 
-void g_node_destroy(gnode_t **pnode)
+gnode_payload_t gnode_get_payload_type(gnode_type_t type)
 {
-    if (!pnode || !*pnode)
-        return;
-    gnode_t *node = *pnode;
-
-    switch (node->type)
+    switch (type)
     {
-    /* Token wrappers */
+    /* Token wrappers - leaf nodes that wrap tokens */
     case G_WORD_NODE:
     case G_ASSIGNMENT_WORD:
     case G_NAME_NODE:
@@ -114,26 +110,21 @@ void g_node_destroy(gnode_t **pnode)
     case G_IO_NUMBER_NODE:
     case G_IO_LOCATION_NODE:
     case G_SEPARATOR_OP:
-        if (node->data.token)
-            token_destroy(&node->data.token);
-        break;
+    case G_CMD_NAME:
+    case G_CMD_WORD:
+        return GNODE_PAYLOAD_TOKEN;
 
     /* String wrappers */
     case G_FNAME:
     case G_FILENAME:
     case G_HERE_END:
-        if (node->data.string)
-            string_destroy(&node->data.string);
-        break;
+        return GNODE_PAYLOAD_STRING;
 
     /* List nodes */
-    case G_PROGRAM:
     case G_COMPLETE_COMMANDS:
     case G_LIST:
-    case G_AND_OR:
     case G_PIPELINE:
     case G_PIPE_SEQUENCE:
-    case G_COMMAND:
     case G_SIMPLE_COMMAND:
     case G_CMD_PREFIX:
     case G_CMD_SUFFIX:
@@ -146,29 +137,28 @@ void g_node_destroy(gnode_t **pnode)
     case G_TERM:
     case G_DO_GROUP:
     case G_NEWLINE_LIST:
-        g_list_destroy(&node->data.list);
-        break;
+        return GNODE_PAYLOAD_LIST;
 
-    /* Pair nodes */
+    /* Pair/Multi nodes - these have named fields from POSIX grammar */
     case G_COMPLETE_COMMAND:
+        /* complete_command : list [separator_op] - uses multi.a and multi.b */
+        return GNODE_PAYLOAD_MULTI;
     case G_ELSE_PART:
-        g_node_destroy(&node->data.pair.left);
-        g_node_destroy(&node->data.pair.right);
-        break;
+        /* else_part can be either simple (multi.a only) or elif (multi.a/b/c) */
+        return GNODE_PAYLOAD_MULTI;
 
-    /* Single-child nodes */
-    case G_CMD_WORD:
-    case G_CMD_NAME:
+    /* Single-child nodes - these wrap a single child node */
+    case G_PROGRAM:
     case G_SUBSHELL:
     case G_BRACE_GROUP:
     case G_FUNCTION_BODY:
     case G_SEPARATOR:
     case G_LINEBREAK:
     case G_COMPOUND_COMMAND:
-        g_node_destroy(&node->data.child);
-        break;
+        return GNODE_PAYLOAD_CHILD;
 
     /* Multi-child nodes */
+    case G_AND_OR:
     case G_IF_CLAUSE:
     case G_WHILE_CLAUSE:
     case G_UNTIL_CLAUSE:
@@ -180,12 +170,89 @@ void g_node_destroy(gnode_t **pnode)
     case G_IO_REDIRECT:
     case G_IO_FILE:
     case G_IO_HERE:
+        return GNODE_PAYLOAD_MULTI;
+
+    /* Nodes with ambiguous/context-dependent payload */
+    case G_COMMAND:
+        /* G_COMMAND can use either .child (outer wrapper) or .multi (with redirects).
+           Caller must handle this specially. */
+        return GNODE_PAYLOAD_NONE;
+
+    /* Node with no payload */
+    case G_SEQUENTIAL_SEP:
+    default:
+        return GNODE_PAYLOAD_NONE;
+    }
+}
+
+/* ============================================================================
+ * Node Destruction
+ * ============================================================================
+ */
+
+void g_node_destroy(gnode_t **pnode)
+{
+    if (!pnode || !*pnode)
+        return;
+    gnode_t *node = *pnode;
+
+    /* Special case for G_COMMAND which can have either .child or .multi payload */
+    if (node->type == G_COMMAND)
+    {
+        /* G_COMMAND uses .child when it's an outer wrapper, 
+           and .multi when it has redirects (inner wrapper).
+           We try to detect which by checking if multi.a is set. */
+        if (node->data.multi.a != NULL)
+        {
+            /* This looks like the inner wrapper with .multi */
+            g_node_destroy(&node->data.multi.a);
+            g_node_destroy(&node->data.multi.b);
+            g_node_destroy(&node->data.multi.c);
+            g_node_destroy(&node->data.multi.d);
+        }
+        else
+        {
+            /* This is the outer wrapper with .child */
+            g_node_destroy(&node->data.child);
+        }
+        xfree(node);
+        *pnode = NULL;
+        return;
+    }
+
+    gnode_payload_t payload = gnode_get_payload_type(node->type);
+    
+    switch (payload)
+    {
+    case GNODE_PAYLOAD_TOKEN:
+        if (node->data.token)
+            token_destroy(&node->data.token);
+        break;
+
+    case GNODE_PAYLOAD_STRING:
+        if (node->data.string)
+            string_destroy(&node->data.string);
+        break;
+
+    case GNODE_PAYLOAD_LIST:
+        g_list_destroy(&node->data.list);
+        break;
+
+    case GNODE_PAYLOAD_CHILD:
+        g_node_destroy(&node->data.child);
+        break;
+
+    case GNODE_PAYLOAD_PAIR:
+    case GNODE_PAYLOAD_MULTI:
+        /* PAIR and MULTI both use the same memory layout, 
+           with pair using only .a and .b fields */
         g_node_destroy(&node->data.multi.a);
         g_node_destroy(&node->data.multi.b);
         g_node_destroy(&node->data.multi.c);
         g_node_destroy(&node->data.multi.d);
         break;
 
+    case GNODE_PAYLOAD_NONE:
     default:
         break;
     }

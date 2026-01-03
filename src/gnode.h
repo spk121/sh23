@@ -81,6 +81,22 @@ typedef enum
 } gnode_type_t;
 
 /* ============================================================================
+ * Grammar AST Payload Types
+ * ============================================================================
+ */
+
+typedef enum
+{
+    GNODE_PAYLOAD_NONE,
+    GNODE_PAYLOAD_LIST,
+    GNODE_PAYLOAD_TOKEN,
+    GNODE_PAYLOAD_STRING,
+    GNODE_PAYLOAD_PAIR,
+    GNODE_PAYLOAD_CHILD,
+    GNODE_PAYLOAD_MULTI
+} gnode_payload_t;
+
+/* ============================================================================
  * Grammar AST Node Structure
  * ============================================================================
  */
@@ -155,6 +171,13 @@ void g_list_append(gnode_list_t *list, gnode_t *node);
 
 void g_node_destroy(gnode_t **node);
 void g_list_destroy(gnode_list_t **list);
+
+/* ============================================================================
+ * Payload Type Mapping
+ * ============================================================================
+ */
+
+gnode_payload_t gnode_get_payload_type(gnode_type_t type);
 
 /* ============================================================================
  * Debugging
