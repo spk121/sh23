@@ -4,10 +4,14 @@ set(CMAKE_COLOR_DIAGNOSTICS OFF)
 
 project(mgsh LANGUAGES C)
 
+# Set C standard to C23
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 # Export compile commands for IDE integration
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # API selection option
-set(API_TYPE "ISO_C" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
+set(API_TYPE "POSIX" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
 set_property(CACHE API_TYPE PROPERTY STRINGS "POSIX" "UCRT" "ISO_C")
 
 # Define the appropriate API macro based on selection
@@ -199,7 +203,6 @@ set(SH23BASE_TEST_SOURCES
 set(SH23STORE_TEST_SOURCES
     test/mgsh/test_alist_ctest.c
     test/mgsh/test_ast_ctest.c
-    test/mgsh/test_ast_heredoc_ctest.c
     test/mgsh/test_sig_act_ctest.c
 )
 
@@ -211,6 +214,8 @@ set(SH23LOGIC_TEST_SOURCES
     test/mgsh/test_lexer_arith_exp_ctest.c
     test/mgsh/test_lexer_heredoc_ctest.c
     test/mgsh/test_parser_gnode_ctest.c
+    test/mgsh/test_parser_ctest.c
+    test/mgsh/test_ast_heredoc_ctest.c
     test/mgsh/test_tokenizer_ctest.c
     test/mgsh/test_expander_ctest.c
     test/mgsh/test_exec_ctest.c

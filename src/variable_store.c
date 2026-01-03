@@ -228,6 +228,29 @@ var_store_error_t variable_store_add_cstr(variable_store_t *store, const char *n
     return err;
 }
 
+void variable_store_add_env(variable_store_t *store, const char *env)
+{
+    if (!store || !env)
+    {
+        return;
+    }
+
+    // Parse "NAME=VALUE" format
+    char *equals = strchr(env, '=');
+    if (equals)
+    {
+        size_t name_len = equals - env;
+        string_t *name = string_create_from_cstr_len(env, name_len);
+        string_t *value = string_create_from_cstr(equals + 1);
+
+        // Environment variables are exported by default and not read-only
+        variable_store_add(store, name, value, true, false);
+
+        string_destroy(&name);
+        string_destroy(&value);
+    }
+}
+
 void variable_store_remove(variable_store_t *store, const string_t *name)
 {
     if (!store || !name)

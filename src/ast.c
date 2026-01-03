@@ -21,6 +21,90 @@ ast_node_t *ast_node_create(ast_node_type_t type)
     return node;
 }
 
+ast_node_t *ast_node_clone(const ast_node_t *node)
+{
+    Expects_not_null(node);
+
+    ast_node_t *new_node = ast_node_create(node->type);
+    if (!new_node)
+        return NULL;
+
+    // This is a deep copy, because by policy no AST node can have more than 1 owner.
+    memcpy(new_node, node, sizeof(ast_node_t));
+    switch (node->type)
+    {
+        // These node types contain pointers to owned data that need to be cloned.
+    case AST_SIMPLE_COMMAND:
+        new_node->data.simple_command.words = token_list_clone(node->data.simple_command.words);
+        new_node->data.simple_command.redirections =
+            ast_node_list_clone(node->data.simple_command.redirections);
+        new_node->data.simple_command.assignments =
+            token_list_clone(node->data.simple_command.assignments);
+        break;
+    case AST_PIPELINE:
+        new_node->data.pipeline.commands =
+            ast_node_list_clone(node->data.pipeline.commands);
+        break;
+    case AST_AND_OR_LIST:
+        new_node->data.andor_list.left = ast_node_clone(node->data.andor_list.left);
+        new_node->data.andor_list.right = ast_node_clone(node->data.andor_list.right);
+        break;
+    case AST_COMMAND_LIST:
+        new_node->data.command_list.items =
+            ast_node_list_clone(node->data.command_list.items);
+        new_node->data.command_list.separators =
+            cmd_separator_list_clone(node->data.command_list.separators);
+        break;
+    case AST_SUBSHELL:
+    case AST_BRACE_GROUP:
+        new_node->data.compound.body = ast_node_clone(node->data.compound.body);
+        break;
+    case AST_IF_CLAUSE:
+        new_node->data.if_clause.condition = ast_node_clone(node->data.if_clause.condition);
+        new_node->data.if_clause.then_body = ast_node_clone(node->data.if_clause.then_body);
+        new_node->data.if_clause.elif_list =
+            ast_node_list_clone(node->data.if_clause.elif_list);
+        new_node->data.if_clause.else_body = ast_node_clone(node->data.if_clause.else_body);
+        break;
+    case AST_WHILE_CLAUSE:
+    case AST_UNTIL_CLAUSE:
+        new_node->data.loop_clause.condition = ast_node_clone(node->data.loop_clause.condition);
+        new_node->data.loop_clause.body = ast_node_clone(node->data.loop_clause.body);
+        break;
+    case AST_FOR_CLAUSE:
+        new_node->data.for_clause.variable = string_create_from(node->data.for_clause.variable);
+        new_node->data.for_clause.words = token_list_clone(node->data.for_clause.words);
+        new_node->data.for_clause.body = ast_node_clone(node->data.for_clause.body);
+        break;
+    case AST_CASE_CLAUSE:
+        new_node->data.case_clause.word = token_clone(node->data.case_clause.word);
+        new_node->data.case_clause.case_items =
+            ast_node_list_clone(node->data.case_clause.case_items);
+        break;
+    case AST_CASE_ITEM:
+        new_node->data.case_item.patterns = token_list_clone(node->data.case_item.patterns);
+        new_node->data.case_item.body = ast_node_clone(node->data.case_item.body);
+        break;
+    case AST_FUNCTION_DEF:
+        new_node->data.function_def.name = string_create_from(node->data.function_def.name);
+        new_node->data.function_def.body = ast_node_clone(node->data.function_def.body);
+        new_node->data.function_def.redirections =
+            ast_node_list_clone(node->data.function_def.redirections);
+        break;
+    case AST_REDIRECTED_COMMAND:
+        new_node->data.redirected_command.command =
+            ast_node_clone(node->data.redirected_command.command);
+        new_node->data.redirected_command.redirections =
+            ast_node_list_clone(node->data.redirected_command.redirections);
+        break;
+    default:
+        // Other node types do not own any heap data; shallow copy is sufficient.
+        break;
+    }
+
+    return new_node;
+}
+
 ast_node_t *ast_node_create_function_stored(void)
 {
     return ast_node_create(AST_FUNCTION_STORED);
@@ -404,6 +488,28 @@ ast_node_list_t *ast_node_list_create(void)
     list->size = 0;
     list->capacity = INITIAL_LIST_CAPACITY;
     return list;
+}
+
+ast_node_list_t *ast_node_list_clone(const ast_node_list_t *other)
+{
+    Expects_not_null(other);
+
+    ast_node_list_t *new_list = ast_node_list_create();
+    if (!new_list)
+        return NULL;
+
+    for (int i = 0; i < other->size; i++)
+    {
+        ast_node_t *cloned_node = ast_node_clone(other->nodes[i]);
+        if (!cloned_node)
+        {
+            ast_node_list_destroy(&new_list);
+            return NULL;
+        }
+        ast_node_list_append(new_list, cloned_node);
+    }
+
+    return new_list;
 }
 
 void ast_node_list_destroy(ast_node_list_t **list)
@@ -876,6 +982,22 @@ cmd_separator_list_t *cmd_separator_list_create(void)
     list->len = 0;
     list->capacity = INITIAL_LIST_CAPACITY;
     return list;
+}
+
+cmd_separator_list_t *cmd_separator_list_clone(const cmd_separator_list_t *other)
+{
+    Expects_not_null(other);
+
+    cmd_separator_list_t *new_list = cmd_separator_list_create();
+    if (!new_list)
+        return NULL;
+
+    for (int i = 0; i < other->len; i++)
+    {
+        cmd_separator_list_add(new_list, other->separators[i]);
+    }
+
+    return new_list;
 }
 
 void cmd_separator_list_destroy(cmd_separator_list_t **lst)

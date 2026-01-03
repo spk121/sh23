@@ -12,19 +12,34 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "xalloc.h"
 
 /* Traditional global variables */
 char *optarg = NULL;
 int optind = 1;
 int opterr = 1;
 int optopt = '?';
+char **__getopt_external_argv = NULL;
 
 static struct getopt_state _getopt_global_state = {
     .optind = 1, .opterr = 1, .optopt = '?', .initialized = 0};
 
-/* Internal helpers (same as before) */
+/* Internal helpers */
 static void exchange(char **argv, struct getopt_state *st)
 {
+    if (__getopt_external_argv == NULL)
+    {
+        // Can't permute the main-provided argv, so
+        // copy them to __getopt_external_argv on first use.
+        int argc = 0;
+        while (argv[argc] != NULL)
+            argc++;
+        __getopt_external_argv = xcalloc((size_t)argc + 1, sizeof(char *));
+        for (int i = 0; i < argc; i++)
+            __getopt_external_argv[i] = argv[i];
+        __getopt_external_argv[argc] = NULL;
+        argv = __getopt_external_argv;
+    }
     int bottom = st->first_nonopt;
     int middle = st->last_nonopt;
     int top = st->optind;

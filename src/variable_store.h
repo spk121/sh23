@@ -39,6 +39,7 @@ void variable_store_clear(variable_store_t *store);
 // Variable management
 var_store_error_t variable_store_add(variable_store_t *store, const string_t *name, const string_t *value, bool exported, bool read_only);
 var_store_error_t variable_store_add_cstr(variable_store_t *store, const char *name, const char *value, bool exported, bool read_only);
+void variable_store_add_env(variable_store_t *store, const char *env);
 void variable_store_remove(variable_store_t *store, const string_t *name);
 void variable_store_remove_cstr(variable_store_t *store, const char *name);
 bool variable_store_has_name(const variable_store_t *store, const string_t *name);
@@ -70,6 +71,7 @@ int32_t variable_store_get_value_length(const variable_store_t *store, const str
  * The returned pointer is owned by the variable store and remains valid
  * until the next call to variable_store_update_envp().
  */
+
 char *const *variable_store_update_envp(variable_store_t *vs);
 char *const *variable_store_update_envp_with_parent(variable_store_t *vs,
                                                     const variable_store_t *parent);

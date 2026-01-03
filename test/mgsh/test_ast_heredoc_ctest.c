@@ -19,13 +19,15 @@ static token_list_t *lex_and_tokenize(const char *input)
     token_list_t *tokens = token_list_create();
     lex_status_t lex_status = lexer_tokenize(lx, tokens, NULL);
 
-    lexer_destroy(&lx);
-
     if (lex_status != LEX_OK)
     {
+        printf("Lexer returned status: %d (LEX_OK=0, LEX_ERROR=1, LEX_INCOMPLETE=2, LEX_NEED_HEREDOC=3)\n", lex_status);
+        lexer_destroy(&lx);
         token_list_destroy(&tokens);
         return NULL;
     }
+
+    lexer_destroy(&lx);
 
     tokenizer_t *tok = tokenizer_create(NULL);
     token_list_t *output = token_list_create();

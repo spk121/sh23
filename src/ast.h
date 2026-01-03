@@ -354,6 +354,8 @@ typedef struct ast_node_t ast_t;
  */
 ast_node_t *ast_node_create(ast_node_type_t type);
 
+ast_node_t *ast_node_clone(const ast_node_t *node);
+
 /**
  * Create a placeholder node indicating a function was moved to the function store.
  * This is used to replace function definition nodes after ownership transfer.
@@ -389,6 +391,10 @@ void ast_command_list_node_append_item(ast_node_t *node, ast_node_t *item);
 void ast_command_list_node_append_separator(ast_node_t *node, cmd_separator_t separator);
 
 void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content);
+
+redirection_type_t ast_redirection_node_get_redir_type(const ast_node_t *node);
+
+const char *redirection_type_to_string(redirection_type_t type);
 /* ============================================================================
  * AST Node Creation Helpers
  * ============================================================================ */
@@ -520,6 +526,9 @@ ast_node_t *ast_create_redirection(redirection_type_t redir_type,
  */
 ast_node_list_t *ast_node_list_create(void);
 
+// Deep clone an AST node list
+ast_node_list_t *ast_node_list_clone(const ast_node_list_t *other);
+
 /**
  * Destroy an AST node list and all contained nodes.
  * Safe to call with NULL.
@@ -594,6 +603,10 @@ void ast_print(const ast_node_t *root);
  * Command Separator List Functions
  * ============================================================================ */
 cmd_separator_list_t *cmd_separator_list_create(void);
+
+// Deep clone a command separator list
+cmd_separator_list_t *cmd_separator_list_clone(const cmd_separator_list_t *other);
+
 void cmd_separator_list_destroy(cmd_separator_list_t **lst);
 void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep);
 cmd_separator_t cmd_separator_list_get(const cmd_separator_list_t *list, int index);

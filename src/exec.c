@@ -55,6 +55,8 @@ static void exec_run_redirected_command_child(exec_t *executor, const ast_node_t
 static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node);
 static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node);
 static void exec_run_function_def_child(exec_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
+
 
 #else
 static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
@@ -151,13 +153,13 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     {
         for (int i = 0; cfg->envp[i] != NULL; i++)
         {
-            variable_store_import_from_env(e->variables, cfg->envp[i]);
+            variable_store_add_env(e->variables, cfg->envp[i]);
         }
     }
 
     // Set standard shell variables
-    variable_store_set_cstr(e->variables, "PWD", string_get_cstr(e->working_directory));
-    variable_store_set_cstr(e->variables, "SHELL", cfg->argv[0]);
+    variable_store_add_cstr(e->variables, "PWD", string_cstr(e->working_directory), /*exported*/ true, /*read_only*/ false);
+    variable_store_add_cstr(e->variables, "SHELL", cfg->argv[0], /*exported*/ true, /*read_only*/ false);
 
     // Initialize positional parameters from command line
     if (cfg->argc > 1)
@@ -1659,32 +1661,7 @@ static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node)
     /* ------------------------------------------------------------
      * 1. Create a child executor
      * ------------------------------------------------------------ */
-    exec_t *child = exec_create();
-
-    /* Copy variable store */
-    variable_store_destroy(&child->variables);
-    child->variables = variable_store_create();
-    variable_store_copy_all(child->variables, executor->variables);
-
-    /* Copy positional parameters */
-    positional_params_destroy(&child->positional_params);
-    child->positional_params = positional_params_copy(executor->positional_params);
-
-    /* Copy special variables */
-    child->last_exit_status_set = executor->last_exit_status_set;
-    child->last_exit_status = executor->last_exit_status;
-
-    child->last_background_pid_set = executor->last_background_pid_set;
-    child->last_background_pid = executor->last_background_pid;
-
-    child->shell_pid_set = executor->shell_pid_set;
-    child->shell_pid = executor->shell_pid;
-
-    child->last_argument_set = executor->last_argument_set;
-    string_destroy(&child->last_argument);
-    child->last_argument = string_create_from(executor->last_argument);
-
-    // Shell flags are already copied as part of opt structure in exec_create_subshell
+    exec_t *child = exec_create_subshell(executor);
 
     /* ------------------------------------------------------------
      * 2. Execute the subshell body
@@ -1724,32 +1701,7 @@ static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
     /* ------------------------------------------------------------
      * 1. Create a child executor
      * ------------------------------------------------------------ */
-    exec_t *child = exec_create();
-
-    /* Copy variable store */
-    variable_store_destroy(&child->variables);
-    child->variables = variable_store_create();
-    variable_store_copy_all(child->variables, executor->variables);
-
-    /* Copy positional parameters */
-    positional_params_destroy(&child->positional_params);
-    child->positional_params = positional_params_copy(executor->positional_params);
-
-    /* Copy special variables */
-    child->last_exit_status_set = executor->last_exit_status_set;
-    child->last_exit_status = executor->last_exit_status;
-
-    child->last_background_pid_set = executor->last_background_pid_set;
-    child->last_background_pid = executor->last_background_pid;
-
-    child->shell_pid_set = executor->shell_pid_set;
-    child->shell_pid = executor->shell_pid;
-
-    child->last_argument_set = executor->last_argument_set;
-    string_destroy(&child->last_argument);
-    child->last_argument = string_create_from(executor->last_argument);
-
-    // Shell flags are already copied as part of opt structure in exec_create_subshell
+    exec_t *child = exec_create_subshell(executor);
 
     /* ------------------------------------------------------------
      * 2. Execute the brace group body
@@ -1765,6 +1717,26 @@ static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
     exec_destroy(&child);
     _exit(exit_code);
 }
+
+void exec_run_function_def_child(exec_t *executor, const ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_FUNCTION_DEF);
+
+    // Function definitions in a pipeline child in virtually all cases do nothing.
+    // Bue because we're extra pedantic, we formally add the function to the child executor's
+    // function store, even though it will be lost when the child exits.
+    var_store_error_t err = exec_execute_function_def(executor, node);
+    if (err != VAR_STORE_ERROR_NONE)
+    {
+        // Failed to store function definition: exit with error.
+        _exit(127);
+    }
+    // Just exit 0.
+    _exit(0);
+}
+
 #endif /* POSIX_API */
 
 exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t *node)
@@ -2204,32 +2176,7 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
         /* ---------------- CHILD PROCESS ---------------- */
 
         /* Create a child executor */
-        exec_t *child = exec_create();
-
-        /* Copy variable store */
-        variable_store_destroy(&child->variables);
-        child->variables = variable_store_create();
-        variable_store_copy_all(child->variables, executor->variables);
-
-        /* Copy positional parameters */
-        positional_params_destroy(&child->positional_params);
-        child->positional_params = positional_params_copy(executor->positional_params);
-
-        /* Copy special variables */
-        child->last_exit_status_set = executor->last_exit_status_set;
-        child->last_exit_status = executor->last_exit_status;
-
-        child->last_background_pid_set = executor->last_background_pid_set;
-        child->last_background_pid = executor->last_background_pid;
-
-        child->shell_pid_set = executor->shell_pid_set;
-        child->shell_pid = executor->shell_pid;
-
-        child->last_argument_set = executor->last_argument_set;
-        string_destroy(&child->last_argument);
-        child->last_argument = string_create_from(executor->last_argument);
-
-        // Shell flags are already copied as part of opt structure in exec_create_subshell
+        exec_t *child = exec_create_subshell(executor);
 
         /* Execute the body */
         exec_status_t st = exec_execute(child, body);

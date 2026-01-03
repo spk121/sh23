@@ -24,6 +24,7 @@ typedef enum func_store_error_t
 
 // Constructors
 func_store_t *func_store_create(void);
+func_store_t *func_store_copy(const func_store_t *other);
 
 // Destructor
 void func_store_destroy(func_store_t **store);

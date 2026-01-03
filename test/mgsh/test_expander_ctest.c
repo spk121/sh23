@@ -29,12 +29,12 @@ static string_list_t *test_pathname_expansion_callback(void *user_data, const st
 CTEST(test_expander_create_destroy)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -45,7 +45,7 @@ CTEST(test_expander_create_destroy)
 CTEST(test_expander_pathname_expansion_callback)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
@@ -69,7 +69,7 @@ CTEST(test_expander_pathname_expansion_callback)
     string_list_destroy(&res);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -80,7 +80,7 @@ CTEST(test_expander_pathname_expansion_callback)
 CTEST(test_expander_recursive_param_assign_default)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
@@ -108,7 +108,7 @@ CTEST(test_expander_recursive_param_assign_default)
     string_list_destroy(&res);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -119,7 +119,7 @@ CTEST(test_expander_recursive_param_assign_default)
 CTEST(test_expander_recursive_param_use_default)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
@@ -139,7 +139,7 @@ CTEST(test_expander_recursive_param_use_default)
     string_list_destroy(&res);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -150,7 +150,7 @@ CTEST(test_expander_recursive_param_use_default)
 CTEST(test_expander_recursive_param_use_alternate)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
@@ -172,7 +172,7 @@ CTEST(test_expander_recursive_param_use_alternate)
     string_list_destroy(&res);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -183,7 +183,7 @@ CTEST(test_expander_recursive_param_use_alternate)
 CTEST(test_expander_ifs)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -208,7 +208,7 @@ CTEST(test_expander_ifs)
     string_list_destroy(&res);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -219,7 +219,7 @@ CTEST(test_expander_ifs)
 CTEST(test_expander_expand_simple_word)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -244,7 +244,7 @@ CTEST(test_expander_expand_simple_word)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -255,7 +255,7 @@ CTEST(test_expander_expand_simple_word)
 CTEST(test_expander_expand_concatenated_word)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -284,7 +284,7 @@ CTEST(test_expander_expand_concatenated_word)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -295,7 +295,7 @@ CTEST(test_expander_expand_concatenated_word)
 CTEST(test_expander_arithmetic_simple)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -320,7 +320,7 @@ CTEST(test_expander_arithmetic_simple)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -331,7 +331,7 @@ CTEST(test_expander_arithmetic_simple)
 CTEST(test_expander_arithmetic_with_variable)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -359,7 +359,7 @@ CTEST(test_expander_arithmetic_with_variable)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -370,7 +370,7 @@ CTEST(test_expander_arithmetic_with_variable)
 CTEST(test_expander_arithmetic_complex)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -399,7 +399,7 @@ CTEST(test_expander_arithmetic_complex)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -410,7 +410,7 @@ CTEST(test_expander_arithmetic_complex)
 CTEST(test_expander_arithmetic_empty)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -435,7 +435,7 @@ CTEST(test_expander_arithmetic_empty)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -446,7 +446,7 @@ CTEST(test_expander_arithmetic_empty)
 CTEST(test_expander_arithmetic_nested)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -471,7 +471,7 @@ CTEST(test_expander_arithmetic_nested)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -482,7 +482,7 @@ CTEST(test_expander_arithmetic_nested)
 CTEST(test_expander_special_param_exit_status)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -508,7 +508,7 @@ CTEST(test_expander_special_param_exit_status)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -519,7 +519,7 @@ CTEST(test_expander_special_param_exit_status)
 CTEST(test_expander_special_param_exit_zero)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -545,7 +545,7 @@ CTEST(test_expander_special_param_exit_zero)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -556,7 +556,7 @@ CTEST(test_expander_special_param_exit_zero)
 CTEST(test_expander_special_param_braced)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -582,7 +582,7 @@ CTEST(test_expander_special_param_braced)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -593,7 +593,7 @@ CTEST(test_expander_special_param_braced)
 CTEST(test_expander_special_param_pid)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -619,7 +619,7 @@ CTEST(test_expander_special_param_pid)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -630,7 +630,7 @@ CTEST(test_expander_special_param_pid)
 CTEST(test_expander_special_param_pid_braced)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -656,7 +656,7 @@ CTEST(test_expander_special_param_pid_braced)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -667,7 +667,7 @@ CTEST(test_expander_special_param_pid_braced)
 CTEST(test_expander_special_param_pid_default)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -692,7 +692,7 @@ CTEST(test_expander_special_param_pid_default)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -703,7 +703,7 @@ CTEST(test_expander_special_param_pid_default)
 CTEST(test_expander_special_param_background_pid)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -729,7 +729,7 @@ CTEST(test_expander_special_param_background_pid)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -740,7 +740,7 @@ CTEST(test_expander_special_param_background_pid)
 CTEST(test_expander_special_param_background_pid_braced)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -766,7 +766,7 @@ CTEST(test_expander_special_param_background_pid_braced)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -777,7 +777,7 @@ CTEST(test_expander_special_param_background_pid_braced)
 CTEST(test_expander_special_param_background_pid_default)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
+    positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
@@ -802,7 +802,7 @@ CTEST(test_expander_special_param_background_pid_default)
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -813,17 +813,15 @@ CTEST(test_expander_special_param_background_pid_default)
 CTEST(test_expander_positionals_basic)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
-    expander_t *exp = expander_create(vars, params);
-    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
     // Set positional params
-    positional_params_set_zero(params, string_create_from_cstr("mgsh"));
+    string_t *parg0 = string_create_from_cstr("mgsh");
     string_t *p1 = string_create_from_cstr("one");
     string_t *p2 = string_create_from_cstr("two");
-    string_t *pargs[] = { p1, p2 };
-    bool ok = positional_params_push(params, pargs, 2);
-    CTEST_ASSERT_EQ(ctest, ok, true, "params pushed");
+    string_t *pargs[] = { parg0, p1, p2 };
+    positional_params_t *params = positional_params_create_from_array(pargs, 3);
+    expander_t *exp = expander_create(vars, params);
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
     // $# should be 2
     token_t *w_hash = token_create_word();
@@ -867,7 +865,7 @@ CTEST(test_expander_positionals_basic)
     token_destroy(&w2);
 
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }
@@ -878,16 +876,15 @@ CTEST(test_expander_positionals_basic)
 CTEST(test_expander_positionals_at_star)
 {
     variable_store_t *vars = variable_store_create();
-    positional_params_stack_t *params = positional_params_stack_create();
-    expander_t *exp = expander_create(vars, params);
-    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
     
-    positional_params_set_zero(params, string_create_from_cstr("mgsh"));
+    string_t *p0 = string_create_from_cstr("sh");
     string_t *pa = string_create_from_cstr("a");
     string_t *pb = string_create_from_cstr("b");
     string_t *pc = string_create_from_cstr("c");
-    string_t *pargs[] = { pa, pb, pc };
-    positional_params_push(params, pargs, 3);
+    string_t *pargs[] = { p0, pa, pb, pc };
+    positional_params_t *params = positional_params_create_from_array(pargs, 4);
+    expander_t *exp = expander_create(vars, params);
+    CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
     // $@ unquoted -> separate fields a b c
     token_t *wat = token_create_word();
@@ -914,7 +911,7 @@ CTEST(test_expander_positionals_at_star)
     token_destroy(&wst);
 
     expander_destroy(&exp);
-    positional_params_stack_destroy(&params);
+    positional_params_destroy(&params);
     variable_store_destroy(&vars);
     (void)ctest;
 }

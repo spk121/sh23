@@ -68,6 +68,33 @@ alias_store_t *alias_store_create_with_capacity(int capacity)
     return store;
 }
 
+// Deep copy an alias store
+alias_store_t *alias_store_copy(const alias_store_t *other)
+{
+    Expects_not_null(other);
+    Expects_not_null(other->aliases);
+
+    alias_store_t *new_store = alias_store_create_with_capacity(alias_array_size(other->aliases));
+    if (!new_store)
+    {
+        return NULL;
+    }
+
+    for (int i = 0; i < alias_array_size(other->aliases); i++)
+    {
+        alias_t *alias = alias_array_get(other->aliases, i);
+        const string_t *name = alias_get_name(alias);
+        const string_t *value = alias_get_value(alias);
+
+        alias_store_add(new_store, name, value);
+    }
+
+    // log_debug("alias_store_copy: copied store %p to new store %p",
+    //          other, new_store);
+
+    return new_store;
+}
+
 // Destructor
 void alias_store_destroy(alias_store_t **store)
 {

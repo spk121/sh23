@@ -7,12 +7,12 @@
 #include "gprint.h"
 
 // Utility function to check gnode type
-bool gnode_is_type(const gnode_t* node, gnode_type_t expected_type) {
+static bool gnode_is_type(const gnode_t* node, gnode_type_t expected_type) {
     return node && node->type == expected_type;
 }
 
 // Utility function to get the body/child of a program node
-const gnode_t* gnode_get_program_body(const gnode_t* node) {
+static const gnode_t* gnode_get_program_body(const gnode_t* node) {
     if (node && node->type == G_PROGRAM) {
         const gnode_t *complete_commands = node->data.child;
         if (complete_commands && complete_commands->type == G_COMPLETE_COMMANDS) {
@@ -41,7 +41,6 @@ char *tests[100] = {
 
 int main(void) {
     int test_count = 0;
-    int passed = 0;
 
     // Test 1: Parse a simple command "echo hello" - should return GNODE_PROGRAM with GNODE_SIMPLE_COMMAND body
     for (test_count = 0; test_count < 10; test_count++)

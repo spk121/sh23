@@ -2,9 +2,11 @@
 #define LIB_OF_LEFTOVER_JUNK_H
 
 #include <stddef.h>
-#if __STDC_VERSION_STDDEF_H__ != 201311L
-typedef typeof(NULL) nullptr_t;
-#define nullptr (NULL)
+#if (defined (__STDC_VERSION__) && __STDC_VERSION__ < 202311L)
+#ifndef _GCC_NULLPTR_T
+typedef void * nullptr_t;
+#define nullptr ((nullptr_t)0)
+#endif
 #endif
 
 /* ASCII-only case-insensitive string comparison for ISO C */

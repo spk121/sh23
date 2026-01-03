@@ -7,6 +7,14 @@
 #include "shell.h"
 #include "logging.h"
 #include "getopt.h"
+#ifdef POSIX_API
+#include <unistd.h>
+#include <sys/types.h>
+#endif
+#ifdef UCRT_API
+#include <io.h>
+#include <process.h>
+#endif
 
 typedef enum
 {
@@ -128,6 +136,7 @@ static int check_command_file_readable(const char *command_file)
     fclose(cf);
     return SH_EXIT_SUCCESS;
 #endif
+    return SH_EXIT_SUCCESS;
 }
 
 static shell_mode_t compute_shell_mode(int flag_c, int flag_s, int flag_i, const char* command_file)

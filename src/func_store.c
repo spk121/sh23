@@ -41,6 +41,33 @@ func_store_t *func_store_create(void)
     return store;
 }
 
+func_store_t *func_store_copy(const func_store_t *other)
+{
+    if (!other || !other->map)
+        return NULL;
+
+    func_store_t *new_store = func_store_create();
+    if (!new_store)
+        return NULL;
+
+    for (int32_t i = 0; i < other->map->capacity; i++)
+    {
+        if (!other->map->entries[i].occupied)
+            continue;
+
+        const string_t *name = other->map->entries[i].key;
+        const func_map_mapped_t *mapped = &other->map->entries[i].mapped;
+
+        // Clone the AST node (deep copy because by policy no AST node can have more than 1 owner)
+        ast_node_t *func_clone = ast_node_clone(mapped->func);
+
+        // Add to new store
+        func_store_add(new_store, name, func_clone);
+    }
+
+    return new_store;
+}
+
 void func_store_destroy(func_store_t **store)
 {
     if (!store || !*store)

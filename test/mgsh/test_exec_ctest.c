@@ -10,7 +10,8 @@
 
 CTEST(test_exec_create_destroy)
 {
-    exec_t *executor = exec_create();
+    exec_cfg_t cfg = {.opt.xtrace = true};
+    exec_t *executor = exec_create_from_cfg(&cfg);
     
     // Verify executor was created
     CTEST_ASSERT_NOT_NULL(ctest, executor, "executor should be created");
@@ -33,8 +34,7 @@ CTEST(test_exec_create_destroy)
 #endif
     CTEST_ASSERT_NOT_NULL(ctest, executor->last_argument, "last_argument should be initialized");
     CTEST_ASSERT_EQ(ctest, string_length(executor->last_argument), 0, "last_argument should be empty");
-    CTEST_ASSERT_NOT_NULL(ctest, executor->shell_flags, "shell_flags should be initialized");
-    CTEST_ASSERT_EQ(ctest, string_length(executor->shell_flags), 0, "shell_flags should be empty");
+    CTEST_ASSERT_EQ(ctest, executor->opt_flags_set, true, "shell_flags should be initialized");
     
     // Clean up
     exec_destroy(&executor);
@@ -49,7 +49,8 @@ CTEST(test_exec_create_destroy)
 
 CTEST(test_exec_special_variables)
 {
-    exec_t *executor = exec_create();
+    exec_cfg_t cfg = {.opt.xtrace = true};
+    exec_t *executor = exec_create_from_cfg(&cfg);
     
     // Test that we can modify special variable fields
     executor->last_background_pid = 12345;
@@ -59,10 +60,8 @@ CTEST(test_exec_special_variables)
     string_append_cstr(executor->last_argument, "test_arg");
     CTEST_ASSERT_EQ(ctest, string_length(executor->last_argument), 8, "last_argument should have length 8");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(executor->last_argument), "test_arg", "last_argument should contain 'test_arg'");
-    
-    string_append_cstr(executor->shell_flags, "ix");
-    CTEST_ASSERT_EQ(ctest, string_length(executor->shell_flags), 2, "shell_flags should have length 2");
-    CTEST_ASSERT_STR_EQ(ctest, string_cstr(executor->shell_flags), "ix", "shell_flags should contain 'ix'");
+
+    CTEST_ASSERT_EQ(ctest, executor->opt.xtrace, true, "xtrace option should be true");
     
     // Clean up (this verifies that string_destroy is called properly)
     exec_destroy(&executor);

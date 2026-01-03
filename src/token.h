@@ -202,6 +202,8 @@ struct token_list_t
  */
 token_t *token_create(token_type_t type);
 
+token_t *token_clone(const token_t *other);
+
 /**
  * Create a new TOKEN_WORD token (convenience function).
  * Returns NULL on allocation failure.
@@ -443,6 +445,8 @@ token_type_t token_string_to_operator(const char *str);
  * Part Lifecycle Functions
  * ============================================================================ */
 
+part_t *part_clone(const part_t *other);
+
 /**
  * Create a literal part.
  * Returns NULL on allocation failure.
@@ -601,6 +605,8 @@ void part_list_reinitialize(part_list_t *list);
  * Returns NULL on allocation failure.
  */
 token_list_t *token_list_create(void);
+
+token_list_t *token_list_clone(const token_list_t *other);
 
 /**
  * Destroy a token list and all contained tokens.

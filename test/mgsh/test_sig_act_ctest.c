@@ -27,7 +27,7 @@ CTEST(test_sig_act_create_and_destroy)
     sig_act_store_t *store = sig_act_store_create();
     CTEST_ASSERT_NOT_NULL(ctest, store, "store created");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_destroy_null_is_safe)
@@ -43,7 +43,7 @@ CTEST(test_sig_act_is_saved_initially_false)
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, SIGINT), "SIGINT not saved");
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, SIGTERM), "SIGTERM not saved");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_is_saved_with_null_store)
@@ -58,7 +58,7 @@ CTEST(test_sig_act_is_saved_with_invalid_signal)
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, -1), "negative signal returns false");
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, 9999), "huge signal returns false");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_get_returns_null_for_unsaved)
@@ -68,7 +68,7 @@ CTEST(test_sig_act_get_returns_null_for_unsaved)
     const sig_act_t *entry = sig_act_store_get(store, SIGINT);
     CTEST_ASSERT_NULL(ctest, entry, "unsaved signal returns null");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 // ============================================================================
@@ -90,7 +90,7 @@ CTEST(test_sig_act_posix_set_and_save_basic)
     CTEST_ASSERT_EQ(ctest, result, 0, "set_and_save succeeded");
     CTEST_ASSERT_TRUE(ctest, sig_act_store_is_saved(store, SIGUSR2), "signal marked as saved");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_set_and_save_preserves_original)
@@ -122,7 +122,7 @@ CTEST(test_sig_act_posix_set_and_save_preserves_original)
     CTEST_ASSERT_TRUE(ctest, entry->original_action.sa_handler == original_handler, 
                       "original handler preserved");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_detect_sig_ign)
@@ -144,7 +144,7 @@ CTEST(test_sig_act_posix_detect_sig_ign)
     
     CTEST_ASSERT_TRUE(ctest, sig_act_store_was_ignored(store, SIGUSR2), "detected SIG_IGN");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_restore_one)
@@ -161,7 +161,7 @@ CTEST(test_sig_act_posix_restore_one)
     bool result = sig_act_store_restore_one(store, SIGUSR2);
     CTEST_ASSERT_TRUE(ctest, result, "restore_one succeeded");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_restore_one_unsaved_fails)
@@ -171,7 +171,7 @@ CTEST(test_sig_act_posix_restore_one_unsaved_fails)
     bool result = sig_act_store_restore_one(store, SIGUSR2);
     CTEST_ASSERT_FALSE(ctest, result, "restore_one failed for unsaved");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_restore_all)
@@ -190,7 +190,7 @@ CTEST(test_sig_act_posix_restore_all)
     
     CTEST_ASSERT_TRUE(ctest, true, "restore_all did not crash");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_actual_signal_delivery)
@@ -212,7 +212,7 @@ CTEST(test_sig_act_posix_actual_signal_delivery)
     
     sig_act_store_restore_one(store, SIGUSR2);
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_reject_sigkill)
@@ -228,7 +228,7 @@ CTEST(test_sig_act_posix_reject_sigkill)
     CTEST_ASSERT_EQ(ctest, result, -1, "SIGKILL rejected");
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, SIGKILL), "SIGKILL not saved");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_reject_sigstop)
@@ -244,7 +244,7 @@ CTEST(test_sig_act_posix_reject_sigstop)
     CTEST_ASSERT_EQ(ctest, result, -1, "SIGSTOP rejected");
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, SIGSTOP), "SIGSTOP not saved");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_posix_null_action_fails)
@@ -254,7 +254,7 @@ CTEST(test_sig_act_posix_null_action_fails)
     int result = sig_act_store_set_and_save(store, SIGUSR2, NULL);
     CTEST_ASSERT_EQ(ctest, result, -1, "null action rejected");
     
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 #else  // Non-POSIX (UCRT_API or ISO_C)

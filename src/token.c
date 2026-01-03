@@ -27,6 +27,46 @@ token_t *token_create(token_type_t type)
     return token;
 }
 
+// Deep copy
+token_t *token_clone(const token_t *other)
+{
+    token_t *new_token = token_create(other->type);
+    if (!new_token)
+        return NULL;
+    new_token->first_line = other->first_line;
+    new_token->first_column = other->first_column;
+    new_token->last_line = other->last_line;
+    new_token->last_column = other->last_column;
+    new_token->io_number = other->io_number;
+    new_token->heredoc_delim_quoted = other->heredoc_delim_quoted;
+    new_token->needs_expansion = other->needs_expansion;
+    new_token->needs_field_splitting = other->needs_field_splitting;
+    new_token->needs_pathname_expansion = other->needs_pathname_expansion;
+    new_token->was_quoted = other->was_quoted;
+    new_token->has_equals_before_quote = other->has_equals_before_quote;
+    if (other->io_location)
+        new_token->io_location = string_create_from(other->io_location);
+    if (other->heredoc_delimiter)
+        new_token->heredoc_delimiter = string_create_from(other->heredoc_delimiter);
+    if (other->heredoc_content)
+        new_token->heredoc_content = string_create_from(other->heredoc_content);
+    if (other->assignment_name)
+        new_token->assignment_name = string_create_from(other->assignment_name);
+    if (other->parts)
+    {
+        for (int i = 0; i < other->parts->size; i++)
+        {
+            part_t *prt = part_clone(other->parts->parts[i]);
+            if (!prt || part_list_append(new_token->parts, prt) != 0)
+            {
+                token_destroy(&new_token);
+                return NULL;
+            }
+        }
+    }
+    return new_token;
+}
+
 token_t *token_create_word(void)
 {
     return token_create(TOKEN_WORD);
@@ -772,6 +812,28 @@ token_type_t token_string_to_operator(const char *str)
  * Part Lifecycle Functions
  * ============================================================================ */
 
+part_t *part_clone(const part_t *other)
+{
+    Expects_not_null(other);
+
+    part_t *new_part = (part_t *)xcalloc(1, sizeof(part_t));
+    new_part->type = other->type;
+    if (other->text != NULL)
+        new_part->text = string_create_from(other->text);
+    if (other->param_name != NULL)
+        new_part->param_name = string_create_from(other->param_name);
+    if (other->word != NULL)
+        new_part->word = string_create_from(other->word);
+    new_part->param_kind = other->param_kind;
+    new_part->was_single_quoted = other->was_single_quoted;
+    new_part->was_double_quoted = other->was_double_quoted;
+    if (other->nested != NULL)
+        new_part->nested = token_list_clone(other->nested);
+
+    return new_part;
+}
+
+
 part_t *part_create_literal(const string_t *text)
 {
     Expects_not_null(text);
@@ -1142,6 +1204,19 @@ token_list_t *token_list_create(void)
     list->capacity = INITIAL_LIST_CAPACITY;
 
     return list;
+}
+
+token_list_t *token_list_clone(const token_list_t *other)
+{
+    Expects_not_null(other);
+
+    token_list_t *new_list = token_list_create();
+    for (int i = 0; i < other->size; i++)
+    {
+        token_t *cloned_token = token_clone(other->tokens[i]);
+        token_list_append(new_list, cloned_token);
+    }
+    return new_list;
 }
 
 void token_list_destroy(token_list_t **list)
