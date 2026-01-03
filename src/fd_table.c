@@ -144,7 +144,7 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, string_t *path)
     {
         /* Update existing entry */
         fd_entry_t *entry = &table->entries[idx];
-        
+
         /* Clear old path if present */
         if (entry->path != NULL)
         {
@@ -154,7 +154,7 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, string_t *path)
         entry->flags = flags;
         entry->path = path;
         entry->is_open = true;
-        
+
         /* Update original_fd only if FD_SAVED is set */
         if (!(flags & FD_SAVED))
         {
@@ -462,7 +462,7 @@ int *fd_table_get_fds_with_flag(const fd_table_t *table, fd_flags_t flag, size_t
     }
 
     *out_count = count;
-    
+
     if (count == 0)
     {
         return NULL;

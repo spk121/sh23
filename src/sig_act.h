@@ -27,7 +27,7 @@ typedef struct sig_act_t
     int signal_number;
     bool is_saved;   // Whether we have a saved handler for this signal
     bool was_ignored; // Whether the original handler was SIG_IGN
-    
+
 #ifdef POSIX_API
     struct sigaction original_action; // Original sigaction structure
 #else

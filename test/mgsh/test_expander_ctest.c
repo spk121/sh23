@@ -32,7 +32,7 @@ CTEST(test_expander_create_destroy)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     expander_destroy(&exp);
     positional_params_destroy(&params);
     variable_store_destroy(&vars);
@@ -186,25 +186,25 @@ CTEST(test_expander_ifs)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Default IFS should be space, tab, newline (from getenv or default)
     // Since no IFS set, it uses default " \t\n"
     // But to test setting, set IFS in vars
     variable_store_add_cstr(vars, "IFS", ":", false, false);
-    
+
     // For expansion, IFS is checked in expand_word
     // Create a word that needs splitting
     token_t *word = token_create_word();
     token_add_literal_part(word, string_create_from_cstr("a:b:c"));
     // Mark as needing field splitting (assume token_needs_expansion sets it)
     word->needs_field_splitting = true;
-    
+
     string_list_t *res = expander_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 3, "IFS splits on :");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(res, 0)), "a", "first field");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(res, 1)), "b", "second field");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(res, 2)), "c", "third field");
-    
+
     string_list_destroy(&res);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -222,25 +222,25 @@ CTEST(test_expander_expand_simple_word)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a simple word token with one literal part
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *text = string_create_from_cstr("hello");
     token_add_literal_part(word, text);
     string_destroy(&text);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back a list with one string "hello"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "hello", "expanded string is 'hello'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -258,29 +258,29 @@ CTEST(test_expander_expand_concatenated_word)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a word token with multiple literal parts
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *text1 = string_create_from_cstr("hello");
     token_add_literal_part(word, text1);
     string_destroy(&text1);
-    
+
     string_t *text2 = string_create_from_cstr("world");
     token_add_literal_part(word, text2);
     string_destroy(&text2);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back a list with one string "helloworld"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "helloworld", "expanded string is 'helloworld'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -298,25 +298,25 @@ CTEST(test_expander_arithmetic_simple)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a word token with an arithmetic part: $((1+2))
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *expr = string_create_from_cstr("1+2");
     token_append_arithmetic(word, expr);
     string_destroy(&expr);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Stub returns "42"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "arithmetic stub returns '42'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -334,28 +334,28 @@ CTEST(test_expander_arithmetic_with_variable)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a variable store and set x=10
     variable_store_add_cstr(vars, "x", "10", false, false);
-    
+
     // Create a word token with an arithmetic part: $(($x+5))
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *expr = string_create_from_cstr("$x+5");
     token_append_arithmetic(word, expr);
     string_destroy(&expr);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Stub returns "42"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "arithmetic stub returns '42'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -373,29 +373,29 @@ CTEST(test_expander_arithmetic_complex)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a variable store and set x=10, y=5
     variable_store_add_cstr(vars, "x", "10", false, false);
     variable_store_add_cstr(vars, "y", "5", false, false);
-    
+
     // Create a word token with an arithmetic part: $(($x+$y*3))
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *expr = string_create_from_cstr("$x+$y*3");
     token_append_arithmetic(word, expr);
     string_destroy(&expr);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Stub returns "42"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "arithmetic stub returns '42'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -413,25 +413,25 @@ CTEST(test_expander_arithmetic_empty)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a word token with an empty arithmetic part: $(())
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *expr = string_create_from_cstr("");
     token_append_arithmetic(word, expr);
     string_destroy(&expr);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Stub returns "42"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "arithmetic stub returns '42'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -449,25 +449,25 @@ CTEST(test_expander_arithmetic_nested)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Create a word token with nested arithmetic: $((1 + $((1 + 1))))
     token_t *word = token_create_word();
     CTEST_ASSERT_NOT_NULL(ctest, word, "word token created");
-    
+
     string_t *expr = string_create_from_cstr("1 + $((1 + 1))");
     token_append_arithmetic(word, expr);
     string_destroy(&expr);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Stub returns "42"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "arithmetic stub returns '42'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -485,26 +485,26 @@ CTEST(test_expander_special_param_exit_status)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Set exit status to 42 in variable store
     variable_store_add_cstr(vars, "?", "42", false, false);
-    
+
     // Create a word token with $? parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("?");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back "42"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "42", "expanded $? is '42'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -522,26 +522,26 @@ CTEST(test_expander_special_param_exit_zero)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Default exit status is 0 (not set, so empty)
     // But since not set, it returns empty string
-    
+
     // Create a word token with $? parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("?");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back empty string
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "", "expanded $? is empty when not set");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -559,26 +559,26 @@ CTEST(test_expander_special_param_braced)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Set exit status to 127
     variable_store_add_cstr(vars, "?", "127", false, false);
-    
+
     // Create a word token with ${?} parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("?");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back "127"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "127", "expanded $? is '127'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -596,26 +596,26 @@ CTEST(test_expander_special_param_pid)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Set PID to 12345
     variable_store_add_cstr(vars, "$", "12345", false, false);
-    
+
     // Create a word token with $$ parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("$");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back "12345"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "12345", "expanded $$ is '12345'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -633,26 +633,26 @@ CTEST(test_expander_special_param_pid_braced)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Set PID to 99999
     variable_store_add_cstr(vars, "$", "99999", false, false);
-    
+
     // Create a word token with ${$} parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("$");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back "99999"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "99999", "expanded ${$} is '99999'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -670,25 +670,25 @@ CTEST(test_expander_special_param_pid_default)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Don't set PID
-    
+
     // Create a word token with $$ parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("$");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back empty string
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "", "expanded $$ is empty when not set");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -706,26 +706,26 @@ CTEST(test_expander_special_param_background_pid)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Set background PID to 54321
     variable_store_add_cstr(vars, "!", "54321", false, false);
-    
+
     // Create a word token with $! parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("!");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back "54321"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "54321", "expanded $! is '54321'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -743,26 +743,26 @@ CTEST(test_expander_special_param_background_pid_braced)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Set background PID to 11111
     variable_store_add_cstr(vars, "!", "11111", false, false);
-    
+
     // Create a word token with ${!} parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("!");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back "11111"
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "11111", "expanded ${!} is '11111'");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -780,25 +780,25 @@ CTEST(test_expander_special_param_background_pid_default)
     positional_params_t *params = positional_params_create();
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
-    
+
     // Don't set background PID
-    
+
     // Create a word token with $! parameter
     token_t *word = token_create_word();
     string_t *param = string_create_from_cstr("!");
     token_append_parameter(word, param);
     string_destroy(&param);
-    
+
     // Expand the word
     string_list_t *result = expander_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
-    
+
     // Should get back empty string
     CTEST_ASSERT_EQ(ctest, string_list_size(result), 1, "result has one string");
     const string_t *expanded = string_list_at(result, 0);
     CTEST_ASSERT_NOT_NULL(ctest, expanded, "expanded string not NULL");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(expanded), "", "expanded $! is empty when not set");
-    
+
     string_list_destroy(&result);
     token_destroy(&word);
     expander_destroy(&exp);
@@ -813,7 +813,7 @@ CTEST(test_expander_special_param_background_pid_default)
 CTEST(test_expander_positionals_basic)
 {
     variable_store_t *vars = variable_store_create();
-    
+
     // Set positional params
     string_t *parg0 = string_create_from_cstr("mgsh");
     string_t *p1 = string_create_from_cstr("one");
@@ -876,7 +876,7 @@ CTEST(test_expander_positionals_basic)
 CTEST(test_expander_positionals_at_star)
 {
     variable_store_t *vars = variable_store_create();
-    
+
     string_t *p0 = string_create_from_cstr("sh");
     string_t *pa = string_create_from_cstr("a");
     string_t *pb = string_create_from_cstr("b");
@@ -924,7 +924,7 @@ int main(void)
 {
     arena_start();
     log_init();
-    
+
 
     CTestEntry *suite[] = {
         CTEST_ENTRY(test_expander_create_destroy),

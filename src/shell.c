@@ -78,10 +78,10 @@ void shell_cleanup(void *sh_ptr)
     if (!sh_ptr)
         return;
     shell_t *sh = (shell_t *)sh_ptr;
-    
+
     // Clean up the executor
     exec_destroy(&sh->root_exec);
-    
+
     // Free the shell structure
     // Note: We don't null out sh_ptr since it's owned by the arena
     xfree(sh);
@@ -93,7 +93,7 @@ sh_status_t shell_feed_line(shell_t *sh, const char *line, int line_num)
     Expects_not_null(sh);
     Expects_not_null(line);
     (void)line_num;  // unused for now
-    
+
     // TODO: Implement lexer -> parser -> executor pipeline
     // For now, just return OK
     return SH_OK;
@@ -103,17 +103,17 @@ static sh_status_t shell_execute_script_file(shell_t *sh, const char *filename)
 {
     Expects_not_null(sh);
     Expects_not_null(filename);
-    
+
     FILE *fp = fopen(filename, "r");
     if (!fp)
     {
         exec_set_error(sh->root_exec, "Cannot open file: %s", filename);
         return SH_RUNTIME_ERROR;
     }
-    
+
     exec_status_t status = exec_execute_stream(sh->root_exec, fp);
     fclose(fp);
-    
+
     // Convert exec_status_t to sh_status_t
     switch (status)
     {
@@ -129,7 +129,7 @@ static sh_status_t shell_execute_script_file(shell_t *sh, const char *filename)
 sh_status_t shell_execute(shell_t *sh)
 {
     Expects_not_null(sh);
-    
+
     switch (sh->cfg.mode)
     {
     case SHELL_MODE_SCRIPT_FILE:
@@ -139,7 +139,7 @@ sh_status_t shell_execute(shell_t *sh)
             return SH_INTERNAL_ERROR;
         }
         return shell_execute_script_file(sh, sh->cfg.command_file);
-        
+
     case SHELL_MODE_INTERACTIVE:
         // TODO: Implement REPL with prompts and readline
         {
@@ -185,7 +185,7 @@ sh_status_t shell_execute(shell_t *sh)
             exec_status_t status = exec_execute_stream(sh->root_exec, stdin);
             return (status == EXEC_OK) ? SH_OK : SH_RUNTIME_ERROR;
         }
-        
+
     default:
         exec_set_error(sh->root_exec, "Invalid shell mode");
         return SH_INTERNAL_ERROR;
@@ -196,7 +196,7 @@ const char *shell_last_error(shell_t *sh)
 {
     Expects_not_null(sh);
     Expects_not_null(sh->root_exec);
-    
+
     return exec_get_error(sh->root_exec);
 }
 
@@ -204,7 +204,7 @@ void shell_reset_error(shell_t *sh)
 {
     Expects_not_null(sh);
     Expects_not_null(sh->root_exec);
-    
+
     exec_clear_error(sh->root_exec);
 }
 
@@ -212,7 +212,7 @@ sh_status_t shell_run_script(shell_t *sh, const char *script)
 {
     Expects_not_null(sh);
     Expects_not_null(script);
-    
+
     // TODO: Implement script execution
     // Parse entire script buffer and execute
     return SH_OK;
@@ -222,7 +222,7 @@ const char *shell_get_ps1(const shell_t *sh)
 {
     Expects_not_null(sh);
     Expects_not_null(sh->root_exec);
-    
+
     return exec_get_ps1(sh->root_exec);
 }
 
@@ -230,6 +230,6 @@ const char *shell_get_ps2(const shell_t *sh)
 {
     Expects_not_null(sh);
     Expects_not_null(sh->root_exec);
-    
+
     return exec_get_ps2(sh->root_exec);
 }

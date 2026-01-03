@@ -578,7 +578,7 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
     {
         char flags[16];
         int idx = 0;
-        
+
         // Add single-letter flags
         if (ex->opt.allexport) flags[idx++] = 'a';
         if (ex->opt.errexit) flags[idx++] = 'e';
@@ -589,7 +589,7 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
         if (ex->opt.verbose) flags[idx++] = 'v';
         if (ex->opt.xtrace) flags[idx++] = 'x';
         if (ex->is_interactive) flags[idx++] = 'i';
-        
+
         flags[idx] = '\0';
         variable_store_add_cstr(store, "-", flags, false, false);
     }
@@ -797,14 +797,14 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 {
     Expects_not_null(executor);
     Expects_not_null(fp);
-    
+
     lexer_t *lx = lexer_create();
     if (!lx)
     {
         exec_set_error(executor, "Failed to create lexer");
         return EXEC_ERROR;
     }
-    
+
     tokenizer_t *tokenizer = tokenizer_create(executor->aliases);
     if (!tokenizer)
     {
@@ -812,7 +812,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         exec_set_error(executor, "Failed to create tokenizer");
         return EXEC_ERROR;
     }
-    
+
     exec_status_t final_status = EXEC_OK;
 
     // Buffer for reading lines - use a reasonably large static buffer
@@ -825,20 +825,20 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
     {
         // Append the line to the lexer
         lexer_append_input_cstr(lx, line_buffer);
-        
+
         // Tokenize the input
         token_list_t *raw_tokens = token_list_create();
         lex_status_t lex_status = lexer_tokenize(lx, raw_tokens, NULL);
-        
+
         if (lex_status == LEX_ERROR)
         {
-            exec_set_error(executor, "Lexer error: %s", 
+            exec_set_error(executor, "Lexer error: %s",
                           lx->error_msg ? string_cstr(lx->error_msg) : "unknown");
             token_list_destroy(&raw_tokens);
             final_status = EXEC_ERROR;
             break;
         }
-        
+
         if (lex_status == LEX_INCOMPLETE)
         {
             // Need more input - continue reading (e.g., unclosed quotes, multi-line constructs)
@@ -858,7 +858,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         token_list_t *processed_tokens = token_list_create();
         tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
         token_list_destroy(&raw_tokens);
-        
+
         if (tok_status != TOK_OK)
         {
             exec_set_error(executor, "Tokenizer error");
@@ -866,14 +866,14 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             final_status = EXEC_ERROR;
             break;
         }
-        
+
         // If we have no tokens, continue
         if (processed_tokens->size == 0)
         {
             token_list_destroy(&processed_tokens);
             continue;
         }
-        
+
         // Parse the tokens into a grammar tree
         parser_t *parser = parser_create_with_tokens(processed_tokens);
         if (!parser)
@@ -883,10 +883,10 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             final_status = EXEC_ERROR;
             break;
         }
-        
+
         gnode_t *gnode = NULL;
         parse_status_t parse_status = parser_parse_program(parser, &gnode);
-        
+
         if (parse_status == PARSE_ERROR)
         {
             const char *err = parser_get_error(parser);
@@ -896,7 +896,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             final_status = EXEC_ERROR;
             break;
         }
-        
+
         if (parse_status == PARSE_INCOMPLETE)
         {
             // Need more input - continue reading (e.g., incomplete if/while/for)
@@ -907,7 +907,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             token_list_destroy(&processed_tokens);
             continue;
         }
-        
+
         if (parse_status == PARSE_EMPTY || !gnode)
         {
             // Empty input (comments only, blank lines), continue
@@ -926,25 +926,25 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         // Lower the grammar tree to AST
         ast_node_t *ast = ast_lower(gnode);
         g_node_destroy(&gnode);
-        
+
         // Clean up parser and tokens
         // Note: parser doesn't own tokens, gnode took ownership of individual tokens
         parser_destroy(&parser);
         token_list_release_tokens(processed_tokens);
         xfree(processed_tokens->tokens);
         xfree(processed_tokens);
-        
+
         if (!ast)
         {
             exec_set_error(executor, "Failed to lower parse tree to AST");
             final_status = EXEC_ERROR;
             break;
         }
-        
+
         // Execute the AST
         exec_status_t exec_status = exec_execute(executor, ast);
         ast_node_destroy(&ast);
-        
+
         if (exec_status != EXEC_OK)
         {
             final_status = exec_status;
@@ -952,11 +952,11 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             if (exec_status == EXEC_ERROR)
                 break;
         }
-        
+
         // Reset lexer for next command
         lexer_reset(lx);
     }
-    
+
     // Clean up
     tokenizer_destroy(&tokenizer);
     lexer_destroy(&lx);

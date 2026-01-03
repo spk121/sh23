@@ -19,7 +19,7 @@ static const gnode_t* gnode_get_program_body(const gnode_t* node) {
             gnode_list_t* complete_command_list = complete_commands->data.list;
             if (complete_command_list && complete_command_list->size > 0) {
                 return complete_command_list->nodes[0];
-			}
+            }
         }
     }
     return NULL;

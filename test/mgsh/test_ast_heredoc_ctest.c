@@ -61,7 +61,7 @@ static ast_node_t *parse_string(const char *input)
     // FIXME: NEW API
     abort();
     // parse_status_t status = parser_parse(parser, tokens, &ast);
-	parse_status_t status = PARSE_OK; // Placeholder
+    parse_status_t status = PARSE_OK; // Placeholder
 
     if (status != PARSE_OK)
     {

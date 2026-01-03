@@ -82,7 +82,7 @@ typedef struct job_store_t
 
 /**
  * Create a new job store.
- * 
+ *
  * @return A newly allocated job store, or NULL on allocation failure
  */
 job_store_t *job_store_create(void);
@@ -90,7 +90,7 @@ job_store_t *job_store_create(void);
 /**
  * Destroy a job store and free all associated memory.
  * Safe to call with NULL.
- * 
+ *
  * @param store Pointer to pointer to job store (set to NULL after destruction)
  */
 void job_store_destroy(job_store_t **store);
@@ -101,7 +101,7 @@ void job_store_destroy(job_store_t **store);
 
 /**
  * Create a new job and add it to the store.
- * 
+ *
  * @param store The job store
  * @param command_line The full command line as typed by user (takes ownership)
  * @param is_background Whether this is a background job
@@ -111,7 +111,7 @@ int job_store_add(job_store_t *store, string_t *command_line, bool is_background
 
 /**
  * Add a process to a job.
- * 
+ *
  * @param store The job store
  * @param job_id The job ID to add the process to
  * @param pid The process ID
@@ -130,7 +130,7 @@ bool job_store_add_process(job_store_t *store, int job_id, int pid, string_t *co
 
 /**
  * Find a job by job ID.
- * 
+ *
  * @param store The job store
  * @param job_id The job ID to find
  * @return Pointer to the job, or NULL if not found
@@ -139,7 +139,7 @@ job_t *job_store_find(job_store_t *store, int job_id);
 
 /**
  * Get the current job (referenced by %% or %+).
- * 
+ *
  * @param store The job store
  * @return Pointer to the current job, or NULL if none
  */
@@ -147,7 +147,7 @@ job_t *job_store_get_current(const job_store_t *store);
 
 /**
  * Get the previous job (referenced by %-).
- * 
+ *
  * @param store The job store
  * @return Pointer to the previous job, or NULL if none
  */
@@ -159,7 +159,7 @@ job_t *job_store_get_previous(const job_store_t *store);
 
 /**
  * Update the state of a job.
- * 
+ *
  * @param store The job store
  * @param job_id The job ID to update
  * @param new_state The new state
@@ -169,7 +169,7 @@ bool job_store_set_state(job_store_t *store, int job_id, job_state_t new_state);
 
 /**
  * Update the state of a specific process.
- * 
+ *
  * @param store The job store
  * @param pid The process ID
  * @param new_state The new state
@@ -177,7 +177,7 @@ bool job_store_set_state(job_store_t *store, int job_id, job_state_t new_state);
  * @return true on success, false if process not found
  */
 #ifdef POSIX_API
-bool job_store_set_process_state(job_store_t *store, pid_t pid, 
+bool job_store_set_process_state(job_store_t *store, pid_t pid,
                                    job_state_t new_state, int exit_status);
 #else
 bool job_store_set_process_state(job_store_t *store, int pid,
@@ -186,7 +186,7 @@ bool job_store_set_process_state(job_store_t *store, int pid,
 
 /**
  * Mark a job as notified.
- * 
+ *
  * @param store The job store
  * @param job_id The job ID
  * @return true on success, false if job not found
@@ -200,7 +200,7 @@ bool job_store_mark_notified(job_store_t *store, int job_id);
 /**
  * Remove a job from the store.
  * The job and all its processes are freed.
- * 
+ *
  * @param store The job store
  * @param job_id The job ID to remove
  * @return true if job was found and removed, false otherwise
@@ -209,7 +209,7 @@ bool job_store_remove(job_store_t *store, int job_id);
 
 /**
  * Remove all completed jobs from the store.
- * 
+ *
  * @param store The job store
  * @return Number of jobs removed
  */
@@ -221,7 +221,7 @@ size_t job_store_remove_completed(job_store_t *store);
 
 /**
  * Get the number of jobs in the store.
- * 
+ *
  * @param store The job store
  * @return Number of jobs
  */
@@ -230,7 +230,7 @@ size_t job_store_count(const job_store_t *store);
 /**
  * Check if a job is still running.
  * A job is running if any of its processes are still running.
- * 
+ *
  * @param job The job to check
  * @return true if job is running, false otherwise
  */
@@ -239,7 +239,7 @@ bool job_is_running(const job_t *job);
 /**
  * Check if a job is completed.
  * A job is completed if all processes are done or terminated.
- * 
+ *
  * @param job The job to check
  * @return true if job is completed, false otherwise
  */

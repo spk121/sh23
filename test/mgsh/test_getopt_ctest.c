@@ -164,7 +164,7 @@ CTEST(test_long_option_basic)
         {"xtrace", no_argument, 1, &flag_x, 'x', NULL},
         {NULL, 0, 0, NULL, 0, NULL}
     };
-    
+
     char* argv[] = { "prog", "--verbose", NULL };
     int argc = 2;
     struct getopt_state state = { 0 };
@@ -183,7 +183,7 @@ CTEST(test_long_option_with_plus)
         {"verbose", no_argument, 1, &flag_v, 'v', NULL},
         {NULL, 0, 0, NULL, 0, NULL}
     };
-    
+
     char* argv[] = { "prog", "++verbose", NULL };
     int argc = 2;
     struct getopt_state state = { 0 };

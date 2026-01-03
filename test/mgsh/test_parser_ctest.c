@@ -34,9 +34,9 @@ static token_list_t *lex_and_tokenize(const char *input)
     // Pass through tokenizer (for alias expansion, though we don't use aliases here)
     tokenizer_t *tok = tokenizer_create(NULL);
     token_list_t *output = token_list_create();
-    
+
     tok_status_t tok_status = tokenizer_process(tok, tokens, output);
-    
+
     tokenizer_destroy(&tok);
 
     if (tok_status != TOK_OK)
@@ -60,15 +60,15 @@ static ast_node_t *parse_string(const char *input)
         printf("Failed to lex/tokenize: %s\n", input);
         return NULL;
     }
-    
+
     parser_t *parser = parser_create();
     ast_node_t *ast = NULL;
-    
+
     // FIXME: NEW API
     abort();
     //parse_status_t status = parser_parse(parser, tokens, &ast);
-	parse_status_t status = PARSE_OK; // Placeholder
-    
+    parse_status_t status = PARSE_OK; // Placeholder
+
     // Get error message before destroying parser
     const char *err = NULL;
     if (status != PARSE_OK)
@@ -83,15 +83,15 @@ static ast_node_t *parse_string(const char *input)
             err = err_copy;
         }
     }
-    
+
     parser_destroy(&parser);
-    
+
     // AST may have taken ownership of some tokens during parsing (even on error).
     // Release them from the list without destroying, then free the list structure.
     token_list_release_tokens(tokens);
     xfree(tokens->tokens);
     xfree(tokens);
-    
+
     if (status != PARSE_OK)
     {
         printf("Parse error for input '%s': %s\n", input, err ? err : "unknown");
@@ -119,16 +119,16 @@ CTEST(test_parser_simple_command)
 {
     ast_node_t *ast = parse_string("echo hello");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "root is command list");
         CTEST_ASSERT(ctest, ast->data.command_list.items->size > 0, "has items");
-        
+
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "first item is simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(first->data.simple_command.words), 2, "two words");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -138,13 +138,13 @@ CTEST(test_parser_simple_command_with_args)
 {
     ast_node_t *ast = parse_string("ls -la /tmp");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(first->data.simple_command.words), 3, "three words");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -158,13 +158,13 @@ CTEST(test_parser_pipeline)
 {
     ast_node_t *ast = parse_string("ls | grep test");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_PIPELINE, "is pipeline");
         CTEST_ASSERT_EQ(ctest, first->data.pipeline.commands->size, 2, "two commands in pipeline");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -174,13 +174,13 @@ CTEST(test_parser_pipeline_negated)
 {
     ast_node_t *ast = parse_string("! grep test file");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_PIPELINE, "is pipeline");
         CTEST_ASSERT(ctest, first->data.pipeline.is_negated, "pipeline is negated");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -194,13 +194,13 @@ CTEST(test_parser_and_list)
 {
     ast_node_t *ast = parse_string("true && echo success");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_AND_OR_LIST, "is and/or list");
         CTEST_ASSERT_EQ(ctest, first->data.andor_list.op, ANDOR_OP_AND, "operator is AND");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -210,13 +210,13 @@ CTEST(test_parser_or_list)
 {
     ast_node_t *ast = parse_string("false || echo fallback");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_AND_OR_LIST, "is and/or list");
         CTEST_ASSERT_EQ(ctest, first->data.andor_list.op, ANDOR_OP_OR, "operator is OR");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -230,12 +230,12 @@ CTEST(test_parser_sequential_commands)
 {
     ast_node_t *ast = parse_string("echo one; echo two");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "is command list");
         CTEST_ASSERT_EQ(ctest, ast->data.command_list.items->size, 2, "two commands");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -245,14 +245,14 @@ CTEST(test_parser_background_command)
 {
     ast_node_t *ast = parse_string("sleep 10 &");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "is command list");
         CTEST_ASSERT(ctest, ast_node_command_list_has_separators(ast), "has separator");
         CTEST_ASSERT_EQ(ctest, ast_node_command_list_get_separator(ast, 0), LIST_SEP_BACKGROUND,
                        "separator is background");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -266,14 +266,14 @@ CTEST(test_parser_if_then_fi)
 {
     ast_node_t *ast = parse_string("if true\nthen echo yes\nfi");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_IF_CLAUSE, "is if clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.condition, "has condition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.then_body, "has then body");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -283,13 +283,13 @@ CTEST(test_parser_if_else)
 {
     ast_node_t *ast = parse_string("if false\nthen echo yes\nelse echo no\nfi");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_IF_CLAUSE, "is if clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.if_clause.else_body, "has else body");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -303,14 +303,14 @@ CTEST(test_parser_while_loop)
 {
     ast_node_t *ast = parse_string("while true\ndo echo loop\ndone");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_WHILE_CLAUSE, "is while clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.condition, "has condition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.loop_clause.body, "has body");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -320,12 +320,12 @@ CTEST(test_parser_until_loop)
 {
     ast_node_t *ast = parse_string("until false\ndo echo loop\ndone");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_UNTIL_CLAUSE, "is until clause");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -339,14 +339,14 @@ CTEST(test_parser_for_loop)
 {
     ast_node_t *ast = parse_string("for x in a b c\ndo echo $x\ndone");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FOR_CLAUSE, "is for clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.for_clause.variable, "has variable");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.for_clause.body, "has body");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -361,7 +361,7 @@ CTEST(test_parser_case_statement)
 {
     ast_node_t *ast = parse_string("case $x in\na ) echo a;;\nb ) echo b;;\nesac");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
@@ -369,7 +369,7 @@ CTEST(test_parser_case_statement)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.word, "has word to match");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.case_items, "has case items");
         CTEST_ASSERT(ctest, first->data.case_clause.case_items->size >= 2, "has at least 2 case items");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -387,7 +387,7 @@ CTEST(test_parser_case_leading_paren)
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_CASE_CLAUSE, "is case clause");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.case_clause.case_items, "has case items");
         CTEST_ASSERT_EQ(ctest, first->data.case_clause.case_items->size, 1, "one case item");
-        
+
         ast_node_t *item = first->data.case_clause.case_items->nodes[0];
         CTEST_ASSERT_NOT_NULL(ctest, item->data.case_item.patterns, "item has patterns");
         CTEST_ASSERT_EQ(ctest, token_list_size(item->data.case_item.patterns), 1, "one pattern");
@@ -406,7 +406,7 @@ CTEST(test_parser_function_def)
 {
     ast_node_t *ast = parse_string("myfunc() {\necho hello\n}");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
@@ -414,7 +414,7 @@ CTEST(test_parser_function_def)
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.name, "has function name");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first->data.function_def.body), AST_BRACE_GROUP, "body is brace group");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -424,13 +424,13 @@ CTEST(test_parser_function_def_with_subshell)
 {
     ast_node_t *ast = parse_string("myfunc() (echo hello)");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first->data.function_def.body), AST_SUBSHELL, "body is subshell");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -440,14 +440,14 @@ CTEST(test_parser_function_def_with_redirections)
 {
     ast_node_t *ast = parse_string("myfunc() { echo hello; } > output.txt");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.redirections, "has redirections");
         CTEST_ASSERT_EQ(ctest, first->data.function_def.redirections->size, 1, "has one redirection");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -457,14 +457,14 @@ CTEST(test_parser_function_def_empty_body)
 {
     ast_node_t *ast = parse_string("myfunc() { }");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_FUNCTION_DEF, "is function definition");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.function_def.body, "has function body");
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first->data.function_def.body), AST_BRACE_GROUP, "body is brace group");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -499,13 +499,13 @@ CTEST(test_parser_subshell)
 {
     ast_node_t *ast = parse_string("(echo hello)");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SUBSHELL, "is subshell");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.compound.body, "has body");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -515,13 +515,13 @@ CTEST(test_parser_brace_group)
 {
     ast_node_t *ast = parse_string("{ echo hello; }");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_BRACE_GROUP, "is brace group");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.compound.body, "has body");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -535,14 +535,14 @@ CTEST(test_parser_output_redirection)
 {
     ast_node_t *ast = parse_string("echo hello > file.txt");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         CTEST_ASSERT(ctest, first->data.simple_command.redirections->size > 0, "has at least one redirection");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -552,14 +552,14 @@ CTEST(test_parser_input_redirection)
 {
     ast_node_t *ast = parse_string("cat < input.txt");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
         CTEST_ASSERT(ctest, first->data.simple_command.redirections->size > 0, "has at least one redirection");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -569,13 +569,13 @@ CTEST(test_parser_append_redirection)
 {
     ast_node_t *ast = parse_string("echo hello >> file.txt");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         ast_node_t *first = ast->data.command_list.items->nodes[0];
         CTEST_ASSERT_EQ(ctest, ast_node_get_type(first), AST_SIMPLE_COMMAND, "is simple command");
         CTEST_ASSERT_NOT_NULL(ctest, first->data.simple_command.redirections, "has redirections");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -650,16 +650,16 @@ CTEST(test_exec_dry_run)
 {
     ast_node_t *ast = parse_string("echo hello");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         exec_cfg_t cfg = {0};
         exec_t *executor = exec_create_from_cfg(&cfg);
         exec_set_dry_run(executor, true);
-        
+
         exec_status_t status = exec_execute(executor, ast);
         CTEST_ASSERT_EQ(ctest, status, EXEC_OK, "dry run execution succeeded");
-        
+
         exec_destroy(&executor);
         ast_node_destroy(&ast);
     }
@@ -682,15 +682,15 @@ CTEST(test_ast_traverse)
 {
     ast_node_t *ast = parse_string("echo one; echo two");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         int count = 0;
         bool result = ast_traverse(ast, count_visitor, &count);
-        
+
         CTEST_ASSERT(ctest, result, "traversal completed");
         CTEST_ASSERT(ctest, count > 0, "visited at least one node");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -704,13 +704,13 @@ CTEST(test_ast_to_string)
 {
     ast_node_t *ast = parse_string("echo hello");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    
+
     if (ast != NULL)
     {
         string_t *str = ast_node_to_string(ast);
         CTEST_ASSERT_NOT_NULL(ctest, str, "to_string works");
         CTEST_ASSERT(ctest, string_length(str) > 0, "string is not empty");
-        
+
         string_destroy(&str);
         ast_node_destroy(&ast);
     }
@@ -725,17 +725,17 @@ CTEST(test_parser_assignment_only)
 {
     ast_node_t *ast = parse_string("VAR=value");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "assignment-only command parsed");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
         CTEST_ASSERT_EQ(ctest, ast_node_list_size(ast->data.command_list.items), 1, "one command");
-        
+
         ast_node_t *cmd = ast_node_list_get(ast->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, cmd->type, AST_SIMPLE_COMMAND, "simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.words), 0, "no words");
         CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.assignments), 1, "one assignment");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -745,17 +745,17 @@ CTEST(test_parser_redirection_only)
 {
     ast_node_t *ast = parse_string(">output.txt");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "redirection-only command parsed");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
         CTEST_ASSERT_EQ(ctest, ast_node_list_size(ast->data.command_list.items), 1, "one command");
-        
+
         ast_node_t *cmd = ast_node_list_get(ast->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, cmd->type, AST_SIMPLE_COMMAND, "simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.words), 0, "no words");
         CTEST_ASSERT_EQ(ctest, ast_node_list_size(cmd->data.simple_command.redirections), 1, "one redirection");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -765,17 +765,17 @@ CTEST(test_parser_command_with_assignment)
 {
     ast_node_t *ast = parse_string("VAR=1 echo $VAR");
     CTEST_ASSERT_NOT_NULL(ctest, ast, "command with assignment parsed");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
         CTEST_ASSERT_EQ(ctest, ast_node_list_size(ast->data.command_list.items), 1, "one command");
-        
+
         ast_node_t *cmd = ast_node_list_get(ast->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, cmd->type, AST_SIMPLE_COMMAND, "simple command");
         CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.words), 2, "two words");
         CTEST_ASSERT_EQ(ctest, token_list_size(cmd->data.simple_command.assignments), 1, "one assignment");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -792,22 +792,22 @@ CTEST(test_parser_nested_if)
                        "fi";
     ast_node_t *ast = parse_string(input);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "nested if parsed");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
         ast_node_t *outer_if = ast_node_list_get(ast->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, outer_if->type, AST_IF_CLAUSE, "outer if clause");
-        
+
         // Check that then_body contains another if
         ast_node_t *then_body = outer_if->data.if_clause.then_body;
         CTEST_ASSERT_NOT_NULL(ctest, then_body, "then body exists");
         CTEST_ASSERT_EQ(ctest, then_body->type, AST_COMMAND_LIST, "then body is command list");
-        
+
         ast_node_t *inner_if = ast_node_list_get(then_body->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, inner_if->type, AST_IF_CLAUSE, "inner if clause");
         CTEST_ASSERT_NOT_NULL(ctest, inner_if->data.if_clause.else_body, "inner if has else");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -822,22 +822,22 @@ CTEST(test_parser_nested_loops)
                        "done";
     ast_node_t *ast = parse_string(input);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "nested loops parsed");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
         ast_node_t *while_loop = ast_node_list_get(ast->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, while_loop->type, AST_WHILE_CLAUSE, "while loop");
-        
+
         // Check that body contains for loop
         ast_node_t *while_body = while_loop->data.loop_clause.body;
         CTEST_ASSERT_NOT_NULL(ctest, while_body, "while body exists");
         CTEST_ASSERT_EQ(ctest, while_body->type, AST_COMMAND_LIST, "while body is command list");
-        
+
         ast_node_t *for_loop = ast_node_list_get(while_body->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, for_loop->type, AST_FOR_CLAUSE, "for loop inside while");
         CTEST_ASSERT_NOT_NULL(ctest, for_loop->data.for_clause.words, "for loop has word list");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -852,21 +852,21 @@ CTEST(test_parser_complex_case)
                        "esac";
     ast_node_t *ast = parse_string(input);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "complex case parsed");
-    
+
     if (ast != NULL)
     {
         CTEST_ASSERT_EQ(ctest, ast->type, AST_COMMAND_LIST, "root is command list");
         ast_node_t *case_stmt = ast_node_list_get(ast->data.command_list.items, 0);
         CTEST_ASSERT_EQ(ctest, case_stmt->type, AST_CASE_CLAUSE, "case statement");
-        
+
         // Check that we have 3 case items
         CTEST_ASSERT_EQ(ctest, ast_node_list_size(case_stmt->data.case_clause.case_items), 3, "three case items");
-        
+
         // First item should have 2 patterns (a|b)
         ast_node_t *first_item = ast_node_list_get(case_stmt->data.case_clause.case_items, 0);
         CTEST_ASSERT_EQ(ctest, first_item->type, AST_CASE_ITEM, "first case item");
         CTEST_ASSERT_EQ(ctest, token_list_size(first_item->data.case_item.patterns), 2, "two patterns in first item");
-        
+
         ast_node_destroy(&ast);
     }
     (void)ctest;
@@ -880,7 +880,7 @@ int main(void)
 {
     arena_start();
     log_init();
-    
+
 
     CTestEntry *suite[] = {
         // Parser Tests - Simple Commands
@@ -921,8 +921,8 @@ int main(void)
         CTEST_ENTRY(test_parser_function_def_with_redirections),
         CTEST_ENTRY(test_parser_function_def_empty_body),
         CTEST_ENTRY(test_parser_function_def_missing_rbrace),
-		CTEST_ENTRY(test_parser_function_def_missing_lbrace),
-		CTEST_ENTRY(test_parser_function_def_reserved_word_name),
+        CTEST_ENTRY(test_parser_function_def_missing_lbrace),
+        CTEST_ENTRY(test_parser_function_def_reserved_word_name),
 
         // Parser Tests - Subshells and Brace Groups
         CTEST_ENTRY(test_parser_subshell),

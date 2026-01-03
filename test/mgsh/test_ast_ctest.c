@@ -67,14 +67,14 @@ CTEST(test_ast_node_list_append)
     ast_node_list_t *list = ast_node_list_create();
     ast_node_t *node1 = ast_node_create(AST_SIMPLE_COMMAND);
     ast_node_t *node2 = ast_node_create(AST_PIPELINE);
-    
+
     ast_node_list_append(list, node1);
     ast_node_list_append(list, node2);
-    
+
     CTEST_ASSERT_EQ(ctest, ast_node_list_size(list), 2, "list has 2 nodes");
     CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast_node_list_get(list, 0)), AST_SIMPLE_COMMAND, "first node type");
     CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast_node_list_get(list, 1)), AST_PIPELINE, "second node type");
-    
+
     ast_node_list_destroy(&list);
     (void)ctest;
 }
@@ -99,7 +99,7 @@ int main(void)
 {
     arena_start();
     log_init();
-    
+
 
     CTestEntry *suite[] = {
         // AST Node Creation Tests

@@ -154,7 +154,7 @@ static shell_mode_t compute_shell_mode(int flag_c, int flag_s, int flag_i, const
 #ifdef POSIX_API
         if (getuid() != geteuid() || getgid() != getegid())
             mode = SHELL_MODE_INVALID_UID_GID;
-#endif 
+#endif
         mode = SHELL_MODE_INTERACTIVE;
     }
     else if (flag_s)

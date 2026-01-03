@@ -46,11 +46,11 @@ trap_store_t *trap_store_copy(const trap_store_t *store);
 // action: command string to execute (NULL for default)
 // is_ignored: true for trap '' SIGNAL
 // is_default: true for trap - SIGNAL
-void trap_store_set(trap_store_t *store, int signal_number, 
+void trap_store_set(trap_store_t *store, int signal_number,
                     string_t *action, bool is_ignored, bool is_default);
 
 // Set trap for EXIT (signal 0)
-void trap_store_set_exit(trap_store_t *store, string_t *action, 
+void trap_store_set_exit(trap_store_t *store, string_t *action,
                          bool is_ignored, bool is_default);
 
 // Get trap action for a signal (returns NULL if no trap set)
