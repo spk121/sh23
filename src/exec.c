@@ -487,6 +487,32 @@ void exec_set_dry_run(exec_t *executor, bool dry_run)
 #endif
 }
 
+const char *exec_get_ps1(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    Expects_not_null(executor->variables);
+
+    const char *ps1 = variable_store_get_value_cstr(executor->variables, "PS1");
+    if (ps1 && *ps1)
+        return ps1;
+
+    // Return default prompt
+    return "$ ";
+}
+
+const char *exec_get_ps2(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    Expects_not_null(executor->variables);
+
+    const char *ps2 = variable_store_get_value_cstr(executor->variables, "PS2");
+    if (ps2 && *ps2)
+        return ps2;
+
+    // Return default prompt
+    return "> ";
+}
+
 /* ============================================================================
  * Execution Functions
  * ============================================================================ */
@@ -723,10 +749,6 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
         return exec_execute_andor_list(executor, root);
     case AST_COMMAND_LIST:
         return exec_execute_command_list(executor, root);
-    case AST_SUBSHELL:
-        return exec_execute_subshell(executor, root);
-    case AST_BRACE_GROUP:
-        return exec_execute_brace_group(executor, root);
     case AST_IF_CLAUSE:
         return exec_execute_if_clause(executor, root);
     case AST_WHILE_CLAUSE:
@@ -737,15 +759,36 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
         return exec_execute_for_clause(executor, root);
     case AST_CASE_CLAUSE:
         return exec_execute_case_clause(executor, root);
+    case AST_SUBSHELL:
+        return exec_execute_subshell(executor, root);
+    case AST_BRACE_GROUP:
+        return exec_execute_brace_group(executor, root);
     case AST_FUNCTION_DEF:
         return exec_execute_function_def(executor, root);
     case AST_REDIRECTED_COMMAND:
         return exec_execute_redirected_command(executor, root);
     default:
-        exec_set_error(executor, "Unsupported AST node type: %s",
-                          ast_node_type_to_string(root->type));
+        exec_set_error(executor, "Unsupported AST node type: %d", root->type);
         return EXEC_NOT_IMPL;
     }
+}
+
+exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
+{
+    Expects_not_null(executor);
+    Expects_not_null(fp);
+    
+    // TODO: Implement stream execution
+    // This will:
+    // 1. Read lines from fp
+    // 2. Feed them to lexer
+    // 3. When complete, feed tokens to parser
+    // 4. Execute resulting AST
+    // 5. Repeat until EOF
+    
+    // For now, just return OK
+    (void)fp;  // Suppress unused parameter warning
+    return EXEC_OK;
 }
 
 exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node)

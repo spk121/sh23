@@ -7,6 +7,7 @@
 #include "alias_store.h"
 #include "variable_store.h"
 #include "positional_params.h"
+#include <stdio.h>
 
 #ifdef POSIX_API
 #include <sys/types.h>
@@ -192,6 +193,16 @@ void exec_destroy(exec_t **executor);
 exec_status_t exec_execute(exec_t *executor, const ast_node_t *root);
 
 /**
+ * Execute commands from a stream (file or stdin).
+ * Reads lines from the stream, parses them, and executes them.
+ *
+ * @param executor The executor context
+ * @param fp The file stream to read from
+ * @return EXEC_OK on success, EXEC_ERROR on error
+ */
+exec_status_t exec_execute_stream(exec_t *executor, FILE *fp);
+
+/**
  * Execute a command list.
  */
 exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node);
@@ -312,6 +323,26 @@ void exec_clear_error(exec_t *executor);
  * In dry-run mode, commands are validated but not executed.
  */
 void exec_set_dry_run(exec_t *executor, bool dry_run);
+
+/**
+ * Get the PS1 prompt string.
+ * Returns the value of the PS1 variable from the variable store,
+ * or a default prompt if PS1 is not set.
+ *
+ * @param executor The executor context
+ * @return The PS1 prompt string (never NULL)
+ */
+const char *exec_get_ps1(const exec_t *executor);
+
+/**
+ * Get the PS2 prompt string.
+ * Returns the value of the PS2 variable from the variable store,
+ * or a default prompt if PS2 is not set.
+ *
+ * @param executor The executor context
+ * @return The PS2 prompt string (never NULL)
+ */
+const char *exec_get_ps2(const exec_t *executor);
 
 /* ============================================================================
  * Expander Callbacks
