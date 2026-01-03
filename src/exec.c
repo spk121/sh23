@@ -570,7 +570,7 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
     // $_ - last argument
     if (ex->last_argument_set)
     {
-        variable_store_add(store, "_", ex->last_argument, false, false);
+        variable_store_add_cstr(store, "_", string_cstr(ex->last_argument), false, false);
     }
 
     // $- - shell flags (construct from opt flags)
@@ -1737,10 +1737,11 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
     // If execve fails, try PATH search
     execvp(cmd_name, argv);
 #elifdef UCRT_API
-    execve(cmd_name, argv, envp);
+    // When successful, _execve does not return
+    _execve(cmd_name, argv, envp);
 
     // If execve fails, try PATH search
-    execvp(cmd_name, argv);
+    _execvp(cmd_name, argv);
 #else
     // FIXME: implement exec for ISO_C_API
 #endif

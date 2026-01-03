@@ -272,7 +272,7 @@ CTEST(test_sig_act_nonposix_set_and_save_basic)
     CTEST_ASSERT_TRUE(ctest, old_handler != SIG_ERR, "set_and_save succeeded");
     CTEST_ASSERT_TRUE(ctest, sig_act_store_is_saved(store, SIGINT), "signal marked as saved");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_nonposix_set_and_save_preserves_original)
@@ -296,7 +296,7 @@ CTEST(test_sig_act_nonposix_set_and_save_preserves_original)
     CTEST_ASSERT_TRUE(ctest, entry->original_handler == original_handler,
                       "original handler preserved");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_nonposix_detect_sig_ign)
@@ -309,7 +309,7 @@ CTEST(test_sig_act_nonposix_detect_sig_ign)
     CTEST_ASSERT_TRUE(ctest, old == SIG_IGN, "old handler was SIG_IGN");
     CTEST_ASSERT_TRUE(ctest, sig_act_store_was_ignored(store, SIGINT), "detected SIG_IGN");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_nonposix_restore_one)
@@ -321,7 +321,7 @@ CTEST(test_sig_act_nonposix_restore_one)
     bool result = sig_act_store_restore_one(store, SIGINT);
     CTEST_ASSERT_TRUE(ctest, result, "restore_one succeeded");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_nonposix_restore_one_unsaved_fails)
@@ -331,7 +331,7 @@ CTEST(test_sig_act_nonposix_restore_one_unsaved_fails)
     bool result = sig_act_store_restore_one(store, SIGTERM);
     CTEST_ASSERT_FALSE(ctest, result, "restore_one failed for unsaved");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_nonposix_restore_all)
@@ -345,7 +345,7 @@ CTEST(test_sig_act_nonposix_restore_all)
 
     CTEST_ASSERT_TRUE(ctest, true, "restore_all did not crash");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 CTEST(test_sig_act_nonposix_null_store_returns_error)
@@ -364,7 +364,7 @@ CTEST(test_sig_act_nonposix_invalid_signal_returns_error)
     result = sig_act_store_set_and_save(store, 9999, test_signal_handler);
     CTEST_ASSERT_TRUE(ctest, result == SIG_ERR, "huge signal returns SIG_ERR");
 
-    sig_act_store_destroy(store);
+    sig_act_store_destroy(&store);
 }
 
 #endif  // POSIX_API vs non-POSIX
