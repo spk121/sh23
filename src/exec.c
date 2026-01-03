@@ -14,6 +14,7 @@
 #ifdef POSIX_API
 #include <glob.h>
 #include <sys/wait.h>
+#include <sys/resource.h>
 #include <unistd.h>
 #include <fcntl.h>
 #endif
@@ -49,6 +50,11 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
 
 static void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count);
 static exec_status_t exec_execute_pipeline_posix(exec_t *executor, const ast_node_t *node);
+static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *node);
+static void exec_run_redirected_command_child(exec_t *executor, const ast_node_t *node);
+static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node);
+static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node);
+static void exec_run_function_def_child(exec_t *executor, const ast_node_t *node);
 
 #else
 static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
@@ -91,7 +97,7 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
 #ifdef POSIX_API
     char cwd_buffer[PATH_MAX];
     char *cwd = getcwd(cwd_buffer, sizeof(cwd_buffer));
-    e->working_directory = cwd ? string_create(cwd) : string_create("/");
+    e->working_directory = cwd ? string_create_from_cstr(cwd) : string_create_from_cstr("/");
 #elifdef UCRT_API
     char cwd_buffer[_MAX_PATH];
     char *cwd = _getcwd(cwd_buffer, sizeof(cwd_buffer));
@@ -233,9 +239,9 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     e->open_fds = fd_table_create();
 
     // Track standard file descriptors
-    fd_table_add(e->open_fds, STDIN_FILENO, NULL, FD_NONE);
-    fd_table_add(e->open_fds, STDOUT_FILENO, NULL, FD_NONE);
-    fd_table_add(e->open_fds, STDERR_FILENO, NULL, FD_NONE);
+    fd_table_add(e->open_fds, STDIN_FILENO, FD_NONE, NULL);
+    fd_table_add(e->open_fds, STDOUT_FILENO, FD_NONE, NULL);
+    fd_table_add(e->open_fds, STDERR_FILENO, FD_NONE, NULL);
 
     e->next_fd = 3; // First available FD after standard FDs
 #endif
@@ -282,7 +288,7 @@ exec_t *exec_create_subshell(exec_t *parent)
     // File Permissions
     // ========================================================================
 #ifdef POSIX_API
-    e->umaks = parent->umask;
+    e->umask = parent->umask;
     e->file_size_limit = parent->file_size_limit;
 #elifdef UCRT_API
     e->umask = parent->umask;
@@ -1635,9 +1641,7 @@ static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node)
     string_destroy(&child->last_argument);
     child->last_argument = string_create_from(executor->last_argument);
 
-    child->shell_flags_set = executor->shell_flags_set;
-    string_destroy(&child->shell_flags);
-    child->shell_flags = string_create_from(executor->shell_flags);
+    // Shell flags are already copied as part of opt structure in exec_create_subshell
 
     /* ------------------------------------------------------------
      * 2. Execute the subshell body
@@ -1702,9 +1706,7 @@ static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
     string_destroy(&child->last_argument);
     child->last_argument = string_create_from(executor->last_argument);
 
-    child->shell_flags_set = executor->shell_flags_set;
-    string_destroy(&child->shell_flags);
-    child->shell_flags = string_create_from(executor->shell_flags);
+    // Shell flags are already copied as part of opt structure in exec_create_subshell
 
     /* ------------------------------------------------------------
      * 2. Execute the brace group body
@@ -2184,9 +2186,7 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
         string_destroy(&child->last_argument);
         child->last_argument = string_create_from(executor->last_argument);
 
-        child->shell_flags_set = executor->shell_flags_set;
-        string_destroy(&child->shell_flags);
-        child->shell_flags = string_create_from(executor->shell_flags);
+        // Shell flags are already copied as part of opt structure in exec_create_subshell
 
         /* Execute the body */
         exec_status_t st = exec_execute(child, body);

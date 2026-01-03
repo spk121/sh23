@@ -7,6 +7,11 @@
 #include "alias_store.h"
 #include "variable_store.h"
 #include "positional_params.h"
+
+#ifdef POSIX_API
+#include <sys/types.h>
+#include <sys/resource.h>
+#endif
 #include "func_store.h"
 #include "sig_act.h"
 #include "job_store.h"
@@ -66,9 +71,9 @@ typedef struct exec_t
     // File creation mask set by umask.
     // These are the permissions that should be masked off when creating new files.
 #ifdef POSIX_API
-    mode_t file_creation_mask;  // return value of umask()
+    mode_t umask;  // return value of umask()
 #elifdef UCRT_API
-    int file_creation_mask;     // return value of _umask()
+    int umask;     // return value of _umask()
 #else
     // ISO_C does not define umask
 #endif
