@@ -138,42 +138,8 @@ static void gprint_node(const gnode_t *node, int depth)
     indent(depth);
     printf("%s {\n", gkind_name(node->type));
 
-    /* Special case for G_COMMAND which can have either .child or .multi payload */
-    if (node->type == G_COMMAND)
-    {
-        /* Check if this looks like a multi node (with redirects) */
-        if (node->data.multi.a != NULL)
-        {
-            indent(depth + 2);
-            printf("multi.a:\n");
-            gprint_node(node->data.multi.a, depth + 4);
-
-            indent(depth + 2);
-            printf("multi.b:\n");
-            gprint_node(node->data.multi.b, depth + 4);
-
-            indent(depth + 2);
-            printf("multi.c:\n");
-            gprint_node(node->data.multi.c, depth + 4);
-
-            indent(depth + 2);
-            printf("multi.d:\n");
-            gprint_node(node->data.multi.d, depth + 4);
-        }
-        else
-        {
-            indent(depth + 2);
-            printf("child:\n");
-            gprint_node(node->data.child, depth + 4);
-        }
-        indent(depth);
-        printf("}\n");
-        return;
-    }
-
-    gnode_payload_t payload = gnode_get_payload_type(node->type);
-    
-    switch (payload)
+    /* Use the stored payload_type instead of computing it */
+    switch (node->payload_type)
     {
     case GNODE_PAYLOAD_TOKEN:
         gprint_token(node->data.token, depth + 2);
@@ -215,6 +181,13 @@ static void gprint_node(const gnode_t *node, int depth)
         indent(depth + 2);
         printf("multi.d:\n");
         gprint_node(node->data.multi.d, depth + 4);
+        break;
+
+    case GNODE_PAYLOAD_INDETERMINATE:
+        /* This should not happen - indeterminate payload should have been
+           resolved to a concrete type when the node was created/modified */
+        indent(depth + 2);
+        printf("ERROR: indeterminate payload for type %d\n", (int)node->type);
         break;
 
     case GNODE_PAYLOAD_NONE:

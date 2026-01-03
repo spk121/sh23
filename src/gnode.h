@@ -83,17 +83,20 @@ typedef enum
 /* ============================================================================
  * Grammar AST Payload Types
  * ============================================================================
+ *
+ * These values indicate which member of the `data` union in `gnode_t` is valid.
  */
 
 typedef enum
 {
-    GNODE_PAYLOAD_NONE,
-    GNODE_PAYLOAD_LIST,
-    GNODE_PAYLOAD_TOKEN,
-    GNODE_PAYLOAD_STRING,
-    GNODE_PAYLOAD_PAIR,
-    GNODE_PAYLOAD_CHILD,
-    GNODE_PAYLOAD_MULTI
+    GNODE_PAYLOAD_NONE,         /* no payload; no `data` member is valid */
+    GNODE_PAYLOAD_LIST,         /* uses data.list  (generic list of child nodes) */
+    GNODE_PAYLOAD_TOKEN,        /* uses data.token (wrapped token_t*) */
+    GNODE_PAYLOAD_STRING,       /* uses data.string (wrapped string_t*) */
+    GNODE_PAYLOAD_PAIR,         /* uses data.pair (left/right children) */
+    GNODE_PAYLOAD_CHILD,        /* uses data.child (single child node) */
+    GNODE_PAYLOAD_MULTI,        /* uses data.multi (multiple named children: a,b,c,d) */
+    GNODE_PAYLOAD_INDETERMINATE /* payload type is context-dependent and must be determined at runtime */
 } gnode_payload_t;
 
 /* ============================================================================
@@ -114,6 +117,7 @@ struct gnode_list_t
 struct gnode_t
 {
     gnode_type_t type;
+    gnode_payload_t payload_type;
 
     /* Location info (optional but useful) */
     int first_line;
