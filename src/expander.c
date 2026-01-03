@@ -5,6 +5,10 @@
 #include <pwd.h>
 #include <glob.h>
 #endif
+#ifdef UCRT_API
+#include <io.h>
+#include <errno.h>
+#endif
 
 /*
  * Internal structure for the expander.
@@ -551,7 +555,7 @@ string_list_t *expander_glob(void *user_data, const string_t *pattern)
     intptr_t handle;
 
     // Attempt to find first matching file
-    handle = _findfirst(pattern_str, &fd);
+    handle = _findfirst64i32(pattern_str, &fd);
     if (handle == -1L)
     {
         if (errno == ENOENT)
@@ -577,7 +581,7 @@ string_list_t *expander_glob(void *user_data, const string_t *pattern)
         string_t *filename = string_create_from_cstr(fd.name);
         string_list_move_push_back(result, filename);
 
-    } while (_findnext(handle, &fd) == 0);
+    } while (_findnext64i32(handle, &fd) == 0);
 
     _findclose(handle);
 

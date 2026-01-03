@@ -1,11 +1,13 @@
 #include "exec.h"
 #include "logging.h"
 #include "xalloc.h"
+#include "lib.h"
 #include "string_t.h"
 #include "token.h"
 #include "lexer.h"
 #include "tokenizer.h"
 #include "parser.h"
+#include "gprint.h"
 #include "lower.h"
 #include "variable_store.h"
 #include "func_store.h"
@@ -25,6 +27,8 @@
 #ifdef UCRT_API
 #include <io.h>
 #include <errno.h>
+#include <process.h>
+#include <direct.h>
 #endif
 
 /* ============================================================================
@@ -62,10 +66,8 @@ static void exec_run_function_def_child(exec_t *executor, const ast_node_t *node
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 
 
-#else
-static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
-                                                       const ast_node_list_t *redirs);
 #endif
+// Note: exec_apply_redirections_iso_c forward declaration removed - defined inline in ISO_C section
 
 /* ============================================================================
  * Executor Lifecycle Functions
@@ -107,7 +109,7 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
 #elifdef UCRT_API
     char cwd_buffer[_MAX_PATH];
     char *cwd = _getcwd(cwd_buffer, sizeof(cwd_buffer));
-    e->working_directory = cwd ? string_create(cwd) : string_create("C:\\");
+    e->working_directory = cwd ? string_create_from_cstr(cwd) : string_create_from_cstr("C:\\");
 #else
     // ISO C has no standard way to get cwd
     e->working_directory = string_create_from_cstr(".");
@@ -689,7 +691,13 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
     return temp;
 }
 
-__attribute__((unused))
+#ifdef _MSC_VER
+#define UNUSED_FUNCTION __pragma(warning(suppress: 4505))
+#else
+#define UNUSED_FUNCTION __attribute__((unused))
+#endif
+
+UNUSED_FUNCTION
 static variable_store_t *exec_prepare_temp_variable_store(exec_t *ex, const ast_node_t *node, expander_t *exp)
 {
     Expects_not_null(ex);
@@ -806,15 +814,17 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
     }
     
     exec_status_t final_status = EXEC_OK;
-    char *line = NULL;
-    size_t line_cap = 0;
-    ssize_t line_len;
-    
+
+    // Buffer for reading lines - use a reasonably large static buffer
+    // If lines are longer, fgets will read in chunks which is fine
+    #define LINE_BUFFER_SIZE 4096
+    char line_buffer[LINE_BUFFER_SIZE];
+
     // Read lines from the stream
-    while ((line_len = getline(&line, &line_cap, fp)) != -1)
+    while (fgets(line_buffer, sizeof(line_buffer), fp) != NULL)
     {
         // Append the line to the lexer
-        lexer_append_input_cstr(lx, line);
+        lexer_append_input_cstr(lx, line_buffer);
         
         // Tokenize the input
         token_list_t *raw_tokens = token_list_create();
@@ -831,11 +841,19 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         
         if (lex_status == LEX_INCOMPLETE)
         {
-            // Need more input - continue reading
+            // Need more input - continue reading (e.g., unclosed quotes, multi-line constructs)
             token_list_destroy(&raw_tokens);
             continue;
         }
-        
+
+        if (lex_status == LEX_NEED_HEREDOC)
+        {
+            // Lexer has parsed heredoc operator, needs body on next lines
+            // Continue reading - lexer will process heredoc body
+            token_list_destroy(&raw_tokens);
+            continue;
+        }
+
         // Process tokens through tokenizer (for alias expansion)
         token_list_t *processed_tokens = token_list_create();
         tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
@@ -881,7 +899,8 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         
         if (parse_status == PARSE_INCOMPLETE)
         {
-            // Need more input - continue reading
+            // Need more input - continue reading (e.g., incomplete if/while/for)
+            // Note: This should not happen often since lexer handles most multi-line cases
             if (gnode)
                 g_node_destroy(&gnode);
             parser_destroy(&parser);
@@ -891,12 +910,17 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         
         if (parse_status == PARSE_EMPTY || !gnode)
         {
-            // Empty input, continue
+            // Empty input (comments only, blank lines), continue
             parser_destroy(&parser);
             token_list_destroy(&processed_tokens);
             continue;
         }
-        
+
+        // Debug: Print the gnode AST before lowering
+        log_debug("=== GNODE AST ===");
+        gprint(gnode);
+        log_debug("=================");
+
         // Lower the grammar tree to AST
         ast_node_t *ast = ast_lower(gnode);
         g_node_destroy(&gnode);
@@ -922,7 +946,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         if (exec_status != EXEC_OK)
         {
             final_status = exec_status;
-            // Continue executing unless it's a fatal error
+            // Stop on first error as per spec
             if (exec_status == EXEC_ERROR)
                 break;
         }
@@ -932,11 +956,9 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
     }
     
     // Clean up
-    if (line)
-        free(line);
     tokenizer_destroy(&tokenizer);
     lexer_destroy(&lx);
-    
+
     return final_status;
 }
 
@@ -1480,9 +1502,37 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         xfree(argv);
 
 #elif defined(UCRT_API)
-        // TODO: build argv + _spawnve/_spawnvpe with envp from temp_vars
-        exec_set_error(executor, "UCRT simple command execution not yet implemented");
-        cmd_exit_status = 127;
+        // Build argv[] for _spawnvpe
+        int argc = string_list_size(expanded_words);
+        char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
+        for (int i = 0; i < argc; i++)
+        {
+            argv[i] = xstrdup(string_cstr(string_list_at(expanded_words, i)));
+        }
+        argv[argc] = NULL;
+
+        // Build envp from temp_vars + (non-overridden) parent vars
+        char *const *envp = variable_store_update_envp_with_parent(temp_vars, executor->variables);
+
+        // Use _spawnvpe to search PATH and execute
+        // P_WAIT means wait for child to complete
+        intptr_t spawn_result = _spawnvpe(_P_WAIT, cmd_name, (char *const *)argv, envp);
+
+        if (spawn_result == -1)
+        {
+            // Command not found or execution failed
+            exec_set_error(executor, "%s: command not found", cmd_name);
+            cmd_exit_status = 127;
+        }
+        else
+        {
+            cmd_exit_status = (int)spawn_result;
+        }
+
+        // Free argv
+        for (int i = 0; argv[i]; i++)
+            xfree(argv[i]);
+        xfree(argv);
 #else
         // ISO_C: fall back to system(), but temp_vars can't influence env
         string_t *cmdline = string_create();
@@ -1557,7 +1607,7 @@ out_base_exp:
  *
  * It MUST NOT modify executor->variables or other parent state.
  */
-__attribute__((unused))
+UNUSED_FUNCTION
 static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -1932,6 +1982,13 @@ exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t
         expander_destroy(&exp);
         return st;
     }
+#elifdef UCRT_API
+    exec_status_t st = exec_apply_redirections_ucrt_c(executor, redirs);
+    if (st != EXEC_OK)
+    {
+        expander_destroy(&exp);
+        return st;
+    }
 #else
     exec_status_t st = exec_apply_redirections_iso_c(executor, redirs);
     if (st != EXEC_OK)
@@ -2136,9 +2193,16 @@ static void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count)
 static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
                                                          const ast_node_list_t *redirs)
 {
-    (void)redirs;
-    exec_set_error(executor, "Redirections are not yet supported in UCRT_API mode");
-    return EXEC_NOT_IMPL;
+    // TODO: Implement redirections for UCRT
+    // For now, only accept commands with no redirections
+    if (redirs && ast_node_list_size(redirs) > 0)
+    {
+        exec_set_error(executor, "Redirections are not yet supported in UCRT_API mode");
+        return EXEC_NOT_IMPL;
+    }
+
+    // No redirections - success
+    return EXEC_OK;
 }
 #else
 static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
@@ -2392,6 +2456,14 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
 
     exec_status_t st = exec_apply_redirections_posix(
         executor, exp, node->data.redirected_command.redirections, &saved_fds, &saved_count);
+    if (st != EXEC_OK)
+    {
+        expander_destroy(&exp);
+        return st;
+    }
+#elifdef UCRT_API
+    exec_status_t st =
+        exec_apply_redirections_ucrt_c(executor, node->data.redirected_command.redirections);
     if (st != EXEC_OK)
     {
         expander_destroy(&exp);
@@ -2753,9 +2825,7 @@ string_t *exec_command_subst_callback(void *userdata, const string_t *command)
 
     return output;
 #elifdef UCRT_API
-    (void)user_data;  // unused for now
-
-    exec_t *executor = (exec_t *)exec_ctx;
+    exec_t *executor = (exec_t *)userdata;
     const char *cmd = string_cstr(command);
     if (cmd == NULL || *cmd == '\0')
     {

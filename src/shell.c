@@ -4,6 +4,7 @@
 #include "exec.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <string.h>
 
 struct shell_t
 {
@@ -140,16 +141,50 @@ sh_status_t shell_execute(shell_t *sh)
         return shell_execute_script_file(sh, sh->cfg.command_file);
         
     case SHELL_MODE_INTERACTIVE:
-        // TODO: Implement REPL
-        return SH_OK;
-        
+        // TODO: Implement REPL with prompts and readline
+        {
+            exec_status_t status = exec_execute_stream(sh->root_exec, stdin);
+            return (status == EXEC_OK) ? SH_OK : SH_RUNTIME_ERROR;
+        }
+
     case SHELL_MODE_COMMAND_STRING:
-        // TODO: Execute sh->cfg.command_string
-        return SH_OK;
-        
+        {
+            if (!sh->cfg.command_string)
+            {
+                exec_set_error(sh->root_exec, "No command string specified");
+                return SH_INTERNAL_ERROR;
+            }
+
+            // Create a memory stream from the command string
+            // For now, write to a temporary file (portable solution)
+            // TODO: Use fmemopen on POSIX or create a string stream wrapper
+            FILE *tmp = tmpfile();
+            if (!tmp)
+            {
+                exec_set_error(sh->root_exec, "Failed to create temporary file");
+                return SH_RUNTIME_ERROR;
+            }
+
+            size_t len = strlen(sh->cfg.command_string);
+            if (fwrite(sh->cfg.command_string, 1, len, tmp) != len)
+            {
+                fclose(tmp);
+                exec_set_error(sh->root_exec, "Failed to write command string");
+                return SH_RUNTIME_ERROR;
+            }
+
+            rewind(tmp);
+            exec_status_t status = exec_execute_stream(sh->root_exec, tmp);
+            fclose(tmp);
+
+            return (status == EXEC_OK) ? SH_OK : SH_RUNTIME_ERROR;
+        }
+
     case SHELL_MODE_STDIN:
-        // TODO: Read from stdin
-        return SH_OK;
+        {
+            exec_status_t status = exec_execute_stream(sh->root_exec, stdin);
+            return (status == EXEC_OK) ? SH_OK : SH_RUNTIME_ERROR;
+        }
         
     default:
         exec_set_error(sh->root_exec, "Invalid shell mode");
