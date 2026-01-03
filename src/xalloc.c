@@ -515,6 +515,12 @@ void arena_reset_ex(arena_t *arena)
 #endif
     arena->rollback_in_progress = true;
 
+    // Call cleanup callback BEFORE freeing memory so it can access the structures
+    if (arena->resource_cleanup)
+    {
+        arena->resource_cleanup(arena->resource_cleanup_user_data);
+    }
+
     // Free from the end to avoid expensive memmove on every removal
 #ifdef ARENA_DEBUG
     for (long i = 0; i < arena->allocated_count; i++)
@@ -544,10 +550,6 @@ void arena_reset_ex(arena_t *arena)
 #endif
     arena->allocated_cap = arena->allocated_count = 0;
 
-    if (arena->resource_cleanup)
-    {
-        arena->resource_cleanup(arena->resource_cleanup_user_data);
-    }
     arena->rollback_in_progress = false;
 }
 

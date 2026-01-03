@@ -77,7 +77,13 @@ void shell_cleanup(void *sh_ptr)
     if (!sh_ptr)
         return;
     shell_t *sh = (shell_t *)sh_ptr;
-    shell_destroy(&sh);
+    
+    // Clean up the executor
+    exec_destroy(&sh->root_exec);
+    
+    // Free the shell structure
+    // Note: We don't null out sh_ptr since it's owned by the arena
+    xfree(sh);
 }
 
 // TODO: Implement these functions for REPL and script execution

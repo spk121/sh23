@@ -493,7 +493,7 @@ int main(int argc, char **argv)
     arena_set_cleanup(shell_cleanup, (void *)sh);
     sh_status_t status;
     status = shell_execute(sh);
-    shell_destroy(&sh);
+    // Don't call shell_destroy here - arena_end will call shell_cleanup
     arena_end();
     return status;
 }
