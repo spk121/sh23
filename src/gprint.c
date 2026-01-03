@@ -18,6 +18,7 @@ static const char *gkind_name(gnode_type_t k)
         return #name;
 
         /* Top-level */
+        X(G_UNSPECIFIED)
         X(G_PROGRAM)
         X(G_COMPLETE_COMMANDS)
         X(G_COMPLETE_COMMAND)

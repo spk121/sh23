@@ -2,6 +2,7 @@
 #include "logging.h"
 #include "gnode.h"
 #include "xalloc.h"
+#include "lib.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -236,7 +237,8 @@ parse_status_t gparse_program(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     /* Create the top-level grammar node */
-    gnode_t *program = g_node_create(G_PROGRAM);
+    // gnode_t *program = g_node_create(G_PROGRAM);
+    gnode_t *program = nullptr;
 
     /* Skip leading newlines (linebreak) */
     parser_skip_newlines(parser);
@@ -248,17 +250,19 @@ parse_status_t gparse_program(parser_t *parser, gnode_t **out_node)
     if (status == PARSE_OK)
     {
         /* Attach complete_commands as the child of program */
+        program = g_node_create(G_PROGRAM);
         program->data.child = commands;
     }
     else if (status == PARSE_EMPTY)
     {
         /* program → linebreak (empty program) */
+        program = g_node_create(G_PROGRAM);
         program->data.child = NULL;
+        program->payload_type = GNODE_PAYLOAD_NONE;
     }
     else
     {
         /* Error or incomplete */
-        g_node_destroy(&program);
         return status;
     }
 
@@ -286,8 +290,8 @@ parse_status_t gparse_complete_commands(parser_t *parser, gnode_t **out_node)
         return PARSE_EMPTY;
 
     /* Create the list node */
-    gnode_t *list = g_node_create(G_COMPLETE_COMMANDS);
-    list->data.list = g_list_create();
+    gnode_t *cmds_node = g_node_create(G_COMPLETE_COMMANDS);
+    cmds_node->data.list = g_list_create();
 
     /* Parse the first complete_command */
     gnode_t *cmd = NULL;
@@ -295,11 +299,11 @@ parse_status_t gparse_complete_commands(parser_t *parser, gnode_t **out_node)
 
     if (status != PARSE_OK)
     {
-        g_node_destroy(&list);
+        g_node_destroy(&cmds_node);
         return status;
     }
 
-    g_list_append(list->data.list, cmd);
+    g_list_append(cmds_node->data.list, cmd);
 
     /* Loop: newline_list complete_command */
     while (true)
@@ -314,17 +318,22 @@ parse_status_t gparse_complete_commands(parser_t *parser, gnode_t **out_node)
         gnode_t *next = NULL;
         status = gparse_complete_command(parser, &next);
 
-        if (status != PARSE_OK)
+        if (status == PARSE_EMPTY)
+        {
+            // EOF
+            break;
+        }
+        else if (status != PARSE_OK)
         {
             /* If incomplete or error, stop and return */
-            g_node_destroy(&list);
+            g_node_destroy(&cmds_node);
             return status;
         }
 
-        g_list_append(list->data.list, next);
+        g_list_append(cmds_node->data.list, next);
     }
 
-    *out_node = list;
+    *out_node = cmds_node;
     return PARSE_OK;
 }
 
@@ -502,11 +511,15 @@ parse_status_t gparse_pipeline(parser_t *parser, gnode_t **out_node)
     Expects_not_null(out_node);
 
     *out_node = NULL;
+    token_type_t t = parser_current_token_type(parser);
+    if (t == TOKEN_EOF)
+    {
+        return PARSE_EMPTY;
+    }
 
     gnode_t *node = g_node_create(G_PIPELINE);
     node->data.list = g_list_create();
 
-    token_type_t t = parser_current_token_type(parser);
 
     /* Optional Bang prefix */
     if (t == TOKEN_BANG)

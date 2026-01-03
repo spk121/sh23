@@ -209,6 +209,7 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
         return GNODE_PAYLOAD_INDETERMINATE;
 
     /* Node with no payload */
+    case G_UNSPECIFIED:
     case G_SEQUENTIAL_SEP:
     default:
         return GNODE_PAYLOAD_NONE;
@@ -232,29 +233,37 @@ void g_node_destroy(gnode_t **pnode)
     case GNODE_PAYLOAD_TOKEN:
         if (node->data.token)
             token_destroy(&node->data.token);
+        node->payload_type = GNODE_PAYLOAD_NONE;
         break;
 
     case GNODE_PAYLOAD_STRING:
         if (node->data.string)
             string_destroy(&node->data.string);
+        node->payload_type = GNODE_PAYLOAD_NONE;
         break;
 
     case GNODE_PAYLOAD_LIST:
         g_list_destroy(&node->data.list);
+        node->payload_type = GNODE_PAYLOAD_NONE;
         break;
 
     case GNODE_PAYLOAD_CHILD:
         g_node_destroy(&node->data.child);
+        node->payload_type = GNODE_PAYLOAD_NONE;
         break;
 
     case GNODE_PAYLOAD_PAIR:
+        g_node_destroy(&node->data.pair.left);
+        g_node_destroy(&node->data.pair.right);
+        node->payload_type = GNODE_PAYLOAD_NONE;
+        break;
+
     case GNODE_PAYLOAD_MULTI:
-        /* PAIR and MULTI both use the same memory layout, 
-           with pair using only .a and .b fields */
         g_node_destroy(&node->data.multi.a);
         g_node_destroy(&node->data.multi.b);
         g_node_destroy(&node->data.multi.c);
         g_node_destroy(&node->data.multi.d);
+        node->payload_type = GNODE_PAYLOAD_NONE;
         break;
 
     case GNODE_PAYLOAD_INDETERMINATE:
@@ -269,7 +278,7 @@ void g_node_destroy(gnode_t **pnode)
         /* No payload to destroy */
         break;
     }
-
+    node->type = G_UNSPECIFIED;
     xfree(node);
     *pnode = NULL;
 }

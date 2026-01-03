@@ -4,6 +4,7 @@
 #include "exec.h"
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 struct shell_t
@@ -27,7 +28,7 @@ shell_t *shell_create(const shell_cfg_t *cfg)
     exec_cfg_t exec_cfg = {
         .argc = 0,  // Will be set from cfg->arguments
         .argv = cfg->arguments,
-        .envp = NULL,  // TODO: get from environment
+        .envp = cfg->envp,
         .opt = {
             .allexport = cfg->flags.allexport,
             .errexit = cfg->flags.errexit,
@@ -126,6 +127,71 @@ static sh_status_t shell_execute_script_file(shell_t *sh, const char *filename)
     }
 }
 
+static sh_status_t shell_execute_interactive(shell_t *sh)
+{
+    Expects_not_null(sh);
+
+    const char *ps1 = shell_get_ps1(sh);
+
+    // Simple REPL: read line, execute, repeat
+    // For now we execute each complete line - no PS2 multi-line support yet
+    char line_buffer[4096];
+
+    fprintf(stdout, "%s", ps1);
+    fflush(stdout);
+
+    while (fgets(line_buffer, sizeof(line_buffer), stdin) != NULL)
+    {
+        // Check for exit command
+        if (strcmp(line_buffer, "exit\n") == 0 || strcmp(line_buffer, "exit\r\n") == 0)
+        {
+            break;
+        }
+
+        // Write line to a temp file and execute it
+        FILE *tmp = tmpfile();
+        if (!tmp)
+        {
+            fprintf(stderr, "Failed to create temp file for command\n");
+            fprintf(stdout, "%s", ps1);
+            fflush(stdout);
+            continue;
+        }
+
+        size_t len = strlen(line_buffer);
+        if (fwrite(line_buffer, 1, len, tmp) != len)
+        {
+            fclose(tmp);
+            fprintf(stderr, "Failed to write command to temp file\n");
+            fprintf(stdout, "%s", ps1);
+            fflush(stdout);
+            continue;
+        }
+
+        rewind(tmp);
+
+        // Execute the command
+        exec_status_t status = exec_execute_stream(sh->root_exec, tmp);
+        fclose(tmp);
+
+        // Print error if any
+        if (status != EXEC_OK)
+        {
+            const char *error = exec_get_error(sh->root_exec);
+            if (error && error[0])
+            {
+                fprintf(stderr, "%s\n", error);
+            }
+        }
+
+        // Print next prompt
+        fprintf(stdout, "%s", ps1);
+        fflush(stdout);
+    }
+
+    return SH_OK;
+}
+
 sh_status_t shell_execute(shell_t *sh)
 {
     Expects_not_null(sh);
@@ -141,11 +207,7 @@ sh_status_t shell_execute(shell_t *sh)
         return shell_execute_script_file(sh, sh->cfg.command_file);
 
     case SHELL_MODE_INTERACTIVE:
-        // TODO: Implement REPL with prompts and readline
-        {
-            exec_status_t status = exec_execute_stream(sh->root_exec, stdin);
-            return (status == EXEC_OK) ? SH_OK : SH_RUNTIME_ERROR;
-        }
+        return shell_execute_interactive(sh);
 
     case SHELL_MODE_COMMAND_STRING:
         {

@@ -471,7 +471,8 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
 
                 if (suffix_elem->type == G_CMD_WORD || suffix_elem->type == G_WORD_NODE)
                 {
-                    token_list_append(words, suffix_elem->data.token);
+                    /* Clone the token since gnode owns it and will destroy it */
+                    token_list_append(words, token_clone(suffix_elem->data.token));
                 }
                 else if (suffix_elem->type == G_IO_REDIRECT)
                 {
@@ -492,13 +493,15 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
         switch (elem->type)
         {
         case G_ASSIGNMENT_WORD:
-            token_list_append(assignments, elem->data.token);
+            /* Clone the token since gnode owns it and will destroy it */
+            token_list_append(assignments, token_clone(elem->data.token));
             break;
 
         case G_CMD_NAME:
         case G_CMD_WORD:
         case G_WORD_NODE:
-            token_list_append(words, elem->data.token);
+            /* Clone the token since gnode owns it and will destroy it */
+            token_list_append(words, token_clone(elem->data.token));
             break;
 
         case G_IO_REDIRECT: {

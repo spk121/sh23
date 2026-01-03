@@ -14,6 +14,7 @@
 typedef enum
 {
     /* Top-level */
+    G_UNSPECIFIED = 0,
     G_PROGRAM,
     G_COMPLETE_COMMANDS,
     G_COMPLETE_COMMAND,

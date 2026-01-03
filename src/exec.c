@@ -761,6 +761,9 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
 
     switch (root->type)
     {
+    case AST_PROGRAM:
+        /* AST_PROGRAM is just a wrapper around the body command list */
+        return exec_execute(executor, root->data.program.body);
     case AST_SIMPLE_COMMAND:
         return exec_execute_simple_command(executor, root);
     case AST_PIPELINE:
@@ -1523,8 +1526,17 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         if (spawn_result == -1)
         {
             // Command not found or execution failed
-            exec_set_error(executor, "%s: command not found", cmd_name);
+            int err = errno;
+            if (err == ENOENT)
+                exec_set_error(executor, "%s: command not found (errno=%d)", cmd_name, err);
+            else if (err == ENOEXEC)
+                exec_set_error(executor, "%s: specified file isn't executable or has an invalid executable file format (errno=%d)", cmd_name, err);
+            else
+                exec_set_error(executor,
+                               "%s: specified file failed to execute (errno=%d)", cmd_name, err);
+
             cmd_exit_status = 127;
+            status = EXEC_ERROR;
         }
         else
         {
@@ -1568,6 +1580,8 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     {
         const string_t *last_arg =
             string_list_at(expanded_words, string_list_size(expanded_words) - 1);
+        if (!executor->last_argument)
+            executor->last_argument = string_create();
         string_clear(executor->last_argument);
         string_append(executor->last_argument, last_arg);
         executor->last_argument_set = true;
@@ -1584,7 +1598,9 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     }
 #endif
 
-    status = EXEC_OK;
+    // Only set status to EXEC_OK if no error occurred
+    if (status != EXEC_ERROR)
+        status = EXEC_OK;
 
 out_exp_temp:
     expander_destroy(&exp);

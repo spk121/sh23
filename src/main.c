@@ -139,52 +139,38 @@ static int check_command_file_readable(const char *command_file)
     return SH_EXIT_SUCCESS;
 }
 
-static shell_mode_t compute_shell_mode(int flag_c, int flag_s, int flag_i, const char* command_file)
+static shell_mode_t compute_shell_mode(int flag_c, int flag_s, int flag_i, const char *command_file)
 {
     shell_mode_t mode = SHELL_MODE_UNKNOWN;
+
     if (flag_c)
-    {
         mode = SHELL_MODE_COMMAND_STRING;
-    }
     else if (flag_i)
     {
-        // Interactive mode
-        // Error if the real user ID of the calling process does not equal the effective user ID
-        // or if the real group ID does not equal the effective group ID
 #ifdef POSIX_API
         if (getuid() != geteuid() || getgid() != getegid())
-            mode = SHELL_MODE_INVALID_UID_GID;
+            return SHELL_MODE_INVALID_UID_GID;
 #endif
         mode = SHELL_MODE_INTERACTIVE;
     }
-    else if (flag_s)
-    {
+    else if (flag_s || !command_file)
         mode = SHELL_MODE_STDIN;
-    }
-    else if (command_file != NULL)
-    {
+    else
         mode = SHELL_MODE_SCRIPT_FILE;
+
+    /* Upgrade non-interactive stdin to interactive if connected to a terminal */
+    if (mode == SHELL_MODE_STDIN)
+    {
+#ifdef POSIX_API
+        if (isatty(STDIN_FILENO))
+            mode = SHELL_MODE_INTERACTIVE;
+#elif defined(UCRT_API)
+        if (_isatty(_fileno(stdin)))
+            mode = SHELL_MODE_INTERACTIVE;
+#endif
+        /* Else: in pure ISO C, remain SHELL_MODE_STDIN (conservative) */
     }
 
-    // Can upgrade SHELL_MODE_STDIN to INTERACTIVE if stdin is a terminal
-#ifdef POSIX_API
-    if (mode == SHELL_MODE_STDIN && isatty(STDIN_FILENO))
-    {
-        mode = SHELL_MODE_INTERACTIVE;
-    }
-#elifdef UCRT_API
-    if (mode == SHELL_MODE_STDIN && _isatty(_fileno(stdin)))
-    {
-        mode = SHELL_MODE_INTERACTIVE;
-    }
-#else
-    // In ISO C, we cannot check if stdin is a terminal.
-    // However, in ISO C, since it is not possible to launch a program
-    // except via 'system', we know that stdin must not have been redirected.
-    //
-    // We could consider allowing SHELL_MODE_STDIN to upgrade to INTERACTIVE, but,
-    // to be conservative, we will not do so here.
-#endif
     return mode;
 }
 
@@ -211,9 +197,9 @@ static void print_usage(const char *prog)
     fprintf(stderr, "  -s              read from stdin\n");
 }
 
-// Note that in ISO C, *envp is not strictly conforming
-// So we avoid using it here.
-int main(int argc, char **argv)
+// Note: envp is not part of ISO C, but it is a standard extension
+// in both POSIX and UCRT environments
+int main(int argc, char **argv, char **envp)
 {
     log_init();
 
@@ -475,6 +461,7 @@ int main(int argc, char **argv)
                        .command_string = command_string,
                        .command_file = command_file,
                        .arguments = arguments,
+                       .envp = envp,
                        .flags = {.allexport = flag_a,
                                  .noclobber = flag_C,
                                  .errexit = flag_e,
@@ -493,6 +480,17 @@ int main(int argc, char **argv)
     arena_set_cleanup(shell_cleanup, (void *)sh);
     sh_status_t status;
     status = shell_execute(sh);
+
+    // Print any error message before exiting
+    if (status != SH_OK)
+    {
+        const char *error = shell_last_error(sh);
+        if (error && error[0])
+        {
+            fprintf(stderr, "%s: %s\n", argv[0], error);
+        }
+    }
+
     // Don't call shell_destroy here - arena_end will call shell_cleanup
     arena_end();
     return status;

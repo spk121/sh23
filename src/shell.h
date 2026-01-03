@@ -72,6 +72,7 @@ typedef struct
     char *command_string; // -c command string (if any)
     char *command_file;   // command file (if any)
     char **arguments;     // argv for the shell
+    char **envp;          // environment variables (if any)
 
     // Flags
     shell_flags_t flags;
