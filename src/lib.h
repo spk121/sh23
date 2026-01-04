@@ -3,33 +3,56 @@
 
 #include "string_t.h"
 
-#if (defined (__STDC_VERSION__) && __STDC_VERSION__ >= 202311L)
-// C23 has nullptr support
-// However, UCRT claims to be C23 but does not define nullptr
-  #if _MSC_VER >= 1900
-    typedef void *nullptr_t;
-    #define nullptr ((nullptr_t)0)
-  #else
-    #include <stddef.h>
-  #endif
-#elif defined(__cplusplus)
-// C++ has nullptr support
+/* lib.h - C23 compatibility layer
+ *
+ * This module provides ISO C23 compatibility features for non-C23 compilers,
+ * and libraries.
+ * */
+
+#ifndef __cplusplus  /* Skip entirely in C++ (has native nullptr since C++11) */
+
+#include <stddef.h>  /* For nullptr_t in conforming C23 implementations */
+
+/* If compiling as true C23 (most modern GCC does this when -std=c23 or default) */
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
+    #if defined(_MSC_VER)
+        /* MSVC claims C23 but lacks nullptr support */
+        typedef void* nullptr_t;
+        #define nullptr ((nullptr_t)0)
+    #else
+        /* Assume <stddef.h> provides nullptr_t; use native nullptr keyword */
+    #endif
+
+/* GCC had experimental nullptr before full C23 __STDC_VERSION__ */
 #elif defined(__GNUC__)
-// GCC had nullptr support before C23, so we can't rely on the __STDC_VERSION__ check
-  #include <stddef.h>
-  #ifndef _GCC_NULLPTR_T
-    typedef void * nullptr_t;
+    /* <stddef.h> already handles nullptr_t where supported */
+    #ifndef _GCC_NULLPTR_T
+        #define nullptr ((void*)0)
+        typedef void* nullptr_t;
+    #endif
+
+/* MSVC in pre-C23 mode lacks nullptr */
+#elif defined(_MSC_VER)
+    typedef void* nullptr_t;
     #define nullptr ((nullptr_t)0)
-  #endif
+
+/* Fallback for any other pre-C23 compiler */
 #else
-// For non-GCC C libraries claiming pre-C23 __STDC_VERSION__, define nullptr as ((void *)0)
-  typedef void * nullptr_t;
-  #define nullptr ((nullptr_t)0)
+    typedef void* nullptr_t;
+    #define nullptr ((nullptr_t)0)
+#endif
+
+#endif /* !__cplusplus */
+
+#if !defined(__STDC_VERSION__) || __STDC_VERSION__ < 202311L || defined(_MSC_VER)
+/* Securely zero out memory to prevent compiler optimization */
+void memset_explicit(void *dest, int ch, size_t count);
 #endif
 
 /* ASCII-only case-insensitive string comparison for ISO C */
 int ascii_strcasecmp(const char *s1, const char *s2);
 int ascii_strncasecmp(const char *s1, const char *s2, int n);
+
 
 /* ============================================================================
  * Locale support

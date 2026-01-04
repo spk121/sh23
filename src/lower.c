@@ -1089,7 +1089,9 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         return NULL;
     }
 
-    ast_node_t *node = ast_create_redirection(rtype, operand, io_number, io_location, target_tok);
+    // Clone the token so the AST and GNode trees don't share ownership
+    token_t *cloned_target = token_clone(target_tok);
+    ast_node_t *node = ast_create_redirection(rtype, operand, io_number, io_location, cloned_target);
     node->data.redirection.operand = operand;
     node->data.redirection.heredoc_content = heredoc_content;
 

@@ -36,7 +36,7 @@ typedef struct CTest {
 
 // === Assertion Macros ===
 bool ctest_assert(CTest* ctest, bool condition, const char* file, int line,
-		  const char* test_name, const char* msg);
+          const char* test_name, const char* msg);
 
 #define CTEST_ASSERT(ctest, cond, msg) \
     ctest_assert(ctest, (cond), __FILE__, __LINE__, (ctest)->current_test, (msg))
@@ -53,7 +53,7 @@ bool ctest_assert_eq_char(CTest* ctest, char a, char b, const char* file, int li
         long: ctest_assert_eq_long, \
         unsigned long: ctest_assert_eq_ulong, \
         const char*: ctest_assert_eq_str \
-    
+
     )(ctest, (a), (b), __FILE__, __LINE__, (ctest)->current_test, (msg))
 #endif
 

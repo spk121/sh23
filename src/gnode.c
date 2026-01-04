@@ -145,9 +145,12 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
 
     /* String wrappers */
     case G_FNAME:
-    case G_FILENAME:
     case G_HERE_END:
         return GNODE_PAYLOAD_STRING;
+
+    /* G_FILENAME actually stores a token, not a string */
+    case G_FILENAME:
+        return GNODE_PAYLOAD_TOKEN;
 
     /* List nodes */
     case G_COMPLETE_COMMANDS:
@@ -269,7 +272,7 @@ void g_node_destroy(gnode_t **pnode)
     case GNODE_PAYLOAD_INDETERMINATE:
         /* This should not happen - indeterminate payload should have been
            resolved to a concrete type when the node was created/modified */
-        fprintf(stderr, "g_node_destroy: node type %d has indeterminate payload\n", 
+        fprintf(stderr, "g_node_destroy: node type %d has indeterminate payload\n",
                 (int)node->type);
         break;
 

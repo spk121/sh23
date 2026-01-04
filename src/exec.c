@@ -27,9 +27,11 @@
 #endif
 #ifdef UCRT_API
 #include <io.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <process.h>
 #include <direct.h>
+#include <sys/stat.h>
 #endif
 
 /* ============================================================================
@@ -38,7 +40,7 @@
 
 #define EXECUTOR_ERROR_BUFFER_SIZE 512
 
-#ifdef POSIX_API
+#if defined(POSIX_API) || defined(UCRT_API)
 typedef struct saved_fd_t
 {
     int fd;        // the FD being redirected
@@ -66,8 +68,10 @@ static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
 static void exec_run_function_def_child(exec_t *executor, const ast_node_t *node);
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 #elifdef UCRT_API
-static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
-                                                         const ast_node_list_t *redirs);
+static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t *exp,
+                                                         const ast_node_list_t *redirs,
+                                                         saved_fd_t **out_saved, int *out_saved_count);
+static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count);
 #endif
 
 // Note: exec_apply_redirections_iso_c forward declaration removed - defined inline in ISO_C section
@@ -1415,7 +1419,13 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         goto out_exp_temp;
     }
 #elif defined(UCRT_API)
-    status = exec_apply_redirections_ucrt_c(executor, redirs);
+    saved_fd_t *saved_fds = NULL;
+    int saved_count = 0;
+
+    // Flush all streams before redirecting to avoid buffering issues
+    fflush(NULL);
+
+    status = exec_apply_redirections_ucrt_c(executor, exp, redirs, &saved_fds, &saved_count);
     if (status != EXEC_OK)
     {
         string_list_destroy(&expanded_words);
@@ -1597,11 +1607,19 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 
     string_list_destroy(&expanded_words);
 
-#ifdef POSIX_API
+#if defined(POSIX_API)
     // Restore redirections
     if (redirs && saved_fds)
     {
         exec_restore_redirections_posix(saved_fds, saved_count);
+        xfree(saved_fds);
+    }
+#elif defined(UCRT_API)
+    // Restore redirections
+    if (redirs && saved_fds)
+    {
+        fflush(NULL);  // Flush before restoring
+        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
@@ -2010,7 +2028,10 @@ exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t
         return st;
     }
 #elifdef UCRT_API
-    exec_status_t st = exec_apply_redirections_ucrt_c(executor, redirs);
+    saved_fd_t *saved_fds = NULL;
+    int saved_count = 0;
+
+    exec_status_t st = exec_apply_redirections_ucrt_c(executor, exp, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
         expander_destroy(&exp);
@@ -2028,11 +2049,18 @@ exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t
     // Execute the wrapped command
     st = exec_execute(executor, inner);
 
-#ifdef POSIX_API
+#if defined(POSIX_API)
     // Restore redirections
     if (saved_fds)
     {
         exec_restore_redirections_posix(saved_fds, saved_count);
+        xfree(saved_fds);
+    }
+#elif defined(UCRT_API)
+    // Restore redirections
+    if (saved_fds)
+    {
+        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
@@ -2217,19 +2245,195 @@ static void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count)
 }
 
 #elifdef UCRT_API
-static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
-                                                         const ast_node_list_t *redirs)
+static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t *exp,
+                                                         const ast_node_list_t *redirs,
+                                                         saved_fd_t **out_saved, int *out_saved_count)
 {
-    // TODO: Implement redirections for UCRT
-    // For now, only accept commands with no redirections
-    if (redirs && ast_node_list_size(redirs) > 0)
+    Expects_not_null(executor);
+    Expects_not_null(exp);
+    Expects_not_null(out_saved);
+    Expects_not_null(out_saved_count);
+
+    if (!redirs || ast_node_list_size(redirs) == 0)
     {
-        exec_set_error(executor, "Redirections are not yet supported in UCRT_API mode");
-        return EXEC_NOT_IMPL;
+        // No redirections - success
+        *out_saved = NULL;
+        *out_saved_count = 0;
+        return EXEC_OK;
     }
 
-    // No redirections - success
+    int count = ast_node_list_size(redirs);
+    saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
+    if (!saved)
+    {
+        exec_set_error(executor, "Out of memory");
+        return EXEC_ERROR;
+    }
+
+    int saved_i = 0;
+
+    for (int i = 0; i < count; i++)
+    {
+        const ast_node_t *r = ast_node_list_get(redirs, i);
+        Expects_eq(r->type, AST_REDIRECTION);
+
+        // Determine which file descriptor to redirect
+        // If io_number is specified, use it; otherwise default based on redir_type
+        int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
+                  : (r->data.redirection.redir_type == REDIR_INPUT ||
+                     r->data.redirection.redir_type == REDIR_HEREDOC ||
+                     r->data.redirection.redir_type == REDIR_HEREDOC_STRIP)
+                      ? STDIN_FILENO
+                      : STDOUT_FILENO);
+
+        // Save original FD
+        int backup = _dup(fd);
+        if (backup < 0)
+        {
+            exec_set_error(executor, "_dup() failed: %s", strerror(errno));
+            xfree(saved);
+            return EXEC_ERROR;
+        }
+
+        saved[saved_i].fd = fd;
+        saved[saved_i].backup_fd = backup;
+        saved_i++;
+
+        redir_operand_kind_t opk = r->data.redirection.operand;
+
+        switch (opk)
+        {
+        case REDIR_OPERAND_FILENAME: {
+            // Expand the filename
+            string_t *fname_str = expander_expand_redirection_target(exp, r->data.redirection.target);
+            if (!fname_str)
+            {
+                exec_set_error(executor, "Failed to expand redirection target");
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+            const char *fname = string_cstr(fname_str);
+
+            // Determine flags and permissions for _open
+            int flags = 0;
+            int pmode = _S_IREAD | _S_IWRITE;
+
+            switch (r->data.redirection.redir_type)
+            {
+            case REDIR_INPUT:
+                flags = _O_RDONLY;
+                break;
+            case REDIR_OUTPUT:
+                flags = _O_WRONLY | _O_CREAT | _O_TRUNC;
+                break;
+            case REDIR_APPEND:
+                flags = _O_WRONLY | _O_CREAT | _O_APPEND;
+                break;
+            case REDIR_READWRITE:
+                flags = _O_RDWR | _O_CREAT;
+                break;
+            case REDIR_CLOBBER:
+                flags = _O_WRONLY | _O_CREAT | _O_TRUNC;
+                break;
+            default:
+                exec_set_error(executor, "Invalid filename redirection type");
+                string_destroy(&fname_str);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            // Open the file
+            int newfd = _open(fname, flags, pmode);
+            if (newfd < 0)
+            {
+                exec_set_error(executor, "Failed to open '%s': %s", fname, strerror(errno));
+                string_destroy(&fname_str);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            // Redirect the file descriptor
+            if (_dup2(newfd, fd) < 0)
+            {
+                exec_set_error(executor, "_dup2() failed: %s", strerror(errno));
+                string_destroy(&fname_str);
+                _close(newfd);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            // Close the temporary file descriptor
+            _close(newfd);
+            string_destroy(&fname_str);
+            break;
+        }
+
+        case REDIR_OPERAND_FD: {
+            // Duplicate file descriptor
+            string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
+            if (!fd_str)
+            {
+                exec_set_error(executor, "Failed to expand file descriptor");
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+            const char *lex = string_cstr(fd_str);
+            int src = atoi(lex);
+
+            if (_dup2(src, fd) < 0)
+            {
+                exec_set_error(executor, "_dup2(%d,%d) failed: %s", src, fd, strerror(errno));
+                string_destroy(&fd_str);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+            string_destroy(&fd_str);
+            break;
+        }
+
+        case REDIR_OPERAND_CLOSE: {
+            // Close the file descriptor
+            _close(fd);
+            break;
+        }
+
+        case REDIR_OPERAND_HEREDOC:
+        case REDIR_OPERAND_IOLOC:
+        case REDIR_OPERAND_NONE:
+        default:
+            exec_set_error(executor, "Unsupported redirection operand type in UCRT_API mode");
+            for (int j = 0; j < saved_i; j++)
+                _close(saved[j].backup_fd);
+            xfree(saved);
+            return EXEC_NOT_IMPL;
+        }
+    }
+
+    *out_saved = saved;
+    *out_saved_count = saved_i;
     return EXEC_OK;
+}
+
+static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
+{
+    if (!saved)
+        return;
+
+    for (int i = saved_count - 1; i >= 0; i--)
+    {
+        _dup2(saved[i].backup_fd, saved[i].fd);
+        _close(saved[i].backup_fd);
+    }
 }
 #else
 static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
@@ -2489,8 +2693,11 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
         return st;
     }
 #elifdef UCRT_API
+    saved_fd_t *saved_fds = NULL;
+    int saved_count = 0;
+
     exec_status_t st =
-        exec_apply_redirections_ucrt_c(executor, node->data.redirected_command.redirections);
+        exec_apply_redirections_ucrt_c(executor, exp, node->data.redirected_command.redirections, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
         expander_destroy(&exp);
@@ -2509,11 +2716,18 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
     // Execute the body in the current shell (no fork)
     st = exec_execute(executor, body);
 
-#ifdef POSIX_API
+#if defined(POSIX_API)
     // Restore redirections
     if (saved_fds)
     {
         exec_restore_redirections_posix(saved_fds, saved_count);
+        xfree(saved_fds);
+    }
+#elif defined(UCRT_API)
+    // Restore redirections
+    if (saved_fds)
+    {
+        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
