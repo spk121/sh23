@@ -14,6 +14,8 @@
 #ifndef SH23_GETOPT_H
 #define SH23_GETOPT_H
 
+#include "string_t.h"
+
 enum
 {
     no_argument = 0,
@@ -95,5 +97,34 @@ int getopt_long_plus_r(int argc, char *const argv[], const char *optstring,
 int _getopt_internal_r(int argc, char *const argv[], const char *optstring, const void *longopts,
                        int *longind, int long_only, int posixly_correct, struct getopt_state *state,
                        int plus_aware); /* 1 if using option_ex */
+
+/* ============================================================================
+ * String-based wrappers for shell builtins
+ * ============================================================================
+ * These wrappers allow using string_list_t and string_t directly with getopt,
+ * which is convenient for shell builtins that already work with these types.
+ */
+
+
+/**
+ * String-based wrapper for getopt()
+ *
+ * @param argv The argument list as a string_list_t
+ * @param optstring The option string as a string_t
+ * @return Same as getopt(): option character, -1 for end, '?' for error
+ */
+int getopt_string(const string_list_t *argv, const string_t *optstring);
+
+/**
+ * String-based wrapper for getopt_long_plus()
+ *
+ * @param argv The argument list as a string_list_t
+ * @param optstring The option string as a string_t
+ * @param longopts Long options array (NULL-terminated)
+ * @param longind Pointer to store index of long option (can be NULL)
+ * @return Same as getopt_long_plus(): option character, -1 for end, '?' for error
+ */
+int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring,
+                            const struct option_ex *longopts, int *longind);
 
 #endif /* GETOPT_H */

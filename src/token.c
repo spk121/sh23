@@ -52,6 +52,24 @@ token_t *token_clone(const token_t *other)
         new_token->heredoc_content = string_create_from(other->heredoc_content);
     if (other->assignment_name)
         new_token->assignment_name = string_create_from(other->assignment_name);
+    if (other->assignment_value)
+    {
+        new_token->assignment_value = part_list_create();
+        if (!new_token->assignment_value)
+        {
+            token_destroy(&new_token);
+            return NULL;
+        }
+        for (int i = 0; i < other->assignment_value->size; i++)
+        {
+            part_t *prt = part_clone(other->assignment_value->parts[i]);
+            if (!prt || part_list_append(new_token->assignment_value, prt) != 0)
+            {
+                token_destroy(&new_token);
+                return NULL;
+            }
+        }
+    }
     if (other->parts)
     {
         for (int i = 0; i < other->parts->size; i++)

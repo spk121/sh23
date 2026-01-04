@@ -11,12 +11,44 @@
 // Platform-specific signal count and definitions
 // We track signals that shells commonly need to handle
 
-#ifdef POSIX_API
-// POSIX signals that shells typically manage
+#ifdef SIG_ACT_USE_SIGACTION
+// POSIX signals that shells typically manage (only when full sigaction is available)
 static const int shell_signals[] = {
-    SIGINT,  SIGQUIT, SIGTERM, SIGHUP,  SIGALRM, SIGCHLD,
-    SIGCONT, SIGTSTP, SIGTTIN, SIGTTOU, SIGUSR1, SIGUSR2,
+    SIGINT,
+#ifdef SIGQUIT
+    SIGQUIT,
+#endif
+    SIGTERM,
+#ifdef SIGHUP
+    SIGHUP,
+#endif
+#ifdef SIGALRM
+    SIGALRM,
+#endif
+#ifdef SIGCHLD
+    SIGCHLD,
+#endif
+#ifdef SIGCONT
+    SIGCONT,
+#endif
+#ifdef SIGTSTP
+    SIGTSTP,
+#endif
+#ifdef SIGTTIN
+    SIGTTIN,
+#endif
+#ifdef SIGTTOU
+    SIGTTOU,
+#endif
+#ifdef SIGUSR1
+    SIGUSR1,
+#endif
+#ifdef SIGUSR2
+    SIGUSR2,
+#endif
+#ifdef SIGPIPE
     SIGPIPE,
+#endif
 #ifdef SIGWINCH
     SIGWINCH,
 #endif
@@ -34,10 +66,9 @@ static inline int get_max_signal_number(void)
     return max;
 }
 
-#elifdef UCRT_API
+#elif defined(UCRT_API)
 // UCRT signals: ABRT, FPE, ILL, INT, SEGV, TERM
-static const int shell_signals[] = {SIGINT, SIGTERM, SIGABRT};
-#define NUM_SHELL_SIGNALS (sizeof(shell_signals) / sizeof(shell_signals[0]))
+#define NUM_SHELL_SIGNALS 3
 
 static inline int get_max_signal_number(void)
 {
@@ -46,8 +77,7 @@ static inline int get_max_signal_number(void)
 
 #else
 // ISO C signals: ABRT, FPE, ILL, INT, SEGV, TERM
-static const int shell_signals[] = {SIGINT, SIGTERM, SIGABRT};
-#define NUM_SHELL_SIGNALS (sizeof(shell_signals) / sizeof(shell_signals[0]))
+#define NUM_SHELL_SIGNALS 3
 
 static inline int get_max_signal_number(void)
 {
@@ -74,7 +104,7 @@ sig_act_store_t *sig_act_store_create(void)
         store->actions[i].signal_number = (int)i;
         store->actions[i].is_saved = false;
         store->actions[i].was_ignored = false;
-#ifdef POSIX_API
+#ifdef SIG_ACT_USE_SIGACTION
         memset(&store->actions[i].original_action, 0, sizeof(struct sigaction));
 #else
         store->actions[i].original_handler = SIG_DFL;
@@ -99,7 +129,7 @@ void sig_act_store_destroy(sig_act_store_t **store_ptr)
 // Set and Save Function
 // ============================================================================
 
-#ifdef POSIX_API
+#ifdef SIG_ACT_USE_SIGACTION
 int sig_act_store_set_and_save(sig_act_store_t *store, int signo,
                                  const struct sigaction *new_action)
 {
@@ -110,9 +140,15 @@ int sig_act_store_set_and_save(sig_act_store_t *store, int signo,
     if (signo < 0 || (size_t)signo >= store->capacity)
         return -1;
 
-    // SIGKILL and SIGSTOP cannot be caught
-    if (signo == SIGKILL || signo == SIGSTOP)
+    // SIGKILL and SIGSTOP cannot be caught (if they exist)
+#ifdef SIGKILL
+    if (signo == SIGKILL)
         return -1;
+#endif
+#ifdef SIGSTOP
+    if (signo == SIGSTOP)
+        return -1;
+#endif
 
     sig_act_t *entry = &store->actions[signo];
 
@@ -199,10 +235,17 @@ bool sig_act_store_restore_one(const sig_act_store_t *store, int signo)
     if (!entry->is_saved)
         return false;
 
-#ifdef POSIX_API
+#if defined(POSIX_API) && !defined(_WIN32)
     // Skip SIGKILL and SIGSTOP as they cannot be caught or ignored
-    if (signo == SIGKILL || signo == SIGSTOP)
-        return false;
+        if (
+    #ifdef SIGKILL
+        signo == SIGKILL ||
+    #endif
+    #ifdef SIGSTOP
+        signo == SIGSTOP ||
+    #endif
+        0)
+    return false;
 
     // Restore using sigaction
     return (sigaction(signo, &entry->original_action, NULL) == 0);

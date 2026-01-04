@@ -7,6 +7,7 @@
 #include "shell.h"
 #include "logging.h"
 #include "getopt.h"
+#include "lib.h"
 #ifdef POSIX_API
 #include <unistd.h>
 #include <sys/types.h>
@@ -202,6 +203,7 @@ static void print_usage(const char *prog)
 int main(int argc, char **argv, char **envp)
 {
     log_init();
+    lib_setlocale();
 
     o_options_list o_opts;
     init_o_options(&o_opts);

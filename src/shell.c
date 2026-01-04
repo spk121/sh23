@@ -10,6 +10,7 @@
 struct shell_t
 {
     exec_t *root_exec;
+    exec_t *current_exec; // Points to the currently executing exec_t
     shell_cfg_t cfg; // Store configuration for mode detection
 };
 
@@ -59,6 +60,9 @@ shell_t *shell_create(const shell_cfg_t *cfg)
         xfree(sh);
         return NULL;
     }
+
+    // Initially, current_exec points to root_exec
+    sh->current_exec = sh->root_exec;
 
     return sh;
 }
@@ -294,4 +298,17 @@ const char *shell_get_ps2(const shell_t *sh)
     Expects_not_null(sh->root_exec);
 
     return exec_get_ps2(sh->root_exec);
+}
+
+exec_t *shell_get_current_exec(shell_t *sh)
+{
+    Expects_not_null(sh);
+    return sh->current_exec;
+}
+
+void shell_set_current_exec(shell_t *sh, exec_t *ex)
+{
+    Expects_not_null(sh);
+    Expects_not_null(ex);
+    sh->current_exec = ex;
 }

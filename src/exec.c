@@ -9,6 +9,7 @@
 #include "parser.h"
 #include "gprint.h"
 #include "lower.h"
+#include "builtins.h"
 #include "variable_store.h"
 #include "func_store.h"
 #include "trap_store.h"
@@ -64,9 +65,11 @@ static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node);
 static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node);
 static void exec_run_function_def_child(exec_t *executor, const ast_node_t *node);
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
-
-
+#elifdef UCRT_API
+static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
+                                                         const ast_node_list_t *redirs);
 #endif
+
 // Note: exec_apply_redirections_iso_c forward declaration removed - defined inline in ISO_C section
 
 /* ============================================================================
@@ -1434,7 +1437,8 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     int cmd_exit_status = 0;
 
     // Very minimal builtin set; extend as needed.
-    bool is_builtin = (strcmp(cmd_name, ":") == 0 || strcmp(cmd_name, "exit") == 0);
+    bool is_builtin = (strcmp(cmd_name, ":") == 0 || strcmp(cmd_name, "exit") == 0 ||
+                       strcmp(cmd_name, "set") == 0);
 
     if (is_builtin)
     {
@@ -1447,6 +1451,10 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             // For now, just set status; actual shell exit handling is elsewhere.
             // Optional: parse argument as exit status.
             cmd_exit_status = 0;
+        }
+        else if (strcmp(cmd_name, "set") == 0)
+        {
+            cmd_exit_status = builtin_set(executor, expanded_words);
         }
     }
     else
@@ -1521,7 +1529,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 
         // Use _spawnvpe to search PATH and execute
         // P_WAIT means wait for child to complete
-        intptr_t spawn_result = _spawnvpe(_P_WAIT, cmd_name, (char *const *)argv, envp);
+        intptr_t spawn_result = _spawnvpe(_P_WAIT, cmd_name, (const char * const *)argv, (const char * const *)envp);
 
         if (spawn_result == -1)
         {
@@ -1754,10 +1762,10 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
     execvp(cmd_name, argv);
 #elifdef UCRT_API
     // When successful, _execve does not return
-    _execve(cmd_name, argv, envp);
+    _execve(cmd_name, (const char * const *)argv, (const char * const *)envp);
 
     // If execve fails, try PATH search
-    _execvp(cmd_name, argv);
+    _execvp(cmd_name, (const char * const *)argv);
 #else
     // FIXME: implement exec for ISO_C_API
 #endif

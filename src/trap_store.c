@@ -6,57 +6,81 @@
 #include "xalloc.h"
 #include <string.h>
 
-// Platform-specific signal count based on explicitly supported signals
-#ifdef POSIX_API
+// Platform-specific signal support gates
+#ifdef TRAP_USE_POSIX_SIGNALS
 // POSIX signals: ABRT, ALRM, BUS, CHLD, CONT, FPE, HUP, ILL, INT, PIPE,
 //                QUIT, SEGV, TERM, TSTP, TTIN, TTOU, USR1, USR2, WINCH
 #define TRAP_SIGNAL_COUNT 19
 
-// Map to get the highest signal number we support
 static inline int get_max_signal_number(void)
 {
     int max = SIGABRT;
+#ifdef SIGALRM
     if (SIGALRM > max)
         max = SIGALRM;
+#endif
+#ifdef SIGBUS
     if (SIGBUS > max)
         max = SIGBUS;
+#endif
+#ifdef SIGCHLD
     if (SIGCHLD > max)
         max = SIGCHLD;
+#endif
+#ifdef SIGCONT
     if (SIGCONT > max)
         max = SIGCONT;
+#endif
     if (SIGFPE > max)
         max = SIGFPE;
+#ifdef SIGHUP
     if (SIGHUP > max)
         max = SIGHUP;
+#endif
     if (SIGILL > max)
         max = SIGILL;
     if (SIGINT > max)
         max = SIGINT;
+#ifdef SIGPIPE
     if (SIGPIPE > max)
         max = SIGPIPE;
+#endif
+#ifdef SIGQUIT
     if (SIGQUIT > max)
         max = SIGQUIT;
+#endif
     if (SIGSEGV > max)
         max = SIGSEGV;
     if (SIGTERM > max)
         max = SIGTERM;
+#ifdef SIGTSTP
     if (SIGTSTP > max)
         max = SIGTSTP;
+#endif
+#ifdef SIGTTIN
     if (SIGTTIN > max)
         max = SIGTTIN;
+#endif
+#ifdef SIGTTOU
     if (SIGTTOU > max)
         max = SIGTTOU;
+#endif
+#ifdef SIGUSR1
     if (SIGUSR1 > max)
         max = SIGUSR1;
+#endif
+#ifdef SIGUSR2
     if (SIGUSR2 > max)
         max = SIGUSR2;
+#endif
 #ifdef SIGWINCH
     if (SIGWINCH > max)
         max = SIGWINCH;
 #endif
     return max;
 }
-#elifdef UCRT_API
+
+#elif defined(UCRT_API)
 // UCRT signals: ABRT, FPE, ILL, INT, SEGV, TERM
 #define TRAP_SIGNAL_COUNT 6
 
@@ -75,6 +99,7 @@ static inline int get_max_signal_number(void)
         max = SIGTERM;
     return max;
 }
+
 #else
 // ISO C signals: ABRT, FPE, ILL, INT, SEGV, TERM
 #define TRAP_SIGNAL_COUNT 6
@@ -301,36 +326,92 @@ int trap_signal_name_to_number(const char *name)
     if (strcmp(name, "TERM") == 0)
         return SIGTERM;
 
-#ifdef POSIX_API
+#ifdef TRAP_USE_POSIX_SIGNALS
     // POSIX-specific signals
     if (strcmp(name, "ALRM") == 0)
+#ifdef SIGALRM
         return SIGALRM;
+#else
+        return -1;
+#endif
     if (strcmp(name, "BUS") == 0)
+#ifdef SIGBUS
         return SIGBUS;
+#else
+        return -1;
+#endif
     if (strcmp(name, "CHLD") == 0)
+#ifdef SIGCHLD
         return SIGCHLD;
+#else
+        return -1;
+#endif
     if (strcmp(name, "CONT") == 0)
+#ifdef SIGCONT
         return SIGCONT;
+#else
+        return -1;
+#endif
     if (strcmp(name, "HUP") == 0)
+#ifdef SIGHUP
         return SIGHUP;
+#else
+        return -1;
+#endif
     if (strcmp(name, "KILL") == 0)
+#ifdef SIGKILL
         return SIGKILL; // Not catchable, but recognized
+#else
+        return -1;
+#endif
     if (strcmp(name, "PIPE") == 0)
+#ifdef SIGPIPE
         return SIGPIPE;
+#else
+        return -1;
+#endif
     if (strcmp(name, "QUIT") == 0)
+#ifdef SIGQUIT
         return SIGQUIT;
+#else
+        return -1;
+#endif
     if (strcmp(name, "STOP") == 0)
+#ifdef SIGSTOP
         return SIGSTOP; // Not catchable, but recognized
+#else
+        return -1;
+#endif
     if (strcmp(name, "TSTP") == 0)
+#ifdef SIGTSTP
         return SIGTSTP;
+#else
+        return -1;
+#endif
     if (strcmp(name, "TTIN") == 0)
+#ifdef SIGTTIN
         return SIGTTIN;
+#else
+        return -1;
+#endif
     if (strcmp(name, "TTOU") == 0)
+#ifdef SIGTTOU
         return SIGTTOU;
+#else
+        return -1;
+#endif
     if (strcmp(name, "USR1") == 0)
+#ifdef SIGUSR1
         return SIGUSR1;
+#else
+        return -1;
+#endif
     if (strcmp(name, "USR2") == 0)
+#ifdef SIGUSR2
         return SIGUSR2;
+#else
+        return -1;
+#endif
 
 #ifdef SIGWINCH
     if (strcmp(name, "WINCH") == 0)

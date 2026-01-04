@@ -11,7 +11,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 # Export compile commands for IDE integration
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # API selection option
-set(API_TYPE "POSIX" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
+set(API_TYPE "UCRT" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
 set_property(CACHE API_TYPE PROPERTY STRINGS "POSIX" "UCRT" "ISO_C")
 
 # Define the appropriate API macro based on selection
@@ -163,6 +163,8 @@ set(SH23LOGIC_SOURCES
     src/expander.h
     src/shell.c
     src/shell.h
+    src/builtins.c
+    src/builtins.h
     src/positional_params.c
     src/positional_params.h
 )

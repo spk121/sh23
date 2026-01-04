@@ -3,6 +3,7 @@
 
 //#include "executor.h"
 #include "string_t.h"
+#include "exec.h"
 
 // Status/result conventions applied everywhere
 typedef enum {
@@ -111,6 +112,14 @@ sh_status_t shell_run_script(shell_t *sh, const char *script);
 // Various getters/setters and helpers
 const char *shell_get_ps1(const shell_t *sh);
 const char *shell_get_ps2(const shell_t *sh);
+
+// Get the current execution environment
+// This is used by builtins to access the current variable store
+exec_t *shell_get_current_exec(shell_t *sh);
+
+// Set the current execution environment
+// This should be updated whenever entering a new execution context
+void shell_set_current_exec(shell_t *sh, exec_t *ex);
 
 #ifdef FUTURE
 /*

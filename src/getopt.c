@@ -13,6 +13,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "xalloc.h"
+#include "string_t.h"
+
 
 /* Traditional global variables */
 char *optarg = NULL;
@@ -616,3 +618,68 @@ int main(int argc, char **argv)
     return 0;
 }
 #endif
+
+/* ============================================================================
+ * String-based wrappers for shell builtins
+ * ============================================================================ */
+
+
+/**
+ * Convert string_list_t to char** for getopt
+ * The caller must free the returned array (but not the individual strings)
+ */
+static char **string_list_to_argv(const string_list_t *list, int *argc)
+{
+    if (!list)
+    {
+        *argc = 0;
+        return NULL;
+    }
+
+    int count = string_list_size(list);
+    *argc = count;
+
+    if (count == 0)
+        return NULL;
+
+    char **argv = malloc(count * sizeof(char *));
+    if (!argv)
+        return NULL;
+
+    for (int i = 0; i < count; i++)
+    {
+        const string_t *str = string_list_at(list, i);
+        argv[i] = (char *)string_cstr(str);  // Cast away const for getopt compatibility
+    }
+
+    return argv;
+}
+
+int getopt_string(const string_list_t *argv, const string_t *optstring)
+{
+    int argc;
+    char **argv_array = string_list_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = getopt(argc, argv_array, optstr);
+
+    free(argv_array);
+    return result;
+}
+
+int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring,
+                            const struct option_ex *longopts, int *longind)
+{
+    int argc;
+    char **argv_array = string_list_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
+
+    free(argv_array);
+    return result;
+}
