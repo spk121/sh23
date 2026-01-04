@@ -61,7 +61,7 @@ tmp/
 build/
 
 # IDEs and editors
-.vscode/
+# .vscode/
 .vs/
 .idea/
 *.sublime-workspace

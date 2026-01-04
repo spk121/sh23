@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "cmake-build-debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": ["--build", "${workspaceFolder}/build", "--config", "Debug", "--", "-j"],
+      "options": { "env": { "PATH": "C:/Program Files/CMake/bin;C:/msys64/ucrt64/bin;${env:PATH}" } },
+      "problemMatcher": "$gcc",
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}
