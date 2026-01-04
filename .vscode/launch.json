@@ -5,6 +5,17 @@
     "version": "0.2.0",
     "configurations": [
     {
+        "name": "(MSVC) Launch",
+        "type": "cppvsdbg",
+        "request": "launch",
+        "program": "${workspaceFolder}/out/build/x64-Debug/bin/mgsh.exe",
+        "args": [],
+        "stopAtEntry": false,
+        "cwd": "${workspaceFolder}",
+        "environment": [],
+        "console": "integratedTerminal"
+    },
+    {
         "name": "(gdb) Launch",
         "type": "cppdbg",
         "request": "launch",

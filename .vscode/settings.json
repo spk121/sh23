@@ -1,11 +1,19 @@
 {
     "cmake.sourceDirectory": "${workspaceFolder}",
-    "cmake.buildDirectory": "${workspaceFolder}/build",
+    "cmake.buildDirectory": "${workspaceFolder}/out/build/x64-Debug",
     "cmake.configureEnvironment": {
         "MSYSTEM": "UCRT64"
     },
     "cmake.configureSettings": {
         "API_TYPE": "UCRT"
     },
-    "C_Cpp.default.compilerPath": "C:/msys64/ucrt64/bin/gcc.exe"
+    "cmake.generator": "Ninja",
+    "cmake.cmakePath": "C:/Program Files/CMake/bin/cmake.exe",
+    "C_Cpp.default.compilerPath": "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe",
+    "C_Cpp.default.intelliSenseMode": "windows-msvc-x64",
+    "C_Cpp.default.cStandard": "c17",
+    "C_Cpp.default.defines": [
+        "UCRT_API",
+        "_CRT_SECURE_NO_WARNINGS"
+    ]
 }
