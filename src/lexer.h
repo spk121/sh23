@@ -464,6 +464,11 @@ bool lexer_can_start_word(const lexer_t *lexer, char c);
 void lexer_set_error(lexer_t *lexer, const char *format, ...);
 
 /**
+ * True if an error has been detected.
+ */
+bool lexer_has_error(const lexer_t *lx);
+
+/**
  * Get the error message from the last failed operation.
  * Returns NULL if no error.
  */

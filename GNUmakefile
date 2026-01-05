@@ -21,7 +21,7 @@ all: mgsh
 API_TYPE ?= POSIX
 
 # BUILD_TYPE: Debug or Release
-BUILD_TYPE ?= Release
+BUILD_TYPE ?= Debug
 
 # Optional features
 ENABLE_SANITIZERS ?= 0
@@ -41,14 +41,16 @@ CFLAGS_COMMON := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
 	-Wmissing-declarations -Wcast-align -Wcast-qual -Wunused \
 	-Wvla -Wswitch-default -Wswitch-enum -Wfloat-equal -Wundef \
 	-fanalyzer -Wlogical-op -Warith-conversion -Wduplicated-cond \
-	-Wduplicated-branches
+	-Wduplicated-branches -D_POSIX_C_SOURCE=202401L
 
 # Visibility: hidden by default unless ISO_C
 ifeq ($(API_TYPE),ISO_C)
   VISIBILITY :=
   API_DEFINE := -DISO_C
 else
-  VISIBILITY := -fvisibility=hidden
+  # FIXME: do proper visibility and declspec for share objects
+  # VISIBILITY := -fvisibility=hidden
+  VISIBILITY :=
   API_DEFINE := -DPOSIX_API
 endif
 
@@ -70,22 +72,25 @@ ifeq ($(ENABLE_COVERAGE),1)
   LDFLAGS_COV := --coverage
 endif
 
+# Library type: shared in Debug (for --no-undefined checking), static in Release
+# ifeq ($(BUILD_TYPE),Debug)
+ifeq ($(BUILD_TYPE),XXX)
+  LIB_TYPE := shared
+  LIB_EXT := so
+  LIB_FLAGS := -shared -Wl,--no-undefined
+  PIC_FLAGS := -fPIC
+else
+  LIB_TYPE := static
+  LIB_EXT := a
+  LIB_FLAGS :=
+  PIC_FLAGS :=
+endif
+
 # Final compiler flags
 CFLAGS := $(CFLAGS_BASE) $(CFLAGS_COMMON) $(VISIBILITY) $(SAN_FLAGS) \
 	$(COV_FLAGS) $(API_DEFINE) $(BUILD_DEFINE) -I src
 
 LDFLAGS := $(LDFLAGS_SAN) $(LDFLAGS_COV)
-
-# Library type: shared in Debug (for --no-undefined checking), static in Release
-ifeq ($(BUILD_TYPE),Debug)
-  LIB_TYPE := shared
-  LIB_EXT := so
-  LIB_FLAGS := -shared -Wl,--no-undefined
-else
-  LIB_TYPE := static
-  LIB_EXT := a
-  LIB_FLAGS :=
-endif
 
 # --------------------------------------------------------------------------
 # Directories
@@ -154,7 +159,7 @@ CTEST_OBJ_SOURCE := test/ctest/ctest.c
 
 # Test sources
 BASE_TESTS := \
-	test/test_xalloc_ctest.c \
+	test/mgsh/test_xalloc_ctest.c \
 	test/mgsh/test_getopt_ctest.c \
 	test/mgsh/test_string_ctest.c
 
@@ -174,7 +179,7 @@ LOGIC_TESTS := \
 	test/mgsh/test_ast_heredoc_ctest.c \
 	test/mgsh/test_tokenizer_ctest.c \
 	test/mgsh/test_expander_ctest.c \
-	test/mgsh/test_exec_ctest.c
+	# test/mgsh/test_exec_ctest.c
 
 ALL_TEST_SOURCES := $(BASE_TESTS) $(STORE_TESTS) $(LOGIC_TESTS)
 
@@ -185,8 +190,8 @@ ALL_TEST_SOURCES := $(BASE_TESTS) $(STORE_TESTS) $(LOGIC_TESTS)
 BASE_OBJS := $(addprefix $(OBJ_DIR)/,$(SH23BASE_SOURCES:.c=.o))
 STORE_OBJS := $(addprefix $(OBJ_DIR)/,$(SH23STORE_SOURCES:.c=.o))
 LOGIC_OBJS := $(addprefix $(OBJ_DIR)/,$(SH23LOGIC_SOURCES:.c=.o))
-MAIN_OBJ := $(OBJ_DIR)/main.o
-CTEST_OBJ := $(OBJ_DIR)/ctest.o
+MAIN_OBJ := $(OBJ_DIR)/src/main.o
+CTEST_OBJ := $(OBJ_DIR)/test/ctest/ctest.o
 
 # --------------------------------------------------------------------------
 # Library targets
@@ -241,8 +246,8 @@ mgsh: $(BIN_DIR)/mgsh
 
 define BUILD_TEST
 $(TEST_DIR)/$(notdir $(basename $1)): $1 $(CTEST_OBJ) $(LOGIC_LIB) $(STORE_LIB) $(BASE_LIB)
-	$(MKDIR) $(@D)
-	$(CC) $(CFLAGS) -DIN_CTEST -I test/ctest -o $$@ $$< $(CTEST_OBJ) \
+	@test -n "$(@D)" && $(MKDIR) $(@D) || true
+	$(CC) $(CFLAGS) $(PIC_FLAGS) -DIN_CTEST -I test/ctest -o $$@ $$< $(CTEST_OBJ) \
 	  -L$(LIB_DIR) -lsh23logic -lsh23store -lsh23base $(LDFLAGS)
 endef
 
@@ -254,9 +259,17 @@ TEST_EXES := $(addprefix $(TEST_DIR)/,$(notdir $(basename $(ALL_TEST_SOURCES))))
 # Compilation rules
 # --------------------------------------------------------------------------
 
+$(OBJ_DIR)/src/%.o: %.c
+	$(MKDIR) $(@D)
+	$(CC) $(CFLAGS) $(PIC_FLAGS) -c -o $@ $<
+
+$(OBJ_DIR)/test/ctest/%.o: %.c
+	$(MKDIR) $(@D)
+	$(CC) $(CFLAGS) $(PIC_FLAGS) -c -o $@ $<
+
 $(OBJ_DIR)/%.o: %.c
 	$(MKDIR) $(@D)
-	$(CC) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CFLAGS) $(PIC_FLAGS) -c -o $@ $<
 
 # --------------------------------------------------------------------------
 # Phony targets

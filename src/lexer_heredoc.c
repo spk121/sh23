@@ -21,6 +21,8 @@
 #include <ctype.h>
 #include <string.h>
 
+static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool strip_tabs);
+
 #if 0
 /**
  * Check if a character is a special parameter character.
@@ -54,7 +56,7 @@ static bool is_heredoc_escapable(char c)
     return (c == '$' || c == '`' || c == '\\' || c == '\n');
 }
 
-bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool strip_tabs)
+static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool strip_tabs)
 {
     Expects_not_null(lx);
     Expects_not_null(delim);

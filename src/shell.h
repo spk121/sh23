@@ -1,6 +1,10 @@
 #ifndef SHELL_T_H
 #define SHELL_T_H
 
+#ifdef POSIX_API
+#define _POSIX_C_SOURCE 202401L
+#endif
+
 //#include "executor.h"
 #include "string_t.h"
 #include "exec.h"

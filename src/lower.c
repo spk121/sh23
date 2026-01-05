@@ -11,7 +11,7 @@
         if (!(node) || (node)->type != (k))                                                        \
         {                                                                                          \
             log_error("ast_lower: expected type %s, got %d", #k,                                   \
-                      (int)((node) ? (node)->type : -1));                                          \
+                      (int)((node) ? (node)->type : G_UNSPECIFIED));	\
             return NULL;                                                                           \
         }                                                                                          \
     } while (0)
@@ -101,7 +101,7 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
     ast_node_t *cl = ast_create_command_list();
 
     gnode_list_t *lst = g->data.list;
-    for (size_t i = 0; i < lst->size; i++)
+    for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *gcmd = lst->nodes[i];
         Expects_eq(gcmd->type, G_COMPLETE_COMMAND);
@@ -151,7 +151,7 @@ static ast_node_t *lower_list(const gnode_t *g)
     gnode_list_t *lst = g->data.list;
 
     /* list layout: [and_or, sep_op, and_or, sep_op, ...] */
-    for (size_t i = 0; i < lst->size;)
+    for (int i = 0; i < lst->size;)
     {
         const gnode_t *elem = lst->nodes[i];
         ast_node_t *node = NULL;
@@ -345,7 +345,7 @@ static ast_node_t *lower_pipe_sequence(const gnode_t *g, bool is_negated)
     ast_node_list_t *cmds = ast_node_list_create();
     gnode_list_t *lst = g->data.list;
 
-    for (size_t i = 0; i < lst->size; i++)
+    for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *elem = lst->nodes[i];
 
@@ -449,7 +449,7 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
     token_list_t *words = token_list_create();
     ast_node_list_t *redirs = ast_node_list_create();
 
-    for (size_t i = 0; i < lst->size; i++)
+    for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *elem = lst->nodes[i];
 
@@ -465,7 +465,7 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
         {
             /* G_CMD_SUFFIX contains a list of words and redirects */
             gnode_list_t *suffix_list = elem->data.list;
-            for (size_t j = 0; j < suffix_list->size; j++)
+            for (int j = 0; j < suffix_list->size; j++)
             {
                 const gnode_t *suffix_elem = suffix_list->nodes[j];
 
@@ -602,7 +602,7 @@ static ast_node_t *lower_term_as_command_list(const gnode_t *g)
     ast_node_t *cl = ast_create_command_list();
     gnode_list_t *lst = g->data.list;
 
-    for (size_t i = 0; i < lst->size;)
+    for (int i = 0; i < lst->size;)
     {
         const gnode_t *elem = lst->nodes[i];
 
@@ -842,7 +842,7 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
     if (glist)
     {
         gnode_list_t *lst = glist->data.list;
-        for (size_t i = 0; i < lst->size; i++)
+        for (int i = 0; i < lst->size; i++)
         {
             const gnode_t *item = lst->nodes[i];
             ast_node_t *ci = NULL;
@@ -954,7 +954,7 @@ static ast_node_t *lower_function_definition(const gnode_t *g)
         {
             redirs = ast_node_list_create();
             gnode_list_t *lst = gredirs->data.list;
-            for (size_t i = 0; i < lst->size; i++)
+            for (int i = 0; i < lst->size; i++)
             {
                 const gnode_t *gr = lst->nodes[i];
                 ast_node_t *r = lower_io_redirect(gr);
@@ -998,7 +998,7 @@ static ast_node_t *lower_redirect_list(const gnode_t *g)
     ast_node_list_t *lst_ast = ast_node_list_create();
     gnode_list_t *lst = g->data.list;
 
-    for (size_t i = 0; i < lst->size; i++)
+    for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *gr = lst->nodes[i];
         EXPECT_TYPE(gr, G_IO_REDIRECT);
@@ -1108,7 +1108,7 @@ static token_list_t *token_list_from_wordlist(const gnode_t *g)
     token_list_t *tl = token_list_create();
     gnode_list_t *lst = g->data.list;
 
-    for (size_t i = 0; i < lst->size; i++)
+    for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *w = lst->nodes[i];
         EXPECT_TYPE(w, G_WORD_NODE);
@@ -1125,7 +1125,7 @@ static token_list_t *token_list_from_pattern_list(const gnode_t *g)
     token_list_t *tl = token_list_create();
     gnode_list_t *lst = g->data.list;
 
-    for (size_t i = 0; i < lst->size; i++)
+    for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *w = lst->nodes[i];
         EXPECT_TYPE(w, G_WORD_NODE);

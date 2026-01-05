@@ -15,6 +15,10 @@
 #ifndef SIG_ACT_H
 #define SIG_ACT_H
 
+// #ifdef POSIX_API
+#define _POSIX_C_SOURCE 202401L
+// #endif
+
 #include <signal.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -22,6 +26,7 @@
 /* Use sigaction only where it is actually available (non-Windows POSIX). */
 #if defined(POSIX_API) && !defined(_WIN32) && !defined(__MINGW32__) && !defined(__MSYS__)
 #define SIG_ACT_USE_SIGACTION 1
+#include <signal.h>
 #endif
 
 // Signal disposition tracking for restoration after traps
@@ -42,8 +47,8 @@ typedef struct sig_act_t
 
 typedef struct sig_act_store_t
 {
-    sig_act_t *actions; // Array indexed by signal number
     size_t capacity;    // Size of array (max signal number + 1)
+    sig_act_t *actions; // Array indexed by signal number
 } sig_act_store_t;
 
 // Create a new signal disposition store

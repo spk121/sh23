@@ -2,8 +2,9 @@
 #include "xalloc.h"
 #include <stdlib.h>
 #ifdef POSIX_API
-#include <pwd.h>
 #include <glob.h>
+#include <pwd.h>
+#include <unistd.h>
 #endif
 #ifdef UCRT_API
 #include <io.h>
@@ -505,46 +506,48 @@ string_t *expander_tilde_expand(void *userdata, const string_t *text)
 string_list_t *expander_glob(void *user_data, const string_t *pattern)
 {
 #ifdef POSIX_API
-    (void)user_data; // unused
+const char *pattern_str = string_cstr(pattern);
 
-    const char *pattern_str = string_cstr(pattern);
     glob_t glob_result;
+    int flags = GLOB_NOCHECK;  // Critical: return pattern if no match
+    int ret = glob(pattern_str, flags, NULL, &glob_result);
 
-    // Perform glob matching
-    // GLOB_NOCHECK: If no matches, return the pattern itself
-    // GLOB_TILDE: Expand ~ for home directory
-    int ret = glob(pattern_str, GLOB_TILDE, NULL, &glob_result);
+    if (ret != 0 && ret != GLOB_NOMATCH) {
+        // Real error: GLOB_NOSPACE, etc.
+        return NULL;
+    }
 
-    if (ret != 0)
-    {
-        // On error or no matches (when not using GLOB_NOCHECK), return NULL
-        if (ret == GLOB_NOMATCH)
-        {
-            return NULL;
+    // If matches found
+    if (glob_result.gl_pathc > 0) {
+        // Filter out . and .. if they appear (some systems include them)
+        string_list_t *result = string_list_create();
+
+        for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
+            const char *path = glob_result.gl_pathv[i];
+            const char *name = strrchr(path, '/');
+            name = name ? name + 1 : path;
+
+            if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+                continue;
+
+            string_t *expanded = string_create_from_cstr(path);
+            string_list_move_push_back(result, expanded);
         }
-        // GLOB_NOSPACE or GLOB_ABORTED
-        return NULL;
-    }
 
-    // No matches found
-    if (glob_result.gl_pathc == 0)
-    {
         globfree(&glob_result);
-        return NULL;
+
+        if (string_list_size(result) == 0) {
+            string_list_destroy(&result);
+            return NULL;  // only . and .. matched → no real matches
+        }
+
+        return result;
     }
 
-    // Create result list
-    string_list_t *result = string_list_create();
-
-    // Add all matched paths
-    for (size_t i = 0; i < glob_result.gl_pathc; i++)
-    {
-        string_t *path = string_create_from_cstr(glob_result.gl_pathv[i]);
-        string_list_move_push_back(result, path);
-    }
-
+    // No matches: GLOB_NOCHECK returns the pattern itself in gl_pathv[0]
+    // We return NULL to signal "keep literal"
     globfree(&glob_result);
-    return result;
+    return NULL;  
 
 #elifdef UCRT_API
     (void)user_data; // unused

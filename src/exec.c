@@ -19,11 +19,14 @@
 #include <stdlib.h>
 #include <string.h>
 #ifdef POSIX_API
-#include <glob.h>
-#include <sys/wait.h>
-#include <sys/resource.h>
-#include <unistd.h>
 #include <fcntl.h>
+#include <limits.h>
+#include <stdio.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <wordexp.h>
 #endif
 #ifdef UCRT_API
 #include <io.h>
@@ -3142,39 +3145,40 @@ string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t 
     (void)user_data;  // unused
 
     const char *pattern_str = string_data(pattern);
-    glob_t glob_result;
+    wordexp_t we;
+    int ret;
 
-    // Perform glob matching
-    // GLOB_NOCHECK: If no matches, return the pattern itself
-    // GLOB_TILDE: Expand ~ for home directory
-    int ret = glob(pattern_str, GLOB_TILDE, NULL, &glob_result);
+    /* WRDE_NOCMD: prevent command substitution (security)
+     * WRDE_UNDEF: fail on undefined variables (like $foo)
+     * No WRDE_SHOWERR — we silence errors about ~nonexistentuser
+     */
+    ret = wordexp(pattern_str, &we, WRDE_NOCMD | WRDE_UNDEF);
 
-    if (ret != 0) {
-        // On error or no matches (when not using GLOB_NOCHECK), return NULL
-        if (ret == GLOB_NOMATCH) {
-            return NULL;
+    if (ret != 0 || we.we_wordc == 0) {
+        /* Possible return values:
+         * WRDE_BADCHAR: illegal char like | or ;
+         * WRDE_BADVAL: undefined variable reference (with WRDE_UNDEF)
+         * WRDE_CMDSUB: command substitution (blocked by WRDE_NOCMD)
+         * WRDE_NOSPACE: out of memory
+         * WRDE_SYNTAX: shell syntax error
+         * Or we_wordc == 0: no matches
+         */
+        if (ret != 0) {
+            wordfree(&we);  // safe to call even on failure
         }
-        // GLOB_NOSPACE or GLOB_ABORTED
-        return NULL;
+        return NULL;  // treat errors and no matches the same: keep literal
     }
 
-    // No matches found
-    if (glob_result.gl_pathc == 0) {
-        globfree(&glob_result);
-        return NULL;
-    }
-
-    // Create result list
+    /* Success and at least one match */
     string_list_t *result = string_list_create();
 
-    // Add all matched paths
-    for (size_t i = 0; i < glob_result.gl_pathc; i++) {
-        string_t *path = string_create_from_cstr(glob_result.gl_pathv[i]);
+    for (size_t i = 0; i < we.we_wordc; i++) {
+        string_t *path = string_create_from_cstr(we.we_wordv[i]);
         string_list_move_push_back(result, path);
     }
 
-    globfree(&glob_result);
-    return result;
+    wordfree(&we);
+    return result;  
 
 #elifdef UCRT_API
     (void)user_data;  // unused

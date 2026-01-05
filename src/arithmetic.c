@@ -515,31 +515,45 @@ static ArithmeticResult parse_equality(math_parser_t *parser) {
 }
 
 // Comparison
-static ArithmeticResult parse_comparison(math_parser_t *parser) {
+static ArithmeticResult parse_comparison(math_parser_t *parser)
+{
     ArithmeticResult left = parse_shift(parser);
-    if (left.failed) return left;
+    if (left.failed)
+	return left;
 
     while (1) {
         int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_LESS && token.type != MATH_TOKEN_GREATER &&
-            token.type != MATH_TOKEN_LESS_EQUAL && token.type != MATH_TOKEN_GREATER_EQUAL) {
+            token.type != MATH_TOKEN_LESS_EQUAL && token.type != MATH_TOKEN_GREATER_EQUAL)
+	{
             parser->pos = saved_pos; // Rewind to start of token
             break;
         }
 
         ArithmeticResult right = parse_shift(parser);
-        if (right.failed) {
+        if (right.failed)
+	{
             arithmetic_result_free(&left);
             return right;
         }
 
-        switch (token.type) {
-            case MATH_TOKEN_LESS:         left.value = left.value < right.value; break;
-            case MATH_TOKEN_GREATER:      left.value = left.value > right.value; break;
-            case MATH_TOKEN_LESS_EQUAL:   left.value = left.value <= right.value; break;
-            case MATH_TOKEN_GREATER_EQUAL:left.value = left.value >= right.value; break;
-            default: break;
+        switch (token.type)
+	{
+            case MATH_TOKEN_LESS:
+		left.value = left.value < right.value;
+		break;
+            case MATH_TOKEN_GREATER:
+		left.value = left.value > right.value;
+		break;
+            case MATH_TOKEN_LESS_EQUAL:
+		left.value = left.value <= right.value;
+		break;
+            case MATH_TOKEN_GREATER_EQUAL:
+		left.value = left.value >= right.value;
+		break;
+            default:
+		break;
         }
         arithmetic_result_free(&right);
     }
