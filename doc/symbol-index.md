@@ -8,4 +8,4 @@ In this section, we give a list of symbolic constructs that may occur in shell s
 | `{ ... }` | grouping |
 | `$( ...)` | |
 | `$(( ... ))` | |
-| 
+

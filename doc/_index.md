@@ -19,7 +19,7 @@ This document provides an overview of the sh23 shell command and shell language.
   - [Lists](lists.md) including AND-OR lists, sequential lists, and asynchronous lists
   - [Conditional Constructs](conditional-constructs.md)
   - [Pipelines](pipelines.md)
-  - [Looping Constructs](looping-constructs.md)
+  - [`for` loop](for-loop.md)
   - [Grouping Commands](grouping-commands.md) including subshells
 - [Arithmetic Evaluation](arithmetic-evaluation.md)
 - [Functions](functions.md)
