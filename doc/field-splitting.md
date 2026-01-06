@@ -462,7 +462,7 @@ echo $((num))              # 4
    ```bash
    # Instead of changing IFS for one operation:
    IFS=: read -r a b c <<< "$data"
-   
+
    # Or use parameter expansion:
    first="${data%%:*}"
    ```

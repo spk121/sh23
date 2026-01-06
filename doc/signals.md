@@ -310,7 +310,7 @@ When built with the Universal C Runtime (UCRT) API on Windows, the shell has **s
   - SIGBREAK (Windows-specific Ctrl+Break)
   - SIGABRT (abort signal)
   - EXIT pseudo-signal for cleanup
-  
+
   ```bash
   trap 'echo "Cleaning up..."; rm -f temp.*' EXIT
   ```
@@ -391,10 +391,10 @@ When built with only ISO C standard library functions, the shell has **extremely
 
 - ⚠️ **Very basic `trap` for standard signals only**:
   - SIGINT - interrupt
-  - SIGTERM - termination  
+  - SIGTERM - termination
   - SIGABRT - abort
   - EXIT pseudo-signal
-  
+
   ```bash
   trap 'cleanup' EXIT
   ```

@@ -576,11 +576,11 @@ file="my document.txt"
 if [ -f "$file" ]; then
     # Read content (quote command substitution!)
     content="$(cat "$file")"
-    
+
     # Process with preserved formatting
     echo "File contents:"
     echo "$content"
-    
+
     # Create backup with safe name
     backup="${file}.backup"
     cp "$file" "$backup"
@@ -640,12 +640,12 @@ Quoting is implemented during tokenization and parsing, which are pure string pr
    ```sh
    # In shell syntax, backslash is an escape
    cd C:\Users          # Might not work as expected
-   
+
    # Quote the path
    cd 'C:\Users'        # Works
    cd "C:\Users"        # Works
    cd C:\\Users         # Escaped backslashes work
-   
+
    # Or use forward slashes (Windows accepts these)
    cd C:/Users          # Works
    ```

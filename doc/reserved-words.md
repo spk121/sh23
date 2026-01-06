@@ -322,7 +322,7 @@ Reserved word recognition happens before alias substitution in most contexts.
    ```bash
    # Bad:
    'if'=value
-   
+
    # Good:
    condition=value
    ```
@@ -331,7 +331,7 @@ Reserved word recognition happens before alias substitution in most contexts.
    ```bash
    # Bad:
    \while() { echo "loop"; }
-   
+
    # Good:
    run_loop() { echo "loop"; }
    ```
@@ -340,7 +340,7 @@ Reserved word recognition happens before alias substitution in most contexts.
    ```bash
    # Non-portable:
    function myfunc { echo "hello"; }
-   
+
    # Portable:
    myfunc() { echo "hello"; }
    ```

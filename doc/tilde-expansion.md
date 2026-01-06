@@ -431,7 +431,7 @@ PATH=~/bin:$PATH     # Works in assignments
    - Or may use Windows-specific user lookup methods
    - Results are implementation-dependent
 
-2. **HOME variable**: 
+2. **HOME variable**:
    - Typically set to `%USERPROFILE%` equivalent
    - Should work for `~` expansion
    - May be `C:\Users\username`

@@ -519,7 +519,7 @@ binary=$(cat binary_file)
    for i in {1..1000}; do
        echo "$(date): Processing $i"
    done
-   
+
    # Fast - run date once
    timestamp=$(date)
    for i in {1..1000}; do

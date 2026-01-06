@@ -529,7 +529,7 @@ echo $PWD                     # /tmp
    # Good:
    user_count=10
    max_retries=3
-   
+
    # Bad:
    uc=10
    mr=3
@@ -539,7 +539,7 @@ echo $PWD                     # /tmp
    ```sh
    # Local variables:
    temp_file=/tmp/data.txt
-   
+
    # Environment/exported variables:
    export DATABASE_URL=postgresql://localhost/mydb
    ```
@@ -626,13 +626,13 @@ Variable functionality is fundamental and works similarly across all builds, tho
 
 **Platform-specific considerations:**
 
-1. **Path separators**: 
+1. **Path separators**:
    - `PATH` uses semicolons (`;`) on Windows, not colons (`:`)
    - The shell may normalize this internally
    ```sh
    # Windows:
    PATH="C:\Windows;C:\Program Files"
-   
+
    # Or shell may accept Unix-style:
    PATH="/c/Windows:/c/Program Files"
    ```
@@ -674,7 +674,7 @@ Variable functionality is fundamental and works similarly across all builds, tho
 
 **What has limited functionality:**
 
-1. **`PWD`**: 
+1. **`PWD`**:
    - May not track properly (no `cd` in pure ISO C)
    - Can be set manually but won't auto-update
 

@@ -598,7 +598,7 @@ echo $((count + 1))          # Works: 6
    ```bash
    # Non-portable:
    x=$((++x))
-   
+
    # Portable:
    x=$((x + 1))
    ```

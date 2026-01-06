@@ -279,7 +279,7 @@ Use `jobs` to see what's suspended, then either `fg` to bring them back, `bg` to
 Here's the typical lifecycle of a job:
 
 1. **Creation**: Job is created as foreground or background
-2. **Execution**: 
+2. **Execution**:
    - Foreground jobs control the terminal and can read/write
    - Background jobs run without terminal access
 3. **Suspension** (optional):

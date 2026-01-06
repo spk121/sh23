@@ -30,7 +30,7 @@ A **parameter** is an entity that stores a value. Parameters can be denoted by:
 
 Positional parameters are denoted by positive integers:
 - `$1` - first argument
-- `$2` - second argument  
+- `$2` - second argument
 - `$3` - third argument
 - ... and so on
 
@@ -500,7 +500,7 @@ echo "Script name: $0"
    ```bash
    $ ./myscript.sh
    # $0 = ./myscript.sh
-   
+
    $ /full/path/to/myscript.sh
    # $0 = /full/path/to/myscript.sh
    ```
@@ -842,7 +842,7 @@ When built with only ISO C standard library functions, the shell provides **full
 - ⚠️ `$!` - Background job PID
   - No background jobs in ISO C build
   - Parameter exists but is always unset
-  
+
 - ⚠️ `$-` - Shell options
   - Fewer options available in ISO C build
   - Still works for available options

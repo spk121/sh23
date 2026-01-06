@@ -243,7 +243,7 @@ The **colon** (`:`) makes the expansion test for **null** (empty) in addition to
 | `${var:+word}` | substitute word | substitute null | substitute null |
 | `${var+word}` | substitute word | substitute word | substitute null |
 
-**Rule of thumb**: 
+**Rule of thumb**:
 - **With `:` (colon)**: treats empty as if unset
 - **Without `:`**: empty is different from unset
 
@@ -556,7 +556,7 @@ path="/usr/local/bin"
 # % removes from end
 echo ${path%/*}           # /usr/local (removes suffix)
 
-# # removes from beginning  
+# # removes from beginning
 echo ${path#/*/}          # local/bin (removes prefix)
 
 # Remember: # is at the beginning of the line, % is at the end
@@ -580,7 +580,7 @@ echo ${path#/*/}          # local/bin (removes prefix)
    # Slow:
    basename=$(basename "$file")
    dirname=$(dirname "$file")
-   
+
    # Fast (built-in to shell):
    basename=${file##*/}
    dirname=${file%/*}

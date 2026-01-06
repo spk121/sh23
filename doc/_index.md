@@ -30,11 +30,11 @@ This document provides an overview of the sh23 shell command and shell language.
 - [While Loop](while-loop.md) - TODO
 - [Until Loop](until-loop.md) - TODO
 - [Case Conditional](case-conditional.md)
-- [If Conditional](if-conditional.md) - TODO
+- [If Conditional](if-conditional.md)
 - [Functions](functions.md) - TODO
 - [Shell Grammar](shell-grammar.md)
 - [Job Control](job-control.md)
-- [Signals and Error Handling)(signals.md)
+- [Signals and Error Handling](signals.md)
 - [Shell Execution Environment](shell-environment.md) - TODO
 - [Pattern Matching](pattern-matching.md)
 

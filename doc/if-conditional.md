@@ -87,9 +87,9 @@ if [ -f "config.txt" ]
 then
   if grep -q "ENABLE_FEATURE" config.txt
   then
-	echo "Feature is enabled"
+    echo "Feature is enabled"
   else
-	echo "Feature is disabled"
+    echo "Feature is disabled"
   fi
 else
   echo "Configuration file not found"

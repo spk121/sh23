@@ -41,23 +41,23 @@ The following example demonstrates a simple case.
 
 ```sh
 case "$action" in
-start|begin)
-echo "Starting the service..."
-start_service
-;;
-stop|end)
-echo "Stopping the service..."
-stop_service
-;;
-restart)
-echo "Restarting..."
-stop_service
-start_service
-;;
-*)
-echo "Unknown action: $action"
-exit 1
-;;
+    start|begin)
+        echo "Starting the service..."
+        start_service
+        ;;
+    stop|end)
+        echo "Stopping the service..."
+        stop_service
+        ;;
+    restart)
+        echo "Restarting..."
+        stop_service
+        start_service
+        ;;
+    *)
+        echo "Unknown action: $action"
+        exit 1
+        ;;
 esac
 ```
 This example matches the value of `$action` against several patterns and executes the corresponding commands.  The `*` pattern acts as a catch-all (default case).
@@ -67,18 +67,18 @@ This example matches the value of `$action` against several patterns and execute
 You can use `;&` to allow fall-through behavior.
 ```sh
 case "$level" in
-debug)
-set -x  # enable tracing
-;&      # fall through
-info)
-log_level="info"
-;&
-warning)
-log_level="warning"
-;;
-*)
-log_level="error"
-;;
+    debug)
+        set -x  # enable tracing
+        ;&      # fall through
+    info)
+        log_level="info"
+        ;&
+    warning)
+        log_level="warning"
+        ;;
+    *)
+        log_level="error"
+        ;;
 esac
 ```
 In this example, if `$level` is `debug`, it enables tracing and then falls through.
@@ -88,18 +88,18 @@ In this example, if `$level` is `debug`, it enables tracing and then falls throu
 You can use wildcards in patterns.
 ```sh
 case "$file" in
-*.txt | *.md)
-editor="nano"
-;;
-*.jpg | *.png | *.gif)
-viewer="feh"
-;;
-*.pdf)
-viewer="zathura"
-;;
-*)
-echo "Unsupported file type"
-;;
+    *.txt | *.md)
+        editor="nano"
+        ;;
+    *.jpg | *.png | *.gif)
+        viewer="feh"
+        ;;
+    *.pdf)
+        viewer="zathura"
+        ;;
+    *)
+        echo "Unsupported file type"
+        ;;
 esac
 ```
 This example matches file extensions using wildcards.

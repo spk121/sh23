@@ -553,10 +553,10 @@ $ ls *.txt
    ```bash
    # On Unix/Linux with system shell:
    ls *.txt          # System shell might expand this
-   
+
    # On Windows with cmd.exe:
    dir *.txt         # cmd.exe will expand this
-   
+
    # But behavior is completely system-dependent
    ```
 

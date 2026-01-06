@@ -111,7 +111,7 @@ echo hello
 After reading `hello`, hitting end-of-line delimits the `hello` token.
 
 #### Rule 2: Operator Continuation
-**When it applies**: 
+**When it applies**:
 - The previous character was part of an operator, AND
 - The current character is not quoted, AND
 - The current character can combine with the previous characters to form a (longer) operator
@@ -418,7 +418,7 @@ echo world
 Tokenization:
 1. `echo` - token
 2. Space - delimits, discarded
-3. `hello` - token  
+3. `hello` - token
 4. Space - delimits, discarded
 5. `#` - starts comment
 6. ` comment` - discarded

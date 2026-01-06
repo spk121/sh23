@@ -9,7 +9,7 @@ Understanding redirection is essential for shell scripting—it's how you proces
 Every command has three standard file descriptors:
 
 - **0 - Standard Input (stdin)**: Where the command reads input
-- **1 - Standard Output (stdout)**: Where the command writes normal output  
+- **1 - Standard Output (stdout)**: Where the command writes normal output
 - **2 - Standard Error (stderr)**: Where the command writes error messages
 
 By default:
@@ -327,10 +327,10 @@ The `<<-` operator strips **leading tabs** (not spaces!) from the here-document 
 
 ```bash
 if true; then
-	cat <<-EOF
-		This is indented with tabs
-		The leading tabs are stripped
-	EOF
+    cat <<-EOF
+        This is indented with tabs
+        The leading tabs are stripped
+    EOF
 fi
 ```
 
@@ -566,7 +566,7 @@ EOF
 
 # RIGHT - use tabs
 cat <<-EOF
-	text with tabs (stripped)
+    text with tabs (stripped)
 EOF
 ```
 
@@ -634,7 +634,7 @@ echo text >file.txt       # Redirects to file
    cat <<SQL_QUERY
    SELECT * FROM users;
    SQL_QUERY
-   
+
    # Generic but fine
    cat <<EOF
    content
@@ -718,7 +718,7 @@ command <input.txt         # May work
    - Pipe creation (not in ISO C)
    - Forking to write to pipe (not in ISO C)
    - File descriptor manipulation
-   
+
    ```bash
    cat <<EOF                 # May not work
    content
