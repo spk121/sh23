@@ -6,30 +6,69 @@ This document provides an overview of the sh23 shell command and shell language.
 
 ### Core Language Constructs
 
-- [Shell Introduction](shell-introduction.md)
-- [Shell Overview](shell-overview.md)
-- [Reserved Words](reserved-words.md)
-- [Parameters and Variables](parameters-variables.md)
+- [Shell Command Language Introduction](shell-introduction.md)
 - [Quoting](quoting.md)
-- [Word Expansions](word-expansions.md)
+- [Token Recognition](token-recognition.md)
 - [Alias Substitution](alias-substitution.md)
-- [Redirection](redirection.md)
-- [Command Execution](command-execution.md)
-- [Compound Commands](compound-commands.md)
-  - [Lists](lists.md) including AND-OR lists, sequential lists, and asynchronous lists
-  - [Conditional Constructs](conditional-constructs.md)
-  - [Pipelines](pipelines.md)
-  - [`for` loop](for-loop.md)
-  - [Grouping Commands](grouping-commands.md) including subshells
-- [Arithmetic Evaluation](arithmetic-evaluation.md)
-- [Functions](functions.md)
+- [Reserved Words](reserved-words.md)
+- [Parameters](parameters.md)
+- [Variables](variables.md)
+- Expansions
+  - [Overview of Expansions](expansions-overview.md) - TODO
+  - [Tilde Expansion](tilde-expansion.md)
+  - [Parameter Expansion](parameter-expansion.md)
+  - [Command Substitution](command-substitution.md)
+  - [Arithmetic Expansion](arithmetic-expansion.md)
+  - [Field Splitting](field-splitting.md)
+- [Redirection and Here Documents](redirection-and-heredoc.md)
+- [Exit Status](exit-status.md) - TODO
+- [Shell Commands](shell-commands.md) - TODO
+- [Pipelines](pipelines.md)
+- [Lists](lists.md)
+- [Grouping Commands](grouping-commands.md)
+- [For Loop](for-loop.md)
+- [While Loop](while-loop.md) - TODO
+- [Until Loop](until-loop.md) - TODO
+- [Case Conditional](case-conditional.md)
+- [If Conditional](if-conditional.md) - TODO
+- [Functions](functions.md) - TODO
+- [Shell Grammar](shell-grammar.md)
 - [Job Control](job-control.md)
-- [Signals and Traps](signals-traps.md)
+- [Signals and Error Handling)(signals.md)
+- [Shell Execution Environment](shell-environment.md) - TODO
+- [Pattern Matching](pattern-matching.md)
 
-### Builtins and Options
-
+### Built-in Commands
+- [Builtin Commands Overview](builtin-commands-overview.md) - TODO
+- [break — Exit from Loop](break-exit-loop.md) - TODO
+- [colon — No-op Command](colon-noop.md) - TODO
+- [continue — Continue Loop](continue-loop.md) - TODO
+- [dot — Source File](dot-source-file.md) - TODO
+- [eval — Evaluate Command](eval-evaluate-command.md) - TODO
+- [exec — Execute Command](exec-execute-command.md) - TODO
+- [exit — Exit Shell](exit-shell.md) - TODO
+- [export — Set Environment Variables](export-set-environment-variables.md) - TODO
+- [readonly — Set Read-Only Variables](readonly-set-readonly-variables.md) - TODO
+- [return — Return from Function](return-from-function.md) - TODO
 - [set — Shell Options](set-options.md)
-- [Builtin Commands](builtins.md)
+- [shift — Shift Positional Parameters](shift-positional-parameters.md) - TODO
+- [times — Print CPU Times](times-print-cpu-times.md) - TODO
+- [trap — Set Signal Handlers](trap-set-signal-handlers.md) - TODO
+- [unset — Unset Variables and Functions](unset-unset-variables-functions.md) - TODO
+
+### Interactive Features
+- [Interactive Shell Overview](interactive-shell-overview.md) - TODO
+- [Command History](command-history.md) - TODO
+- [Job Control in Interactive Shells](job-control-interactive-shells.md) - TODO
+- [Prompt Customization](prompt-customization.md) - TODO
+- [Tab Completion](tab-completion.md) - TODO
+- [Shell Options for Interactive Use](shell-options-interactive-use.md) - TODO
+- [Signal Handling in Interactive Shells](signal-handling-interactive-shells.md) - TODO
+- [Aliases in Interactive Shells](aliases-interactive-shells.md) - TODO
+- [Environment Variables for Interactive Use](environment-variables-interactive-use.md) - TODO
+- [Scripting vs Interactive Modes](scripting-vs-interactive-modes.md) - TODO
+- [Debugging Interactive Shell Sessions](debugging-interactive-shell-sessions.md) - TODO
+- [Security Considerations in Interactive Shells](security-considerations-interactive-shells.md) - TODO
 
 ### Appendices
 - [Symbol Index](symbol-index.md)
