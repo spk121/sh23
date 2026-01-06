@@ -231,8 +231,10 @@ CTEST(test_arena_xfree_null)
     (void)ctest;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+    (void)argc;
+    (void)argv;
     CTestEntry *suite[] = {
         CTEST_ENTRY(test_arena_xmalloc_basic),
         CTEST_ENTRY(test_arena_xcalloc_zero_init),

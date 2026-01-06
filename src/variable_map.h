@@ -9,6 +9,7 @@ typedef struct variable_map_mapped_t
     string_t *value;
     bool exported;
     bool read_only;
+    char padding[6];
 } variable_map_mapped_t;
 
 typedef struct variable_map_entry_t
@@ -16,6 +17,7 @@ typedef struct variable_map_entry_t
     string_t *key;
     variable_map_mapped_t mapped;
     bool occupied; // Indicates if this entry is occupied
+    char padding[7];
 } variable_map_entry_t;
 
 typedef struct variable_map_t
@@ -29,6 +31,7 @@ typedef struct variable_map_insert_result_t
 {
     int32_t pos; // Position where the key was inserted or found
     bool success; // True if a new key was inserted, false if the key already existed
+    char padding[3];
 } variable_map_insert_result_t;
 
 variable_map_t *variable_map_create(void);

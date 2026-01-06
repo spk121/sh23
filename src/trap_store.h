@@ -24,18 +24,20 @@
 
 typedef struct trap_action_t
 {
-    int signal_number; // Signal number (SIGINT, SIGTERM, etc.)
     string_t *action;  // Command string to execute, or NULL for default action
+    int signal_number; // Signal number (SIGINT, SIGTERM, etc.)
     bool is_ignored;   // true if trap is set to ignore (trap '' SIGNAL)
     bool is_default;   // true if trap is set to default (trap - SIGNAL)
+    char padding[2];
 } trap_action_t;
 
 typedef struct trap_store_t
 {
     trap_action_t *traps;  // Array of trap actions, indexed by signal number
+    string_t *exit_action; // Action for EXIT trap
     size_t capacity;       // Size of array (typically NSIG or _NSIG)
     bool exit_trap_set;    // Special case: trap on EXIT (signal 0)
-    string_t *exit_action; // Action for EXIT trap
+    char padding[7];
 } trap_store_t;
 
 // Create a new trap store

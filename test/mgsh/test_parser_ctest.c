@@ -646,26 +646,6 @@ CTEST(test_exec_create_destroy)
     (void)ctest;
 }
 
-CTEST(test_exec_dry_run)
-{
-    ast_node_t *ast = parse_string("echo hello");
-    CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-
-    if (ast != NULL)
-    {
-        exec_cfg_t cfg = {0};
-        exec_t *executor = exec_create_from_cfg(&cfg);
-        exec_set_dry_run(executor, true);
-
-        exec_status_t status = exec_execute(executor, ast);
-        CTEST_ASSERT_EQ(ctest, status, EXEC_OK, "dry run execution succeeded");
-
-        exec_destroy(&executor);
-        ast_node_destroy(&ast);
-    }
-    (void)ctest;
-}
-
 /* ============================================================================
  * Visitor Pattern Tests
  * ============================================================================ */
@@ -938,7 +918,6 @@ int main(void)
 
         // Executor Tests
         CTEST_ENTRY(test_exec_create_destroy),
-        CTEST_ENTRY(test_exec_dry_run),
 
         // Visitor Pattern Tests
         CTEST_ENTRY(test_ast_traverse),

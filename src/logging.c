@@ -1,6 +1,5 @@
-#include <stdarg.h>
-// #include <strings.h> // For strcasecmp
 #include "logging.h"
+#include <stdarg.h>
 
 #ifdef POSIX_API
 #include <strings.h> // For strcasecmp

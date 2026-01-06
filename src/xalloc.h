@@ -18,6 +18,11 @@ typedef struct
     int line;
     size_t size;
 } arena_alloc_t;
+#else
+typedef struct
+{
+    void *ptr;
+} arena_alloc_t;
 #endif
 
 typedef void (*arena_resource_cleanup_fn)(void *user_data);
@@ -30,11 +35,8 @@ typedef struct arena_t
 {
     jmp_buf rollback_point;
     bool rollback_in_progress;
-#ifdef ARENA_DEBUG
+    char reserved[7];
     arena_alloc_t *allocated_ptrs; // dynamically resized sorted array
-#else
-    void **allocated_ptrs; // dynamically resized sorted array
-#endif
     long allocated_count;
     long allocated_cap;
     long initial_cap;     // initial capacity for allocated_ptrs array

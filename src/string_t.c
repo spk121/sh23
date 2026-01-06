@@ -488,10 +488,12 @@ int string_length(const string_t *str)
     return str->length;
 }
 
+#if 0
 int string_max_size(const string_t *str)
 {
     return INT_MAX - 1; // Reserve space for null terminator
 }
+#endif
 
 void string_reserve(string_t *str, int new_cap)
 {
@@ -618,7 +620,7 @@ void string_append_cstr(string_t *str, const char *cstr)
 {
     return_if_null(str);
     return_if_null(cstr);
-    size_t cstr_len = strlen(cstr);
+    int cstr_len = (int)strlen(cstr);
     if (cstr_len == 0)
         return;
     if (cstr_len > INT_MAX - 1 - str->length)
@@ -1153,14 +1155,13 @@ int string_cmp(const string_t *str1, const string_t *str2);
 void string_printf(string_t *str, const char *format, ...)
 {
     return_if_null(str);
+    va_list args;
+    va_start(args, format);
     const char *fmt;
     if (format == NULL)
         fmt = "(null)";
     else
         fmt = format;
-
-    va_list args;
-    va_start(args, fmt);
     string_vprintf(str, fmt, args);
     va_end(args);
 }

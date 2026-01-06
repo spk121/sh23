@@ -12,6 +12,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4061)
+#endif
+
 /* ============================================================================
  * Constants
  * ============================================================================ */
@@ -548,3 +554,7 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
 
     return TOK_OK;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

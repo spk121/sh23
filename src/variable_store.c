@@ -38,17 +38,6 @@ static var_store_error_t validate_variable_name(const string_t *name)
         }
     }
 
-#ifdef SH23_EXTENSIONS
-    // sh23 special extensions.
-    if (len == 3)
-    {
-        if (strcmp(str, ":-)") == 0 || strcmp(str, ":-|") == 0 || strcmp(str, ":-(") == 0)
-        {
-            return VAR_STORE_ERROR_NONE;
-        }
-    }
-#endif
-
     // First character must be a letter or underscore
     if (!isalpha((unsigned char)str[0]) && str[0] != '_')
     {
@@ -115,8 +104,12 @@ variable_store_t *variable_store_create_from_envp(char **envp)
             char *equals = strchr(envp[i], '=');
             if (equals)
             {
-                size_t name_len = equals - envp[i];
-                string_t *name = string_create_from_cstr_len(envp[i], name_len);
+                intptr_t name_len = equals - envp[i];
+                if (name_len <= 0 || name_len > INT_MAX)
+                {
+                    continue; // Skip invalid entries
+                }
+                string_t *name = string_create_from_cstr_len(envp[i], (int)name_len);
                 string_t *value = string_create_from_cstr(equals + 1);
 
                 // Environment variables are exported by default and not read-only
@@ -239,8 +232,12 @@ void variable_store_add_env(variable_store_t *store, const char *env)
     char *equals = strchr(env, '=');
     if (equals)
     {
-        size_t name_len = equals - env;
-        string_t *name = string_create_from_cstr_len(env, name_len);
+        intptr_t name_len = equals - env;
+        if (name_len <= 0 || name_len > INT_MAX)
+        {
+            return; // Skip invalid entries
+        }
+        string_t *name = string_create_from_cstr_len(env, (int)name_len);
         string_t *value = string_create_from_cstr(equals + 1);
 
         // Environment variables are exported by default and not read-only

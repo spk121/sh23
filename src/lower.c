@@ -4,6 +4,12 @@
 #include "gnode.h"
 #include "string_t.h"
 
+// Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4061)
+#endif
+
 /* Convenience macros for sanity checks */
 #define EXPECT_TYPE(node, k)                                                                       \
     do                                                                                             \
@@ -427,6 +433,8 @@ static ast_node_t *lower_command(const gnode_t *g)
     case G_COMPOUND_COMMAND:
         /* G_COMPOUND_COMMAND is itself a wrapper - recurse into it */
         return lower_compound_command(child);
+    case G_PROGRAM:
+    case G_UNSPECIFIED:
     default:
         break;
     }
@@ -1168,6 +1176,8 @@ static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file)
 static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t *target_tok,
                                                    string_t **out_io_loc)
 {
+    // FIXME: use out_io_loc if needed
+    (void)out_io_loc;
     string_t *lx = token_get_all_text(target_tok);
 
     switch (op_type)
@@ -1223,3 +1233,7 @@ static cmd_separator_t separator_from_gseparator_op(const gnode_t *gsep)
         return LIST_SEP_BACKGROUND;
     return LIST_SEP_SEQUENTIAL;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

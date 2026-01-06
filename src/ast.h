@@ -28,7 +28,9 @@ typedef enum
     AST_SUBSHELL,          // ( command_list )
     AST_BRACE_GROUP,       // { command_list; }
     AST_IF_CLAUSE,         // if/then/else/fi
+#if 0
     AST_ELIF_CLAUSE,       // elif/then
+#endif
     AST_WHILE_CLAUSE,      // while/do/done
     AST_UNTIL_CLAUSE,      // until/do/done
     AST_FOR_CLAUSE,        // for/in/do/done
@@ -38,7 +40,9 @@ typedef enum
 
     /* Auxiliary nodes */
     AST_REDIRECTION,       // I/O redirection
+#if 0
     AST_WORD,              // word node (wraps token)
+#endif
     AST_CASE_ITEM,         // pattern) command_list ;;
     AST_FUNCTION_STORED,   // placeholder for function node moved to function store
 
@@ -215,6 +219,7 @@ struct ast_node_list_t
 struct ast_node_t
 {
     ast_node_type_t type;
+    int padding;
 
     /* Location tracking from source tokens */
     int first_line;
@@ -244,6 +249,7 @@ struct ast_node_t
         {
             ast_node_list_t *commands; // list of commands in the pipeline
             bool is_negated;           // true if pipeline starts with !
+            char padding[7];
         } pipeline;
 
         /* AST_AND_OR_LIST */
@@ -252,6 +258,7 @@ struct ast_node_t
             ast_node_t *left;
             ast_node_t *right;
             andor_operator_t op; // && or ||
+            int padding;
         } andor_list;
 
         /* AST_COMMAND_LIST */
@@ -276,12 +283,14 @@ struct ast_node_t
             ast_node_t *else_body;      // commands if all conditions are false (optional)
         } if_clause;
 
+#if 0
         /* AST_ELIF_CLAUSE */
         struct
         {
             ast_node_t *condition; // condition to test
             ast_node_t *then_body; // commands if condition is true
         } elif_clause;
+#endif
 
         /* AST_WHILE_CLAUSE, AST_UNTIL_CLAUSE */
         struct
@@ -311,6 +320,7 @@ struct ast_node_t
             token_list_t *patterns; // list of patterns
             ast_node_t *body;       // commands to execute if pattern matches
             case_terminator_t terminator; // ;;, ;&, or none
+            int padding;
         } case_item;
 
         /* AST_FUNCTION_DEF */
@@ -334,6 +344,7 @@ struct ast_node_t
             redirection_type_t redir_type;
             int io_number;                // fd being redirected (or -1)
             redir_operand_kind_t operand; // operand type
+            int padding;
 
             string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
             token_t *target;           // used when operand == FILENAME or FD
@@ -423,11 +434,7 @@ const char *redirection_type_to_string(redirection_type_t type);
  *   - Then free the token_list structure itself
  */
 
-#if __STDC_VERSION__ >= 202311L
-ast_node_t *ast_create_program();
-#else
 ast_node_t *ast_create_program(void);
-#endif
 
 /**
  * Create a simple command node.

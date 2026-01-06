@@ -1,3 +1,7 @@
+#ifdef _MSC_VER
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "exec.h"
 #include "logging.h"
 #include "xalloc.h"
@@ -503,14 +507,6 @@ void exec_clear_error(exec_t *executor)
     string_clear(executor->error_msg);
 }
 
-void exec_set_dry_run(exec_t *executor, bool dry_run)
-{
-    Expects_not_null(executor);
-#ifdef SH23_EXTENSIONS
-    executor->dry_run = dry_run;
-#endif
-}
-
 const char *exec_get_ps1(const exec_t *executor)
 {
     Expects_not_null(executor);
@@ -554,7 +550,7 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
 {
     Expects_not_null(store);
     Expects_not_null(ex);
-    uint8_t buf[32];
+    char buf[32];
 
     // $? - last exit status
     if (ex->last_exit_status_set)
@@ -800,6 +796,10 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
         return exec_execute_function_def(executor, root);
     case AST_REDIRECTED_COMMAND:
         return exec_execute_redirected_command(executor, root);
+    case AST_REDIRECTION:
+    case AST_CASE_ITEM:
+    case AST_FUNCTION_STORED:
+    case AST_NODE_TYPE_COUNT:
     default:
         exec_set_error(executor, "Unsupported AST node type: %d", root->type);
         return EXEC_NOT_IMPL;
@@ -1281,15 +1281,6 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     Expects_not_null(executor);
     Expects_not_null(node);
     Expects_eq(node->type, AST_SIMPLE_COMMAND);
-
-#ifdef SH23_EXTENSIONS
-    if (executor->dry_run)
-    {
-        // In dry-run mode we only validate – no execution, no side effects
-        exec_set_exit_status(executor, 0);
-        return EXEC_OK;
-    }
-#endif
 
     exec_status_t status = EXEC_OK;
 
@@ -1992,18 +1983,6 @@ exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t
 
     const ast_node_t *inner = node->data.redirected_command.command;
     const ast_node_list_t *redirs = node->data.redirected_command.redirections;
-
-#ifdef SH23_EXTENSIONS
-    if (executor->dry_run)
-    {
-        int redir_count = node->data.redirected_command.redirections == NULL
-                              ? 0
-                              : ast_node_list_size(node->data.redirected_command.redirections);
-        printf("[DRY RUN] Redirected command (%d redirection%s)\n", redir_count,
-               (redir_count == 1) ? "" : "s");
-        return EXEC_OK;
-    }
-#endif
 
     // Create an expander on the shell's persistent variables
     expander_t *exp = expander_create(executor->variables, executor->positional_params);

@@ -30,6 +30,7 @@ typedef struct tokenizer_t
     /* Input tokens from lexer */
     token_list_t *input_tokens;
     int input_pos; // current position in input_tokens
+    int padding1;
 
     /* Output tokens after tokenization */
     token_list_t *output_tokens;
@@ -49,6 +50,7 @@ typedef struct tokenizer_t
 
     /* Context flags */
     bool at_command_position; // true if next word could be eligible for alias expansion
+    char padding2[7];
 
 } tokenizer_t;
 

@@ -12,9 +12,16 @@
 #include "alias_store.h"
 #include "logging.h"
 
+// Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4061)
+#endif
+
 typedef struct {
     string_t *input;
     int pos;
+    int padding;
     expander_t *exp;
     variable_store_t *vars;
 } math_parser_t;
@@ -519,41 +526,42 @@ static ArithmeticResult parse_comparison(math_parser_t *parser)
 {
     ArithmeticResult left = parse_shift(parser);
     if (left.failed)
-	return left;
+        return left;
 
-    while (1) {
+    while (1)
+    {
         int saved_pos = parser->pos;
         math_token_t token = get_token(parser);
         if (token.type != MATH_TOKEN_LESS && token.type != MATH_TOKEN_GREATER &&
             token.type != MATH_TOKEN_LESS_EQUAL && token.type != MATH_TOKEN_GREATER_EQUAL)
-	{
+        {
             parser->pos = saved_pos; // Rewind to start of token
             break;
         }
 
         ArithmeticResult right = parse_shift(parser);
         if (right.failed)
-	{
+        {
             arithmetic_result_free(&left);
             return right;
         }
 
         switch (token.type)
-	{
-            case MATH_TOKEN_LESS:
-		left.value = left.value < right.value;
-		break;
-            case MATH_TOKEN_GREATER:
-		left.value = left.value > right.value;
-		break;
-            case MATH_TOKEN_LESS_EQUAL:
-		left.value = left.value <= right.value;
-		break;
-            case MATH_TOKEN_GREATER_EQUAL:
-		left.value = left.value >= right.value;
-		break;
-            default:
-		break;
+        {
+        case MATH_TOKEN_LESS:
+            left.value = left.value < right.value;
+            break;
+        case MATH_TOKEN_GREATER:
+            left.value = left.value > right.value;
+            break;
+        case MATH_TOKEN_LESS_EQUAL:
+            left.value = left.value <= right.value;
+            break;
+        case MATH_TOKEN_GREATER_EQUAL:
+            left.value = left.value >= right.value;
+            break;
+        default:
+            break;
         }
         arithmetic_result_free(&right);
     }
@@ -810,7 +818,7 @@ static ArithmeticResult parse_primary(math_parser_t *parser) {
  * 4. Expand the AST (parameter expansion, command substitution, quote removal)
  * 5. Return the fully expanded string
  */
-static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t *vars, const string_t *expr_text)
+static string_t *arithmetic_expand_expression(expander_t *exp, const string_t *expr_text)
 {
     // Step 1: Re-lex the raw text inside $(())
     lexer_t *lx = lexer_create();
@@ -863,10 +871,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
     // We need to expand parameters, command substitutions, etc.
     string_t *result = string_create();
 
-    // Set the variable store once before the loop
-    // FIXME: use new expander API to set variable store
-    // expander_set_variable_store(exp, vars);
-    abort(); // Placeholder until expander API is updated
+    // FIXME: was the expander created with the correct variable store?
 
     for (int i = 0; i < token_list_size(aliased_tokens); i++) {
         token_t *tok = token_list_get(aliased_tokens, i);
@@ -901,7 +906,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, variable_store_t 
 // Evaluate arithmetic expression
 ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const string_t *expression) {
     // Step 1-4: Perform full recursive expansion
-    string_t *expanded_str = arithmetic_expand_expression(exp, vars, expression);
+    string_t *expanded_str = arithmetic_expand_expression(exp, expression);
     if (!expanded_str) {
         return make_error("Failed to expand arithmetic expression");
     }
@@ -931,3 +936,7 @@ void arithmetic_result_free(ArithmeticResult *result) {
     }
     result->failed = 0;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

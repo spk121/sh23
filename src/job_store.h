@@ -32,15 +32,16 @@ typedef enum job_state_t
 
 typedef struct process_t
 {
+    struct process_t *next; // Next process in pipeline
+    string_t *command;      // Command string for this process
 #ifdef POSIX_API
     pid_t pid;              // Process ID
 #else
     int pid;                // Process ID (or 0 if not available)
 #endif
-    string_t *command;      // Command string for this process
-    job_state_t state;      // Current state of this process
     int exit_status;        // Exit status (if done) or signal number (if terminated)
-    struct process_t *next; // Next process in pipeline
+    job_state_t state;      // Current state of this process
+    int padding;
 } process_t;
 
 // ============================================================================
@@ -60,6 +61,7 @@ typedef struct job_t
     job_state_t state;      // Overall state of the job
     bool is_background;     // Whether job was started with &
     bool is_notified;       // Whether user has been notified of status change
+    char padding[2];
     struct job_t *next;     // Next job in the job list
 } job_t;
 
@@ -70,10 +72,11 @@ typedef struct job_t
 typedef struct job_store_t
 {
     job_t *jobs;            // Linked list of jobs
-    int next_job_id;        // Next job ID to assign
-    job_t *current_job;     // Job referenced by %% or %+
-    job_t *previous_job;    // Job referenced by %-
-    size_t job_count;       // Number of jobs in the list
+    job_t *current_job;  // Job referenced by %% or %+
+    job_t *previous_job; // Job referenced by %-
+    size_t job_count;    // Number of jobs in the list
+    int next_job_id;     // Next job ID to assign
+    int padding;
 } job_store_t;
 
 // ============================================================================

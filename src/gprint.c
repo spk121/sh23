@@ -117,7 +117,7 @@ static void gprint_list(const gnode_list_t *list, int depth)
     indent(depth);
     printf("[\n");
 
-    for (size_t i = 0; i < list->size; i++)
+    for (int i = 0; i < list->size; i++)
     {
         gnode_t *child = list->nodes[i];
         gprint_node(child, depth + 2);

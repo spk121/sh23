@@ -18,9 +18,6 @@ CTEST(test_exec_create_destroy)
 
     // Verify basic fields are initialized
     CTEST_ASSERT_EQ(ctest, executor->last_exit_status, 0, "last_exit_status should be 0");
-#ifdef SH23_EXTENSIONS
-    CTEST_ASSERT_FALSE(ctest, executor->dry_run, "dry_run should be false");
-#endif
     CTEST_ASSERT_NOT_NULL(ctest, executor->error_msg, "error_msg should be initialized");
     CTEST_ASSERT_NOT_NULL(ctest, executor->variables, "variables should be initialized");
     CTEST_ASSERT_NOT_NULL(ctest, executor->positional_params, "positional_params should be initialized");

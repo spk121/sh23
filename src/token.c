@@ -422,6 +422,7 @@ struct reserved_word_entry
 {
     const char *word;
     token_type_t type;
+    int32_t padding;
 };
 
 static struct reserved_word_entry reserved_words[] = {
@@ -613,6 +614,8 @@ const char *token_type_to_string(token_type_t type)
         return "<<-";
     case TOKEN_CLOBBER:
         return ">|";
+    case TOKEN_SEMIAND:
+        return ";&";
     case TOKEN_PIPE:
         return "|";
     case TOKEN_SEMI:
@@ -663,12 +666,16 @@ const char *token_type_to_string(token_type_t type)
         return "NEWLINE";
     case TOKEN_IO_NUMBER:
         return "IO_NUMBER";
+    case TOKEN_IO_LOCATION:
+        return "IO_LOCATION";
     case TOKEN_ASSIGNMENT_WORD:
         return "ASSIGNMENT_WORD";
     case TOKEN_REDIRECT:
         return "REDIRECT";
     case TOKEN_END_OF_HEREDOC:
         return "END_OF_HEREDOC";
+    case TOKEN_TYPE_COUNT:
+        return "TYPE_COUNT";
     default:
         return "UNKNOWN";
     }

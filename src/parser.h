@@ -27,6 +27,7 @@ typedef struct parser_t
     /* Input tokens */
     token_list_t *tokens;
     int position; // current position in token list
+    int padding;
 
     /* Error reporting */
     string_t *error_msg;

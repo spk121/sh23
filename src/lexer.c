@@ -282,7 +282,7 @@ bool lexer_input_starts_with(const lexer_t *lx, const char *str)
     Expects_not_null(str);
     Expects_lt(strlen(str), (size_t)INT_MAX);
 
-    int len = strlen(str);
+    int len = (int) strlen(str);
     if (lx->pos + len > string_length(lx->input))
         return false;
     return strncmp(&string_data(lx->input)[lx->pos], str, len) == 0;
@@ -294,8 +294,9 @@ bool lexer_input_has_substring_at(const lexer_t *lx, const char *str, int positi
     Expects_not_null(str);
     Expects_ge(position, 0);
     Expects_gt(strlen(str), 0);
+    Expects_lt(strlen(str), (size_t)INT_MAX);
 
-    int len = strlen(str);
+    int len = (int) strlen(str);
     if (lx->pos + position + len > string_length(lx->input))
         return false;
     const char *input_data = string_data(lx->input) + lx->pos + position;

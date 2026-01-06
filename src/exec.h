@@ -51,7 +51,8 @@ typedef struct
     bool pipefail;  // no flag
     bool verbose;   // -v
     bool vi;
-    bool xtrace; // -x
+    bool xtrace;    // -x
+    char padding[5];
 } exec_opt_flags_t;
 
 /**
@@ -61,10 +62,11 @@ typedef struct
  */
 typedef struct exec_t
 {
-    struct exec_t *parent; // NULL if top-level, else points to parent environment
+    struct exec_t *parent;     // NULL if top-level, else points to parent environment
     bool is_subshell;          // True if this is a subshell environment
     bool is_interactive;       // Whether shell is interactive
     bool is_login_shell;       // Whether this is a login shell
+    char padding1[5];
 
     // Working directory as set by cd
     string_t *working_directory;   // POSIX getcwd(), UCRT _getcwd(), ISO_C no standard way
@@ -73,10 +75,14 @@ typedef struct exec_t
     // These are the permissions that should be masked off when creating new files.
 #ifdef POSIX_API
     mode_t umask;  // return value of umask()
+    int padding2;
 #elifdef UCRT_API
     int umask;     // return value of _umask()
+    int padding2;
 #else
-    // ISO_C does not define umask
+    // ISO_C does not have a meaningful umask
+    int umask; // dummy placeholder
+    int padding2;
 #endif
 
     // File size limit as set by ulimit
@@ -97,31 +103,44 @@ typedef struct exec_t
     variable_store_t *variables;
     positional_params_t *positional_params; // Derive $@, $*, $1, $2, ...
 
-    // Shell parameters that are special built-ins
-    bool last_exit_status_set;
+    // $? - Exit status of last command
     int last_exit_status;
-    bool last_background_pid_set; // $! - PID of last background command
+    bool last_exit_status_set;
+    char padding3[3];
+
+     // $! - PID of last background command
 #ifdef POSIX_API
     pid_t last_background_pid;
 #else // UCRT_API and ISO_C
     int last_background_pid;
 #endif
-    bool shell_pid_set;           // $$ - PID of the shell process
+    bool last_background_pid_set;
+    char padding4[3];
+
+     // $$ - PID of the shell process
 #ifdef POSIX_API
     pid_t shell_pid;
 #else // UCRT_API and ISO_C
     int shell_pid;
 #endif
-    bool last_argument_set;       // $_ - Last argument of previous command
+    bool shell_pid_set;
+    char padding5[3];
+
+    // $_ - Last argument of previous command
     string_t *last_argument;
-    string_t *shell_name;         // $0 - Name of the shell or shell script
+    bool last_argument_set;
+    char padding6[7];
+
+    // $0 - Name of the shell or shell script
+    string_t *shell_name;
 
     // Shell functions
     func_store_t *functions;
 
-    // Options turned on at invocation or by set
-    bool opt_flags_set; // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
+    // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
     exec_opt_flags_t opt;
+    bool opt_flags_set;
+    char padding7[7];
 
     // Background jobs and their associated process IDs, and process IDs of
     // child processes created to execute asynchronous AND-OR lists while job
@@ -129,19 +148,24 @@ typedef struct exec_t
     // IDs "known to this shell environment".
     // Job control
     job_store_t *jobs;        // Background jobs
-    bool job_control_enabled; // Whether job control is active
 #ifdef POSIX_API
     pid_t pgid;      // Process group ID for job control
 #else
-    // No PGID on non-POSIX systems
+    int dummy_pgid; // Placeholder, no job control in UCRT/ISO C
 #endif
+    bool job_control_enabled; // Whether job control is active
+    char padding8[3];
 
 #if defined(POSIX_API) || defined(UCRT_API)
     // Open file descriptors (for managing redirections)
     fd_table_t *open_fds; // Track which FDs are open and their state
     int next_fd;          // For allocating new FDs in redirections
+    int padding9;
 #else
     // There are no file descriptors in ISO C
+    void *dummy_open_fds;
+    int dummy_next_fd;
+    int padding9;
 #endif
 
     // Shell aliases
@@ -155,6 +179,7 @@ typedef struct
 {
     // Start-up environment
     int argc;
+    int padding;
     char *const *argv;
     char *const *envp;
 
@@ -317,12 +342,6 @@ void exec_set_error(exec_t *executor, const char *format, ...);
  * Clear the error state.
  */
 void exec_clear_error(exec_t *executor);
-
-/**
- * Enable or disable dry-run mode.
- * In dry-run mode, commands are validated but not executed.
- */
-void exec_set_dry_run(exec_t *executor, bool dry_run);
 
 /**
  * Get the PS1 prompt string.

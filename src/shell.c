@@ -126,6 +126,8 @@ static sh_status_t shell_execute_script_file(shell_t *sh, const char *filename)
         return SH_OK;
     case EXEC_ERROR:
         return SH_RUNTIME_ERROR;
+    case EXEC_NOT_IMPL:
+    case EXEC_OK_INTERNAL_FUNCTION_STORED:
     default:
         return SH_INTERNAL_ERROR;
     }
@@ -252,6 +254,8 @@ sh_status_t shell_execute(shell_t *sh)
             return (status == EXEC_OK) ? SH_OK : SH_RUNTIME_ERROR;
         }
 
+    case SHELL_MODE_UNKNOWN:
+    case SHELL_MODE_INVALID_UID_GID:
     default:
         exec_set_error(sh->root_exec, "Invalid shell mode");
         return SH_INTERNAL_ERROR;

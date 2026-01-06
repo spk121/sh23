@@ -112,12 +112,14 @@ typedef struct part_list_t part_list_t;
 struct part_t
 {
     part_type_t type;
+    int padding1;
 
     /* For PART_LITERAL and PART_TILDE */
     string_t *text;
 
     /* For PART_PARAMETER */
     param_subtype_t param_kind;
+    int padding2;
     string_t *param_name;
     string_t *word; // the raw "word" text in ${var:-word} forms (literal string, not yet expanded)
 
@@ -128,6 +130,7 @@ struct part_t
     /* Quote tracking */
     bool was_single_quoted; // prevents all expansions
     bool was_double_quoted; // allows selective expansions
+    char padding3[6];
 };
 
 /* ============================================================================
@@ -148,6 +151,7 @@ struct part_list_t
 struct token_t
 {
     token_type_t type;
+    int padding1;
 
     /* Location tracking for error messages */
     int first_line;
@@ -160,6 +164,7 @@ struct token_t
 
     /* For TOKEN_IO_NUMBER: the actual number value (e.g., 2 in "2>file") */
     int io_number;
+    int padding2;
 
     /* For TOKEN_IO_LOCATION: the actual location string (e.g., "{2}>") */
     string_t *io_location;
@@ -168,6 +173,7 @@ struct token_t
     string_t *heredoc_delimiter; // the delimiter string
     string_t *heredoc_content;   // the body content
     bool heredoc_delim_quoted;   // <<'EOF' vs <<EOF
+    char padding3[7];
 
     /* For TOKEN_ASSIGNMENT_WORD */
     string_t *assignment_name;     // left side of =
@@ -179,6 +185,7 @@ struct token_t
     bool needs_pathname_expansion; // has unquoted glob characters
     bool was_quoted;               // entire word was quoted
     bool has_equals_before_quote;               // has an equals sign before a quoted character
+    char padding4[3];
 };
 
 /* ============================================================================

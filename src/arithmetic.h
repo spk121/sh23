@@ -5,9 +5,9 @@
 #include "variable_store.h"
 
 typedef struct {
-    long value;       // Result if success
-    string_t *error;      // Error message if failed (caller frees)
-    int failed;       // 1 if error, 0 if success
+    long value;      // Result if success
+    int failed;      // 1 if error, 0 if success
+    string_t *error; // Error message if failed (caller frees)
 } ArithmeticResult;
 
 // Evaluate an arithmetic expression, handling parameter expansion and command substitution

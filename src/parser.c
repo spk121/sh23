@@ -11,6 +11,12 @@
 // For testing purposes
 #include "lexer.h"
 
+// Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4061)
+#endif
+
 /* ============================================================================
  * Constants
  * ============================================================================ */
@@ -2452,3 +2458,7 @@ gnode_t *parser_parse_string(const char *input)
     }
     return root;
 }
+
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif

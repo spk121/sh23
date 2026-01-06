@@ -554,8 +554,10 @@ CTEST(test_arith_exp_single_paren_eof)
     (void)ctest;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+	(void)argc;
+	(void)argv;
     arena_start();
 
     CTestEntry *suite[] = {

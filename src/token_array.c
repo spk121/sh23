@@ -8,7 +8,7 @@
 #define GROW_FACTOR 2
 
 // Helper: Ensure capacity
-static int token_array_ensure_capacity(token_array_t *array, size_t needed)
+static int token_array_ensure_capacity(token_array_t *array, int needed)
 {
     return_val_if_null(array, -1);
     return_val_if_lt(needed, 0, -1);
@@ -16,7 +16,7 @@ static int token_array_ensure_capacity(token_array_t *array, size_t needed)
     if (needed <= array->capacity)
         return 0;
 
-    size_t new_capacity = array->capacity ? array->capacity : INITIAL_CAPACITY;
+    int new_capacity = array->capacity ? array->capacity : INITIAL_CAPACITY;
     while (new_capacity < needed)
         new_capacity *= GROW_FACTOR;
 
@@ -72,7 +72,7 @@ void token_array_destroy(token_array_t **array)
         log_debug("token_array_destroy: freeing array %p, size %zu", a, a->size);
         if (a->free_func)
         {
-            for (size_t i = 0; i < a->size; i++)
+            for (int32_t i = 0; i < a->size; i++)
             {
                 if (a->data[i])
                 {
@@ -87,19 +87,19 @@ void token_array_destroy(token_array_t **array)
 }
 
 // Accessors
-size_t token_array_size(const token_array_t *array)
+int32_t token_array_size(const token_array_t *array)
 {
     return_val_if_null(array, 0);
     return array->size;
 }
 
-size_t token_array_capacity(const token_array_t *array)
+int32_t token_array_capacity(const token_array_t *array)
 {
     return_val_if_null(array, 0);
     return array->capacity;
 }
 
-token_t *token_array_get(const token_array_t *array, size_t index)
+token_t *token_array_get(const token_array_t *array, int32_t index)
 {
     return_val_if_null(array, NULL);
     return_val_if_ge(index, array->size, NULL);
@@ -127,7 +127,7 @@ int token_array_append(token_array_t *array, token_t *element)
     return 0;
 }
 
-int token_array_set(token_array_t *array, size_t index, token_t *element)
+int token_array_set(token_array_t *array, int32_t index, token_t *element)
 {
     return_val_if_null(array, -1);
     return_val_if_ge(index, array->size, -1);
@@ -140,7 +140,7 @@ int token_array_set(token_array_t *array, size_t index, token_t *element)
     return 0;
 }
 
-int token_array_remove(token_array_t *array, size_t index)
+int token_array_remove(token_array_t *array, int32_t index)
 {
     return_val_if_null(array, -1);
     return_val_if_ge(index, array->size, -1);
@@ -151,7 +151,7 @@ int token_array_remove(token_array_t *array, size_t index)
     }
 
     // Shift elements to fill the gap
-    for (size_t i = index; i < array->size - 1; i++)
+    for (int32_t i = index; i < array->size - 1; i++)
     {
         array->data[i] = array->data[i + 1];
     }
@@ -166,7 +166,7 @@ int token_array_clear(token_array_t *array)
 
     if (array->free_func)
     {
-        for (size_t i = 0; i < array->size; i++)
+        for (int32_t i = 0; i < array->size; i++)
         {
             if (array->data[i])
             {
@@ -176,14 +176,14 @@ int token_array_clear(token_array_t *array)
     }
     array->size = 0;
     // Keep capacity and data allocated, just clear pointers
-    for (size_t i = 0; i < array->capacity; i++)
+    for (int32_t i = 0; i < array->capacity; i++)
     {
         array->data[i] = NULL;
     }
     return 0;
 }
 
-int token_array_resize(token_array_t *array, size_t new_capacity)
+int token_array_resize(token_array_t *array, int32_t new_capacity)
 {
     return_val_if_null(array, -1);
     return_val_if_lt(new_capacity, 0, -1);
@@ -193,7 +193,7 @@ int token_array_resize(token_array_t *array, size_t new_capacity)
         // Free elements that won't fit in the new capacity
         if (array->free_func)
         {
-            for (size_t i = new_capacity; i < array->size; i++)
+            for (int32_t i = new_capacity; i < array->size; i++)
             {
                 if (array->data[i])
                 {
@@ -211,7 +211,7 @@ int token_array_resize(token_array_t *array, size_t new_capacity)
     }
 
     // Clear any newly allocated slots
-    for (size_t i = array->capacity; i < new_capacity; i++)
+    for (int32_t i = array->capacity; i < new_capacity; i++)
     {
         array->data[i] = NULL;
     }
@@ -228,18 +228,18 @@ void token_array_foreach(token_array_t *array, TokenArrayApplyFunc apply_func, v
         return;
     }
 
-    for (size_t i = 0; i < array->size; i++)
+    for (int32_t i = 0; i < array->size; i++)
     {
         apply_func(array->data[i], user_data);
     }
 }
 
-int token_array_find(token_array_t *array, token_t *element, size_t *index)
+int token_array_find(token_array_t *array, token_t *element, int32_t *index)
 {
     return_val_if_null(array, -1);
     return_val_if_null(index, -1);
 
-    for (size_t i = 0; i < array->size; i++)
+    for (int32_t i = 0; i < array->size; i++)
     {
         if (array->data[i] == element)
         {
@@ -251,14 +251,14 @@ int token_array_find(token_array_t *array, token_t *element, size_t *index)
 }
 
 int token_array_find_with_compare(token_array_t *array, const void *data,
-                                  TokenArrayCompareFunc compare_func, size_t *index)
+                                  TokenArrayCompareFunc compare_func, int32_t *index)
 {
     return_val_if_null(array, -1);
     return_val_if_null(data, -1);
     return_val_if_null(compare_func, -1);
     return_val_if_null(index, -1);
 
-    for (size_t i = 0; i < array->size; i++)
+    for (int32_t i = 0; i < array->size; i++)
     {
         if (compare_func(array->data[i], data) == 0)
         {

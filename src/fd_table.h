@@ -40,8 +40,9 @@ typedef struct fd_entry_t
     int fd;           ///< File descriptor number
     int original_fd;  ///< If FD_SAVED, what FD was this a copy of? (-1 otherwise)
     fd_flags_t flags; ///< Flags for this FD
-    string_t *path;   ///< Path if opened from file (NULL otherwise, takes ownership)
     bool is_open;     ///< Whether this FD is currently open
+    char padding[3];
+    string_t *path;   ///< Path if opened from file (NULL otherwise, takes ownership)
 } fd_entry_t;
 
 /**
@@ -53,6 +54,7 @@ typedef struct fd_table_t
     size_t capacity;     ///< Current capacity of array
     size_t count;        ///< Number of entries in use
     int highest_fd;      ///< Highest FD number currently tracked
+    int padding;
 } fd_table_t;
 
 /*

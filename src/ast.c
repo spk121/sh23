@@ -34,6 +34,9 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
     switch (node->type)
     {
         // These node types contain pointers to owned data that need to be cloned.
+    case AST_PROGRAM:
+        new_node->data.program.body = ast_node_clone(node->data.program.body);
+        break;
     case AST_SIMPLE_COMMAND:
         new_node->data.simple_command.words = token_list_clone(node->data.simple_command.words);
         new_node->data.simple_command.redirections =
@@ -97,6 +100,33 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
         new_node->data.redirected_command.redirections =
             ast_node_list_clone(node->data.redirected_command.redirections);
         break;
+    case AST_REDIRECTION:
+        switch (node->data.redirection.operand)
+        {
+        case REDIR_OPERAND_FILENAME:
+        case REDIR_OPERAND_FD:
+            new_node->data.redirection.target = token_clone(node->data.redirection.target);
+            break;
+        case REDIR_OPERAND_IOLOC:
+            new_node->data.redirection.io_location =
+                string_create_from(node->data.redirection.io_location);
+            break;
+        case REDIR_OPERAND_HEREDOC:
+            new_node->data.redirection.target = token_clone(node->data.redirection.target);
+            new_node->data.redirection.heredoc_content =
+                string_create_from(node->data.redirection.heredoc_content);
+            break;
+        case REDIR_OPERAND_CLOSE:
+        case REDIR_OPERAND_NONE:
+        default:
+            /* no operand storage */
+            break;
+        }
+        break;
+    case AST_FUNCTION_STORED:
+        // No owned data to clone.
+        break;
+    case AST_NODE_TYPE_COUNT:   
     default:
         // Other node types do not own any heap data; shallow copy is sufficient.
         break;
@@ -120,6 +150,12 @@ void ast_node_destroy(ast_node_t **node)
 
     switch (n->type)
     {
+    case AST_PROGRAM:
+        if (n->data.program.body != NULL)
+        {
+            ast_node_destroy(&n->data.program.body);
+        }
+        break;
     case AST_SIMPLE_COMMAND:
         if (n->data.simple_command.words != NULL)
         {
@@ -252,6 +288,7 @@ void ast_node_destroy(ast_node_t **node)
             break;
 
         case REDIR_OPERAND_CLOSE:
+        case REDIR_OPERAND_NONE:
         default:
             /* no operand storage */
             break;
@@ -259,6 +296,10 @@ void ast_node_destroy(ast_node_t **node)
     }
     break;
 
+    case AST_FUNCTION_STORED:
+        // No owned data to destroy.
+        break;
+    case AST_NODE_TYPE_COUNT:
     default:
         break;
     }
@@ -331,11 +372,7 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
  * AST Node Creation Helpers
  * ============================================================================ */
 
-#if __STDC_VERSION__ >= 202311L
-ast_node_t* ast_create_program()
-#else
 ast_node_t *ast_create_program(void)
-#endif
 {
     ast_node_t *node = ast_node_create(AST_PROGRAM);
     node->data.program.body = NULL;
@@ -631,6 +668,9 @@ const char *ast_node_type_to_string(ast_node_type_t type)
         return "CASE_ITEM";
     case AST_REDIRECTED_COMMAND:
         return "REDIRECTED_COMMAND";
+    case AST_FUNCTION_STORED:
+        return "FUNCTION_STORED";
+    case AST_NODE_TYPE_COUNT:
     default:
         return "UNKNOWN";
     }
@@ -844,7 +884,40 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
         }
         ast_node_to_string_helper(node->data.for_clause.body, result, indent_level + 1);
         break;
-
+    case AST_CASE_CLAUSE:
+        if (node->data.case_clause.word != NULL)
+        {
+            indent_str(result, indent_level + 1);
+            string_append_cstr(result, "word: ");
+            string_t *word_str = token_to_string(node->data.case_clause.word);
+            string_append(result, word_str);
+            string_destroy(&word_str);
+            string_append_cstr(result, "\n");
+        }
+        if (node->data.case_clause.case_items != NULL)
+        {
+            for (int i = 0; i < ast_node_list_size(node->data.case_clause.case_items); i++)
+            {
+                ast_node_t *case_item =
+                    ast_node_list_get(node->data.case_clause.case_items, i);
+                ast_node_to_string_helper(case_item, result, indent_level + 1);
+            }
+        }
+        break;
+    case AST_CASE_ITEM:
+        if (node->data.case_item.patterns != NULL &&
+            node->data.case_item.patterns->size > 0)
+        {
+            indent_str(result, indent_level + 1);
+            string_append_cstr(result, "patterns: ");
+            string_t *patterns_str =
+                token_list_to_string(node->data.case_item.patterns, indent_level + 1);
+            string_append(result, patterns_str);
+            string_destroy(&patterns_str);
+            string_append_cstr(result, "\n");
+        }
+        ast_node_to_string_helper(node->data.case_item.body, result, indent_level + 1);
+        break;
     case AST_FUNCTION_DEF:
         if (node->data.function_def.name != NULL)
         {
@@ -916,6 +989,9 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
         case REDIR_OPERAND_HEREDOC:
             string_append_cstr(result, "HEREDOC");
             break;
+        case REDIR_OPERAND_CLOSE:
+            string_append_cstr(result, "CLOSE");
+            break;
         }
         string_append_cstr(result, "\n");
 
@@ -956,7 +1032,10 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
             }
         }
         break;
-
+    case AST_FUNCTION_STORED:
+        // No additional data to print.
+        break;
+    case AST_NODE_TYPE_COUNT:
     default:
         break;
     }

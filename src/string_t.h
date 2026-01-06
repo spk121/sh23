@@ -67,7 +67,7 @@ const char *string_cstr(const string_t *str);
 bool string_empty(const string_t *str);
 int string_size(const string_t *str);
 int string_length(const string_t *str);
-int string_max_size(const string_t *str);
+// int string_max_size(const string_t *str);
 void string_reserve(string_t *str, int new_cap);
 int string_capacity(const string_t *str);
 void string_shrink_to_fit(string_t *str);

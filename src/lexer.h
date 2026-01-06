@@ -68,9 +68,10 @@ typedef struct
 typedef struct
 {
     string_t *delimiter;   // the delimiter to look for
+    int token_index;       // index in output tokens where this heredoc belongs
     bool strip_tabs;       // true for <<-, false for <<
     bool delimiter_quoted; // was delimiter quoted (affects expansion)
-    int token_index;       // index in output tokens where this heredoc belongs
+    short padding;
 } heredoc_entry_t;
 
 typedef struct
@@ -89,6 +90,7 @@ typedef struct lexer_t
     /* Input management */
     string_t *input; // input string (owned by lexer)
     int pos;         // current position in input
+    int padding1;
 
     /* Position tracking for error messages */
     int line_no;        // current line number (1-indexed)
@@ -104,17 +106,20 @@ typedef struct lexer_t
     /* Current token being built */
     token_t *current_token; // the token being constructed
     bool in_word;           // true if we're building a WORD token
+    char padding2[7];
 
     /* Output tokens */
     token_list_t *tokens; // list of completed tokens
 
     /* Heredoc handling */
     heredoc_queue_t heredoc_queue; // pending heredocs to read
-    bool reading_heredoc;          // true when reading heredoc body
     int heredoc_index;             // which heredoc we're currently reading
+    bool reading_heredoc;          // true when reading heredoc body
+    char padding3[3];
 
     /* Character escape state */
     bool escaped; // next char is escaped by backslash
+    char padding4[7];
 
     /* Operator recognition */
     string_t *operator_buffer; // for multi-char operators like &&, <<, etc.
@@ -122,9 +127,11 @@ typedef struct lexer_t
     /* Context for reserved word recognition */
     bool at_command_start; // true if next word could be a reserved word
     bool after_case_in;    // special context for case...in patterns
+    char padding5[6];
 
     /* alias_t expansion state (if you implement aliases) */
     bool check_next_for_alias; // set when alias ends in blank
+    char padding6[7];
 
     /* Error reporting */
     string_t *error_msg; // detailed error message if LEX_ERROR
@@ -144,6 +151,7 @@ struct builder_frame_t
     token_list_t *nested_list;         // current nested token list (for $(...), $((...), ${...})
     param_subtype_t active_param_kind; // for ${var:...} forms
     bool in_param_word;                // are we parsing the "word" in ${var:-word}?
+    char padding[3];
 };
 
 struct builder_stack_t

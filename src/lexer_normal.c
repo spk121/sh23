@@ -41,7 +41,7 @@ static bool check_operator_at_position(const lexer_t *lx, const char *op)
     Expects_lt(strlen(op), INT_MAX);
     Expects_not_null(lx->input);
 
-    int len = strlen(op);
+    int len = (int) strlen(op);
     if (lx->pos + len > string_length(lx->input))
         return false;
     const char *input_data = string_data(lx->input);
@@ -69,7 +69,7 @@ static void advance_over_operator(lexer_t *lx, token_type_t type)
 {
     Expects_not_null(lx);
 
-    int len = strlen(normal_mode_operators[(int)type]);
+    int len = (int) strlen(normal_mode_operators[(int)type]);
     for (int i = 0; i < len; i++)
     {
         lexer_advance(lx);

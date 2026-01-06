@@ -97,17 +97,12 @@ static long find_ptr(arena_t *arena, const void *p)
         abort();
     }
     // binary search because list is kept sorted
-#ifdef ARENA_DEBUG
     arena_alloc_t key = {.ptr = (void *)p};
     arena_alloc_t *res = bsearch(&key, arena->allocated_ptrs, arena->allocated_count,
                                  sizeof(arena_alloc_t), ptr_compare);
-#else
-    void **res =
-        bsearch(&p, arena->allocated_ptrs, arena->allocated_count, sizeof(void *), ptr_compare);
-#endif
     if (!res)
         return -1;
-    return res - arena->allocated_ptrs;
+    return (long)(res - arena->allocated_ptrs);
 }
 
 static long find_insertion_index(arena_t *arena, void *new_ptr)
@@ -121,11 +116,7 @@ static long find_insertion_index(arena_t *arena, void *new_ptr)
     while (low < high)
     {
         long mid = (low + high) / 2;
-#ifdef ARENA_DEBUG
         if (new_ptr < arena->allocated_ptrs[mid].ptr)
-#else
-        if (new_ptr < arena->allocated_ptrs[mid])
-#endif
         {
             high = mid;
         }
@@ -191,7 +182,6 @@ static bool insert_ptr(arena_t *arena, void *p)
         long new_cap = (arena->allocated_cap > 0) ? arena->allocated_cap * 2 : arena->initial_cap;
         if (new_cap > arena->max_allocations)
             new_cap = arena->max_allocations;
-#ifdef ARENA_DEBUG
         arena_alloc_t *new_ptrs = calloc(new_cap, sizeof(arena_alloc_t));
         if (!new_ptrs)
         {
@@ -200,16 +190,6 @@ static bool insert_ptr(arena_t *arena, void *p)
             return false;
         }
         memmove(new_ptrs, arena->allocated_ptrs, arena->allocated_count * sizeof(arena_alloc_t));
-#else
-        void **new_ptrs = calloc(new_cap, sizeof(void *));
-        if (!new_ptrs)
-        {
-            if (!arena->rollback_in_progress)
-                longjmp(arena->rollback_point, 1);
-            return false;
-        }
-        memmove(new_ptrs, arena->allocated_ptrs, arena->allocated_count * sizeof(void *));
-#endif
         free(arena->allocated_ptrs);
         arena->allocated_ptrs = new_ptrs;
         arena->allocated_cap = new_cap;
@@ -229,14 +209,12 @@ static bool insert_ptr(arena_t *arena, void *p)
                 (arena->allocated_count - idx) * sizeof(void *));
 #endif
     }
-#ifdef ARENA_DEBUG
     arena->allocated_ptrs[idx].ptr = p;
+#ifdef ARENA_DEBUG
     strncpy_t(arena->allocated_ptrs[idx].file, get_basename(file), ARENA_DEBUG_FILENAME_MAX_LEN);
     arena->allocated_ptrs[idx].line = line;
     arena->allocated_ptrs[idx].size = size;
     fprintf(stderr, "ALLOC: %p %s:%d %zu\n", p, arena->allocated_ptrs[idx].file, line, size);
-#else
-    arena->allocated_ptrs[idx] = p;
 #endif
     arena->allocated_count++;
     return true;
@@ -532,11 +510,7 @@ void arena_reset_ex(arena_t *arena)
 #endif
     while (arena->allocated_count > 0)
     {
-#ifdef ARENA_DEBUG
         void *p = arena->allocated_ptrs[--arena->allocated_count].ptr;
-#else
-        void *p = arena->allocated_ptrs[--arena->allocated_count];
-#endif
         free(p);
     }
 

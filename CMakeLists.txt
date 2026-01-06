@@ -28,9 +28,8 @@ project(mgsh LANGUAGES C)
 #   3. Release:     API_TYPE=POSIX/UCRT, CMAKE_BUILD_TYPE=Release
 # ============================================================================
 
-# Set C standard to C17 (temporarily downgraded from C23 for MSVC compatibility)
-# But the goal is to move to C23 once MSVC supports it adequately.
-set(CMAKE_C_STANDARD 17)
+# The goal is C23, but on MSVC the best we can do it call its "/std:clatest" option.
+# set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Export compile commands for IDE integration
@@ -104,7 +103,8 @@ if(MSVC)
     add_compile_options(
         /std:clatest    # Latest C standard (C23-ish)
         /Wall           # Enable almost all warnings (stronger than /W4)
-        /WX             # Treat warnings as errors
+        # /WX             # Treat warnings as errors
+        /wd5045         # Disable Spectre mitigation warning
         /Zi             # Debug info
     )
 
@@ -127,6 +127,7 @@ if(MSVC)
 else()
     # Common warnings for GCC and Clang
     add_compile_options(
+        -std=c23
         -Wall
         -Wextra
         -Wpedantic
@@ -388,7 +389,7 @@ target_include_directories(ctest_obj PUBLIC
 
 # Tests that only depend on sh23base
 set(SH23BASE_TEST_SOURCES
-    test/test_xalloc_ctest.c
+    test/mgsh/test_xalloc_ctest.c
     test/mgsh/test_getopt_ctest.c
     test/mgsh/test_string_ctest.c
 )

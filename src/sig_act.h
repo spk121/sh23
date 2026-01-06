@@ -37,6 +37,7 @@ typedef struct sig_act_t
     int signal_number;
     bool is_saved;   // Whether we have a saved handler for this signal
     bool was_ignored; // Whether the original handler was SIG_IGN
+    char padding[2];
 
 #ifdef SIG_ACT_USE_SIGACTION
     struct sigaction original_action; // Original sigaction structure

@@ -21,6 +21,7 @@ typedef struct func_map_mapped_t
     ast_node_t *func;   // Function body (AST node, typically AST_FUNCTION_DEF)
     string_t *name;     // Function name (copy stored here for convenience)
     bool exported;      // True if function is exported to subshells
+    char padding[7];
 } func_map_mapped_t;
 
 /**
@@ -31,6 +32,7 @@ typedef struct func_map_entry_t
     string_t *key;              // Function name (used as hash key)
     func_map_mapped_t mapped;   // Associated function data
     bool occupied;              // True if this slot is occupied
+    char padding[7];
 } func_map_entry_t;
 
 /**
@@ -50,6 +52,7 @@ typedef struct func_map_insert_result_t
 {
     int32_t pos;     // Position where the key was inserted or found
     bool success;    // True if new key was inserted, false if key already existed
+    char padding[3];
 } func_map_insert_result_t;
 
 /* ============================================================================
