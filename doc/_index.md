@@ -22,7 +22,7 @@ This document provides an overview of the sh23 shell command and shell language.
   - [Field Splitting](field-splitting.md)
 - [Redirection and Here Documents](redirection-and-heredoc.md)
 - [Exit Status and Errors](exit-status.md)
-- [Shell Commands](shell-commands.md) - TODO
+- [Simple Commands](simple-commands.md)
 - [Pipelines](pipelines.md)
 - [Lists](lists.md)
 - [Grouping Commands](grouping-commands.md)
