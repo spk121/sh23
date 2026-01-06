@@ -21,21 +21,20 @@ This document provides an overview of the sh23 shell command and shell language.
   - [Arithmetic Expansion](arithmetic-expansion.md)
   - [Field Splitting](field-splitting.md)
 - [Redirection and Here Documents](redirection-and-heredoc.md)
-- [Exit Status](exit-status.md) - TODO
+- [Exit Status and Errors](exit-status.md)
 - [Shell Commands](shell-commands.md) - TODO
 - [Pipelines](pipelines.md)
 - [Lists](lists.md)
 - [Grouping Commands](grouping-commands.md)
 - [For Loop](for-loop.md)
-- [While Loop](while-loop.md) - TODO
-- [Until Loop](until-loop.md) - TODO
+- [While and Until Loops](while-until.md)
 - [Case Conditional](case-conditional.md)
 - [If Conditional](if-conditional.md)
-- [Functions](functions.md) - TODO
+- [Functions](functions.md)
 - [Shell Grammar](shell-grammar.md)
 - [Job Control](job-control.md)
 - [Signals and Error Handling](signals.md)
-- [Shell Execution Environment](shell-environment.md) - TODO
+- [Shell Execution Environment](shell-environment.md)
 - [Pattern Matching](pattern-matching.md)
 
 ### Built-in Commands
