@@ -115,6 +115,7 @@ gnode_t *g_node_create_string(gnode_type_t type, const string_t *str)
  *   - GNODE_PAYLOAD_PAIR   : use the 'pair' struct (left/right children)
  *   - GNODE_PAYLOAD_CHILD  : use the 'child' member (single child)
  *   - GNODE_PAYLOAD_MULTI  : use the 'multi' struct (a/b/c/d children)
+ *   - GNODE_PAYLOAD_IO_HERE : use the 'io_here' struct (here-doc specifics)
  *   - GNODE_PAYLOAD_NONE   : no payload at all
  *   - GNODE_PAYLOAD_INDETERMINATE : context-dependent payload layout
  *
@@ -200,7 +201,6 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_FUNCTION_DEFINITION:
     case G_IO_REDIRECT:
     case G_IO_FILE:
-    case G_IO_HERE:
         return GNODE_PAYLOAD_MULTI;
 
     /* Nodes with context-dependent payload */
@@ -210,6 +210,9 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
          * G_IN_NODE can use either .token (just 'in' keyword) or .multi (in + wordlist).
          * Actual payload_type must be set when node is created/modified. */
         return GNODE_PAYLOAD_INDETERMINATE;
+
+    case G_IO_HERE:
+        return GNODE_PAYLOAD_IO_HERE;
 
     /* Node with no payload */
     case G_UNSPECIFIED:
@@ -266,6 +269,14 @@ void g_node_destroy(gnode_t **pnode)
         g_node_destroy(&node->data.multi.b);
         g_node_destroy(&node->data.multi.c);
         g_node_destroy(&node->data.multi.d);
+        node->payload_type = GNODE_PAYLOAD_NONE;
+        break;
+
+    case GNODE_PAYLOAD_IO_HERE:
+        if (node->data.io_here.here_end)
+            string_destroy(&node->data.io_here.here_end);
+        if (node->data.io_here.tok)
+            token_destroy(&node->data.io_here.tok);
         node->payload_type = GNODE_PAYLOAD_NONE;
         break;
 

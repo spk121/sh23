@@ -1076,37 +1076,48 @@ int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int 
     return 0;
 }
 
-int string_compare_substring(const string_t *str1, int begin1, const string_t *str2, int begin2,
+int string_compare_substring(const string_t *str1, int begin1, int end1, const string_t *str2, int begin2,
                              int end2)
 {
     // No idea what the fallback behavior should be if either string is NULL.
     Expects_not_null(str1);
     Expects_not_null(str2);
 
-    // Clamp begin1
+    // Clamp begin1 and end1 for str1
     if (begin1 < 0)
         begin1 = 0;
+    if (begin1 > str1->length)
+        begin1 = str1->length;
+    if (end1 == -1)
+        end1 = str1->length;
+    if (end1 < 0)
+        end1 = 0;
+    if (end1 > str1->length)
+        end1 = str1->length;
+    if (end1 <= begin1)
+        end1 = begin1; // empty substring
 
-    // Compute effective range for str1: from begin1 to end of string
-    size_t len1 = (begin1 < str1->length) ? str1->length - begin1 : 0;
-    const char *p1 = (len1 > 0) ? str1->data + begin1 : "";
-
-    // Handle str2 substring [begin2, end2)
+    // Clamp begin2 and end2 for str2
     if (begin2 < 0)
         begin2 = 0;
+    if (begin2 > str2->length)
+        begin2 = str2->length;
     if (end2 == -1)
         end2 = str2->length;
-    if (end2 < begin2)
-        end2 = begin2; // ensure non-negative length
+    if (end2 < 0)
+        end2 = 0;
+    if (end2 > str2->length)
+        end2 = str2->length;
+    if (end2 <= begin2)
+        end2 = begin2; // empty substring
 
-    size_t len2 = 0;
-    const char *p2 = "";
-    if (begin2 < str2->length)
-    {
-        int effective_end = (end2 > str2->length) ? str2->length : end2;
-        len2 = (size_t)(effective_end - begin2);
-        p2 = str2->data + begin2;
-    }
+    // Compute lengths
+    size_t len1 = (size_t)(end1 - begin1);
+    size_t len2 = (size_t)(end2 - begin2);
+
+    // Pointers to substrings
+    const char *p1 = (len1 > 0) ? str1->data + begin1 : "";
+    const char *p2 = (len2 > 0) ? str2->data + begin2 : "";
 
     // Use strncmp – it safely compares up to the minimum length
     int cmp = strncmp(p1, p2, len1 < len2 ? len1 : len2);
@@ -1114,7 +1125,7 @@ int string_compare_substring(const string_t *str1, int begin1, const string_t *s
     if (cmp != 0)
         return cmp; // difference found within common prefix
 
-    // Common prefix equal → shorter string is less
+    // Common prefix equal → compare lengths
     if (len1 < len2)
         return -1;
     if (len1 > len2)

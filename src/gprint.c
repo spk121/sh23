@@ -112,6 +112,19 @@ static void gprint_token(const token_t *tok, int depth)
 
 }
 
+static void gprint_token_list(const token_list_t *lst, int depth)
+{
+    indent(depth);
+    printf("[\n");
+    for (int i = 0; i < lst->size; i++)
+    {
+        const token_t *tok = lst->tokens[i];
+        gprint_token(tok, depth + 2);
+    }
+    indent(depth);
+    printf("]\n");
+}
+
 static void gprint_list(const gnode_list_t *list, int depth)
 {
     indent(depth);
@@ -182,6 +195,17 @@ static void gprint_node(const gnode_t *node, int depth)
         indent(depth + 2);
         printf("multi.d:\n");
         gprint_node(node->data.multi.d, depth + 4);
+        break;
+
+    case GNODE_PAYLOAD_IO_HERE:
+        indent(depth + 2);
+        printf("io_here.op: TOKEN_%s\n", token_type_to_string(node->data.io_here.op));
+        indent(depth + 2);
+        printf("io_here.here_end: \"%s\"\n",
+               node->data.io_here.here_end ? string_cstr(node->data.io_here.here_end) : "<null>");
+        indent(depth + 2);
+        printf("io_here.tok:\n");
+        gprint_token(node->data.io_here.tok, depth + 2);
         break;
 
     case GNODE_PAYLOAD_INDETERMINATE:

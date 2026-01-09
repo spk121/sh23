@@ -97,6 +97,7 @@ typedef enum
     GNODE_PAYLOAD_PAIR,         /* uses data.pair (left/right children) */
     GNODE_PAYLOAD_CHILD,        /* uses data.child (single child node) */
     GNODE_PAYLOAD_MULTI,        /* uses data.multi (multiple named children: a,b,c,d) */
+    GNODE_PAYLOAD_IO_HERE,      /* uses data.io_here (io_here structure) */
     GNODE_PAYLOAD_INDETERMINATE /* payload type is context-dependent and must be determined at runtime */
 } gnode_payload_t;
 
@@ -154,6 +155,14 @@ struct gnode_t
             gnode_t *c;
             gnode_t *d;
         } multi;
+
+        /* For io_here */
+        struct
+        {
+            token_type_t op;
+            string_t *here_end;
+            token_t *tok;
+        } io_here;
     } data;
 };
 

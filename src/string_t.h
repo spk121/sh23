@@ -131,9 +131,9 @@ int string_compare(const string_t *str1, const string_t *str2);
 int string_compare_at(const string_t *str1, int pos1, const string_t *str2, int pos2);
 int string_compare_cstr(const string_t *str, const char *cstr);
 int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2);
-int string_compare_substring(const string_t *str1, int pos1, const string_t *str2, int begin2,
+int string_compare_substring(const string_t *str1, int begin1, int end1, const string_t *str2, int begin2,
                              int end2);
-int string_compare_cstr_substring(const string_t *str, int pos, const char *cstr, int begin2,
+int string_compare_cstr_substring(const string_t *str, int begin1, int end1, const char *cstr, int begin2,
                                   int end2);
 bool string_starts_with(const string_t *str, const string_t *prefix);
 bool string_starts_with_cstr(const string_t *str, const char *prefix);

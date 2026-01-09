@@ -59,25 +59,28 @@ bool ctest_assert_eq_char(CTest* ctest, char a, char b, const char* file, int li
 #endif
 
 #define CTEST_ASSERT_EQ(ctest, a, b, msg) \
-    CTEST_ASSERT(ctest, (a) == (b), msg " (" #a " == " #b ")")
+    CTEST_ASSERT(ctest, (a) == (b), msg " (expected " #a " == " #b ")")
 
 #define CTEST_ASSERT_NE(ctest, a, b, msg) \
-    CTEST_ASSERT(ctest, (a) != (b), msg)
+    CTEST_ASSERT(ctest, (a) != (b), msg " (expected " #a " != " #b ")")
 
 #define CTEST_ASSERT_TRUE(ctest, cond, msg) \
-    CTEST_ASSERT(ctest, (cond), msg)
+    CTEST_ASSERT(ctest, (cond), msg " (" #cond ")")
 
 #define CTEST_ASSERT_FALSE(ctest, cond, msg) \
-    CTEST_ASSERT(ctest, !(cond), msg " (expected false)")
+    CTEST_ASSERT(ctest, !(cond), msg " (expected " #cond " to be false)")
+
+#define CTEST_ASSERT_GT(ctest, a, b, msg) \
+    CTEST_ASSERT(ctest, (a) > (b), msg " (expected " #a " > " #b ")")
 
 #define CTEST_ASSERT_NULL(ctest, ptr, msg) \
-    CTEST_ASSERT(ctest, (ptr) == NULL, msg)
+    CTEST_ASSERT(ctest, (ptr) == NULL, msg " (expected " #ptr " to be NULL)")
 
 #define CTEST_ASSERT_NOT_NULL(ctest, ptr, msg) \
     CTEST_ASSERT(ctest, (ptr) != NULL, msg)
 
 #define CTEST_ASSERT_STR_EQ(ctest, s1, s2, msg) \
-    CTEST_ASSERT(ctest, strcmp((s1), (s2)) == 0, msg)
+    CTEST_ASSERT(ctest, strcmp((s1), (s2)) == 0, msg " (expected " #s1 " == " #s2 ")")
 
 // === Test Declaration Macros ===
 

@@ -131,6 +131,7 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
 /* ============================================================================
  * complete_command : list [separator_op]
  * We ignore the final separator_op (it is structurally encoded already).
+ * May return a simple command if the list has only one element
  * ============================================================================
  */
 static ast_node_t *lower_complete_command(const gnode_t *g)
@@ -138,7 +139,29 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
     Expects_eq(g->type, G_COMPLETE_COMMAND);
 
     const gnode_t *glist = g->data.multi.a;
-    return lower_list(glist);
+    ast_node_t *list_node = lower_list(glist);
+
+    if (!list_node)
+        return NULL;
+
+    /* Unwrap single-item command lists to avoid unnecessary nesting.
+     * A command list with one item and EOL separator is effectively just
+     * that single command. */
+    if (ast_node_get_type(list_node) == AST_COMMAND_LIST)
+    {
+        ast_node_list_t *items = list_node->data.command_list.items;
+        if (items && items->size == 1)
+        {
+            /* Extract the single item and destroy the wrapper */
+            ast_node_t *single_item = items->nodes[0];
+            items->nodes[0] = NULL; /* Prevent destruction of the item */
+            items->size = 0;
+            ast_node_destroy(&list_node);
+            return single_item;
+        }
+    }
+
+    return list_node;
 }
 
 /* ============================================================================
@@ -833,6 +856,8 @@ static ast_node_t *lower_for_clause(const gnode_t *g)
 
 /* ============================================================================
  * case_clause
+ * 
+ * case_clause: word in case_item* esac
  * ============================================================================
  */
 static ast_node_t *lower_case_clause(const gnode_t *g)
@@ -879,7 +904,12 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
     return node;
 }
 
-/* case_item: pattern_list ')' [compound_list] (DSEMI|SEMI_AND) */
+/* ============================================================================
+ * case_item
+ * 
+ * case_item: pattern_list ')' [compound_list] (DSEMI|SEMI_AND)
+ * ============================================================================
+ */
 static ast_node_t *lower_case_item(const gnode_t *g)
 {
     Expects_eq(g->type, G_CASE_ITEM);
@@ -909,7 +939,12 @@ static ast_node_t *lower_case_item(const gnode_t *g)
     return ci;
 }
 
-/* case_item_ns: pattern_list ')' [compound_list], no terminator */
+/* ============================================================================
+ * case_item_ns
+ *
+ * case_item_ns: pattern_list ')' [compound_list], no terminator
+ * ============================================================================
+ */
 static ast_node_t *lower_case_item_ns(const gnode_t *g)
 {
     Expects_eq(g->type, G_CASE_ITEM_NS);
@@ -1024,6 +1059,11 @@ static ast_node_t *lower_redirect_list(const gnode_t *g)
     return wrapper;
 }
 
+/* ============================================================================
+ * io_redirect: [io_number] [io_location] (io_file | io_here)
+ * AST: AST_REDIRECTION
+ * ============================================================================
+ */
 static ast_node_t *lower_io_redirect(const gnode_t *g)
 {
     Expects_eq(g->type, G_IO_REDIRECT);
@@ -1074,18 +1114,22 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     /* io_here */
     else if (gtarget->type == G_IO_HERE)
     {
-        const gnode_t *op_node = gtarget->data.multi.a;
-        op_tok = op_node->data.token;
-        op_type = token_get_type(op_tok);
+        op_type = gtarget->data.io_here.op;
 
         if (op_type == TOKEN_DLESS)
             rtype = REDIR_HEREDOC;
         else
             rtype = REDIR_HEREDOC_STRIP;
 
-        const gnode_t *gend = gtarget->data.multi.b;
-        EXPECT_TYPE(gend, G_FILENAME);
-        target_tok = gend->data.token;
+        /* For heredocs, target_tok is not used; we use heredoc_content instead */
+        target_tok = NULL;
+
+        /* Get heredoc_content from the TOKEN_END_OF_HEREDOC token */
+        token_t *here_tok = gtarget->data.io_here.tok;
+        if (here_tok && here_tok->heredoc_content)
+        {
+            heredoc_content = string_create_from(here_tok->heredoc_content);
+        }
 
         operand = REDIR_OPERAND_HEREDOC;
     }
@@ -1098,8 +1142,10 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     }
 
     // Clone the token so the AST and GNode trees don't share ownership
-    token_t *cloned_target = token_clone(target_tok);
-    ast_node_t *node = ast_create_redirection(rtype, operand, io_number, io_location, cloned_target);
+    // For heredocs, target_tok is NULL and we use heredoc_content instead
+    token_t *cloned_target = target_tok ? token_clone(target_tok) : NULL;
+    ast_node_t *node =
+        ast_create_redirection(rtype, operand, io_number, io_location, cloned_target);
     node->data.redirection.operand = operand;
     node->data.redirection.heredoc_content = heredoc_content;
 

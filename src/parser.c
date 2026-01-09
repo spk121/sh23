@@ -1961,6 +1961,101 @@ static bool is_redirect_token(token_type_t t)
 }
 
 /* ============================================================================
+ * Helper: Match G_IO_HERE nodes with their TOKEN_END_OF_HEREDOC tokens
+ *
+ * This scans a G_SIMPLE_COMMAND node looking for G_IO_HERE redirections
+ * and matches each one with the next TOKEN_END_OF_HEREDOC in the token stream.
+ * This is necessary because heredoc bodies appear after the entire command line.
+ * ============================================================================
+ */
+static parse_status_t match_heredocs_in_simple_command(parser_t *parser, gnode_t *cmd)
+{
+    Expects_not_null(parser);
+    Expects_not_null(cmd);
+
+    if (cmd->type != G_SIMPLE_COMMAND)
+        return PARSE_OK;
+
+    gnode_list_t *list = cmd->data.list;
+    if (!list)
+        return PARSE_OK;
+
+    for (int i = 0; i < list->size; i++)
+    {
+        gnode_t *item = list->nodes[i];
+        if (!item)
+            continue;
+
+        gnode_t *redir = NULL;
+
+        /* Check for redirect in G_CMD_PREFIX */
+        if (item->type == G_CMD_PREFIX && item->data.child &&
+            item->data.child->type == G_IO_REDIRECT)
+        {
+            redir = item->data.child;
+        }
+        /* Check for redirect in G_CMD_SUFFIX (which is a list) */
+        else if (item->type == G_CMD_SUFFIX && item->data.list)
+        {
+            gnode_list_t *suffix_list = item->data.list;
+            for (int j = 0; j < suffix_list->size; j++)
+            {
+                gnode_t *suffix_item = suffix_list->nodes[j];
+                if (suffix_item && suffix_item->type == G_IO_REDIRECT)
+                {
+                    /* Process this redirect */
+                    gnode_t *target = suffix_item->data.multi.c;
+                    if (target && target->type == G_IO_HERE && target->data.io_here.tok == NULL)
+                    {
+                        /* Skip newlines to find TOKEN_END_OF_HEREDOC */
+                        while (parser_current_token_type(parser) == TOKEN_NEWLINE)
+                            parser_advance(parser);
+
+                        if (parser_current_token_type(parser) != TOKEN_END_OF_HEREDOC)
+                        {
+                            parser_set_error(parser, "Expected heredoc content for delimiter '%s'",
+                                             string_cstr(target->data.io_here.here_end));
+                            return PARSE_ERROR;
+                        }
+
+                        target->data.io_here.tok = token_clone(parser_current_token(parser));
+                        parser_advance(parser);
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (!redir)
+            continue;
+
+        /* redir is a G_IO_REDIRECT - check if it contains G_IO_HERE */
+        gnode_t *target = redir->data.multi.c;
+        if (!target || target->type != G_IO_HERE)
+            continue;
+
+        if (target->data.io_here.tok != NULL)
+            continue; /* Already matched */
+
+        /* Skip newlines to find TOKEN_END_OF_HEREDOC */
+        while (parser_current_token_type(parser) == TOKEN_NEWLINE)
+            parser_advance(parser);
+
+        if (parser_current_token_type(parser) != TOKEN_END_OF_HEREDOC)
+        {
+            parser_set_error(parser, "Expected heredoc content for delimiter '%s'",
+                             string_cstr(target->data.io_here.here_end));
+            return PARSE_ERROR;
+        }
+
+        target->data.io_here.tok = token_clone(parser_current_token(parser));
+        parser_advance(parser);
+    }
+
+    return PARSE_OK;
+}
+
+/* ============================================================================
  * simple_command   : cmd_prefix cmd_word cmd_suffix
  *                  | cmd_prefix cmd_word
  *                  | cmd_prefix
@@ -2077,6 +2172,14 @@ parse_status_t gparse_simple_command(parser_t *parser, gnode_t **out_node)
         return PARSE_ERROR;
     }
 
+    /* Match any heredocs with their TOKEN_END_OF_HEREDOC content tokens */
+    parse_status_t status = match_heredocs_in_simple_command(parser, node);
+    if (status != PARSE_OK)
+    {
+        g_node_destroy(&node);
+        return status;
+    }
+
     *out_node = node;
     return PARSE_OK;
 }
@@ -2084,6 +2187,11 @@ parse_status_t gparse_simple_command(parser_t *parser, gnode_t **out_node)
 /* ============================================================================
  * redirect_list    : redirect_list io_redirect
  *                  |                io_redirect
+ *
+ * After collecting all redirections, this function matches any G_IO_HERE
+ * nodes with their corresponding TOKEN_END_OF_HEREDOC tokens. This is
+ * necessary because multiple heredocs can appear on the same line
+ * (e.g., "cat <<A <<-B"), and all their bodies appear after the command line.
  * ============================================================================
  */
 parse_status_t gparse_redirect_list(parser_t *parser, gnode_t **out_node)
@@ -2118,6 +2226,37 @@ parse_status_t gparse_redirect_list(parser_t *parser, gnode_t **out_node)
             break;
 
         g_list_append(node->data.list, next);
+    }
+
+    /* Now match any G_IO_HERE nodes with their TOKEN_END_OF_HEREDOC tokens.
+     * The heredoc bodies appear in the same order as the << operators. */
+    for (int i = 0; i < node->data.list->size; i++)
+    {
+        gnode_t *redirect = node->data.list->nodes[i];
+        if (redirect->type != G_IO_REDIRECT)
+            continue;
+
+        /* G_IO_REDIRECT has the actual io_file or io_here in multi.c */
+        gnode_t *target = redirect->data.multi.c;
+        if (!target || target->type != G_IO_HERE)
+            continue;
+
+        /* Skip any newlines to find the TOKEN_END_OF_HEREDOC */
+        while (parser_current_token_type(parser) == TOKEN_NEWLINE)
+            parser_advance(parser);
+
+        if (parser_current_token_type(parser) != TOKEN_END_OF_HEREDOC)
+        {
+            parser_set_error(parser, "Expected heredoc content for delimiter '%s'",
+                             string_cstr(target->data.io_here.here_end));
+            g_node_destroy(&node);
+            return PARSE_ERROR;
+        }
+
+        /* Clone the TOKEN_END_OF_HEREDOC and store it in the io_here node */
+        token_t *heredoc_tok = parser_current_token(parser);
+        target->data.io_here.tok = token_clone(heredoc_tok);
+        parser_advance(parser);
     }
 
     *out_node = node;
@@ -2277,6 +2416,10 @@ parse_status_t gparse_filename(parser_t *parser, gnode_t **out_node)
 /* ============================================================================
  * io_here          : DLESS     here_end
  *                  | DLESSDASH here_end
+ *
+ * NOTE: This only parses the operator and delimiter. The heredoc content
+ * (TOKEN_END_OF_HEREDOC) is matched later in gparse_redirect_list() after
+ * all redirections on the line have been parsed.
  * ============================================================================
  */
 parse_status_t gparse_io_here(parser_t *parser, gnode_t **out_node)
@@ -2292,23 +2435,40 @@ parse_status_t gparse_io_here(parser_t *parser, gnode_t **out_node)
     gnode_t *node = g_node_create(G_IO_HERE);
 
     /* operator token */
-    gnode_t *op = g_node_create(G_WORD_NODE);
-    op->data.token = parser_current_token(parser);
+    node->data.io_here.op = t;
     parser_advance(parser);
 
-    /* here_end */
-    gnode_t *end = NULL;
-    parse_status_t status = gparse_filename(parser, &end);
-
-    if (status != PARSE_OK)
+    /* here_end (delimiter) */
+    if (parser_current_token_type(parser) != TOKEN_WORD)
     {
         g_node_destroy(&node);
-        g_node_destroy(&op);
-        return status;
+        return PARSE_ERROR;
     }
+    token_t *here_end_tok = parser_current_token(parser);
+    node->data.io_here.here_end = token_get_all_text(here_end_tok);
+    node->data.io_here.tok = NULL; /* Will be filled in by gparse_redirect_list */
+    parser_advance(parser);
 
-    node->data.multi.a = op;
-    node->data.multi.b = end;
+    *out_node = node;
+    return PARSE_OK;
+}
+
+/* ============================================================================
+ * here_end         : WORD                      (Apply rule 3)
+ * ============================================================================
+ */
+parse_status_t gparse_here_end(parser_t *parser, gnode_t **out_node)
+{
+    Expects_not_null(parser);
+    Expects_not_null(out_node);
+
+    if (parser_current_token_type(parser) != TOKEN_WORD)
+        return PARSE_ERROR;
+
+    gnode_t *node = g_node_create(G_HERE_END);
+    token_t *here_end_tok = parser_current_token(parser);
+    node->data.string = token_get_all_text(here_end_tok);
+    parser_advance(parser);
 
     *out_node = node;
     return PARSE_OK;

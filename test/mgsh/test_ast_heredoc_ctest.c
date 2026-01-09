@@ -6,80 +6,63 @@
 #include "token.h"
 #include "tokenizer.h"
 #include "xalloc.h"
+#include "lower.h"
 #include "logging.h"
 
 /* ============================================================================
- * Helpers (copied from other AST tests for consistency)
+ * Helpers
  * ============================================================================ */
-static token_list_t *lex_and_tokenize(const char *input)
+
+static ast_node_t* parse_string(const char* input)
 {
-    lexer_t *lx = lexer_create();
-    lexer_append_input_cstr(lx, input);
+    gnode_t* top_node = parser_parse_string(input);
 
-    token_list_t *tokens = token_list_create();
-    lex_status_t lex_status = lexer_tokenize(lx, tokens, NULL);
-
-    if (lex_status != LEX_OK)
+    if (top_node == NULL)
     {
-        printf("Lexer returned status: %d (LEX_OK=0, LEX_ERROR=1, LEX_INCOMPLETE=2, LEX_NEED_HEREDOC=3)\n", lex_status);
-        lexer_destroy(&lx);
-        token_list_destroy(&tokens);
+        printf("Failed to parse: %s\n", input);
         return NULL;
     }
 
-    lexer_destroy(&lx);
+    ast_t* ast = ast_lower(top_node);
 
-    tokenizer_t *tok = tokenizer_create(NULL);
-    token_list_t *output = token_list_create();
-
-    tok_status_t tok_status = tokenizer_process(tok, tokens, output);
-    tokenizer_destroy(&tok);
-
-    if (tok_status != TOK_OK)
-    {
-        token_list_destroy(&tokens);
-        token_list_destroy(&output);
-        return NULL;
-    }
-
-    token_list_destroy(&tokens);
-    return output;
+    g_node_destroy(&top_node);
+    return ast;
 }
 
-static ast_node_t *parse_string(const char *input)
+/**
+ * Helper to navigate from AST_PROGRAM to the first simple command.
+ * Returns NULL if the structure doesn't match expectations.
+ * Does NOT destroy ast on failure - caller is responsible.
+ */
+static ast_node_t* get_first_simple_command(CTest* ctest, ast_node_t* ast)
 {
-    token_list_t *tokens = lex_and_tokenize(input);
-    if (tokens == NULL)
-    {
-        printf("Failed to lex/tokenize: %s\n", input);
-        return NULL;
-    }
+    CTEST_ASSERT_NOT_NULL(ctest, ast, "ast is not null");
+    if (!ast) return NULL;
 
-    parser_t *parser = parser_create();
-    ast_node_t *ast = NULL;
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_PROGRAM, "root is program");
+    if (ast_node_get_type(ast) != AST_PROGRAM) return NULL;
 
-    // FIXME: NEW API
-    abort();
-    // parse_status_t status = parser_parse(parser, tokens, &ast);
-    parse_status_t status = PARSE_OK; // Placeholder
+    ast_node_t* body = ast->data.program.body;
+    CTEST_ASSERT_NOT_NULL(ctest, body, "program has body");
+    if (!body) return NULL;
 
-    if (status != PARSE_OK)
-    {
-        const char *err = parser_get_error(parser);
-        printf("Parse error for input '%s': %s\n", input, err ? err : "unknown");
-        parser_destroy(&parser);
-        token_list_destroy(&tokens);
-        return NULL;
-    }
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(body), AST_COMMAND_LIST, "body is command list");
+    if (ast_node_get_type(body) != AST_COMMAND_LIST) return NULL;
 
-    parser_destroy(&parser);
+    CTEST_ASSERT_NOT_NULL(ctest, body->data.command_list.items, "command list has items");
+    if (!body->data.command_list.items) return NULL;
 
-    // AST now owns tokens
-    token_list_release_tokens(tokens);
-    xfree(tokens->tokens);
-    xfree(tokens);
+    CTEST_ASSERT_GT(ctest, body->data.command_list.items->size, 0, "command list is not empty");
+    if (body->data.command_list.items->size == 0) return NULL;
 
-    return ast;
+    ast_node_t* cmd = body->data.command_list.items->nodes[0];
+    CTEST_ASSERT_NOT_NULL(ctest, cmd, "first command exists");
+    if (!cmd) return NULL;
+
+    CTEST_ASSERT_EQ(ctest, ast_node_get_type(cmd), AST_SIMPLE_COMMAND, "first command is simple command");
+    if (ast_node_get_type(cmd) != AST_SIMPLE_COMMAND) return NULL;
+
+    return cmd;
 }
 
 /* ============================================================================
@@ -88,99 +71,218 @@ static ast_node_t *parse_string(const char *input)
 
 CTEST(test_parser_heredoc_basic)
 {
-    const char *src =
+    const char* src =
         "cat <<EOF\n"
         "hello\n"
         "EOF\n";
 
-    ast_node_t *ast = parse_string(src);
+    ast_node_t* ast = parse_string(src);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
+    if (!ast) return;
 
-    if (ast)
+    ast_node_t* cmd = get_first_simple_command(ctest, ast);
+    if (!cmd)
     {
-        CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_COMMAND_LIST, "root is command list");
-        CTEST_ASSERT(ctest, ast->data.command_list.items->size > 0, "has items");
-        ast_node_t *cmd = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_EQ(ctest, ast_node_get_type(cmd), AST_SIMPLE_COMMAND, "is simple command");
-        CTEST_ASSERT_NOT_NULL(ctest, cmd->data.simple_command.redirections, "has redirections");
-        CTEST_ASSERT_EQ(ctest, cmd->data.simple_command.redirections->size, 1, "one redirection");
-
-        ast_node_t *redir = cmd->data.simple_command.redirections->nodes[0];
-        CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC, "redir is heredoc");
-        CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
-        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "hello\n", "content matches");
-
         ast_node_destroy(&ast);
+        return;
     }
+
+    CTEST_ASSERT_NOT_NULL(ctest, cmd->data.simple_command.redirections, "has redirections");
+    if (!cmd->data.simple_command.redirections)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_EQ(ctest, cmd->data.simple_command.redirections->size, 1, "one redirection");
+    if (cmd->data.simple_command.redirections->size != 1)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    ast_node_t* redir = cmd->data.simple_command.redirections->nodes[0];
+    CTEST_ASSERT_NOT_NULL(ctest, redir, "redirection exists");
+    if (!redir)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC, "redir is heredoc");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
+    if (redir->data.redirection.heredoc_content)
+    {
+        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "hello\n", "content matches");
+    }
+
+    ast_node_destroy(&ast);
     (void)ctest;
 }
 
 CTEST(test_parser_heredoc_quoted_delimiter)
 {
-    const char *src =
+    const char* src =
         "cat <<'EOF'\n"
         "$HOME \\` \\$ \\n stays\n"
         "EOF\n";
 
-    ast_node_t *ast = parse_string(src);
+    ast_node_t* ast = parse_string(src);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    if (ast)
+    if (!ast) return;
+
+    ast_node_t* cmd = get_first_simple_command(ctest, ast);
+    if (!cmd)
     {
-        ast_node_t *cmd = ast->data.command_list.items->nodes[0];
-        ast_node_t *redir = cmd->data.simple_command.redirections->nodes[0];
-        CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC, "redir is heredoc");
-        CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
-        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "$HOME \\` \\$ \\n stays\n", "quoted content literal");
         ast_node_destroy(&ast);
+        return;
     }
+
+    CTEST_ASSERT_NOT_NULL(ctest, cmd->data.simple_command.redirections, "has redirections");
+    if (!cmd->data.simple_command.redirections)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_GT(ctest, cmd->data.simple_command.redirections->size, 0, "has at least one redirection");
+    if (cmd->data.simple_command.redirections->size == 0)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    ast_node_t* redir = cmd->data.simple_command.redirections->nodes[0];
+    CTEST_ASSERT_NOT_NULL(ctest, redir, "redirection exists");
+    if (!redir)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC, "redir is heredoc");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
+    if (redir->data.redirection.heredoc_content)
+    {
+        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "$HOME \\` \\$ \\n stays\n", "quoted content literal");
+    }
+
+    ast_node_destroy(&ast);
     (void)ctest;
 }
 
 CTEST(test_parser_heredoc_strip_tabs)
 {
-    const char *src =
+    const char* src =
         "cat <<-EOF\n"
         "\tline\n"
         "\tEOF\n";
 
-    ast_node_t *ast = parse_string(src);
+    ast_node_t* ast = parse_string(src);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    if (ast)
+    if (!ast) return;
+
+    ast_node_t* cmd = get_first_simple_command(ctest, ast);
+    if (!cmd)
     {
-        ast_node_t *cmd = ast->data.command_list.items->nodes[0];
-        ast_node_t *redir = cmd->data.simple_command.redirections->nodes[0];
-        CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC_STRIP, "redir is heredoc strip");
-        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "line\n", "tabs stripped in content");
         ast_node_destroy(&ast);
+        return;
     }
+
+    CTEST_ASSERT_NOT_NULL(ctest, cmd->data.simple_command.redirections, "has redirections");
+    if (!cmd->data.simple_command.redirections)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_GT(ctest, cmd->data.simple_command.redirections->size, 0, "has at least one redirection");
+    if (cmd->data.simple_command.redirections->size == 0)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    ast_node_t* redir = cmd->data.simple_command.redirections->nodes[0];
+    CTEST_ASSERT_NOT_NULL(ctest, redir, "redirection exists");
+    if (!redir)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC_STRIP, "redir is heredoc strip");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
+    if (redir->data.redirection.heredoc_content)
+    {
+        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "line\n", "tabs stripped in content");
+    }
+
+    ast_node_destroy(&ast);
     (void)ctest;
 }
 
 CTEST(test_parser_two_heredocs)
 {
-    const char *src =
+    const char* src =
         "cat <<A <<-B\n"
         "x\n"
         "A\n"
         "\ty\n"
         "B\n";
 
-    ast_node_t *ast = parse_string(src);
+    ast_node_t* ast = parse_string(src);
     CTEST_ASSERT_NOT_NULL(ctest, ast, "parsing succeeded");
-    if (ast)
-    {
-        ast_node_t *cmd = ast->data.command_list.items->nodes[0];
-        CTEST_ASSERT_NOT_NULL(ctest, cmd->data.simple_command.redirections, "has redirs");
-        CTEST_ASSERT_EQ(ctest, cmd->data.simple_command.redirections->size, 2, "two redirs");
+    if (!ast) return;
 
-        ast_node_t *r0 = cmd->data.simple_command.redirections->nodes[0];
-        ast_node_t *r1 = cmd->data.simple_command.redirections->nodes[1];
-        CTEST_ASSERT_EQ(ctest, r0->data.redirection.redir_type, REDIR_HEREDOC, "first is <<");
-        CTEST_ASSERT_EQ(ctest, r1->data.redirection.redir_type, REDIR_HEREDOC_STRIP, "second is <<-");
-        CTEST_ASSERT_STR_EQ(ctest, string_data(r0->data.redirection.heredoc_content), "x\n", "first content");
-        CTEST_ASSERT_STR_EQ(ctest, string_data(r1->data.redirection.heredoc_content), "y\n", "second content tab-stripped");
+    ast_node_t* cmd = get_first_simple_command(ctest, ast);
+    if (!cmd)
+    {
         ast_node_destroy(&ast);
+        return;
     }
+
+    CTEST_ASSERT_NOT_NULL(ctest, cmd->data.simple_command.redirections, "has redirections");
+    if (!cmd->data.simple_command.redirections)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_EQ(ctest, cmd->data.simple_command.redirections->size, 2, "two redirections");
+    if (cmd->data.simple_command.redirections->size != 2)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    ast_node_t* r0 = cmd->data.simple_command.redirections->nodes[0];
+    ast_node_t* r1 = cmd->data.simple_command.redirections->nodes[1];
+
+    CTEST_ASSERT_NOT_NULL(ctest, r0, "first redirection exists");
+    CTEST_ASSERT_NOT_NULL(ctest, r1, "second redirection exists");
+    if (!r0 || !r1)
+    {
+        ast_node_destroy(&ast);
+        return;
+    }
+
+    CTEST_ASSERT_EQ(ctest, r0->data.redirection.redir_type, REDIR_HEREDOC, "first is <<");
+    CTEST_ASSERT_EQ(ctest, r1->data.redirection.redir_type, REDIR_HEREDOC_STRIP, "second is <<-");
+
+    CTEST_ASSERT_NOT_NULL(ctest, r0->data.redirection.heredoc_content, "first has heredoc content");
+    CTEST_ASSERT_NOT_NULL(ctest, r1->data.redirection.heredoc_content, "second has heredoc content");
+
+    if (r0->data.redirection.heredoc_content)
+    {
+        CTEST_ASSERT_STR_EQ(ctest, string_data(r0->data.redirection.heredoc_content), "x\n", "first content");
+    }
+    if (r1->data.redirection.heredoc_content)
+    {
+        CTEST_ASSERT_STR_EQ(ctest, string_data(r1->data.redirection.heredoc_content), "y\n", "second content tab-stripped");
+    }
+
+    ast_node_destroy(&ast);
     (void)ctest;
 }
 
@@ -189,7 +291,7 @@ int main(void)
     arena_start();
     log_init();
 
-    CTestEntry *suite[] = {
+    CTestEntry* suite[] = {
         CTEST_ENTRY(test_parser_heredoc_basic),
         CTEST_ENTRY(test_parser_heredoc_quoted_delimiter),
         CTEST_ENTRY(test_parser_heredoc_strip_tabs),

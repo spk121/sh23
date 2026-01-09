@@ -125,6 +125,7 @@ parse_status_t gparse_io_redirect(parser_t *parser, gnode_t **out_node);
 parse_status_t gparse_io_file(parser_t *parser, gnode_t **out_node);
 parse_status_t gparse_filename(parser_t *parser, gnode_t **out_node);
 parse_status_t gparse_io_here(parser_t *parser, gnode_t **out_node);
+parse_status_t gparse_here_end(parser_t *parser, gnode_t **out_node);
 parse_status_t gparse_separator_op(parser_t *parser, gnode_t **out_node);
 parse_status_t gparse_separator(parser_t *parser, gnode_t **out_node);
 
