@@ -106,11 +106,11 @@ CTEST(test_parser_heredoc_basic)
         return;
     }
 
-    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC, "redir is heredoc");
-    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
-    if (redir->data.redirection.heredoc_content)
+    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_FROM_BUFFER, "redir is heredoc");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.buffer, "has heredoc content");
+    if (redir->data.redirection.buffer)
     {
-        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "hello\n", "content matches");
+        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.buffer), "hello\n", "content matches");
     }
 
     ast_node_destroy(&ast);
@@ -157,11 +157,11 @@ CTEST(test_parser_heredoc_quoted_delimiter)
         return;
     }
 
-    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC, "redir is heredoc");
-    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
-    if (redir->data.redirection.heredoc_content)
+    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_FROM_BUFFER, "redir is heredoc");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.buffer, "has heredoc content");
+    if (redir->data.redirection.buffer)
     {
-        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "$HOME \\` \\$ \\n stays\n", "quoted content literal");
+        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.buffer), "$HOME \\` \\$ \\n stays\n", "quoted content literal");
     }
 
     ast_node_destroy(&ast);
@@ -208,11 +208,11 @@ CTEST(test_parser_heredoc_strip_tabs)
         return;
     }
 
-    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_HEREDOC_STRIP, "redir is heredoc strip");
-    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.heredoc_content, "has heredoc content");
-    if (redir->data.redirection.heredoc_content)
+    CTEST_ASSERT_EQ(ctest, redir->data.redirection.redir_type, REDIR_FROM_BUFFER_STRIP, "redir is heredoc strip");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.buffer, "has heredoc content");
+    if (redir->data.redirection.buffer)
     {
-        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.heredoc_content), "line\n", "tabs stripped in content");
+        CTEST_ASSERT_STR_EQ(ctest, string_data(redir->data.redirection.buffer), "line\n", "tabs stripped in content");
     }
 
     ast_node_destroy(&ast);
@@ -264,19 +264,19 @@ CTEST(test_parser_two_heredocs)
         return;
     }
 
-    CTEST_ASSERT_EQ(ctest, r0->data.redirection.redir_type, REDIR_HEREDOC, "first is <<");
-    CTEST_ASSERT_EQ(ctest, r1->data.redirection.redir_type, REDIR_HEREDOC_STRIP, "second is <<-");
+    CTEST_ASSERT_EQ(ctest, r0->data.redirection.redir_type, REDIR_FROM_BUFFER, "first is <<");
+    CTEST_ASSERT_EQ(ctest, r1->data.redirection.redir_type, REDIR_FROM_BUFFER_STRIP, "second is <<-");
 
-    CTEST_ASSERT_NOT_NULL(ctest, r0->data.redirection.heredoc_content, "first has heredoc content");
-    CTEST_ASSERT_NOT_NULL(ctest, r1->data.redirection.heredoc_content, "second has heredoc content");
+    CTEST_ASSERT_NOT_NULL(ctest, r0->data.redirection.buffer, "first has buffer (heredoc) content");
+    CTEST_ASSERT_NOT_NULL(ctest, r1->data.redirection.buffer, "second has buffer (heredoc) content");
 
-    if (r0->data.redirection.heredoc_content)
+    if (r0->data.redirection.buffer)
     {
-        CTEST_ASSERT_STR_EQ(ctest, string_data(r0->data.redirection.heredoc_content), "x\n", "first content");
+        CTEST_ASSERT_STR_EQ(ctest, string_data(r0->data.redirection.buffer), "x\n", "first content");
     }
-    if (r1->data.redirection.heredoc_content)
+    if (r1->data.redirection.buffer)
     {
-        CTEST_ASSERT_STR_EQ(ctest, string_data(r1->data.redirection.heredoc_content), "y\n", "second content tab-stripped");
+        CTEST_ASSERT_STR_EQ(ctest, string_data(r1->data.redirection.buffer), "y\n", "second content tab-stripped");
     }
 
     ast_node_destroy(&ast);

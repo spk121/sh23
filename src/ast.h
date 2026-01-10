@@ -26,9 +26,6 @@ typedef enum
     AST_SUBSHELL,          // ( command_list )
     AST_BRACE_GROUP,       // { command_list; }
     AST_IF_CLAUSE,         // if/then/else/fi
-#if 0
-    AST_ELIF_CLAUSE,       // elif/then
-#endif
     AST_WHILE_CLAUSE,      // while/do/done
     AST_UNTIL_CLAUSE,      // until/do/done
     AST_FOR_CLAUSE,        // for/in/do/done
@@ -40,9 +37,6 @@ typedef enum
     /* Auxiliary nodes */
     AST_REDIRECTION,        // A single I/O redirection. There are one or more of these per
                             // REDIRECTED_COMMAND.
-#if 0
-    AST_WORD,              // word node (wraps token)
-#endif
     AST_CASE_ITEM,         // pattern) command_list ;;
     AST_FUNCTION_STORED,   // placeholder for function node moved to function store
 
@@ -56,19 +50,11 @@ typedef enum
 /**
  * Pipeline operators
  */
-#ifdef FUTURE
 typedef enum
 {
     PIPE_NORMAL,      // pipe stdout only
     PIPE_MERGE_STDERR // pipe stdout + stderr
 } pipe_operator_t;
-#else
-typedef enum
-{
-    PIPE_OP_PIPE,       // |
-    PIPE_OP_PIPE_AMPER, // |& (bash extension, not implemented yet)
-} pipe_operator_t;
-#endif
 
 /**
  * And/Or list operators
@@ -83,31 +69,22 @@ typedef enum
  * Command list separators.
  *
  * DESIGN DECISION: Each command in a command_list has an associated separator,
- * including the last command (which gets LIST_SEP_EOL). This ensures:
+ * including the last command (which gets CMD_EXEC_END). This ensures:
  *   - items.size == separators.len (1:1 correspondence)
  *   - Simpler indexing: separator[i] describes what follows command[i]
  *   - Executor can easily determine if a command should run in background
  *
  * Example: "echo foo; echo bar; echo baz"
- *   Command 0: "echo foo"  -> separator: LIST_SEP_SEQUENTIAL
- *   Command 1: "echo bar"  -> separator: LIST_SEP_SEQUENTIAL
- *   Command 2: "echo baz"  -> separator: LIST_SEP_EOL (no actual token)
+ *   Command 0: "echo foo"  -> separator: CMD_EXEC_SEQUENTIAL
+ *   Command 1: "echo bar"  -> separator: CMD_EXEC_SEQUENTIAL
+ *   Command 2: "echo baz"  -> separator: CMD_EXEC_END (no actual token)
  */
-#ifdef FUTURE
 typedef enum
 {
     CMD_EXEC_SEQUENTIAL, // run, wait, then run next
     CMD_EXEC_BACKGROUND, // run without waiting
     CMD_EXEC_END         // no more commands
 } cmd_separator_t;
-#else
-typedef enum
-{
-    LIST_SEP_SEQUENTIAL, // ; or newline - execute next command after this one
-    LIST_SEP_BACKGROUND, // & - run this command in background, then execute next
-    LIST_SEP_EOL         // End of list - no separator token, this is the last command
-} cmd_separator_t;
-#endif
 
 /* Command separator list structure */
 typedef struct
@@ -120,7 +97,6 @@ typedef struct
 /**
  * Redirection types
  */
-#ifdef FUTURE
 typedef enum
 {
     REDIR_READ,        // <      open file for reading
@@ -135,58 +111,24 @@ typedef enum
     REDIR_FROM_BUFFER,      // <<     heredoc, but now it's a buffer
     REDIR_FROM_BUFFER_STRIP // <<-    strip leading tabs
 } redirection_type_t;
-#else
-typedef enum
-{
-    REDIR_INPUT,       // <
-    REDIR_OUTPUT,      // >
-    REDIR_APPEND,      // >>
-    REDIR_HEREDOC,     // <<
-    REDIR_HEREDOC_STRIP, // <<-
-    REDIR_DUP_INPUT,   // <&
-    REDIR_DUP_OUTPUT,  // >&
-    REDIR_READWRITE,   // <>
-    REDIR_CLOBBER,     // >|
-} redirection_type_t;
-#endif
 
-#ifdef FUTURE
 typedef enum
 {
-    REDIR_TARGET_INVALID,
-    REDIR_TARGET_FILE,
-    REDIR_TARGET_FD,
-    REDIR_TARGET_CLOSE,
-    REDIR_TARGET_FD_STRING,
-    REDIR_TARGET_BUFFER
+    REDIR_TARGET_INVALID,  // should never happen
+    REDIR_TARGET_FILE,    // target is a filename
+    REDIR_TARGET_FD,       // target is a numeric fd
+    REDIR_TARGET_CLOSE,   // target is '-', indicating close fd
+    REDIR_TARGET_FD_STRING, // io_location is a string (e.g., <&var). Probably UNUSED
+    REDIR_TARGET_BUFFER // buffer (heredoc)
 } redir_target_kind_t;
-#else
-typedef enum
-{
-    REDIR_OPERAND_NONE,     // should never happen
-    REDIR_OPERAND_FILENAME, // target is a filename token
-    REDIR_OPERAND_FD,       // target is a numeric fd (from token)
-    REDIR_OPERAND_CLOSE,    // target is '-', indicating close fd
-    REDIR_OPERAND_IOLOC,    // io_location is a string (e.g., <&var). Probably UNUSED
-    REDIR_OPERAND_HEREDOC   // heredoc_content is used
-} redir_operand_kind_t;
-#endif
 
-#ifdef FUTURE
 typedef enum
 {
     CASE_ACTION_NONE,
     CASE_ACTION_BREAK,
     CASE_ACTION_FALLTHROUGH
 } case_action_t;
-#else
-typedef enum
-{
-    CASE_TERM_NONE,    // for case_item_ns
-    CASE_TERM_DSEMI,   // ;;
-    CASE_TERM_SEMI_AND // ;&
-} case_terminator_t;
-#endif
+
 /* ============================================================================
  * Forward Declarations
  * ============================================================================ */
@@ -279,15 +221,6 @@ struct ast_node_t
             ast_node_t *else_body;      // commands if all conditions are false (optional)
         } if_clause;
 
-#if 0
-        /* AST_ELIF_CLAUSE */
-        struct
-        {
-            ast_node_t *condition; // condition to test
-            ast_node_t *then_body; // commands if condition is true
-        } elif_clause;
-#endif
-
         /* AST_WHILE_CLAUSE, AST_UNTIL_CLAUSE */
         struct
         {
@@ -315,8 +248,7 @@ struct ast_node_t
         {
             token_list_t *patterns; // list of patterns
             ast_node_t *body;       // commands to execute if pattern matches
-            case_terminator_t terminator; // ;;, ;&, or none
-            int padding;
+            case_action_t action; // ;;, ;&, or none
         } case_item;
 
         /* AST_FUNCTION_DEF */
@@ -339,18 +271,18 @@ struct ast_node_t
         {
             redirection_type_t redir_type;
             int io_number;                // fd being redirected (or -1)
-            redir_operand_kind_t operand; // operand type
-#if !FUTURE
+            redir_target_kind_t operand; // operand type
+#ifndef FUTURE
             int padding;
-            string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
+            string_t *fd_string;     // used only when operand == REDIR_TARGET_FD_STRING
             token_t *target;           // used when operand == FILENAME or FD
-            string_t *heredoc_content; // used when operand == HEREDOC
+            string_t *buffer;        // used when operand == BUFFER (heredoc content)
 #else
             redir_payload_t payload_type;
             union {
-                string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
+                string_t *fd_string;     // used only when operand == REDIR_TARGET_FD_STRING
                 token_t *target;           // used when operand == FILENAME or FD
-                string_t *heredoc_content; // used when operand == HEREDOC
+                string_t *buffer;        // used when operand == BUFFER (heredoc content)
             } data;
 #endif
         } redirection;
@@ -405,7 +337,7 @@ void ast_command_list_node_append_item(ast_node_t *node, ast_node_t *item);
 
 void ast_command_list_node_append_separator(ast_node_t *node, cmd_separator_t separator);
 
-void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content);
+void ast_redirection_node_set_buffer_content(ast_node_t *node, const string_t *content);
 
 redirection_type_t ast_redirection_node_get_redir_type(const ast_node_t *node);
 
@@ -522,8 +454,8 @@ ast_node_t *ast_create_redirected_command(ast_node_t *command, ast_node_list_t *
  * OWNERSHIP: Takes ownership of target token.
  */
 ast_node_t *ast_create_redirection(redirection_type_t redir_type,
-                                   redir_operand_kind_t operand, int io_number,
-                                  string_t *io_location, token_t *target);
+                                   redir_target_kind_t operand, int io_number,
+                                  string_t *fd_string, token_t *target);
 
 /* ============================================================================
  * AST Node List Functions
@@ -581,7 +513,7 @@ int ast_node_command_list_separator_count(const ast_node_t *node);
 /**
  * Get a separator by index.
  * The separator at index i describes what follows command i.
- * The last command will have LIST_SEP_EOL if no separator token was present.
+ * The last command will have CMD_EXEC_END if no separator token was present.
  */
 cmd_separator_t ast_node_command_list_get_separator(const ast_node_t *node, int index);
 

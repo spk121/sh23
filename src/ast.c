@@ -100,21 +100,21 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
     case AST_REDIRECTION:
         switch (node->data.redirection.operand)
         {
-        case REDIR_OPERAND_FILENAME:
-        case REDIR_OPERAND_FD:
+        case REDIR_TARGET_FILE:
+        case REDIR_TARGET_FD:
             new_node->data.redirection.target = token_clone(node->data.redirection.target);
             break;
-        case REDIR_OPERAND_IOLOC:
-            new_node->data.redirection.io_location =
-                string_create_from(node->data.redirection.io_location);
+        case REDIR_TARGET_FD_STRING:
+            new_node->data.redirection.fd_string =
+                string_create_from(node->data.redirection.fd_string);
             break;
-        case REDIR_OPERAND_HEREDOC:
+        case REDIR_TARGET_BUFFER:
             new_node->data.redirection.target = token_clone(node->data.redirection.target);
-            new_node->data.redirection.heredoc_content =
-                string_create_from(node->data.redirection.heredoc_content);
+            new_node->data.redirection.buffer =
+                string_create_from(node->data.redirection.buffer);
             break;
-        case REDIR_OPERAND_CLOSE:
-        case REDIR_OPERAND_NONE:
+        case REDIR_TARGET_CLOSE:
+        case REDIR_TARGET_INVALID:
         default:
             /* no operand storage */
             break;
@@ -260,26 +260,26 @@ void ast_node_destroy(ast_node_t **node)
     case AST_REDIRECTION: {
         switch (n->data.redirection.operand)
         {
-        case REDIR_OPERAND_FILENAME:
-        case REDIR_OPERAND_FD:
+        case REDIR_TARGET_FILE:
+        case REDIR_TARGET_FD:
             if (n->data.redirection.target)
                 token_destroy(&n->data.redirection.target);
             break;
 
-        case REDIR_OPERAND_IOLOC:
-            if (n->data.redirection.io_location)
-                string_destroy(&n->data.redirection.io_location);
+        case REDIR_TARGET_FD_STRING:
+            if (n->data.redirection.fd_string)
+                string_destroy(&n->data.redirection.fd_string);
             break;
 
-        case REDIR_OPERAND_HEREDOC:
+        case REDIR_TARGET_BUFFER:
             if (n->data.redirection.target)
                 token_destroy(&n->data.redirection.target);
-            if (n->data.redirection.heredoc_content)
-                string_destroy(&n->data.redirection.heredoc_content);
+            if (n->data.redirection.buffer)
+                string_destroy(&n->data.redirection.buffer);
             break;
 
-        case REDIR_OPERAND_CLOSE:
-        case REDIR_OPERAND_NONE:
+        case REDIR_TARGET_CLOSE:
+        case REDIR_TARGET_INVALID:
         default:
             /* no operand storage */
             break;
@@ -346,17 +346,17 @@ redirection_type_t ast_redirection_node_get_redir_type(const ast_node_t *node)
     return node->data.redirection.redir_type;
 }
 
-void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *content)
+void ast_redirection_node_set_buffer_content(ast_node_t *node, const string_t *content)
 {
     Expects_not_null(node);
     Expects(node->type == AST_REDIRECTION);
     Expects_not_null(content);
 
-    if (node->data.redirection.heredoc_content != NULL)
+    if (node->data.redirection.buffer != NULL)
     {
-        string_destroy(&node->data.redirection.heredoc_content);
+        string_destroy(&node->data.redirection.buffer);
     }
-    node->data.redirection.heredoc_content = string_create_from(content);
+    node->data.redirection.buffer = string_create_from(content);
 }
 
 /* ============================================================================
@@ -477,16 +477,16 @@ ast_node_t *ast_create_function_def(const string_t *name, ast_node_t *body,
 }
 
 ast_node_t *ast_create_redirection(redirection_type_t redir_type,
-                                   redir_operand_kind_t operand, int io_number,
-                                  string_t *io_location, token_t *target)
+                                   redir_target_kind_t operand, int io_number,
+                                  string_t *fd_string, token_t *target)
 {
     ast_node_t *node = ast_node_create(AST_REDIRECTION);
     node->data.redirection.redir_type = redir_type;
     node->data.redirection.operand = operand;
     node->data.redirection.io_number = io_number;
-    node->data.redirection.io_location = io_location;
+    node->data.redirection.fd_string = fd_string;
     node->data.redirection.target = target;
-    node->data.redirection.heredoc_content = NULL;
+    node->data.redirection.buffer = NULL;
     return node;
 }
 
@@ -662,23 +662,23 @@ const char *redirection_type_to_string(redirection_type_t type)
 {
     switch (type)
     {
-    case REDIR_INPUT:
+    case REDIR_READ:
         return "<";
-    case REDIR_OUTPUT:
+    case REDIR_WRITE:
         return ">";
     case REDIR_APPEND:
         return ">>";
-    case REDIR_HEREDOC:
+    case REDIR_FROM_BUFFER:
         return "<<";
-    case REDIR_HEREDOC_STRIP:
+    case REDIR_FROM_BUFFER_STRIP:
         return "<<-";
-    case REDIR_DUP_INPUT:
+    case REDIR_FD_DUP_IN:
         return "<&";
-    case REDIR_DUP_OUTPUT:
+    case REDIR_FD_DUP_OUT:
         return ">&";
     case REDIR_READWRITE:
         return "<>";
-    case REDIR_CLOBBER:
+    case REDIR_WRITE_FORCE:
         return ">|";
     default:
         return "UNKNOWN";
@@ -796,13 +796,13 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
 
                     switch (sep)
                     {
-                    case LIST_SEP_SEQUENTIAL:
+                    case CMD_EXEC_SEQUENTIAL:
                         string_append_cstr(result, "separator: ;\n");
                         break;
-                    case LIST_SEP_BACKGROUND:
+                    case CMD_EXEC_BACKGROUND:
                         string_append_cstr(result, "separator: &\n");
                         break;
-                    case LIST_SEP_EOL:
+                    case CMD_EXEC_END:
                         string_append_cstr(result, "separator: EOL\n");
                         break;
                     }
@@ -941,30 +941,30 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
         string_append_cstr(result, "operand: ");
         switch (node->data.redirection.operand)
         {
-        case REDIR_OPERAND_NONE:
-            string_append_cstr(result, "NONE");
+        case REDIR_TARGET_INVALID:
+            string_append_cstr(result, "INVALID");
             break;
-        case REDIR_OPERAND_FILENAME:
-            string_append_cstr(result, "FILENAME");
+        case REDIR_TARGET_FILE:
+            string_append_cstr(result, "FILE");
             break;
-        case REDIR_OPERAND_FD:
+        case REDIR_TARGET_FD:
             string_append_cstr(result, "FD");
             break;
-        case REDIR_OPERAND_IOLOC:
-            string_append_cstr(result, "IOLOC");
+        case REDIR_TARGET_FD_STRING:
+            string_append_cstr(result, "FD_STRING");
             break;
-        case REDIR_OPERAND_HEREDOC:
-            string_append_cstr(result, "HEREDOC");
+        case REDIR_TARGET_BUFFER:
+            string_append_cstr(result, "BUFFER");
             break;
-        case REDIR_OPERAND_CLOSE:
+        case REDIR_TARGET_CLOSE:
             string_append_cstr(result, "CLOSE");
             break;
         }
         string_append_cstr(result, "\n");
 
         /* Print operand-specific fields */
-        if (node->data.redirection.operand == REDIR_OPERAND_FILENAME ||
-            node->data.redirection.operand == REDIR_OPERAND_FD)
+        if (node->data.redirection.operand == REDIR_TARGET_FILE ||
+            node->data.redirection.operand == REDIR_TARGET_FD)
         {
             if (node->data.redirection.target != NULL)
             {
@@ -977,24 +977,24 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
             }
         }
 
-        if (node->data.redirection.operand == REDIR_OPERAND_IOLOC)
+        if (node->data.redirection.operand == REDIR_TARGET_FD_STRING)
         {
-            if (node->data.redirection.io_location != NULL)
+            if (node->data.redirection.fd_string != NULL)
             {
                 indent_str(result, indent_level + 1);
-                string_append_cstr(result, "io_location: ");
-                string_append(result, node->data.redirection.io_location);
+                string_append_cstr(result, "fd_string: ");
+                string_append(result, node->data.redirection.fd_string);
                 string_append_cstr(result, "\n");
             }
         }
 
-        if (node->data.redirection.operand == REDIR_OPERAND_HEREDOC)
+        if (node->data.redirection.operand == REDIR_TARGET_BUFFER)
         {
-            if (node->data.redirection.heredoc_content != NULL)
+            if (node->data.redirection.buffer != NULL)
             {
                 indent_str(result, indent_level + 1);
-                string_append_cstr(result, "heredoc_content: ");
-                string_append(result, node->data.redirection.heredoc_content);
+                string_append_cstr(result, "buffer: ");
+                string_append(result, node->data.redirection.buffer);
                 string_append_cstr(result, "\n");
             }
         }

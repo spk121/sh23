@@ -55,7 +55,7 @@ static ast_node_t *lower_do_group(const gnode_t *g);
 static token_list_t *token_list_from_wordlist(const gnode_t *g);
 static token_list_t *token_list_from_pattern_list(const gnode_t *g);
 static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file);
-static redir_operand_kind_t determine_operand_kind(token_type_t type,
+static redir_target_kind_t determine_target_kind(token_type_t type,
                                                    token_t *target_tok, string_t **out_io_loc);
 static cmd_separator_t separator_from_gseparator_op(const gnode_t *gsep);
 
@@ -129,7 +129,7 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
                 ast_command_list_node_append_item(cl, sub_item);
 
                 /* Use the separator from the sub-list if available */
-                cmd_separator_t sep = LIST_SEP_EOL;
+                cmd_separator_t sep = CMD_EXEC_END;
                 if (sub_seps && j < sub_count)
                     sep = sub_seps->separators[j];
                 ast_command_list_node_append_separator(cl, sep);
@@ -143,7 +143,7 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
         {
             /* Single command - add directly */
             ast_command_list_node_append_item(cl, item);
-            ast_command_list_node_append_separator(cl, LIST_SEP_EOL);
+            ast_command_list_node_append_separator(cl, CMD_EXEC_END);
         }
     }
 
@@ -234,7 +234,7 @@ static ast_node_t *lower_list(const gnode_t *g)
 
         i++;
 
-        cmd_separator_t sep = LIST_SEP_EOL;
+        cmd_separator_t sep = CMD_EXEC_END;
 
         if (i < lst->size)
         {
@@ -247,12 +247,12 @@ static ast_node_t *lower_list(const gnode_t *g)
             else
             {
                 /* No explicit separator → treat as EOL at this position */
-                sep = LIST_SEP_EOL;
+                sep = CMD_EXEC_END;
             }
         }
         else
         {
-            sep = LIST_SEP_EOL;
+            sep = CMD_EXEC_END;
         }
 
         ast_command_list_node_append_separator(cl, sep);
@@ -686,16 +686,16 @@ static ast_node_t *lower_term_as_command_list(const gnode_t *g)
         ast_command_list_node_append_item(cl, node);
         i++;
 
-        cmd_separator_t sep = LIST_SEP_EOL;
+        cmd_separator_t sep = CMD_EXEC_END;
 
         if (i < lst->size)
         {
             const gnode_t *sep_node = lst->nodes[i];
             if (sep_node->type == G_SEPARATOR)
             {
-                /* normalize to LIST_SEP_SEQUENTIAL for ; or newline,
-                   LIST_SEP_BACKGROUND for &. For now treat all as SEQUENTIAL. */
-                sep = LIST_SEP_SEQUENTIAL;
+                /* normalize to CMD_EXEC_SEQUENTIAL for ; or newline,
+                   CMD_EXEC_BACKGROUND for &. For now treat all as SEQUENTIAL. */
+                sep = CMD_EXEC_SEQUENTIAL;
                 i++;
             }
         }
@@ -956,18 +956,18 @@ static ast_node_t *lower_case_item(const gnode_t *g)
     if (gbody)
         body = lower_compound_list(gbody);
 
-    case_terminator_t term = CASE_TERM_NONE;
+    case_action_t action = CASE_ACTION_NONE;
     if (gterm)
     {
         token_type_t t = token_get_type(gterm->data.token);
         if (t == TOKEN_DSEMI)
-            term = CASE_TERM_DSEMI;
+            action = CASE_ACTION_BREAK;
         else if (t == TOKEN_SEMIAND)
-            term = CASE_TERM_SEMI_AND;
+            action = CASE_ACTION_FALLTHROUGH;
     }
 
     ast_node_t *ci = ast_create_case_item(patterns, body);
-    ci->data.case_item.terminator = term;
+    ci->data.case_item.action = action;
     return ci;
 }
 
@@ -991,7 +991,7 @@ static ast_node_t *lower_case_item_ns(const gnode_t *g)
         body = lower_compound_list(gbody);
 
     ast_node_t *ci = ast_create_case_item(patterns, body);
-    ci->data.case_item.terminator = CASE_TERM_NONE;
+    ci->data.case_item.action = CASE_ACTION_NONE;
     return ci;
 }
 
@@ -1113,17 +1113,17 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         io_number = gionum->data.token->io_number;
     }
 
-    string_t *io_location = NULL;
+    string_t *fd_string = NULL;
     if (gioloc)
     {
         EXPECT_TYPE(gioloc, G_IO_LOCATION_NODE);
-        io_location = string_create_from(gioloc->data.token->io_location);
+        fd_string = string_create_from(gioloc->data.token->io_location);
     }
 
     redirection_type_t rtype;
-    redir_operand_kind_t operand = REDIR_OPERAND_NONE;
+    redir_target_kind_t operand = REDIR_TARGET_INVALID;
     token_t *target_tok = NULL;
-    string_t *heredoc_content = NULL;
+    string_t *buffer_content = NULL;
     token_t *op_tok = NULL;
     token_type_t op_type;
 
@@ -1140,7 +1140,7 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         EXPECT_TYPE(gfname, G_FILENAME);
         target_tok = gfname->data.token;
 
-        operand = determine_operand_kind(op_type, target_tok, &io_location);
+        operand = determine_target_kind(op_type, target_tok, &fd_string);
     }
 
     /* io_here */
@@ -1149,9 +1149,9 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         op_type = gtarget->data.io_here.op;
 
         if (op_type == TOKEN_DLESS)
-            rtype = REDIR_HEREDOC;
+            rtype = REDIR_FROM_BUFFER;
         else
-            rtype = REDIR_HEREDOC_STRIP;
+            rtype = REDIR_FROM_BUFFER_STRIP;
 
         /* For heredocs, target_tok is not used; we use heredoc_content instead */
         target_tok = NULL;
@@ -1160,16 +1160,16 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         token_t *here_tok = gtarget->data.io_here.tok;
         if (here_tok && here_tok->heredoc_content)
         {
-            heredoc_content = string_create_from(here_tok->heredoc_content);
+            buffer_content = string_create_from(here_tok->heredoc_content);
         }
 
-        operand = REDIR_OPERAND_HEREDOC;
+        operand = REDIR_TARGET_BUFFER;
     }
     else
     {
         log_error("lower_io_redirect: unexpected target kind %d", (int)gtarget->type);
-        if (io_location)
-            string_destroy(&io_location);
+        if (fd_string)
+            string_destroy(&fd_string);
         return NULL;
     }
 
@@ -1177,9 +1177,9 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     // For heredocs, target_tok is NULL and we use heredoc_content instead
     token_t *cloned_target = target_tok ? token_clone(target_tok) : NULL;
     ast_node_t *node =
-        ast_create_redirection(rtype, operand, io_number, io_location, cloned_target);
+        ast_create_redirection(rtype, operand, io_number, fd_string, cloned_target);
     node->data.redirection.operand = operand;
-    node->data.redirection.heredoc_content = heredoc_content;
+    node->data.redirection.buffer = buffer_content;
 
     return node;
 }
@@ -1232,26 +1232,26 @@ static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file)
     switch (t)
     {
     case TOKEN_LESS:
-        return REDIR_INPUT;
+        return REDIR_READ;
     case TOKEN_GREATER:
-        return REDIR_OUTPUT;
+        return REDIR_WRITE;
     case TOKEN_DGREAT:
         return REDIR_APPEND;
     case TOKEN_LESSAND:
-        return REDIR_DUP_INPUT;
+        return REDIR_FD_DUP_IN;
     case TOKEN_GREATAND:
-        return REDIR_DUP_OUTPUT;
+        return REDIR_FD_DUP_OUT;
     case TOKEN_LESSGREAT:
         return REDIR_READWRITE;
     case TOKEN_CLOBBER:
-        return REDIR_CLOBBER;
+        return REDIR_WRITE_FORCE;
     default:
         log_error("map_redir_type_from_io_file: unexpected token type %d", (int)t);
-        return REDIR_INPUT;
+        return REDIR_READ;
     }
 }
 
-static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t *target_tok,
+static redir_target_kind_t determine_target_kind(token_type_t op_type, token_t *target_tok,
                                                    string_t **out_io_loc)
 {
     // FIXME: use out_io_loc if needed
@@ -1266,7 +1266,7 @@ static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t
      * ------------------------------------------------------------ */
     case TOKEN_DLESS:     /* << */
     case TOKEN_DLESSDASH: /* <<- */
-        return REDIR_OPERAND_HEREDOC;
+        return REDIR_TARGET_BUFFER;
 
     /* ------------------------------------------------------------
      * FD DUPLICATION OPERATORS
@@ -1274,16 +1274,16 @@ static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t
     case TOKEN_LESSAND:  /* <& */
     case TOKEN_GREATAND: /* >& */
         if (string_compare_cstr(lx, "-") == 0)
-            return REDIR_OPERAND_CLOSE;
+            return REDIR_TARGET_CLOSE;
 
         /* numeric? */
         if (string_length(lx) > 0 && string_find_first_not_of_cstr(lx, "0123456789") != -1)
         {
             string_destroy(&lx);
-            return REDIR_OPERAND_FILENAME; /* unspecified → treat as filename */
+            return REDIR_TARGET_FILE; /* unspecified → treat as filename */
         }
 
-        return REDIR_OPERAND_FD;
+        return REDIR_TARGET_FD;
 
     /* ------------------------------------------------------------
      * FILENAME OPERATORS
@@ -1293,23 +1293,23 @@ static redir_operand_kind_t determine_operand_kind(token_type_t op_type, token_t
     case TOKEN_DGREAT:    /* >> */
     case TOKEN_LESSGREAT: /* <> */
     case TOKEN_CLOBBER:   /* >| */
-        return REDIR_OPERAND_FILENAME;
+        return REDIR_TARGET_FILE;
 
     default:
-        return REDIR_OPERAND_FILENAME;
+        return REDIR_TARGET_FILE;
     }
 }
 
 
-/* separator_op: '&' or ';' → LIST_SEP_BACKGROUND/SEQUENTIAL */
+/* separator_op: '&' or ';' → CMD_EXEC_BACKGROUND/SEQUENTIAL */
 static cmd_separator_t separator_from_gseparator_op(const gnode_t *gsep)
 {
     Expects_eq(gsep->type, G_SEPARATOR_OP);
     token_type_t t = token_get_type(gsep->data.token);
 
     if (t == TOKEN_AMPER)
-        return LIST_SEP_BACKGROUND;
-    return LIST_SEP_SEQUENTIAL;
+        return CMD_EXEC_BACKGROUND;
+    return CMD_EXEC_SEQUENTIAL;
 }
 
 #ifdef _MSC_VER

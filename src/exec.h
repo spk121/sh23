@@ -52,7 +52,6 @@ typedef struct
     bool verbose;   // -v
     bool vi;
     bool xtrace;    // -x
-    char padding[5];
 } exec_opt_flags_t;
 
 /**
@@ -66,7 +65,6 @@ typedef struct exec_t
     bool is_subshell;          // True if this is a subshell environment
     bool is_interactive;       // Whether shell is interactive
     bool is_login_shell;       // Whether this is a login shell
-    char padding1[5];
 
     // Working directory as set by cd
     string_t *working_directory;   // POSIX getcwd(), UCRT _getcwd(), ISO_C no standard way
@@ -75,14 +73,11 @@ typedef struct exec_t
     // These are the permissions that should be masked off when creating new files.
 #ifdef POSIX_API
     mode_t umask;  // return value of umask()
-    int padding2;
 #elifdef UCRT_API
     int umask;     // return value of _umask()
-    int padding2;
 #else
     // ISO_C does not have a meaningful umask
     int umask; // dummy placeholder
-    int padding2;
 #endif
 
     // File size limit as set by ulimit
@@ -106,7 +101,6 @@ typedef struct exec_t
     // $? - Exit status of last command
     int last_exit_status;
     bool last_exit_status_set;
-    char padding3[3];
 
      // $! - PID of last background command
 #ifdef POSIX_API
@@ -115,7 +109,6 @@ typedef struct exec_t
     int last_background_pid;
 #endif
     bool last_background_pid_set;
-    char padding4[3];
 
      // $$ - PID of the shell process
 #ifdef POSIX_API
@@ -124,12 +117,10 @@ typedef struct exec_t
     int shell_pid;
 #endif
     bool shell_pid_set;
-    char padding5[3];
 
     // $_ - Last argument of previous command
     string_t *last_argument;
     bool last_argument_set;
-    char padding6[7];
 
     // $0 - Name of the shell or shell script
     string_t *shell_name;
@@ -140,7 +131,6 @@ typedef struct exec_t
     // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
     exec_opt_flags_t opt;
     bool opt_flags_set;
-    char padding7[7];
 
     // Background jobs and their associated process IDs, and process IDs of
     // child processes created to execute asynchronous AND-OR lists while job
@@ -154,18 +144,15 @@ typedef struct exec_t
     int dummy_pgid; // Placeholder, no job control in UCRT/ISO C
 #endif
     bool job_control_enabled; // Whether job control is active
-    char padding8[3];
 
 #if defined(POSIX_API) || defined(UCRT_API)
     // Open file descriptors (for managing redirections)
     fd_table_t *open_fds; // Track which FDs are open and their state
     int next_fd;          // For allocating new FDs in redirections
-    int padding9;
 #else
     // There are no file descriptors in ISO C
     void *dummy_open_fds;
     int dummy_next_fd;
-    int padding9;
 #endif
 
     // Shell aliases
@@ -179,7 +166,6 @@ typedef struct
 {
     // Start-up environment
     int argc;
-    int padding;
     char *const *argv;
     char *const *envp;
 

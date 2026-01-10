@@ -198,7 +198,7 @@ CTEST(test_parser_background_command)
     if (!cmd_list) { ast_node_destroy(&ast); return; }
 
     CTEST_ASSERT(ctest, ast_node_command_list_has_separators(cmd_list), "has separator");
-    CTEST_ASSERT_EQ(ctest, ast_node_command_list_get_separator(cmd_list, 0), LIST_SEP_BACKGROUND,
+    CTEST_ASSERT_EQ(ctest, ast_node_command_list_get_separator(cmd_list, 0), CMD_EXEC_BACKGROUND,
         "separator is background");
 
     ast_node_destroy(&ast);
@@ -545,8 +545,8 @@ CTEST(test_parser_braced_io_number_redirection)
 
     ast_node_t* redir = first->data.simple_command.redirections->nodes[0];
     CTEST_ASSERT_EQ(ctest, redir->data.redirection.io_number, 2, "io number parsed");
-    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.io_location, "io location stored");
-    CTEST_ASSERT_STR_EQ(ctest, string_cstr(redir->data.redirection.io_location), "2", "io location inner text");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.fd_string, "io location stored");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(redir->data.redirection.fd_string), "2", "io location inner text");
 
     ast_node_destroy(&ast);
     (void)ctest;
@@ -567,8 +567,8 @@ CTEST(test_parser_braced_io_name_redirection)
 
     ast_node_t* redir = first->data.simple_command.redirections->nodes[0];
     CTEST_ASSERT_EQ(ctest, redir->data.redirection.io_number, -1, "io number defaults when name used");
-    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.io_location, "io location stored");
-    CTEST_ASSERT_STR_EQ(ctest, string_cstr(redir->data.redirection.io_location), "fd", "io location inner text");
+    CTEST_ASSERT_NOT_NULL(ctest, redir->data.redirection.fd_string, "io location stored");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(redir->data.redirection.fd_string), "fd", "io location inner text");
 
     ast_node_destroy(&ast);
     (void)ctest;

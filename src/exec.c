@@ -1014,7 +1014,7 @@ exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node
         if (i < ast_node_command_list_separator_count(node))
         {
             cmd_separator_t sep = ast_node_command_list_get_separator(node, i);
-            if (sep == LIST_SEP_BACKGROUND)
+            if (sep == CMD_EXEC_BACKGROUND)
             {
                 // Background execution - in a real shell, fork and don't wait
                 // For now, we just note it
@@ -2076,9 +2076,9 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
         Expects_eq(r->type, AST_REDIRECTION);
 
         int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
-                  : (r->data.redirection.redir_type == REDIR_INPUT ||
-                     r->data.redirection.redir_type == REDIR_HEREDOC ||
-                     r->data.redirection.redir_type == REDIR_HEREDOC_STRIP)
+                  : (r->data.redirection.redir_type == REDIR_READ ||
+                     r->data.redirection.redir_type == REDIR_FROM_BUFFER ||
+                     r->data.redirection.redir_type == REDIR_FROM_BUFFER_STRIP)
                       ? 0
                       : 1);
 
@@ -2095,12 +2095,12 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
         saved[saved_i].backup_fd = backup;
         saved_i++;
 
-        redir_operand_kind_t opk = r->data.redirection.operand;
+        redir_target_kind_t opk = r->data.redirection.operand;
 
         switch (opk)
         {
 
-        case REDIR_OPERAND_FILENAME: {
+        case REDIR_TARGET_FILE: {
             string_t *fname_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             const char *fname = string_cstr(fname_str);
             int flags = 0;
@@ -2108,10 +2108,10 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
 
             switch (r->data.redirection.redir_type)
             {
-            case REDIR_INPUT:
+            case REDIR_READ:
                 flags = O_RDONLY;
                 break;
-            case REDIR_OUTPUT:
+            case REDIR_WRITE:
                 flags = O_WRONLY | O_CREAT | O_TRUNC;
                 break;
             case REDIR_APPEND:
@@ -2120,7 +2120,7 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
             case REDIR_READWRITE:
                 flags = O_RDWR | O_CREAT;
                 break;
-            case REDIR_CLOBBER:
+            case REDIR_WRITE_FORCE:
                 flags = O_WRONLY | O_CREAT | O_TRUNC;
                 break;
             default:
@@ -2153,7 +2153,7 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
             break;
         }
 
-        case REDIR_OPERAND_FD: {
+        case REDIR_TARGET_FD: {
             string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             const char *lex = string_cstr(fd_str);
             int src = atoi(lex);
@@ -2169,12 +2169,12 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
             break;
         }
 
-        case REDIR_OPERAND_CLOSE: {
+        case REDIR_TARGET_CLOSE: {
             close(fd);
             break;
         }
 
-        case REDIR_OPERAND_HEREDOC: {
+        case REDIR_TARGET_BUFFER: {
             int pipefd[2];
             if (pipe(pipefd) < 0)
             {
@@ -2183,8 +2183,8 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
                 return EXEC_ERROR;
             }
 
-            const char *content = r->data.redirection.heredoc_content
-                                      ? string_cstr(r->data.redirection.heredoc_content)
+            const char *content = r->data.redirection.buffer
+                                      ? string_cstr(r->data.redirection.buffer)
                                       : "";
 
             write(pipefd[1], content, strlen(content));
@@ -2259,9 +2259,9 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
         // Determine which file descriptor to redirect
         // If io_number is specified, use it; otherwise default based on redir_type
         int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
-                  : (r->data.redirection.redir_type == REDIR_INPUT ||
-                     r->data.redirection.redir_type == REDIR_HEREDOC ||
-                     r->data.redirection.redir_type == REDIR_HEREDOC_STRIP)
+                  : (r->data.redirection.redir_type == REDIR_READ ||
+                     r->data.redirection.redir_type == REDIR_FROM_BUFFER ||
+                     r->data.redirection.redir_type == REDIR_FROM_BUFFER_STRIP)
                       ? STDIN_FILENO
                       : STDOUT_FILENO);
 
@@ -2278,11 +2278,11 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
         saved[saved_i].backup_fd = backup;
         saved_i++;
 
-        redir_operand_kind_t opk = r->data.redirection.operand;
+        redir_target_kind_t opk = r->data.redirection.operand;
 
         switch (opk)
         {
-        case REDIR_OPERAND_FILENAME: {
+        case REDIR_TARGET_FILE: {
             // Expand the filename
             string_t *fname_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             if (!fname_str)
@@ -2299,10 +2299,10 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
 
             switch (r->data.redirection.redir_type)
             {
-            case REDIR_INPUT:
+            case REDIR_READ:
                 flags = _O_RDONLY;
                 break;
-            case REDIR_OUTPUT:
+            case REDIR_WRITE:
                 flags = _O_WRONLY | _O_CREAT | _O_TRUNC;
                 break;
             case REDIR_APPEND:
@@ -2311,7 +2311,7 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
             case REDIR_READWRITE:
                 flags = _O_RDWR | _O_CREAT;
                 break;
-            case REDIR_CLOBBER:
+            case REDIR_WRITE_FORCE:
                 flags = _O_WRONLY | _O_CREAT | _O_TRUNC;
                 break;
             default:
@@ -2353,7 +2353,7 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
             break;
         }
 
-        case REDIR_OPERAND_FD: {
+        case REDIR_TARGET_FD: {
             // Duplicate file descriptor
             string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             if (!fd_str)
@@ -2380,15 +2380,15 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
             break;
         }
 
-        case REDIR_OPERAND_CLOSE: {
+        case REDIR_TARGET_CLOSE: {
             // Close the file descriptor
             _close(fd);
             break;
         }
 
-        case REDIR_OPERAND_HEREDOC:
-        case REDIR_OPERAND_IOLOC:
-        case REDIR_OPERAND_NONE:
+        case REDIR_TARGET_BUFFER:
+        case REDIR_TARGET_FD_STRING:
+        case REDIR_TARGET_INVALID:
         default:
             exec_set_error(executor, "Unsupported redirection operand type in UCRT_API mode");
             for (int j = 0; j < saved_i; j++)
