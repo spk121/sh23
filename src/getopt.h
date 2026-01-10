@@ -82,6 +82,12 @@ struct getopt_state
     int first_nonopt;
     int last_nonopt;
     int opt_plus_prefix;
+
+    /* Derived from opterr and optstring[0]==':' during initialization.
+     * If 0, suppress error messages to stderr.
+     */
+    int print_errors;
+
     /* POSIX shell extension: if set, a lone '-' argument terminates option
      * processing (like '--') but is itself skipped rather than preserved
      * as an operand. Per POSIX.1-2024 sh utility specification:
@@ -111,7 +117,6 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring, cons
  * These wrappers allow using string_list_t and string_t directly with getopt,
  * which is convenient for shell builtins that already work with these types.
  */
-
 
 /**
  * String-based wrapper for getopt()

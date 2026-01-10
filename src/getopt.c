@@ -9,12 +9,11 @@
 */
 
 #include "getopt.h"
+#include "string_t.h"
+#include "xalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "xalloc.h"
-#include "string_t.h"
-
 
 /* Traditional global variables */
 char *optarg = NULL;
@@ -26,13 +25,48 @@ char **__getopt_external_argv = NULL;
 static struct getopt_state _getopt_global_state = {
     .optind = 1, .opterr = 1, .optopt = '?', .initialized = 0};
 
-/* Internal helpers */
+/* ============================================================================
+ * Helper predicates and utilities
+ * ============================================================================ */
+
+/* Check if current argument is a non-option (doesn't start with - or +, or is lone -/+) */
+static inline int is_nonoption(const char *arg)
+{
+    return (arg[0] != '-' && arg[0] != '+') || arg[1] == '\0';
+}
+
+/* Check if argument is a lone hyphen */
+static inline int is_lone_hyphen(const char *arg)
+{
+    return arg[0] == '-' && arg[1] == '\0';
+}
+
+/* Check if argument is the "--" terminator */
+static inline int is_double_dash(const char *arg)
+{
+    return arg[0] == '-' && arg[1] == '-' && arg[2] == '\0';
+}
+
+/* Check if argument is a long option (--foo) */
+static inline int is_long_option(const char *arg)
+{
+    return arg[0] == '-' && arg[1] == '-' && arg[2] != '\0';
+}
+
+/* Check if argument is a long plus option (++foo) */
+static inline int is_long_plus_option(const char *arg)
+{
+    return arg[0] == '+' && arg[1] == '+' && arg[2] != '\0';
+}
+
+/* ============================================================================
+ * Permutation (reordering non-options to the end)
+ * ============================================================================ */
+
 static void exchange(char **argv, struct getopt_state *st)
 {
     if (__getopt_external_argv == NULL)
     {
-        // Can't permute the main-provided argv, so
-        // copy them to __getopt_external_argv on first use.
         int argc = 0;
         while (argv[argc] != NULL)
             argc++;
@@ -75,10 +109,68 @@ static void exchange(char **argv, struct getopt_state *st)
     st->last_nonopt = st->optind;
 }
 
+/* Mark all remaining arguments as non-options and optionally exchange */
+static void finalize_nonoptions(char **argv, struct getopt_state *st, int argc)
+{
+    if (st->first_nonopt != st->last_nonopt && st->last_nonopt != st->optind)
+        exchange(argv, st);
+    else if (st->first_nonopt == st->last_nonopt)
+        st->first_nonopt = st->optind;
+    st->last_nonopt = argc;
+}
+
+/* ============================================================================
+ * Initialization
+ * ============================================================================ */
+
+static const char *initialize(const char *optstring, struct getopt_state *st, int posixly_correct)
+{
+    if (st->optind == 0)
+        st->optind = 1;
+    st->first_nonopt = st->last_nonopt = st->optind;
+    st->__nextchar = NULL;
+    st->initialized = 1;
+
+    /* Set print_errors from opterr; will be updated below if optstring starts with ':' */
+    st->print_errors = st->opterr;
+
+    if (optstring[0] == '-')
+    {
+        st->ordering = RETURN_IN_ORDER;
+        ++optstring;
+    }
+    else if (optstring[0] == '+')
+    {
+        st->ordering = REQUIRE_ORDER;
+        ++optstring;
+    }
+    else if (posixly_correct)
+        st->ordering = REQUIRE_ORDER;
+    else
+        st->ordering = PERMUTE;
+
+    /* Leading ':' suppresses error messages */
+    if (optstring[0] == ':')
+        st->print_errors = 0;
+
+    return optstring;
+}
+
+/* Skip leading '+' or '-' in optstring if present */
+static const char *skip_optstring_prefix(const char *optstring)
+{
+    if (optstring[0] == '+' || optstring[0] == '-')
+        return optstring + 1;
+    return optstring;
+}
+
+/* ============================================================================
+ * Long option processing
+ * ============================================================================ */
+
 static int process_long_option(int argc, char **argv, const char *optstring,
                                const struct option *longopts, int *longind, int long_only,
-                               struct getopt_state *st, int print_errors, const char *prefix,
-                               int plus_aware)
+                               struct getopt_state *st, const char *prefix, int plus_aware)
 {
     char *nameend;
     size_t namelen;
@@ -87,17 +179,15 @@ static int process_long_option(int argc, char **argv, const char *optstring,
     int option_index = -1;
 
     for (nameend = st->__nextchar; *nameend && *nameend != '='; ++nameend)
-    {
-    }
+        ;
     namelen = (size_t)(nameend - st->__nextchar);
 
-    /* Exact matches */
+    /* Exact match search */
     {
         int idx = 0;
         for (p = longopts; p && p->name; ++p, ++idx)
         {
-            size_t plen = strlen(p->name);
-            if (plen == namelen && strncmp(p->name, st->__nextchar, namelen) == 0)
+            if (strlen(p->name) == namelen && strncmp(p->name, st->__nextchar, namelen) == 0)
             {
                 pfound = p;
                 option_index = idx;
@@ -105,7 +195,8 @@ static int process_long_option(int argc, char **argv, const char *optstring,
             }
         }
     }
-    /* Prefix matching / ambiguity */
+
+    /* Prefix match / ambiguity check */
     if (!pfound)
     {
         int idx = 0, matches = 0, exact = 0;
@@ -130,7 +221,7 @@ static int process_long_option(int argc, char **argv, const char *optstring,
         }
         if (matches > 1 && exact != 1)
         {
-            if (print_errors)
+            if (st->print_errors)
                 fprintf(stderr, "%s: option '%s%.*s' is ambiguous\n", argv[0], prefix, (int)namelen,
                         st->__nextchar);
             st->__nextchar += strlen(st->__nextchar);
@@ -141,11 +232,12 @@ static int process_long_option(int argc, char **argv, const char *optstring,
         pfound = candidate;
     }
 
+    /* Not found */
     if (!pfound)
     {
         if (!long_only || argv[st->optind][1] == '-' || strchr(optstring, *st->__nextchar) == NULL)
         {
-            if (print_errors)
+            if (st->print_errors)
                 fprintf(stderr, "%s: unrecognized option '%s%.*s'\n", argv[0], prefix, (int)namelen,
                         st->__nextchar);
             st->__nextchar = NULL;
@@ -159,13 +251,14 @@ static int process_long_option(int argc, char **argv, const char *optstring,
     ++st->optind;
     st->__nextchar = NULL;
 
+    /* Handle argument (=value or next argv) */
     if (*nameend)
     {
         if (pfound->has_arg)
             st->optarg = nameend + 1;
         else
         {
-            if (print_errors)
+            if (st->print_errors)
                 fprintf(stderr, "%s: option '%s%s' doesn't allow an argument\n", argv[0], prefix,
                         pfound->name);
             st->optopt = pfound->val;
@@ -178,7 +271,7 @@ static int process_long_option(int argc, char **argv, const char *optstring,
             st->optarg = argv[st->optind++];
         else
         {
-            if (print_errors)
+            if (st->print_errors)
                 fprintf(stderr, "%s: option '%s%s' requires an argument\n", argv[0], prefix,
                         pfound->name);
             st->optopt = pfound->val;
@@ -190,26 +283,26 @@ static int process_long_option(int argc, char **argv, const char *optstring,
 
     if (longind)
         *longind = option_index;
+
+    /* Handle flag setting */
     if (pfound->flag)
     {
         if (plus_aware)
         {
-            /* For option_ex: handle +/- prefix like short options */
             const struct option_ex *pex = (const struct option_ex *)pfound;
             if (st->opt_plus_prefix)
             {
-                *pex->flag = 0; /* unset */
+                *pex->flag = 0;
                 return 0;
             }
             else
             {
-                *pex->flag = 1; /* set */
+                *pex->flag = 1;
                 return pfound->val;
             }
         }
         else
         {
-            /* Standard option behavior */
             *pfound->flag = pfound->val;
             return 0;
         }
@@ -217,29 +310,241 @@ static int process_long_option(int argc, char **argv, const char *optstring,
     return pfound->val;
 }
 
-static const char *initialize(const char *optstring, struct getopt_state *st, int posixly_correct)
+/* ============================================================================
+ * Short option argument handling
+ * ============================================================================ */
+
+typedef enum
 {
-    if (st->optind == 0)
-        st->optind = 1;
-    st->first_nonopt = st->last_nonopt = st->optind;
-    st->__nextchar = NULL;
-    st->initialized = 1;
-    if (optstring[0] == '-')
-    {
-        st->ordering = RETURN_IN_ORDER;
-        ++optstring;
-    }
-    else if (optstring[0] == '+')
-    {
-        st->ordering = REQUIRE_ORDER;
-        ++optstring;
-    }
-    else if (posixly_correct)
-        st->ordering = REQUIRE_ORDER;
-    else
-        st->ordering = PERMUTE;
-    return optstring;
+    ARG_NONE,
+    ARG_REQUIRED,
+    ARG_OPTIONAL
+} arg_requirement_t;
+
+static arg_requirement_t get_arg_requirement(const char *optstring, char c)
+{
+    const char *temp = strchr(optstring, c);
+    if (!temp || c == ':' || c == ';')
+        return ARG_NONE; /* Will be caught as invalid later */
+    if (temp[1] != ':')
+        return ARG_NONE;
+    if (temp[2] == ':')
+        return ARG_OPTIONAL;
+    return ARG_REQUIRED;
 }
+
+/* Process argument for a short option. Returns 0 on success, '?' or ':' on error */
+static int process_short_option_arg(int argc, char **argv, const char *optstring, char c,
+                                    struct getopt_state *st)
+{
+    arg_requirement_t req = get_arg_requirement(optstring, c);
+
+    switch (req)
+    {
+    case ARG_OPTIONAL:
+        if (*st->__nextchar)
+        {
+            st->optarg = st->__nextchar;
+            ++st->optind;
+        }
+        else
+            st->optarg = NULL;
+        st->__nextchar = NULL;
+        break;
+
+    case ARG_REQUIRED:
+        if (*st->__nextchar)
+        {
+            st->optarg = st->__nextchar;
+            ++st->optind;
+        }
+        else if (st->optind >= argc)
+        {
+            if (st->print_errors)
+                fprintf(stderr, "%s: option requires an argument -- '%c'\n", argv[0], c);
+            st->optopt = c;
+            return optstring[0] == ':' ? ':' : '?';
+        }
+        else
+            st->optarg = argv[st->optind++];
+        st->__nextchar = NULL;
+        break;
+
+    case ARG_NONE:
+        /* No argument processing needed */
+        break;
+    }
+    return 0;
+}
+
+/* ============================================================================
+ * Plus-aware flag handling for short options
+ * ============================================================================ */
+
+static int handle_plus_aware_short(char c, int is_plus, const struct option_ex *longopts,
+                                   struct getopt_state *st, char **argv)
+{
+    const struct option_ex *p;
+    for (p = longopts; p && !(p->val == 0 && p->flag == NULL); ++p)
+    {
+        if (p->val != c)
+            continue;
+
+        if (is_plus)
+        {
+            if (!p->allow_plus)
+            {
+                if (st->print_errors)
+                    fprintf(stderr, "%s: invalid option -- +%c\n", argv[0], c);
+                st->optopt = c;
+                return '?';
+            }
+            if (p->flag)
+            {
+                *p->flag = 0;
+                if (p->plus_used)
+                    *p->plus_used = 1;
+                return 0;
+            }
+        }
+        else
+        {
+            if (p->flag)
+            {
+                *p->flag = 1;
+                if (p->plus_used)
+                    *p->plus_used = 0;
+                return c;
+            }
+        }
+        break;
+    }
+    return c; /* No flag handling, just return the character */
+}
+
+/* ============================================================================
+ * -W ; long option handling
+ * ============================================================================ */
+
+static int handle_W_long_option(int argc, char **argv, const char *optstring, char c,
+                                const struct option *longopts, int *longind,
+                                struct getopt_state *st, int plus_aware)
+{
+    if (*st->__nextchar)
+        st->optarg = st->__nextchar;
+    else if (st->optind >= argc)
+    {
+        if (st->print_errors)
+            fprintf(stderr, "%s: option requires an argument -- '%c'\n", argv[0], c);
+        st->optopt = c;
+        return optstring[0] == ':' ? ':' : '?';
+    }
+    else
+        st->optarg = argv[st->optind];
+
+    st->__nextchar = st->optarg;
+    st->optarg = NULL;
+    return process_long_option(argc, argv, optstring, longopts, longind, 0, st, "-W ", plus_aware);
+}
+
+/* ============================================================================
+ * Advance to next argument (skip non-options in PERMUTE mode)
+ * ============================================================================ */
+
+typedef enum
+{
+    ADVANCE_CONTINUE, /* Found an option to process */
+    ADVANCE_END,      /* No more options */
+    ADVANCE_NONOPTION /* Found a non-option (RETURN_IN_ORDER mode) */
+} advance_result_t;
+
+static advance_result_t advance_to_next_option(int argc, char **argv, struct getopt_state *st)
+{
+    /* Clamp indices */
+    if (st->last_nonopt > st->optind)
+        st->last_nonopt = st->optind;
+    if (st->first_nonopt > st->optind)
+        st->first_nonopt = st->optind;
+
+    /* Handle PERMUTE ordering: skip over non-options */
+    if (st->ordering == PERMUTE)
+    {
+        if (st->first_nonopt != st->last_nonopt && st->last_nonopt != st->optind)
+            exchange(argv, st);
+        else if (st->last_nonopt != st->optind)
+            st->first_nonopt = st->optind;
+
+        /* Skip non-options, but stop at lone '-' if posix_hyphen is set */
+        while (st->optind < argc && is_nonoption(argv[st->optind]))
+        {
+            if (st->posix_hyphen && is_lone_hyphen(argv[st->optind]))
+                break;
+            ++st->optind;
+        }
+        st->last_nonopt = st->optind;
+    }
+
+    /* Check for "--" terminator */
+    if (st->optind < argc && is_double_dash(argv[st->optind]))
+    {
+        ++st->optind; /* Skip past "--" */
+        finalize_nonoptions(argv, st, argc);
+        /* Don't set optind = argc here; fall through to the end-of-arguments
+         * check below which will reset optind to first_nonopt if needed.
+         */
+    }
+
+    /* Check for POSIX single-hyphen terminator */
+    if (st->posix_hyphen && st->optind < argc && is_lone_hyphen(argv[st->optind]))
+    {
+        ++st->optind; /* Skip past "-" */
+        finalize_nonoptions(argv, st, argc);
+        /* Fall through to end-of-arguments check */
+    }
+
+    /* Check for end of arguments, or if all remaining args are non-options */
+    if (st->optind >= argc || st->last_nonopt == argc)
+    {
+        if (st->first_nonopt != st->last_nonopt)
+            st->optind = st->first_nonopt;
+        return ADVANCE_END;
+    }
+
+    /* Check for non-option in non-PERMUTE mode */
+    if (is_nonoption(argv[st->optind]))
+    {
+        if (st->ordering == REQUIRE_ORDER)
+            return ADVANCE_END;
+        st->optarg = argv[st->optind++];
+        return ADVANCE_NONOPTION;
+    }
+
+    return ADVANCE_CONTINUE;
+}
+
+/* ============================================================================
+ * Process the current option argument
+ * ============================================================================ */
+
+typedef enum
+{
+    OPT_LONG,      /* --option */
+    OPT_LONG_PLUS, /* ++option */
+    OPT_SHORT      /* -x or +x */
+} option_type_t;
+
+static option_type_t classify_option(const char *arg, int plus_aware)
+{
+    if (is_long_option(arg))
+        return OPT_LONG;
+    if (plus_aware && is_long_plus_option(arg))
+        return OPT_LONG_PLUS;
+    return OPT_SHORT;
+}
+
+/* ============================================================================
+ * Main entry point (refactored)
+ * ============================================================================ */
 
 int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
                        const void *longopts_void, int *longind, int long_only, int posixly_correct,
@@ -249,232 +554,95 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
 
     if (!st || argc < 1)
         return -1;
-    int print_errors = st->opterr;
 
     st->optarg = NULL;
 
+    /* Initialize on first call or if reset */
     if (st->optind == 0 || !st->initialized)
         optstring = initialize(optstring, st, posixly_correct);
-    else if (optstring[0] == '+' || optstring[0] == '-')
-        ++optstring;
+    else
+        optstring = skip_optstring_prefix(optstring);
 
-    if (optstring[0] == ':')
-        print_errors = 0;
-
-#define NONOPTION_P                                                                                \
-    ((argv[st->optind][0] != '-' && argv[st->optind][0] != '+') || argv[st->optind][1] == '\0')
-
+    /* Phase 1: If no current option cluster, advance to next option */
     if (!st->__nextchar || *st->__nextchar == '\0')
     {
-        if (st->last_nonopt > st->optind)
-            st->last_nonopt = st->optind;
-        if (st->first_nonopt > st->optind)
-            st->first_nonopt = st->optind;
-
-        if (st->ordering == PERMUTE)
+        advance_result_t result = advance_to_next_option(argc, (char **)argv, st);
+        switch (result)
         {
-            if (st->first_nonopt != st->last_nonopt && st->last_nonopt != st->optind)
-                exchange((char **)argv, st);
-            else if (st->last_nonopt != st->optind)
-                st->first_nonopt = st->optind;
-            while (st->optind < argc && NONOPTION_P &&
-                   !(st->posix_hyphen && argv[st->optind][0] == '-' && argv[st->optind][1] == '\0'))
-                ++st->optind;
-            st->last_nonopt = st->optind;
-        }
-
-        if (st->optind != argc && strcmp(argv[st->optind], "--") == 0)
-        {
-            ++st->optind;
-            if (st->first_nonopt != st->last_nonopt && st->last_nonopt != st->optind)
-                exchange((char **)argv, st);
-            else if (st->first_nonopt == st->last_nonopt)
-                st->first_nonopt = st->optind;
-            st->last_nonopt = argc;
-            st->optind = argc;
-        }
-
-        /* POSIX shell single-hyphen handling:
-         * Per POSIX.1-2024: "A single <hyphen-minus> shall be treated as the
-         * first operand and then ignored."
-         * Unlike "--", the lone '-' is skipped entirely (not an operand).
-         * This behavior is only enabled when posix_hyphen is set.
-         */
-        if (st->posix_hyphen && st->optind != argc && argv[st->optind][0] == '-' &&
-            argv[st->optind][1] == '\0')
-        {
-            ++st->optind; /* Skip past the hyphen */
-            /* Mark remaining arguments as operands, terminate option processing */
-            if (st->first_nonopt != st->last_nonopt && st->last_nonopt != st->optind)
-                exchange((char **)argv, st);
-            else if (st->first_nonopt == st->last_nonopt)
-                st->first_nonopt = st->optind;
-            st->last_nonopt = argc;
-            /* Return -1 to signal end of options, with optind pointing to
-             * the first operand (or argc if there are no more arguments).
-             */
+        case ADVANCE_END:
             return -1;
-        }
-
-        if (st->optind == argc)
-        {
-            if (st->first_nonopt != st->last_nonopt)
-                st->optind = st->first_nonopt;
-            return -1;
-        }
-
-        if (NONOPTION_P)
-        {
-            if (st->ordering == REQUIRE_ORDER)
-                return -1;
-            st->optarg = argv[st->optind++];
+        case ADVANCE_NONOPTION:
             return 1;
+        case ADVANCE_CONTINUE:
+            break;
         }
 
-        char prefix_char = argv[st->optind][0];
-        int is_plus = (prefix_char == '+');
+        /* Classify and dispatch to appropriate handler */
+        const char *arg = argv[st->optind];
+        option_type_t opt_type = classify_option(arg, plus_aware);
 
-        /* Handle long options if applicable */
-        if (longopts && argv[st->optind][1] == '-')
+        switch (opt_type)
         {
+        case OPT_LONG:
             st->opt_plus_prefix = 0;
-            st->__nextchar = argv[st->optind] + 2;
+            st->__nextchar = (char *)(arg + 2);
             return process_long_option(argc, (char **)argv, optstring,
                                        (const struct option *)longopts, longind, long_only, st,
-                                       print_errors, "--", plus_aware);
-        }
-        if (plus_aware && is_plus && argv[st->optind][1] == '+')
-        {
+                                       "--", plus_aware);
+
+        case OPT_LONG_PLUS:
             st->opt_plus_prefix = 1;
-            st->__nextchar = argv[st->optind] + 2;
+            st->__nextchar = (char *)(arg + 2);
             return process_long_option(argc, (char **)argv, optstring,
                                        (const struct option *)longopts, longind, long_only, st,
-                                       print_errors, "++", plus_aware);
-        }
+                                       "++", plus_aware);
 
-        /* Short option cluster or single */
-        st->opt_plus_prefix = is_plus;
-        st->__nextchar = argv[st->optind] + 1;
+        case OPT_SHORT:
+            st->opt_plus_prefix = (arg[0] == '+');
+            st->__nextchar = (char *)(arg + 1);
+            break;
+        }
     }
 
-    /* Short options in cluster */
+    /* Phase 2: Process short option from current cluster */
+    char c = *st->__nextchar++;
+    int is_plus = st->opt_plus_prefix;
+
+    if (*st->__nextchar == '\0')
+        ++st->optind;
+
+    /* Validate option character */
+    const char *temp = strchr(optstring, c);
+    if (!temp || c == ':' || c == ';')
     {
-        char c = *st->__nextchar++;
-        int is_plus = st->opt_plus_prefix;
-
-        if (*st->__nextchar == '\0')
-            ++st->optind;
-
-        /* Find short option in optstring */
-        const char *temp = strchr(optstring, c);
-        if (!temp || c == ':' || c == ';')
-        {
-            if (print_errors)
-                fprintf(stderr, "%s: invalid option -- '%c%c'\n", argv[0], is_plus ? '+' : '-', c);
-            st->optopt = c;
-            return '?';
-        }
-
-        if (temp[0] == 'W' && temp[1] == ';' && longopts)
-        {
-            if (*st->__nextchar)
-                st->optarg = st->__nextchar;
-            else if (st->optind == argc)
-            {
-                if (print_errors)
-                    fprintf(stderr, "%s: option requires an argument -- '%c'\n", argv[0], c);
-                st->optopt = c;
-                return optstring[0] == ':' ? ':' : '?';
-            }
-            else
-                st->optarg = argv[st->optind];
-            st->__nextchar = st->optarg;
-            st->optarg = NULL;
-            return process_long_option(argc, (char **)argv, optstring,
-                                       (const struct option *)longopts, longind, 0, st,
-                                       print_errors, "-W ", plus_aware);
-        }
-
-        if (temp[1] == ':')
-        {
-            if (temp[2] == ':') /* optional argument */
-            {
-                if (*st->__nextchar)
-                {
-                    st->optarg = st->__nextchar;
-                    ++st->optind;
-                }
-                else
-                    st->optarg = NULL;
-                st->__nextchar = NULL;
-            }
-            else /* required argument */
-            {
-                if (*st->__nextchar)
-                {
-                    st->optarg = st->__nextchar;
-                    ++st->optind;
-                }
-                else if (st->optind == argc)
-                {
-                    if (print_errors)
-                        fprintf(stderr, "%s: option requires an argument -- '%c'\n", argv[0], c);
-                    st->optopt = c;
-                    return optstring[0] == ':' ? ':' : '?';
-                }
-                else
-                    st->optarg = argv[st->optind++];
-                st->__nextchar = NULL;
-            }
-        }
-        if (plus_aware && longopts)
-        {
-            const struct option_ex *p;
-            int idx = 0;
-            /* Loop through option_ex array until terminator (val == 0 and flag == NULL) */
-            for (p = longopts; p && !(p->val == 0 && p->flag == NULL); ++p, ++idx)
-            {
-                if (p->val == c)
-                {
-                    if (is_plus)
-                    {
-                        if (!p->allow_plus)
-                        {
-                            if (print_errors)
-                                fprintf(stderr, "%s: invalid option -- +%c\n", argv[0], c);
-                            st->optopt = c;
-                            return '?';
-                        }
-                        if (p->flag)
-                        {
-                            *p->flag = 0; /* unset */
-                            if (p->plus_used)
-                                *p->plus_used = 1;
-                            return 0;
-                        }
-                        /* fall through to return val if no flag */
-                    }
-                    else
-                    {
-                        /* For minus prefix */
-                        if (p->flag)
-                        {
-                            *p->flag = 1; /* set flag to 1 (true/on) */
-                            if (p->plus_used)
-                                *p->plus_used = 0;
-                            /* Return the character to indicate which option was set */
-                            return c;
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        return c;
+        if (st->print_errors)
+            fprintf(stderr, "%s: invalid option -- '%c%c'\n", argv[0], is_plus ? '+' : '-', c);
+        st->optopt = c;
+        return '?';
     }
+
+    /* Handle -W ; for long options */
+    if (temp[0] == 'W' && temp[1] == ';' && longopts)
+    {
+        return handle_W_long_option(argc, (char **)argv, optstring, c,
+                                    (const struct option *)longopts, longind, st, plus_aware);
+    }
+
+    /* Process argument if required */
+    int arg_result = process_short_option_arg(argc, (char **)argv, optstring, c, st);
+    if (arg_result != 0)
+        return arg_result;
+
+    /* Handle plus-aware flag setting */
+    if (plus_aware && longopts)
+        return handle_plus_aware_short(c, is_plus, longopts, st, (char **)argv);
+
+    return c;
 }
 
-/* Public non-reentrant APIs use the persistent global state */
+/* ============================================================================
+ * Public non-reentrant APIs
+ * ============================================================================ */
 
 static void sync_globals(const struct getopt_state *st)
 {
@@ -484,19 +652,22 @@ static void sync_globals(const struct getopt_state *st)
     optopt = st->optopt;
 }
 
+static void reset_global_state(void)
+{
+    _getopt_global_state.optind = 1;
+    _getopt_global_state.first_nonopt = 1;
+    _getopt_global_state.last_nonopt = 1;
+    _getopt_global_state.__nextchar = NULL;
+    _getopt_global_state.initialized = 0;
+}
+
 int getopt(int argc, char *const argv[], const char *optstring)
 {
-    /* Reset if user set optind = 0 */
     if (optind == 0)
     {
         optind = 1;
-        _getopt_global_state.optind = 1;
-        _getopt_global_state.first_nonopt = 1;
-        _getopt_global_state.last_nonopt = 1;
-        _getopt_global_state.__nextchar = NULL;
-        _getopt_global_state.initialized = 0;
+        reset_global_state();
     }
-    /* Keep opterr from global */
     _getopt_global_state.opterr = opterr;
 
     int rc = _getopt_internal_r(argc, argv, optstring, NULL, NULL, 0, 0, &_getopt_global_state, 0);
@@ -510,11 +681,7 @@ int getopt_long(int argc, char *const argv[], const char *optstring, const struc
     if (optind == 0)
     {
         optind = 1;
-        _getopt_global_state.optind = 1;
-        _getopt_global_state.first_nonopt = 1;
-        _getopt_global_state.last_nonopt = 1;
-        _getopt_global_state.__nextchar = NULL;
-        _getopt_global_state.initialized = 0;
+        reset_global_state();
     }
     _getopt_global_state.opterr = opterr;
     int rc = _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0,
@@ -529,11 +696,7 @@ int getopt_long_only(int argc, char *const argv[], const char *optstring,
     if (optind == 0)
     {
         optind = 1;
-        _getopt_global_state.optind = 1;
-        _getopt_global_state.first_nonopt = 1;
-        _getopt_global_state.last_nonopt = 1;
-        _getopt_global_state.__nextchar = NULL;
-        _getopt_global_state.initialized = 0;
+        reset_global_state();
     }
     _getopt_global_state.opterr = opterr;
     int rc = _getopt_internal_r(argc, argv, optstring, longopts, longind, 1, 0,
@@ -578,7 +741,10 @@ int getopt_long_only_plus(int argc, char *const argv[], const char *optstring,
     return rc;
 }
 
-/* Re-entrant variants unchanged */
+/* ============================================================================
+ * Re-entrant variants
+ * ============================================================================ */
+
 int getopt_r(int argc, char *const argv[], const char *optstring, struct getopt_state *state)
 {
     if (!state)
@@ -606,6 +772,66 @@ int getopt_long_plus_r(int argc, char *const argv[], const char *optstring,
                        const struct option_ex *longopts, int *longind, struct getopt_state *state)
 {
     return _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0, state, 1);
+}
+
+/* ============================================================================
+ * String-based wrappers for shell builtins
+ * ============================================================================ */
+
+static char **string_list_to_argv(const string_list_t *list, int *argc)
+{
+    if (!list)
+    {
+        *argc = 0;
+        return NULL;
+    }
+
+    int count = string_list_size(list);
+    *argc = count;
+
+    if (count == 0)
+        return NULL;
+
+    char **argv = malloc(count * sizeof(char *));
+    if (!argv)
+        return NULL;
+
+    for (int i = 0; i < count; i++)
+    {
+        const string_t *str = string_list_at(list, i);
+        argv[i] = (char *)string_cstr(str);
+    }
+
+    return argv;
+}
+
+int getopt_string(const string_list_t *argv, const string_t *optstring)
+{
+    int argc;
+    char **argv_array = string_list_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = getopt(argc, argv_array, optstr);
+
+    free(argv_array);
+    return result;
+}
+
+int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring,
+                            const struct option_ex *longopts, int *longind)
+{
+    int argc;
+    char **argv_array = string_list_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
+
+    free(argv_array);
+    return result;
 }
 
 #ifdef GETOPT_TEST
@@ -641,68 +867,3 @@ int main(int argc, char **argv)
     return 0;
 }
 #endif
-
-/* ============================================================================
- * String-based wrappers for shell builtins
- * ============================================================================ */
-
-
-/**
- * Convert string_list_t to char** for getopt
- * The caller must free the returned array (but not the individual strings)
- */
-static char **string_list_to_argv(const string_list_t *list, int *argc)
-{
-    if (!list)
-    {
-        *argc = 0;
-        return NULL;
-    }
-
-    int count = string_list_size(list);
-    *argc = count;
-
-    if (count == 0)
-        return NULL;
-
-    char **argv = malloc(count * sizeof(char *));
-    if (!argv)
-        return NULL;
-
-    for (int i = 0; i < count; i++)
-    {
-        const string_t *str = string_list_at(list, i);
-        argv[i] = (char *)string_cstr(str);  // Cast away const for getopt compatibility
-    }
-
-    return argv;
-}
-
-int getopt_string(const string_list_t *argv, const string_t *optstring)
-{
-    int argc;
-    char **argv_array = string_list_to_argv(argv, &argc);
-    if (!argv_array)
-        return -1;
-
-    const char *optstr = string_cstr(optstring);
-    int result = getopt(argc, argv_array, optstr);
-
-    free(argv_array);
-    return result;
-}
-
-int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring,
-                            const struct option_ex *longopts, int *longind)
-{
-    int argc;
-    char **argv_array = string_list_to_argv(argv, &argc);
-    if (!argv_array)
-        return -1;
-
-    const char *optstr = string_cstr(optstring);
-    int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
-
-    free(argv_array);
-    return result;
-}
