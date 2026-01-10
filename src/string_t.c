@@ -6,136 +6,178 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Helpers
+// ============================================================================
+// Internal helper functions for small string optimization
+// ============================================================================
+
+static inline bool string_is_inline(const string_t *str)
+{
+    return str->capacity <= STRING_INITIAL_CAPACITY;
+}
+
+static inline bool string_is_heap_allocated(const string_t *str)
+{
+    return str->capacity > STRING_INITIAL_CAPACITY;
+}
 
 /**
- * Normalize a half-open substring range [begin, end) for a string of length `len`.
- *
- * Rules:
- *   - end == -1 → treat as len
- *   - begin < 0 → clamp to 0
- *   - end < 0 → clamp to 0
- *   - begin > len → clamp to len
- *   - end > len → clamp to len
- *   - If end <= begin → empty range (begin = end)
- *
- * Returns the normalized begin/end through output parameters.
+ * Normalize capacity and manage transitions between inline and heap storage.
  */
+static inline void string_normalize_capacity(string_t *str, int new_capacity)
+{
+    if (string_is_heap_allocated(str) && new_capacity <= STRING_INITIAL_CAPACITY)
+    {
+        // Move from heap to inline storage
+        int new_length =
+            str->length < STRING_INITIAL_CAPACITY ? str->length : STRING_INITIAL_CAPACITY - 1;
+        memcpy(str->inline_data, str->data, new_length);
+        str->inline_data[new_length] = '\0';
+        xfree(str->data);
+        str->data = str->inline_data;
+        str->length = new_length;
+        str->capacity = STRING_INITIAL_CAPACITY;
+    }
+    else if (string_is_heap_allocated(str) && new_capacity > STRING_INITIAL_CAPACITY)
+    {
+        // Resize heap allocation
+        char *new_data = (char *)xrealloc(str->data, new_capacity * sizeof(char));
+        str->data = new_data;
+        str->capacity = new_capacity;
+    }
+    else if (string_is_inline(str) && new_capacity > STRING_INITIAL_CAPACITY)
+    {
+        // Move from inline to heap storage
+        char *new_data = (char *)xmalloc(new_capacity * sizeof(char));
+        memcpy(new_data, str->inline_data, str->length);
+        new_data[str->length] = '\0';
+        str->data = new_data;
+        str->capacity = new_capacity;
+    }
+}
+
+static inline bool string_list_is_inline(const string_list_t *list)
+{
+    return list->capacity <= STRING_LIST_INITIAL_CAPACITY;
+}
+
+static inline bool string_list_is_heap_allocated(const string_list_t *list)
+{
+    return list->capacity > STRING_LIST_INITIAL_CAPACITY;
+}
+
+static inline void string_list_normalize_capacity(string_list_t *list, int new_capacity)
+{
+    if (string_list_is_heap_allocated(list) && new_capacity <= STRING_LIST_INITIAL_CAPACITY)
+    {
+        int old_size = list->size;
+        int new_size =
+            old_size < STRING_LIST_INITIAL_CAPACITY ? old_size : STRING_LIST_INITIAL_CAPACITY;
+        memcpy(list->inline_strings, list->strings, new_size * sizeof(string_t *));
+        xfree(list->strings);
+        list->strings = list->inline_strings;
+        list->size = new_size;
+        list->capacity = STRING_LIST_INITIAL_CAPACITY;
+    }
+    else if (string_list_is_heap_allocated(list) && new_capacity > STRING_LIST_INITIAL_CAPACITY)
+    {
+        string_t **new_strings = (string_t **)xrealloc(list->strings, new_capacity * sizeof(string_t *));
+        list->strings = new_strings;
+        list->capacity = new_capacity;
+    }
+    else if (string_list_is_inline(list) && new_capacity > STRING_LIST_INITIAL_CAPACITY)
+    {
+        string_t **new_strings = (string_t **)xmalloc(new_capacity * sizeof(string_t *));
+        memcpy(new_strings, list->inline_strings, list->size * sizeof(string_t *));
+        list->strings = new_strings;
+        list->capacity = new_capacity;
+    }
+}
+
+// ============================================================================
+// Range clamping helper
+// ============================================================================
+
 static inline void clamp_range(int len, int begin, int end, int *out_begin, int *out_end)
 {
-    // Default end to full length
     if (end == -1)
         end = len;
-
-    // Clamp begin
     if (begin < 0)
         begin = 0;
     if (begin > len)
         begin = len;
-
-    // Clamp end
     if (end < 0)
         end = 0;
     if (end > len)
         end = len;
-
-    // Empty or inverted -> collapse to empty
     if (end <= begin)
     {
         *out_begin = *out_end = begin;
         return;
     }
-
     *out_begin = begin;
     *out_end = end;
 }
 
+// ============================================================================
+// Capacity management
+// ============================================================================
+
 static void string_ensure_capacity(string_t *str, int needed)
 {
-    return_if_null(str);
+    Expects_not_null(str);
     return_if_lt(needed, 0);
 
-    // Handle shrink case first
-    if (str->capacity > REDUCE_THRESHOLD && needed <= REDUCE_THRESHOLD)
-    {
-        int new_capacity = REDUCE_THRESHOLD;
-
-        if (str->data == NULL)
-        {
-            str->data = xcalloc(new_capacity, 1);
-            str->capacity = new_capacity;
-            return;
-        }
-
-        char *new_data = xrealloc(str->data, new_capacity);
-        str->data = new_data;
-
-        // Ensure null termination if shrinking below current length
-        if (str->length >= new_capacity)
-        {
-            str->length = new_capacity - 1;
-            str->data[str->length] = '\0';
-        }
-
-        str->capacity = new_capacity;
-        return;
-    }
-
-    // Normal growth logic
-    if (needed < str->capacity)
+    if (needed <= str->capacity)
         return;
 
-    int new_capacity = str->capacity ? str->capacity : INITIAL_CAPACITY;
+    int new_capacity = str->capacity ? str->capacity : STRING_INITIAL_CAPACITY;
 
     while (new_capacity < needed)
     {
-        if (new_capacity > INT_MAX / GROW_FACTOR)
+        if (new_capacity > INT_MAX / STRING_GROW_FACTOR)
         {
-            new_capacity = needed; // prevent overflow
+            new_capacity = needed;
+            break;
         }
         else
         {
-            new_capacity *= GROW_FACTOR;
+            new_capacity *= STRING_GROW_FACTOR;
         }
     }
 
-    if (str->data == NULL)
-    {
-        str->data = xcalloc(new_capacity, 1);
-        str->capacity = new_capacity;
-        return;
-    }
-
-    char *new_data = xrealloc(str->data, new_capacity);
-    str->data = new_data;
-    str->capacity = new_capacity;
+    string_normalize_capacity(str, new_capacity);
 }
 
-
+// ============================================================================
 // Constructors
+// ============================================================================
+
 string_t *string_create(void)
 {
     string_t *str = xcalloc(1, sizeof(string_t));
-
-    str->data = xcalloc(INITIAL_CAPACITY, 1);
-    str->capacity = INITIAL_CAPACITY;
+    str->data = str->inline_data;
+    str->capacity = STRING_INITIAL_CAPACITY;
     str->length = 0;
-
+    str->inline_data[0] = '\0';
     return str;
 }
 
 string_t *string_create_from_n_chars(int count, char ch)
 {
-    return_val_if_lt(count, 0, NULL);
+    if (count <= 0)
+        return string_create();
 
     string_t *str = xcalloc(1, sizeof(string_t));
+    str->data = str->inline_data;
+    str->capacity = STRING_INITIAL_CAPACITY;
+    str->length = 0;
+    str->inline_data[0] = '\0';
+
     int needed_capacity = count + 1;
     string_ensure_capacity(str, needed_capacity);
 
     for (int i = 0; i < count; i++)
-    {
         str->data[i] = ch;
-    }
     str->data[count] = '\0';
     str->length = count;
 
@@ -147,22 +189,24 @@ string_t *string_create_from_cstr(const char *data)
     if (data == NULL)
         return string_create();
     size_t len = strlen(data);
-    return_val_if_gt(len, INT_MAX, NULL);
+    if (len > INT_MAX)
+        len = INT_MAX - 1;
     return string_create_from_cstr_len(data, (int)len);
 }
 
 string_t *string_create_from_cstr_len(const char *data, int len)
 {
-    if (data == NULL)
+    if (data == NULL || len <= 0)
         return string_create();
-    if (len < 0)
-        len = (int)strlen(data);
 
     string_t *str = xcalloc(1, sizeof(string_t));
+    str->data = str->inline_data;
+    str->capacity = STRING_INITIAL_CAPACITY;
+    str->length = 0;
+    str->inline_data[0] = '\0';
+
     int needed_capacity = len + 1;
     string_ensure_capacity(str, needed_capacity);
-
-    return_val_if_null(str->data, NULL);
 
     memcpy(str->data, data, len);
     str->data[len] = '\0';
@@ -173,56 +217,36 @@ string_t *string_create_from_cstr_len(const char *data, int len)
 
 string_t *string_create_from(const string_t *other)
 {
-    if (other == NULL)
-        return string_create();
+    Expects_not_null(other);
     if (other->length == 0)
         return string_create();
-
     return string_create_from_range(other, 0, other->length);
 }
 
-/**
- * Creates a new string containing the substring of str from [start, end).
- *
- * - start < 0  → clamped to 0
- * - start > length → results in empty string
- * - end == -1  → treated as str->length
- * - end < start (after clamping) → empty string
- * - end > length → clamped to length
- *
- * Returns a new string_t or an empty string on any NULL/invalid input.
- */
 string_t *string_create_from_range(const string_t *str, int start, int end)
 {
-    // Handle NULL or empty source string gracefully
-    if (str == NULL || str->data == NULL || str->length == 0)
-    {
-        return string_create(); // empty string
-    }
+    Expects_not_null(str);
+
+    if (str->length == 0)
+        return string_create();
 
     int b, e;
     clamp_range(str->length, start, end, &b, &e);
 
     if (b == e)
-        return string_create(); // empty
+        return string_create();
+
     int length = e - b;
 
-    // Allocate new string
     string_t *result = xcalloc(1, sizeof(string_t));
-    if (result == NULL)
-    {
-        return string_create(); // fallback to empty on allocation failure
-    }
+    result->data = result->inline_data;
+    result->capacity = STRING_INITIAL_CAPACITY;
+    result->length = 0;
+    result->inline_data[0] = '\0';
 
     int needed_capacity = length + 1;
     string_ensure_capacity(result, needed_capacity);
-    if (result->data == NULL)
-    {
-        xfree(result);
-        return string_create(); // fallback on failure
-    }
 
-    // Copy the substring
     memcpy(result->data, str->data + b, length);
     result->data[length] = '\0';
     result->length = length;
@@ -230,12 +254,18 @@ string_t *string_create_from_range(const string_t *str, int start, int end)
     return result;
 }
 
+// ============================================================================
 // Destructors
+// ============================================================================
+
 void string_destroy(string_t **str)
 {
     return_if_null(str);
     return_if_null(*str);
-    xfree((*str)->data);
+
+    if (string_is_heap_allocated(*str))
+        xfree((*str)->data);
+
     xfree(*str);
     *str = NULL;
 }
@@ -243,37 +273,49 @@ void string_destroy(string_t **str)
 char *string_release(string_t **str)
 {
     return_val_if_null(str, NULL);
+    return_val_if_null(*str, NULL);
+
     char *result = NULL;
-    if (*str && (*str)->data)
+
+    if (string_is_heap_allocated(*str))
     {
         result = (*str)->data;
-        (*str)->data = NULL;
-        (*str)->length = 0;
-        (*str)->capacity = 0;
     }
+    else
+    {
+        result = xmalloc((*str)->length + 1);
+        memcpy(result, (*str)->inline_data, (*str)->length + 1);
+    }
+
+    (*str)->data = NULL;
+    (*str)->length = 0;
+    (*str)->capacity = 0;
     xfree(*str);
     *str = NULL;
+
     return result;
 }
 
+// ============================================================================
 // Setters
+// ============================================================================
+
 void string_set(string_t *str, const string_t *str2)
 {
-    return_if_null(str);
-    return_if_null(str2);
-    if (str2 == str)
-        return;
-    if (str2->length == 0)
+    Expects_not_null(str);
+
+    if (str2 == NULL || str2->length == 0)
     {
         str->length = 0;
-        if (str->data != NULL && str->capacity > 0)
-            str->data[0] = '\0';
+        str->data[0] = '\0';
         return;
     }
 
+    if (str2 == str)
+        return;
+
     int needed_capacity = str2->length + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
     memcpy(str->data, str2->data, str2->length);
     str->length = str2->length;
@@ -282,27 +324,38 @@ void string_set(string_t *str, const string_t *str2)
 
 void string_move(string_t *str, string_t *str2)
 {
-    return_if_null(str);
-    return_if_null(str2);
+    Expects_not_null(str);
+    Expects_not_null(str2);
 
-    // Free existing data in str
-    xfree(str->data);
+    if (str == str2)
+        return;
 
-    // Move data from str2 to str
-    str->data = str2->data;
-    str->length = str2->length;
-    str->capacity = str2->capacity;
+    if (string_is_heap_allocated(str))
+        xfree(str->data);
 
-    // Invalidate str2
-    str2->data = NULL;
+    if (string_is_heap_allocated(str2))
+    {
+        str->data = str2->data;
+        str->length = str2->length;
+        str->capacity = str2->capacity;
+    }
+    else
+    {
+        str->length = str2->length;
+        str->capacity = STRING_INITIAL_CAPACITY;
+        memcpy(str->inline_data, str2->inline_data, str2->length + 1);
+        str->data = str->inline_data;
+    }
+
+    str2->data = str2->inline_data;
     str2->length = 0;
-    str2->capacity = 0;
+    str2->capacity = STRING_INITIAL_CAPACITY;
+    str2->inline_data[0] = '\0';
 }
 
-// Move the contents of str2 into str and then destroy str2
 void string_consume(string_t *str, string_t **str2)
 {
-    return_if_null(str);
+    Expects_not_null(str);
     return_if_null(str2);
     return_if_null(*str2);
 
@@ -312,15 +365,23 @@ void string_consume(string_t *str, string_t **str2)
 
 void string_set_cstr(string_t *str, const char *cstr)
 {
-    return_if_null(str);
-    return_if_null(cstr);
+    Expects_not_null(str);
+
+    if (cstr == NULL)
+    {
+        str->length = 0;
+        str->data[0] = '\0';
+        return;
+    }
+
     size_t slen = strlen(cstr);
-    return_if_gt(slen, INT_MAX);
+    if (slen > INT_MAX - 1)
+        slen = INT_MAX - 1;
     int len = (int)slen;
 
     int needed_capacity = len + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
+
     memcpy(str->data, cstr, len);
     str->length = len;
     str->data[str->length] = '\0';
@@ -328,67 +389,78 @@ void string_set_cstr(string_t *str, const char *cstr)
 
 void string_set_char(string_t *str, char ch)
 {
-    return_if_null(str);
+    Expects_not_null(str);
 
-    int needed_capacity = 1 + 1;
-    string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
+    if (ch == '\0')
+    {
+        str->length = 0;
+        str->data[0] = '\0';
+        return;
+    }
+
     str->data[0] = ch;
     str->length = 1;
-    str->data[str->length] = '\0';
+    str->data[1] = '\0';
 }
 
 void string_set_data(string_t *str, const char *data, int n)
 {
-    return_if_null(str);
-    return_if_null(data);
+    Expects_not_null(str);
 
-    if (n == -1)
-    {
-        size_t slen = strlen(data);
-        if (slen > INT_MAX - 1)
-            slen = INT_MAX - 1;
-        n = (int)slen;
-    }
-    if (n <= 0)
+    if (data == NULL || n <= 0)
     {
         str->length = 0;
-        if (str->data != NULL && str->capacity > 0)
-            str->data[0] = '\0';
+        str->data[0] = '\0';
         return;
     }
+
     if (n > INT_MAX - 1)
         n = INT_MAX - 1;
-    int needed_capacity = n + 1;
+
+    int actual_len = 0;
+    while (actual_len < n && data[actual_len] != '\0')
+        actual_len++;
+
+    int needed_capacity = actual_len + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
-    memcpy(str->data, data, n);
-    str->data[n] = '\0';
-    str->length = n;
+
+    memcpy(str->data, data, actual_len);
+    str->data[actual_len] = '\0';
+    str->length = actual_len;
 }
 
 void string_set_n_chars(string_t *str, int count, char ch)
 {
-    return_if_null(str);
-    if (count < 0)
-        count = 0;
+    Expects_not_null(str);
+
+    if (count <= 0 || ch == '\0')
+    {
+        str->length = 0;
+        str->data[0] = '\0';
+        return;
+    }
+
     if (count > INT_MAX - 1)
         count = INT_MAX - 1;
+
     int needed_capacity = count + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
-    for (int i = 0; i < count; i++)
-        str->data[i] = ch;
+    memset(str->data, ch, count);
     str->length = count;
     str->data[str->length] = '\0';
 }
 
-// Set str to the substring of str2 from [begin2, end2)
 void string_set_substring(string_t *str, const string_t *str2, int begin2, int end2)
 {
-    return_if_null(str);
-    return_if_null(str2);
+    Expects_not_null(str);
+
+    if (str2 == NULL || str2->length == 0)
+    {
+        str->length = 0;
+        str->data[0] = '\0';
+        return;
+    }
 
     int b, e;
     clamp_range(str2->length, begin2, end2, &b, &e);
@@ -396,352 +468,592 @@ void string_set_substring(string_t *str, const string_t *str2, int begin2, int e
     if (b == e)
     {
         str->length = 0;
-        if (str->data && str->capacity > 0)
-            str->data[0] = '\0';
+        str->data[0] = '\0';
         return;
     }
 
     int substring_length = e - b;
     int needed_capacity = substring_length + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
-    return_if_null(str2->data);
-    if (substring_length > 0)
-        memcpy(str->data, str2->data + b, substring_length);
+
+    memcpy(str->data, str2->data + b, substring_length);
     str->length = substring_length;
     str->data[str->length] = '\0';
 }
 
+// ============================================================================
 // Accessors
+// ============================================================================
+
 char string_at(const string_t *str, int index)
 {
-    return_val_if_null(str, '\0');
-    return_val_if_null(str->data, '\0');
-    return_val_if_lt(index, 0, '\0');
-    return_val_if_ge(index, str->length, '\0');
+    Expects_not_null(str);
+    if (index < 0 || index >= str->length)
+        return '\0';
     return str->data[index];
 }
 
 char string_front(const string_t *str)
 {
-    return_val_if_null(str, '\0');
-    return_val_if_null(str->data, '\0');
-    return_val_if_le(str->length, 0, '\0');
-
+    Expects_not_null(str);
+    if (str->length <= 0)
+        return '\0';
     return str->data[0];
 }
 
 char string_back(const string_t *str)
 {
-    return_val_if_null(str, '\0');
-    return_val_if_null(str->data, '\0');
-    return_val_if_le(str->length, 0, '\0');
-
+    Expects_not_null(str);
+    if (str->length <= 0)
+        return '\0';
     return str->data[str->length - 1];
 }
 
 char *string_data(string_t *str)
 {
-    return_val_if_null(str, NULL);
-    return_val_if_null(str->data, NULL);
-
+    Expects_not_null(str);
     return str->data;
 }
 
 char *string_data_at(string_t *str, int pos)
 {
-    return_val_if_null(str, NULL);
-    return_val_if_null(str->data, NULL);
-    return_val_if_lt(pos, 0, NULL);
-    return_val_if_gt(pos, str->length, NULL);
-
+    Expects_not_null(str);
+    if (pos < 0 || pos > str->length)
+        return NULL;
     return str->data + pos;
 }
 
 const char *string_cstr(const string_t *str)
 {
-    return_val_if_null(str, NULL);
-    return_val_if_null(str->data, NULL);
-
+    Expects_not_null(str);
     return str->data;
 }
 
+// ============================================================================
 // Capacity
+// ============================================================================
+
 bool string_empty(const string_t *str)
 {
-    return_val_if_null(str, true);
-
+    Expects_not_null(str);
     return str->length == 0;
-}
-
-int string_size(const string_t *str)
-{
-    return_val_if_null(str, 0);
-
-    return str->length;
 }
 
 int string_length(const string_t *str)
 {
-    return_val_if_null(str, 0);
-
+    Expects_not_null(str);
     return str->length;
 }
 
-#if 0
-int string_max_size(const string_t *str)
-{
-    return INT_MAX - 1; // Reserve space for null terminator
-}
-#endif
-
 void string_reserve(string_t *str, int new_cap)
 {
-    return_if_null(str);
+    Expects_not_null(str);
     return_if_lt(new_cap, 0);
 
-    if (new_cap == INT_MAX)
+    if (new_cap > INT_MAX - 1)
         new_cap = INT_MAX - 1;
+
     if (new_cap + 1 > str->capacity)
         string_ensure_capacity(str, new_cap + 1);
 }
 
 int string_capacity(const string_t *str)
 {
-    return_val_if_null(str, 0);
-
+    Expects_not_null(str);
     return str->capacity;
 }
 
 void string_shrink_to_fit(string_t *str)
 {
-    return_if_null(str);
+    Expects_not_null(str);
 
-    if (str->capacity > str->length + 1)
+    int needed = str->length + 1;
+
+    if (needed <= STRING_INITIAL_CAPACITY)
     {
-        int new_capacity = str->length + 1;
-        char *new_data = xrealloc(str->data, new_capacity);
+        if (string_is_heap_allocated(str))
+            string_normalize_capacity(str, STRING_INITIAL_CAPACITY);
+    }
+    else if (str->capacity > needed)
+    {
+        char *new_data = xrealloc(str->data, needed);
         str->data = new_data;
-        str->capacity = new_capacity;
+        str->capacity = needed;
     }
 }
 
+// ============================================================================
 // Modifiers
+// ============================================================================
+
 void string_clear(string_t *str)
 {
-    return_if_null(str);
-
+    Expects_not_null(str);
     str->length = 0;
-    if (str->data != NULL && str->capacity > 0)
-    {
-        str->data[0] = '\0';
-    }
+    str->data[0] = '\0';
 }
 
-#if 0
-void string_insert(string_t *str, int pos, const string_t *other);
-void string_insert_n_chars(string_t *str, int pos, size_t count, char ch);
-void string_insert_cstr(string_t *str, int pos, const char *cstr);
-void string_insert_data(string_t *str, int pos, const char *data, int len);
-void string_erase(string_t *str, int pos, int len);
-#endif
+void string_insert(string_t *str, int pos, const string_t *other)
+{
+    Expects_not_null(str);
+
+    if (other == NULL || other->length == 0)
+        return;
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    int other_len = other->length;
+    int needed_capacity = str->length + other_len + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + other_len, str->data + pos, str->length - pos);
+    memcpy(str->data + pos, other->data, other_len);
+
+    str->length += other_len;
+    str->data[str->length] = '\0';
+}
+
+void string_insert_n_chars(string_t *str, int pos, int count, char ch)
+{
+    Expects_not_null(str);
+
+    if (count <= 0)
+        return;
+
+    if (ch == '\0')
+    {
+        if (pos < 0)
+            pos = 0;
+        if (pos > str->length)
+            pos = str->length;
+        str->length = pos;
+        str->data[str->length] = '\0';
+        return;
+    }
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    int needed_capacity = str->length + count + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + count, str->data + pos, str->length - pos);
+    memset(str->data + pos, ch, count);
+
+    str->length += count;
+    str->data[str->length] = '\0';
+}
+
+void string_insert_cstr(string_t *str, int pos, const char *cstr)
+{
+    Expects_not_null(str);
+
+    if (cstr == NULL || cstr[0] == '\0')
+        return;
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    int cstr_len = (int)strlen(cstr);
+    int needed_capacity = str->length + cstr_len + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + cstr_len, str->data + pos, str->length - pos);
+    memcpy(str->data + pos, cstr, cstr_len);
+
+    str->length += cstr_len;
+    str->data[str->length] = '\0';
+}
+
+void string_insert_data(string_t *str, int pos, const char *data, int len)
+{
+    Expects_not_null(str);
+
+    if (data == NULL || len <= 0)
+        return;
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    int actual_len = 0;
+    while (actual_len < len && data[actual_len] != '\0')
+        actual_len++;
+
+    if (actual_len == 0)
+        return;
+
+    int needed_capacity = str->length + actual_len + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + actual_len, str->data + pos, str->length - pos);
+    memcpy(str->data + pos, data, actual_len);
+
+    str->length += actual_len;
+    str->data[str->length] = '\0';
+}
+
+void string_erase(string_t *str, int pos, int len)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return;
+    if (len <= 0)
+        return;
+    if (pos + len > str->length)
+        len = str->length - pos;
+
+    memmove(str->data + pos, str->data + pos + len, str->length - pos - len);
+    str->length -= len;
+    str->data[str->length] = '\0';
+
+    if (string_is_heap_allocated(str) && str->capacity - str->length > STRING_REDUCE_THRESHOLD)
+        string_shrink_to_fit(str);
+}
 
 void string_push_back(string_t *str, char ch)
 {
-    return_if_null(str);
-    return_if_ge(str->length, INT_MAX - 2);
+    Expects_not_null(str);
+
+    if (ch == '\0')
+        return;
+    if (str->length >= INT_MAX - 2)
+        return;
 
     int needed_capacity = str->length + 1 + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
     str->data[str->length] = ch;
     str->length += 1;
     str->data[str->length] = '\0';
 }
 
-void string_pop_back(string_t *str)
+char string_pop_back(string_t *str)
 {
-    return_if_null(str);
-    return_if_le(str->length, 0);
+    Expects_not_null(str);
 
-    str->length --;
+    if (str->length <= 0)
+        return '\0';
+
+    char ch = str->data[str->length - 1];
+    str->length--;
     str->data[str->length] = '\0';
+
+    return ch;
 }
 
 void string_append(string_t *str, const string_t *other)
 {
-    return_if_null(str);
-    return_if_null(other);
-    return_if_null(other->data);
-    return_if_lt(other->length, 0);
+    Expects_not_null(str);
+
+    if (other == NULL || other->length == 0)
+        return;
 
     int other_length = other->length;
-    // Check that combined length does not exceed INT_MAX - 1
-    if (other->length > INT_MAX - 1 - str->length)
-    {
-        log_error("%s: appending would exceed maximum string size", __func__);
+    if (other_length > INT_MAX - 1 - str->length)
         other_length = INT_MAX - 1 - str->length;
-    }
+
     int needed_capacity = str->length + other_length + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
     memcpy(str->data + str->length, other->data, other_length);
     str->length += other_length;
     str->data[str->length] = '\0';
 }
 
-// Append substring of other from [begin, end)
 void string_append_substring(string_t *str, const string_t *other, int begin, int end)
 {
-    return_if_null(str);
-    return_if_null(other);
-    return_if_null(other->data);
+    Expects_not_null(str);
+
+    if (other == NULL || other->length == 0)
+        return;
 
     int b, e;
     clamp_range(other->length, begin, end, &b, &e);
 
     if (b == e)
-        return; // nothing to append
+        return;
 
     int substring_length = e - b;
     int needed_capacity = str->length + substring_length + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
-    if (substring_length > 0)
-        memcpy(str->data + str->length, other->data + b, substring_length);
+    memcpy(str->data + str->length, other->data + b, substring_length);
     str->length += substring_length;
     str->data[str->length] = '\0';
 }
 
 void string_append_cstr(string_t *str, const char *cstr)
 {
-    return_if_null(str);
-    return_if_null(cstr);
-    int cstr_len = (int)strlen(cstr);
-    if (cstr_len == 0)
+    Expects_not_null(str);
+
+    if (cstr == NULL || cstr[0] == '\0')
         return;
+
+    int cstr_len = (int)strlen(cstr);
     if (cstr_len > INT_MAX - 1 - str->length)
-    {
-        log_error("%s: appending would exceed maximum string size", __func__);
         cstr_len = INT_MAX - 1 - str->length;
-    }
 
     int needed_capacity = str->length + cstr_len + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
+
     memcpy(str->data + str->length, cstr, cstr_len);
-    str->length += (int)cstr_len;
+    str->length += cstr_len;
     str->data[str->length] = '\0';
 }
 
 void string_append_n_chars(string_t *str, int count, char ch)
 {
-    return_if_null(str);
-    if (count < 0)
+    Expects_not_null(str);
+
+    if (count <= 0 || ch == '\0')
         return;
+
     if (count > INT_MAX - 1 - str->length)
-    {
-        log_error("%s: appending would exceed maximum string size", __func__);
         count = INT_MAX - 1 - str->length;
-    }
 
     int needed_capacity = str->length + count + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
-    for (int i = 0; i < count; i++)
-    {
-        str->data[str->length + i] = ch;
-    }
+    memset(str->data + str->length, ch, count);
     str->length += count;
     str->data[str->length] = '\0';
 }
 
 void string_append_data(string_t *str, const char *data, int len)
 {
-    return_if_null(str);
-    if (data == NULL || len == 0)
+    Expects_not_null(str);
+
+    if (data == NULL || len <= 0)
         return;
 
-    /* Determine length if len == -1 */
-    if (len == -1)
-    {
-        size_t data_len = strlen(data);
-        if (data_len > (size_t)INT_MAX - 1 - str->length)
-        {
-            log_error("%s: appending would exceed maximum string size", __func__);
-            len = INT_MAX - 1 - str->length;
-        }
-        else
-        {
-            len = (int)data_len;
-        }
-    }
-    else if (len < 0)
-    {
-        len = 0;
-    }
+    int actual_len = 0;
+    while (actual_len < len && data[actual_len] != '\0')
+        actual_len++;
 
-    /* Truncate if needed to avoid overflow */
-    if (len > INT_MAX - 1 - str->length)
-    {
-        log_error("%s: appending would exceed maximum string size", __func__);
-        len = INT_MAX - 1 - str->length;
-    }
-
-    if (len == 0)
+    if (actual_len == 0)
         return;
 
-    int needed = str->length + len + 1;
-    string_ensure_capacity(str, needed);
-    return_if_null(str->data);
+    if (actual_len > INT_MAX - 1 - str->length)
+        actual_len = INT_MAX - 1 - str->length;
 
-    memcpy(str->data + str->length, data, len);
-    str->length += len;
-    str->data[str->length] = '\0';
-}
-
-
-void string_append_char(string_t *str, char c)
-{
-    return_if_null(str);
-    return_if_ge(str->length, INT_MAX - 2);
-
-    int needed_capacity = str->length + 1 + 1;
+    int needed_capacity = str->length + actual_len + 1;
     string_ensure_capacity(str, needed_capacity);
-    return_if_null(str->data);
 
-    str->data[str->length] = c;
-    str->length++;
+    memcpy(str->data + str->length, data, actual_len);
+    str->length += actual_len;
     str->data[str->length] = '\0';
 }
 
-#if 0
-void string_replace(string_t *str, int pos, int len, const string_t *other);
-void string_replace_substring(string_t *str, int pos, int len, const string_t *other, int begin2, int end2);
-void string_replace_cstr(string_t *str, int pos, int len, const char *cstr);
-void string_replace_n_chars(string_t *str, int pos, int len, size_t count, char ch);
-void string_replace_data(string_t *str, int pos, int len, const char *data, int data_len);
-void string_copy_to_cstr(const string_t *str, char *dest, int count);
-void string_copy_to_cstr_at(const string_t *str, int pos, char *dest, int count);
-#endif
+void string_replace(string_t *str, int pos, int len, const string_t *other)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return;
+    if (len <= 0)
+        return;
+    if (pos + len > str->length)
+        len = str->length - pos;
+
+    int other_len = (other == NULL) ? 0 : other->length;
+
+    int new_length = str->length - len + other_len;
+    int needed_capacity = new_length + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + other_len, str->data + pos + len, str->length - pos - len);
+
+    if (other_len > 0)
+        memcpy(str->data + pos, other->data, other_len);
+
+    str->length = new_length;
+    str->data[str->length] = '\0';
+}
+
+void string_replace_substring(string_t *str, int pos, int len, const string_t *other, int begin2, int end2)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return;
+    if (len <= 0)
+        return;
+    if (pos + len > str->length)
+        len = str->length - pos;
+
+    int b = 0, e = 0;
+    int other_len = 0;
+    if (other != NULL && other->length > 0)
+    {
+        clamp_range(other->length, begin2, end2, &b, &e);
+        other_len = e - b;
+    }
+
+    int new_length = str->length - len + other_len;
+    int needed_capacity = new_length + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + other_len, str->data + pos + len, str->length - pos - len);
+
+    if (other_len > 0)
+        memcpy(str->data + pos, other->data + b, other_len);
+
+    str->length = new_length;
+    str->data[str->length] = '\0';
+}
+
+void string_replace_cstr(string_t *str, int pos, int len, const char *cstr)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return;
+    if (len <= 0)
+        return;
+    if (pos + len > str->length)
+        len = str->length - pos;
+
+    int cstr_len = (cstr == NULL) ? 0 : (int)strlen(cstr);
+
+    int new_length = str->length - len + cstr_len;
+    int needed_capacity = new_length + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + cstr_len, str->data + pos + len, str->length - pos - len);
+
+    if (cstr_len > 0)
+        memcpy(str->data + pos, cstr, cstr_len);
+
+    str->length = new_length;
+    str->data[str->length] = '\0';
+}
+
+void string_replace_n_chars(string_t *str, int pos, int len, int count, char ch)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return;
+    if (len <= 0)
+        return;
+    if (ch == '\0')
+        return;
+    if (pos + len > str->length)
+        len = str->length - pos;
+
+    int replacement_len = (count <= 0) ? 0 : count;
+
+    int new_length = str->length - len + replacement_len;
+    int needed_capacity = new_length + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + replacement_len, str->data + pos + len, str->length - pos - len);
+
+    if (replacement_len > 0)
+        memset(str->data + pos, ch, replacement_len);
+
+    str->length = new_length;
+    str->data[str->length] = '\0';
+}
+
+void string_replace_data(string_t *str, int pos, int len, const char *data, int data_len)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return;
+    if (len <= 0)
+        return;
+    if (data == NULL)
+        return;
+    if (pos + len > str->length)
+        len = str->length - pos;
+
+    int actual_data_len = 0;
+    if (data_len > 0)
+    {
+        while (actual_data_len < data_len && data[actual_data_len] != '\0')
+            actual_data_len++;
+    }
+
+    int new_length = str->length - len + actual_data_len;
+    int needed_capacity = new_length + 1;
+    string_ensure_capacity(str, needed_capacity);
+
+    memmove(str->data + pos + actual_data_len, str->data + pos + len, str->length - pos - len);
+
+    if (actual_data_len > 0)
+        memcpy(str->data + pos, data, actual_data_len);
+
+    str->length = new_length;
+    str->data[str->length] = '\0';
+}
+
+void string_copy_to_cstr(const string_t *str, char *dest, int count)
+{
+    Expects_not_null(str);
+    Expects_not_null(dest);
+
+    if (count <= 0)
+        return;
+
+    int to_copy = (str->length < count) ? str->length : count - 1;
+    memcpy(dest, str->data, to_copy);
+    dest[to_copy] = '\0';
+}
+
+void string_copy_to_cstr_at(const string_t *str, int pos, char *dest, int count)
+{
+    Expects_not_null(str);
+    Expects_not_null(dest);
+
+    if (count <= 0)
+        return;
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+    {
+        dest[0] = '\0';
+        return;
+    }
+
+    int available = str->length - pos;
+    int to_copy = (available < count - 1) ? available : count - 1;
+    memcpy(dest, str->data + pos, to_copy);
+    dest[to_copy] = '\0';
+}
 
 void string_resize(string_t *str, int new_size)
 {
-    return_if_null(str);
-    return_if_lt(new_size, 0);
+    Expects_not_null(str);
 
-    int needed = new_size + 1;
-    string_ensure_capacity(str, needed);
-    return_if_null(str->data);
-
-    if (new_size > str->length)
-    {
-        memset(str->data + str->length, 0, new_size - str->length);
-    }
+    if (new_size < 0)
+        new_size = 0;
+    if (new_size >= str->length)
+        return;
 
     str->length = new_size;
     str->data[new_size] = '\0';
@@ -749,146 +1061,280 @@ void string_resize(string_t *str, int new_size)
 
 void string_resize_with_char(string_t *str, int new_size, char ch)
 {
-    return_if_null(str);
-    return_if_lt(new_size, 0);
+    Expects_not_null(str);
+
+    if (new_size < 0)
+        new_size = 0;
+
+    if (new_size <= str->length)
+    {
+        str->length = new_size;
+        str->data[new_size] = '\0';
+        return;
+    }
 
     int needed = new_size + 1;
     string_ensure_capacity(str, needed);
-    return_if_null(str->data);
 
-    if (new_size > str->length)
-    {
-        memset(str->data + str->length, ch, new_size - str->length);
-    }
-
+    memset(str->data + str->length, ch, new_size - str->length);
     str->length = new_size;
     str->data[new_size] = '\0';
 }
 
+// ============================================================================
+// String operations - Find
+// ============================================================================
+
 int string_find(const string_t *str, const string_t *substr)
 {
+    Expects_not_null(str);
+    if (substr == NULL || substr->length == 0)
+        return 0;
     return string_find_at(str, substr, 0);
 }
 
-// Returns the index of the first occurrence of substr in str starting from pos, or -1 if not found
 int string_find_at(const string_t *str, const string_t *substr, int pos)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(substr, -1);
-    return_val_if_lt(pos, 0, -1);
-    return_val_if_gt(pos, str->length, -1);
+    Expects_not_null(str);
 
-    if (substr->length == 0)
-        return pos; // empty substring found at pos
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    if (substr == NULL || substr->length == 0)
+        return pos;
+
+    if (substr->length > str->length - pos)
+        return -1;
 
     for (int i = pos; i <= str->length - substr->length; i++)
     {
         if (memcmp(str->data + i, substr->data, substr->length) == 0)
-        {
             return i;
-        }
     }
-    return -1; // not found
+
+    return -1;
 }
 
 int string_find_cstr(const string_t *str, const char *substr)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(substr, -1);
-
-    size_t slen = strlen(substr);
-    if (slen == 0)
-        return 0; // empty substr at 0
-    if (slen > (size_t)str->length)
-        return -1; // too long
-
-    int len = (int)slen;
-    for (int i = 0; i <= str->length - len; i++)
-    {
-        if (memcmp(str->data + i, substr, len) == 0)
-            return i;
-    }
-    return -1;
+    Expects_not_null(str);
+    if (substr == NULL || substr[0] == '\0')
+        return 0;
+    return string_find_cstr_at(str, substr, 0);
 }
 
-/**
- * Finds the first occurrence of substr in str starting from pos.
- *
- * Returns the index (>= 0) if found, or -1 if not found.
- *
- * Behavior:
- * - If substr is NULL or empty (""), returns pos if pos is valid (0 <= pos <= str->length),
- *   otherwise -1.
- * - If pos < 0, it is clamped to 0.
- * - If pos > str->length, returns -1.
- * - Otherwise, performs a normal substring search starting at the clamped pos.
- */
 int string_find_cstr_at(const string_t *str, const char *substr, int pos)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(substr, (pos < 0 ? 0 : (pos > str->length ? -1 : pos)));
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    if (substr == NULL || substr[0] == '\0')
+        return pos;
 
     size_t sublen = strlen(substr);
 
-    // Empty substring: found at any valid position, including exactly at the end
-    if (sublen == 0)
+    if (sublen > (size_t)(str->length - pos))
+        return -1;
+
+    for (int i = pos; i <= str->length - (int)sublen; i++)
     {
-        if (pos < 0)
-        {
-            pos = 0; // treat negative as start
-        }
-        if ((size_t)pos > (size_t)str->length)
-        {
-            return -1;
-        }
-        return pos;
+        if (memcmp(str->data + i, substr, sublen) == 0)
+            return i;
     }
 
-    // Clamp starting position
+    return -1;
+}
+
+int string_rfind(const string_t *str, const string_t *substr)
+{
+    Expects_not_null(str);
+    if (substr == NULL || substr->length == 0)
+        return str->length;
+    return string_rfind_at(str, substr, str->length);
+}
+
+int string_rfind_at(const string_t *str, const string_t *substr, int pos)
+{
+    Expects_not_null(str);
+
     if (pos < 0)
-    {
         pos = 0;
-    }
-    if ((size_t)pos > (size_t)str->length)
+    if (pos > str->length)
+        pos = str->length;
+
+    if (substr == NULL || substr->length == 0)
+        return pos;
+
+    int start = pos;
+    if (start > str->length - substr->length)
+        start = str->length - substr->length;
+
+    for (int i = start; i >= 0; i--)
     {
+        if (memcmp(str->data + i, substr->data, substr->length) == 0)
+            return i;
+    }
+
+    return -1;
+}
+
+int string_rfind_cstr(const string_t *str, const char *substr)
+{
+    Expects_not_null(str);
+    if (substr == NULL || substr[0] == '\0')
+        return str->length;
+    return string_rfind_cstr_at(str, substr, str->length);
+}
+
+int string_rfind_cstr_at(const string_t *str, const char *substr, int pos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    if (substr == NULL || substr[0] == '\0')
+        return pos;
+
+    int sublen = (int)strlen(substr);
+
+    int start = pos;
+    if (start > str->length - sublen)
+        start = str->length - sublen;
+
+    for (int i = start; i >= 0; i--)
+    {
+        if (memcmp(str->data + i, substr, sublen) == 0)
+            return i;
+    }
+
+    return -1;
+}
+
+int string_find_first_of(const string_t *str, const string_t *chars)
+{
+    return string_find_first_of_at(str, chars, 0);
+}
+
+int string_find_first_of_at(const string_t *str, const string_t *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (chars == NULL || chars->length == 0)
         return -1;
-    }
 
-    // Not enough room left for non-empty substring
-    if ((size_t)pos + sublen > (size_t)str->length)
-    {
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
         return -1;
-    }
 
-    // Standard substring search using memcmp
-    const char *haystack = str->data;
-    const char *end = haystack + str->length - sublen + 1;
-
-    for (const char *p = haystack + pos; p < end; ++p)
+    for (int i = pos; i < str->length; i++)
     {
-        if (memcmp(p, substr, sublen) == 0)
+        for (int j = 0; j < chars->length; j++)
         {
-            return (int)(p - haystack);
+            if (str->data[i] == chars->data[j])
+                return i;
         }
     }
 
     return -1;
 }
 
-#if 0
-int string_rfind(const string_t *str, const string_t *substr);
-int string_rfind_at(const string_t *str, const string_t *substr, int pos);
-int string_rfind_cstr(const string_t *str, const char *substr);
-int string_rfind_cstr_at(const string_t *str, const char *substr, int pos);
-int string_find_first_of(const string_t *str, const string_t *chars);
-int string_find_first_of_at(const string_t *str, const string_t *chars, int pos);
-int string_find_first_of_cstr(const string_t *str, const char *chars);
-int string_find_first_of_cstr_at(const string_t *str, const char *chars, int pos);
-int string_find_first_of_predicate(const string_t *str, bool (*predicate)(char));
-int string_find_first_of_predicate_at(const string_t *str, bool (*predicate)(char), int pos);
-int string_find_first_not_of(const string_t *str, const string_t *chars);
-int string_find_first_not_of_at(const string_t *str, const string_t *chars, int pos);
-#endif
+int string_find_first_of_cstr(const string_t *str, const char *chars)
+{
+    return string_find_first_of_cstr_at(str, chars, 0);
+}
+
+int string_find_first_of_cstr_at(const string_t *str, const char *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (chars == NULL || chars[0] == '\0')
+        return -1;
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return -1;
+
+    for (int i = pos; i < str->length; i++)
+    {
+        if (strchr(chars, str->data[i]) != NULL)
+            return i;
+    }
+
+    return -1;
+}
+
+int string_find_first_of_predicate(const string_t *str, bool (*predicate)(char))
+{
+    return string_find_first_of_predicate_at(str, predicate, 0);
+}
+
+int string_find_first_of_predicate_at(const string_t *str, bool (*predicate)(char), int pos)
+{
+    Expects_not_null(str);
+
+    if (predicate == NULL)
+        return -1;
+
+    if (pos < 0)
+        pos = 0;
+    if (pos >= str->length)
+        return -1;
+
+    for (int i = pos; i < str->length; i++)
+    {
+        if (predicate(str->data[i]))
+            return i;
+    }
+
+    return -1;
+}
+
+int string_find_first_not_of(const string_t *str, const string_t *chars)
+{
+    return string_find_first_not_of_at(str, chars, 0);
+}
+
+int string_find_first_not_of_at(const string_t *str, const string_t *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    if (chars == NULL || chars->length == 0)
+        return (pos < str->length) ? pos : -1;
+
+    for (int i = pos; i < str->length; i++)
+    {
+        bool found = false;
+        for (int j = 0; j < chars->length; j++)
+        {
+            if (str->data[i] == chars->data[j])
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            return i;
+    }
+
+    return -1;
+}
+
 int string_find_first_not_of_cstr(const string_t *str, const char *chars)
 {
     return string_find_first_not_of_cstr_at(str, chars, 0);
@@ -896,26 +1342,22 @@ int string_find_first_not_of_cstr(const string_t *str, const char *chars)
 
 int string_find_first_not_of_cstr_at(const string_t *str, const char *chars, int pos)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(chars, -1);
+    Expects_not_null(str);
 
-    if (strlen(chars) == 0)
-        return (pos < str->length) ? pos : -1;
-
-    // Clamp pos
     if (pos < 0)
         pos = 0;
-    if (pos >= str->length)
-        return -1;
+    if (pos > str->length)
+        pos = str->length;
 
-    const char *start = str->data + pos;
-    const char *end = str->data + str->length;
+    if (chars == NULL || chars[0] == '\0')
+        return (pos < str->length) ? pos : -1;
 
-    for (const char *p = start; p < end; ++p)
+    for (int i = pos; i < str->length; i++)
     {
-        if (strchr(chars, *p) == NULL) // not found in chars
-            return (int)(p - str->data);
+        if (strchr(chars, str->data[i]) == NULL)
+            return i;
     }
+
     return -1;
 }
 
@@ -926,68 +1368,168 @@ int string_find_first_not_of_predicate(const string_t *str, bool (*predicate)(ch
 
 int string_find_first_not_of_predicate_at(const string_t *str, bool (*predicate)(char), int pos)
 {
-    return_val_if_null(str, -1);
-    return_val_if_null(predicate, -1);
+    Expects_not_null(str);
 
-    // Clamp pos
     if (pos < 0)
         pos = 0;
-    if (pos >= str->length)
-        return -1;
+    if (pos > str->length)
+        pos = str->length;
 
-    const char *start = str->data + pos;
-    const char *end = str->data + str->length;
+    if (predicate == NULL)
+        return (pos < str->length) ? pos : -1;
 
-    for (const char *p = start; p < end; ++p)
+    for (int i = pos; i < str->length; i++)
     {
-        if (!predicate(*p)) // predicate returns false → char does NOT satisfy it
-            return (int)(p - str->data);
+        if (!predicate(str->data[i]))
+            return i;
     }
+
     return -1;
 }
 
-#if 0
-int string_find_last_of(const string_t *str, const string_t *chars);
-int string_find_last_of_at(const string_t *str, const string_t *chars, int pos);
-int string_find_last_of_cstr(const string_t *str, const char *chars);
-int string_find_last_of_cstr_at(const string_t *str, const char *chars, int pos);
-int string_find_last_not_of(const string_t *str, const string_t *chars);
-int string_find_last_not_of_at(const string_t *str, const string_t *chars, int pos);
-int string_find_last_not_of_cstr(const string_t *str, const char *chars);
-int string_find_last_not_of_cstr_at(const string_t *str, const char *chars, int pos);
-#endif
+int string_find_last_of(const string_t *str, const string_t *chars)
+{
+    Expects_not_null(str);
+    return string_find_last_of_at(str, chars, str->length - 1);
+}
+
+int string_find_last_of_at(const string_t *str, const string_t *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (chars == NULL || chars->length == 0)
+        return -1;
+
+    if (pos < 0)
+        return -1;
+    if (pos >= str->length)
+        pos = str->length - 1;
+
+    for (int i = pos; i >= 0; i--)
+    {
+        for (int j = 0; j < chars->length; j++)
+        {
+            if (str->data[i] == chars->data[j])
+                return i;
+        }
+    }
+
+    return -1;
+}
+
+int string_find_last_of_cstr(const string_t *str, const char *chars)
+{
+    Expects_not_null(str);
+    return string_find_last_of_cstr_at(str, chars, str->length - 1);
+}
+
+int string_find_last_of_cstr_at(const string_t *str, const char *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (chars == NULL || chars[0] == '\0')
+        return -1;
+
+    if (pos < 0)
+        return -1;
+    if (pos >= str->length)
+        pos = str->length - 1;
+
+    for (int i = pos; i >= 0; i--)
+    {
+        if (strchr(chars, str->data[i]) != NULL)
+            return i;
+    }
+
+    return -1;
+}
+
+int string_find_last_not_of(const string_t *str, const string_t *chars)
+{
+    Expects_not_null(str);
+    return string_find_last_not_of_at(str, chars, str->length - 1);
+}
+
+int string_find_last_not_of_at(const string_t *str, const string_t *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        return -1;
+    if (pos >= str->length)
+        pos = str->length - 1;
+
+    if (chars == NULL || chars->length == 0)
+        return (str->length > 0) ? pos : -1;
+
+    for (int i = pos; i >= 0; i--)
+    {
+        bool found = false;
+        for (int j = 0; j < chars->length; j++)
+        {
+            if (str->data[i] == chars->data[j])
+            {
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+            return i;
+    }
+
+    return -1;
+}
+
+int string_find_last_not_of_cstr(const string_t *str, const char *chars)
+{
+    Expects_not_null(str);
+    return string_find_last_not_of_cstr_at(str, chars, str->length - 1);
+}
+
+int string_find_last_not_of_cstr_at(const string_t *str, const char *chars, int pos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        return -1;
+    if (pos >= str->length)
+        pos = str->length - 1;
+
+    if (chars == NULL || chars[0] == '\0')
+        return (str->length > 0) ? pos : -1;
+
+    for (int i = pos; i >= 0; i--)
+    {
+        if (strchr(chars, str->data[i]) == NULL)
+            return i;
+    }
+
+    return -1;
+}
+
+// ============================================================================
+// Comparison functions
+// ============================================================================
 
 int string_compare(const string_t *str1, const string_t *str2)
 {
-    char *buf1, *buf2;
-    if (str1 == NULL || str1->data == NULL)
-        buf1 = "";
-    else
-        buf1 = str1->data;
-    if (str2 == NULL || str2->data == NULL)
-        buf2 = "";
-    else
-        buf2 = str2->data;
-
+    const char *buf1 = (str1 == NULL) ? "" : str1->data;
+    const char *buf2 = (str2 == NULL) ? "" : str2->data;
     return strcmp(buf1, buf2);
 }
 
 int string_compare_at(const string_t *str1, int pos1, const string_t *str2, int pos2)
 {
-    // Can't even guess what the correct behavior is if either string is NULL.
     Expects_not_null(str1);
     Expects_not_null(str2);
-    Expects_not_null(str1->data);
-    Expects_not_null(str2->data);
 
-    // Clamp negative positions
     if (pos1 < 0)
         pos1 = 0;
     if (pos2 < 0)
         pos2 = 0;
 
-    const char *p1 = str1->data + pos1;
-    const char *p2 = str2->data + pos2;
+    const char *p1 = str1->data + (pos1 < str1->length ? pos1 : str1->length);
+    const char *p2 = str2->data + (pos2 < str2->length ? pos2 : str2->length);
     const char *end1 = str1->data + str1->length;
     const char *end2 = str2->data + str2->length;
 
@@ -999,36 +1541,26 @@ int string_compare_at(const string_t *str1, int pos1, const string_t *str2, int 
         ++p2;
     }
 
-    // One or both reached end
     if ((p1 == end1) && (p2 == end2))
-        return 0; // both substrings ended together
+        return 0;
     else if (p1 == end1)
-        return -1; // str1 substring shorter
+        return -1;
     else
-        return 1; // str2 substring shorter
+        return 1;
 }
 
 int string_compare_cstr(const string_t *str, const char *cstr)
 {
-    const char *buf1;
-    const char *buf2;
-    if (str == NULL || str->data == NULL)
-        buf1 = "";
-    else
-        buf1 = str->data;
-    if (cstr == NULL)
-        buf2 = "";
-    else
-        buf2 = cstr;
+    const char *buf1 = (str == NULL) ? "" : str->data;
+    const char *buf2 = (cstr == NULL) ? "" : cstr;
     return strcmp(buf1, buf2);
 }
 
 int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2)
 {
-    /* Treat NULL str or missing data as empty string */
     const char *buf1 = "";
-    size_t len1 = 0;
-    if (str != NULL && str->data != NULL)
+    int len1 = 0;
+    if (str != NULL)
     {
         if (pos1 < 0)
             pos1 = 0;
@@ -1037,30 +1569,23 @@ int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int 
             buf1 = str->data + pos1;
             len1 = str->length - pos1;
         }
-        // else: pos1 >= length → empty
     }
 
-    /* Treat NULL cstr as empty string; clamp and bound pos2 */
     const char *buf2 = "";
-    size_t len2 = 0;
+    int len2 = 0;
     if (cstr != NULL)
     {
         if (pos2 < 0)
             pos2 = 0;
-
-        // Find actual length of cstr
-        size_t full_len = strlen(cstr);
-
-        if ((size_t)pos2 < full_len)
+        int full_len = (int)strlen(cstr);
+        if (pos2 < full_len)
         {
             buf2 = cstr + pos2;
             len2 = full_len - pos2;
         }
-        // else: pos2 >= length → treat as empty substring
     }
 
-    /* Manual bounded comparison – never relies on undefined pointers */
-    size_t i = 0;
+    int i = 0;
     while (i < len1 && i < len2)
     {
         if ((unsigned char)buf1[i] != (unsigned char)buf2[i])
@@ -1068,7 +1593,6 @@ int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int 
         ++i;
     }
 
-    /* One string is prefix of the other */
     if (len1 < len2)
         return -1;
     if (len1 > len2)
@@ -1076,56 +1600,28 @@ int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int 
     return 0;
 }
 
-int string_compare_substring(const string_t *str1, int begin1, int end1, const string_t *str2, int begin2,
-                             int end2)
+int string_compare_substring(const string_t *str1, int begin1, int end1, const string_t *str2,
+                             int begin2, int end2)
 {
-    // No idea what the fallback behavior should be if either string is NULL.
     Expects_not_null(str1);
     Expects_not_null(str2);
 
-    // Clamp begin1 and end1 for str1
-    if (begin1 < 0)
-        begin1 = 0;
-    if (begin1 > str1->length)
-        begin1 = str1->length;
-    if (end1 == -1)
-        end1 = str1->length;
-    if (end1 < 0)
-        end1 = 0;
-    if (end1 > str1->length)
-        end1 = str1->length;
-    if (end1 <= begin1)
-        end1 = begin1; // empty substring
+    int b1, e1, b2, e2;
+    clamp_range(str1->length, begin1, end1, &b1, &e1);
+    clamp_range(str2->length, begin2, end2, &b2, &e2);
 
-    // Clamp begin2 and end2 for str2
-    if (begin2 < 0)
-        begin2 = 0;
-    if (begin2 > str2->length)
-        begin2 = str2->length;
-    if (end2 == -1)
-        end2 = str2->length;
-    if (end2 < 0)
-        end2 = 0;
-    if (end2 > str2->length)
-        end2 = str2->length;
-    if (end2 <= begin2)
-        end2 = begin2; // empty substring
+    int len1 = e1 - b1;
+    int len2 = e2 - b2;
 
-    // Compute lengths
-    size_t len1 = (size_t)(end1 - begin1);
-    size_t len2 = (size_t)(end2 - begin2);
+    const char *p1 = (len1 > 0) ? str1->data + b1 : "";
+    const char *p2 = (len2 > 0) ? str2->data + b2 : "";
 
-    // Pointers to substrings
-    const char *p1 = (len1 > 0) ? str1->data + begin1 : "";
-    const char *p2 = (len2 > 0) ? str2->data + begin2 : "";
-
-    // Use strncmp – it safely compares up to the minimum length
-    int cmp = strncmp(p1, p2, len1 < len2 ? len1 : len2);
+    int min_len = len1 < len2 ? len1 : len2;
+    int cmp = strncmp(p1, p2, min_len);
 
     if (cmp != 0)
-        return cmp; // difference found within common prefix
+        return cmp;
 
-    // Common prefix equal → compare lengths
     if (len1 < len2)
         return -1;
     if (len1 > len2)
@@ -1133,140 +1629,337 @@ int string_compare_substring(const string_t *str1, int begin1, int end1, const s
     return 0;
 }
 
-#if 0
-int string_compare_cstr_substring(const string_t *str, int pos, const char *cstr, int begin2, int end2);
-bool string_starts_with(const string_t *str, const string_t *prefix);
-bool string_starts_with_cstr(const string_t *str, const char *prefix);
-bool string_ends_with(const string_t *str, const string_t *suffix);
-bool string_ends_with_cstr (const string_t *str, const char *suffix);
-bool string_contains(const string_t *str, const string_t *substr);
-bool string_contains_cstr(const string_t *str, const char *substr);
-#endif
+int string_compare_cstr_substring(const string_t *str, int begin1, int end1, const char *cstr,
+                                  int begin2, int end2)
+{
+    Expects_not_null(str);
+
+    int b1, e1;
+    clamp_range(str->length, begin1, end1, &b1, &e1);
+    int len1 = e1 - b1;
+
+    int len2 = 0;
+    int b2 = 0;
+    if (cstr != NULL)
+    {
+        int cstr_len = (int)strlen(cstr);
+        int dummy_e2;
+        clamp_range(cstr_len, begin2, end2, &b2, &dummy_e2);
+        len2 = dummy_e2 - b2;
+    }
+
+    const char *p1 = (len1 > 0) ? str->data + b1 : "";
+    const char *p2 = (len2 > 0) ? cstr + b2 : "";
+
+    int min_len = len1 < len2 ? len1 : len2;
+    int cmp = strncmp(p1, p2, min_len);
+
+    if (cmp != 0)
+        return cmp;
+
+    if (len1 < len2)
+        return -1;
+    if (len1 > len2)
+        return 1;
+    return 0;
+}
+
+bool string_starts_with(const string_t *str, const string_t *prefix)
+{
+    Expects_not_null(str);
+
+    if (prefix == NULL || prefix->length == 0)
+        return true;
+
+    if (prefix->length > str->length)
+        return false;
+
+    return memcmp(str->data, prefix->data, prefix->length) == 0;
+}
+
+bool string_starts_with_cstr(const string_t *str, const char *prefix)
+{
+    Expects_not_null(str);
+
+    if (prefix == NULL || prefix[0] == '\0')
+        return true;
+
+    int prefix_len = (int)strlen(prefix);
+    if (prefix_len > str->length)
+        return false;
+
+    return memcmp(str->data, prefix, prefix_len) == 0;
+}
+
+bool string_ends_with(const string_t *str, const string_t *suffix)
+{
+    Expects_not_null(str);
+
+    if (suffix == NULL || suffix->length == 0)
+        return true;
+
+    if (suffix->length > str->length)
+        return false;
+
+    return memcmp(str->data + str->length - suffix->length, suffix->data, suffix->length) == 0;
+}
+
+bool string_ends_with_cstr(const string_t *str, const char *suffix)
+{
+    Expects_not_null(str);
+
+    if (suffix == NULL || suffix[0] == '\0')
+        return true;
+
+    int suffix_len = (int)strlen(suffix);
+    if (suffix_len > str->length)
+        return false;
+
+    return memcmp(str->data + str->length - suffix_len, suffix, suffix_len) == 0;
+}
+
+bool string_contains(const string_t *str, const string_t *substr)
+{
+    Expects_not_null(str);
+
+    if (substr == NULL || substr->length == 0)
+        return true;
+
+    return string_find(str, substr) >= 0;
+}
+
+bool string_contains_cstr(const string_t *str, const char *substr)
+{
+    Expects_not_null(str);
+
+    if (substr == NULL || substr[0] == '\0')
+        return true;
+
+    return string_find_cstr(str, substr) >= 0;
+}
 
 string_t *string_substring(const string_t *str, int begin, int end)
 {
     return string_create_from_range(str, begin, end);
 }
 
+// ============================================================================
+// Comparison operators
+// ============================================================================
+
 bool string_eq(const string_t *str1, const string_t *str2)
 {
     return string_compare(str1, str2) == 0;
 }
 
+bool string_ne(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2) != 0;
+}
 
-#if 0
-bool string_lt(const string_t *str1, const string_t *str2);
-bool string_le(const string_t *str1, const string_t *str2);
-bool string_gt(const string_t *str1, const string_t *str2);
-bool string_ge(const string_t *str1, const string_t *str2);
-int string_cmp(const string_t *str1, const string_t *str2);
-#endif
+bool string_lt(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2) < 0;
+}
 
+bool string_le(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2) <= 0;
+}
+
+bool string_gt(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2) > 0;
+}
+
+bool string_ge(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2) >= 0;
+}
+
+int string_cmp(const string_t *str1, const string_t *str2)
+{
+    return string_compare(str1, str2);
+}
+
+// ============================================================================
 // Formatted I/O
+// ============================================================================
+
 void string_printf(string_t *str, const char *format, ...)
 {
-    return_if_null(str);
+    Expects_not_null(str);
+
     va_list args;
     va_start(args, format);
-    const char *fmt;
+
     if (format == NULL)
-        fmt = "(null)";
-    else
-        fmt = format;
-    string_vprintf(str, fmt, args);
+    {
+        str->length = 0;
+        str->data[0] = '\0';
+        va_end(args);
+        return;
+    }
+
+    string_vprintf(str, format, args);
     va_end(args);
 }
 
 void string_vprintf(string_t *str, const char *format, va_list args)
 {
-    return_if_null(str);
-    const char *fmt;
-    if (format == NULL)
-        fmt = "(null)";
-    else
-        fmt = format;
+    Expects_not_null(str);
 
-    // First, determine required length
+    if (format == NULL)
+    {
+        str->length = 0;
+        str->data[0] = '\0';
+        return;
+    }
+
     va_list args_copy;
     va_copy(args_copy, args);
-    int needed = vsnprintf(NULL, 0, fmt, args_copy);
+    int needed = vsnprintf(NULL, 0, format, args_copy);
     va_end(args_copy);
 
     if (needed < 0)
-    {
-        log_error("%s: vsnprintf failed to compute required length", __func__);
         return;
-    }
-    string_ensure_capacity(str, str->length + needed + 1);
-    return_if_null(str->data);
 
-    int written = vsnprintf(&str->data[str->length], str->capacity - str->length, fmt, args);
-    if (written < 0)
-    {
-        log_error("%s: vsnprintf failed to write formatted string", __func__);
-        return;
-    }
-    str->length += written;
+    str->length = 0;
+    string_ensure_capacity(str, needed + 1);
+
+    int written = vsnprintf(str->data, str->capacity, format, args);
+    if (written >= 0)
+        str->length = written;
 }
 
-// string_t I/O functions
-// void string_getline(string_t *str, FILE *stream);
-// void string_getline_delim(string_t *str, int delim, FILE *stream);
-
-// Numeric conversions
-int string_atoi_at(const string_t *str, int pos, int *endpos)
+void string_getline(string_t *str, FILE *stream)
 {
-    return_val_if_null(str, 0);
-    if (pos < 0)
-        pos = 0;
-    if (pos > str->length)
-        pos = str->length;
+    string_getline_delim(str, '\n', stream);
+}
 
-    char *end_ptr = NULL;
-    int value = (int)strtol(&str->data[pos], &end_ptr, 10);
+void string_getline_delim(string_t *str, char delim, FILE *stream)
+{
+    Expects_not_null(str);
 
-    if (endpos != NULL)
+    if (stream == NULL)
     {
-        *endpos = (int)(end_ptr - &str->data[0]);
+        str->length = 0;
+        str->data[0] = '\0';
+        return;
     }
 
-    return value;
+    str->length = 0;
+    str->data[0] = '\0';
+
+    int c;
+    while ((c = fgetc(stream)) != EOF)
+    {
+        if (delim != '\0' && c == delim)
+            break;
+
+        string_push_back(str, (char)c);
+    }
 }
+
+// ============================================================================
+// Numeric conversions
+// ============================================================================
 
 int string_atoi(const string_t *str)
 {
-    return_val_if_null(str, 0);
+    Expects_not_null(str);
     return string_atoi_at(str, 0, NULL);
 }
 
-long string_atol_at(const string_t *str, int pos, int *endpos)
+int string_atoi_at(const string_t *str, int pos, int *endpos)
 {
-    return_val_if_null(str, 0);
+    Expects_not_null(str);
+
     if (pos < 0)
         pos = 0;
     if (pos > str->length)
         pos = str->length;
+
     char *end_ptr = NULL;
-    long value = strtol(&str->data[pos], &end_ptr, 10);
+    int value = (int)strtol(str->data + pos, &end_ptr, 10);
 
     if (endpos != NULL)
-    {
-        *endpos = (int)(end_ptr - &str->data[0]);
-    }
+        *endpos = (int)(end_ptr - str->data);
 
     return value;
 }
 
 long string_atol(const string_t *str)
 {
-    return_val_if_null(str, 0);
+    Expects_not_null(str);
     return string_atol_at(str, 0, NULL);
 }
 
-// long long string_atoll_at(const string_t *str, int pos, int *endpos);
-// long long string_atoll(const string_t *str);
-// double string_atof_at(const string_t *str, int pos, int *endpos);
-// double string_atof(const string_t *str);
+long string_atol_at(const string_t *str, int pos, int *endpos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    char *end_ptr = NULL;
+    long value = strtol(str->data + pos, &end_ptr, 10);
+
+    if (endpos != NULL)
+        *endpos = (int)(end_ptr - str->data);
+
+    return value;
+}
+
+long long string_atoll(const string_t *str)
+{
+    Expects_not_null(str);
+    return string_atoll_at(str, 0, NULL);
+}
+
+long long string_atoll_at(const string_t *str, int pos, int *endpos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    char *end_ptr = NULL;
+    long long value = strtoll(str->data + pos, &end_ptr, 10);
+
+    if (endpos != NULL)
+        *endpos = (int)(end_ptr - str->data);
+
+    return value;
+}
+
+double string_atof(const string_t *str)
+{
+    Expects_not_null(str);
+    return string_atof_at(str, 0, NULL);
+}
+
+double string_atof_at(const string_t *str, int pos, int *endpos)
+{
+    Expects_not_null(str);
+
+    if (pos < 0)
+        pos = 0;
+    if (pos > str->length)
+        pos = str->length;
+
+    char *end_ptr = NULL;
+    double value = strtod(str->data + pos, &end_ptr);
+
+    if (endpos != NULL)
+        *endpos = (int)(end_ptr - str->data);
+
+    return value;
+}
 
 string_t *string_from_int(int value)
 {
@@ -1289,101 +1982,166 @@ string_t *string_from_double(double value)
     return str;
 }
 
-// This is the 32-bit Fowler–Noll–Vo hash function
-// as described in Wikipedia.
+// ============================================================================
+// Hash function
+// ============================================================================
+
 uint32_t string_hash(const string_t *str)
 {
     if (str == NULL || str->length == 0)
-        return 0x811c9dc5; // FNV-1a prime
+        return 0x811c9dc5;
 
-    uint32_t h = 0x811c9dc5; // FNV-1a prime
+    uint32_t h = 0x811c9dc5;
     for (int i = 0; i < str->length; i++)
     {
-        h ^= (uint32_t)str->data[i];
-        h *= 0x01000193; // FNV-1a magic constant
+        h ^= (uint32_t)(unsigned char)str->data[i];
+        h *= 0x01000193;
     }
-    return h ? h : 1; // avoid zero (optional)
+    return h ? h : 1;
 }
 
 // ============================================================================
-// string_t List Functions
+// String list functions
 // ============================================================================
 
 string_list_t *string_list_create(void)
 {
     string_list_t *list = xcalloc(1, sizeof(string_list_t));
-    list->capacity = INITIAL_CAPACITY;
-    list->strings = xcalloc(list->capacity, sizeof(string_t *));
+    list->capacity = STRING_LIST_INITIAL_CAPACITY;
+    list->strings = list->inline_strings;
     list->size = 0;
     return list;
 }
-
 
 void string_list_destroy(string_list_t **list)
 {
     if (list == NULL || *list == NULL)
         return;
-    for (int i = 0; i < (*list)->size; i++)
-    {
-        string_destroy(&(*list)->strings[i]);
-    }
 
-    xfree((*list)->strings);
+    for (int i = 0; i < (*list)->size; i++)
+        string_destroy(&(*list)->strings[i]);
+
+    if (string_list_is_heap_allocated(*list))
+        xfree((*list)->strings);
+
     xfree(*list);
     *list = NULL;
 }
 
-void string_list_move_push_back(string_list_t *list, string_t *str)
+void string_list_move_push_back(string_list_t *list, string_t **str)
 {
-    return_if_null(list);
-    return_if_null(str);
+    Expects_not_null(list);
+
+    if (str == NULL || *str == NULL)
+        return;
 
     if (list->size >= list->capacity)
     {
-        list->capacity *= GROW_FACTOR;
-        // Defensive, and should not be needed
-        if (list->capacity <= list->size)
-        {
-            list->capacity = list->size + 1;
-        }
-        // list->strings should not be null, but, if it is, realloc will behave like malloc
-        list->strings = xrealloc(list->strings, list->capacity * sizeof(string_t *));
+        int new_capacity = list->capacity * STRING_LIST_GROW_FACTOR;
+        if (new_capacity <= list->size)
+            new_capacity = list->size + 1;
+        string_list_normalize_capacity(list, new_capacity);
     }
 
-    list->strings[list->size++] = str;
+    list->strings[list->size++] = *str;
+    *str = NULL;
 }
 
 void string_list_push_back(string_list_t *list, const string_t *str)
 {
-    return_if_null(list);
-    return_if_null(str);
+    Expects_not_null(list);
+
+    if (str == NULL)
+        return;
 
     string_t *cloned = string_create_from(str);
-    string_list_move_push_back(list, cloned);
+    string_list_move_push_back(list, &cloned);
 }
 
 int string_list_size(const string_list_t *list)
 {
-    return_val_if_null(list, 0);
+    Expects_not_null(list);
     return list->size;
 }
 
 const string_t *string_list_at(const string_list_t *list, int index)
 {
-    return_val_if_null(list, NULL);
-    return_val_if_lt(index, 0, NULL);
-    return_val_if_gt(index, list->size, NULL);
-    if (index == list->size)
-        return NULL; // out of bounds, but not an error
+    Expects_not_null(list);
+
+    if (index < 0 || index >= list->size)
+        return NULL;
+
     return list->strings[index];
 }
 
-void string_list_assign(string_list_t *list, int index, const string_t *str)
+void string_list_insert(string_list_t *list, int index, const string_t *str)
 {
-    return_if_null(list);
-    return_if_null(str);
-    return_if_lt(index, 0);
-    return_if_ge(index, list->size);
+    Expects_not_null(list);
 
-    string_set(list->strings[index], str);
+    if (index < 0)
+        index = 0;
+    if (index > list->size)
+        index = list->size;
+
+    string_t *to_insert = (str == NULL) ? string_create() : string_create_from(str);
+    string_list_move_insert(list, index, &to_insert);
+}
+
+void string_list_move_insert(string_list_t *list, int index, string_t **str)
+{
+    Expects_not_null(list);
+
+    if (str == NULL || *str == NULL)
+        return;
+
+    if (index < 0)
+        index = 0;
+    if (index > list->size)
+        index = list->size;
+
+    if (list->size >= list->capacity)
+    {
+        int new_capacity = list->capacity * STRING_LIST_GROW_FACTOR;
+        if (new_capacity <= list->size)
+            new_capacity = list->size + 1;
+        string_list_normalize_capacity(list, new_capacity);
+    }
+
+    if (index < list->size)
+    {
+        memmove(&list->strings[index + 1], &list->strings[index],
+                (list->size - index) * sizeof(string_t *));
+    }
+
+    list->strings[index] = *str;
+    list->size++;
+    *str = NULL;
+}
+
+void string_list_erase(string_list_t *list, int index)
+{
+    Expects_not_null(list);
+
+    if (index < 0 || index >= list->size)
+        return;
+
+    string_destroy(&list->strings[index]);
+
+    if (index < list->size - 1)
+    {
+        memmove(&list->strings[index], &list->strings[index + 1],
+                (list->size - index - 1) * sizeof(string_t *));
+    }
+
+    list->size--;
+}
+
+void string_list_clear(string_list_t *list)
+{
+    Expects_not_null(list);
+
+    for (int i = 0; i < list->size; i++)
+        string_destroy(&list->strings[i]);
+
+    list->size = 0;
 }
