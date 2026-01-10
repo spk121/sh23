@@ -232,15 +232,17 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
     return true;
 }
 
-static void heredoc_check(lexer_t *lx, bool *found_heredoc, bool *error)
+typedef enum
+{
+    HEREDOC_PROCESS_RESULT_NOT_HEREDOC,
+    HEREDOC_PROCESS_RESULT_SUCCESS,
+    HEREDOC_PROCESS_RESULT_ERROR
+} heredoc_process_result_t;
+
+static heredoc_process_result_t try_process_heredoc(lexer_t *lx)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->tokens);
-    Expects_not_null(found_heredoc);
-    Expects_not_null(error);
-
-    *found_heredoc = false;
-    *error = false;
 
     if (lexer_input_starts_with_integer(lx) && heredoc_previous_token_allows_io_number(lx))
     {
@@ -261,7 +263,7 @@ static void heredoc_check(lexer_t *lx, bool *found_heredoc, bool *error)
 
     /* Now check for the heredoc operator itself (simple case or after the consumed digits) */
     if (!lexer_input_starts_with(lx, "<<"))
-        return;
+        return HEREDOC_PROCESS_RESULT_NOT_HEREDOC;
 
     lexer_advance_n_chars(lx, 2); // consume <<
 
@@ -287,12 +289,18 @@ static void heredoc_check(lexer_t *lx, bool *found_heredoc, bool *error)
     if (!get_heredoc_delimiter(lx, delimiter, &delimiter_quoted))
     {
         string_destroy(&delimiter);
-        *error = true;
-        return;
+        return HEREDOC_PROCESS_RESULT_ERROR;
     }
+
+    // Emit a word token for the delimiter
+    lexer_start_word(lx);
+    // FIXME: this may attempt to promote, which is incorrect.
+    lexer_append_literal_cstr_to_word(lx, string_cstr(delimiter));
+    lexer_finalize_word(lx);
+ 
     lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
     string_destroy(&delimiter);
-    *found_heredoc = true;
+    return HEREDOC_PROCESS_RESULT_SUCCESS;
 }
 
 lex_status_t lexer_process_one_normal_token(lexer_t *lx)
@@ -361,13 +369,12 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         }
 
         // Heredoc detection
-        bool found_heredoc = false;
-        bool error = false;
-        heredoc_check(lx, &found_heredoc, &error);
-        if (error)
-            return LEX_ERROR;
-        if (found_heredoc)
+        heredoc_process_result_t result = try_process_heredoc(lx);
+        if (result == HEREDOC_PROCESS_RESULT_SUCCESS)
             continue;
+        else if (result == HEREDOC_PROCESS_RESULT_ERROR)
+            return LEX_ERROR;
+        // else fall through
 
         // Normal operators
         token_type_t op;

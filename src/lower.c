@@ -75,24 +75,20 @@ static ast_node_t *lower_program(const gnode_t *g)
 {
     Expects_eq(g->type, G_PROGRAM);
 
-    ast_node_t *prog = ast_create_program();
-
     const gnode_t *child = g->data.child;
     if (!child)
     {
         /* Empty program: body stays NULL */
-        return prog;
+        return NULL;
     }
 
     ast_node_t *body = lower_complete_commands(child);
     if (!body)
     {
-        ast_node_destroy(&prog);
         return NULL;
     }
 
-    prog->data.program.body = body;
-    return prog;
+    return body;
 }
 
 /* ============================================================================
@@ -119,10 +115,36 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
             return NULL;
         }
 
-        ast_command_list_node_append_item(cl, item);
+        /* If item is itself a command list, flatten it into our list */
+        if (ast_node_get_type(item) == AST_COMMAND_LIST)
+        {
+            ast_node_list_t *sub_items = item->data.command_list.items;
+            cmd_separator_list_t *sub_seps = item->data.command_list.separators;
+            int sub_count = sub_items ? sub_items->size : 0;
 
-        /* For top-level complete_commands, treat as EOL-separated */
-        ast_command_list_node_append_separator(cl, LIST_SEP_EOL);
+            for (int j = 0; j < sub_count; j++)
+            {
+                ast_node_t *sub_item = sub_items->nodes[j];
+                sub_items->nodes[j] = NULL; /* Transfer ownership */
+                ast_command_list_node_append_item(cl, sub_item);
+
+                /* Use the separator from the sub-list if available */
+                cmd_separator_t sep = LIST_SEP_EOL;
+                if (sub_seps && j < sub_count)
+                    sep = sub_seps->separators[j];
+                ast_command_list_node_append_separator(cl, sep);
+            }
+
+            /* Clean up the now-empty sub-list wrapper */
+            sub_items->size = 0;
+            ast_node_destroy(&item);
+        }
+        else
+        {
+            /* Single command - add directly */
+            ast_command_list_node_append_item(cl, item);
+            ast_command_list_node_append_separator(cl, LIST_SEP_EOL);
+        }
     }
 
     return cl;
@@ -143,7 +165,7 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
 
     if (!list_node)
         return NULL;
-
+#if 0
     /* Unwrap single-item command lists to avoid unnecessary nesting.
      * A command list with one item and EOL separator is effectively just
      * that single command. */
@@ -160,7 +182,7 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
             return single_item;
         }
     }
-
+#endif
     return list_node;
 }
 
@@ -262,7 +284,17 @@ static ast_node_t *lower_and_or(const gnode_t *g)
        multi.a = left, multi.b = op-node, multi.c = right */
     if (g->data.multi.a && g->data.multi.b && g->data.multi.c)
     {
-        ast_node_t *left = lower_and_or(g->data.multi.a);
+        ast_node_t *left = NULL;
+        const gnode_t *left_node = g->data.multi.a;
+        if (left_node->type == G_AND_OR)
+            left = lower_and_or(left_node);
+        else if (left_node->type == G_PIPELINE)
+            left = lower_pipeline(left_node);
+        else
+        {
+            log_error("lower_and_or: unexpected left kind %d", (int)left_node->type);
+            return NULL;
+        }
         if (!left)
             return NULL;
 

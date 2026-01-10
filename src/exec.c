@@ -187,7 +187,7 @@ exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
     // Initialize positional parameters from command line
     if (cfg->argc > 1)
     {
-        e->positional_params = positional_params_create_from_argv(cfg->argc - 1, (const char **)&(cfg->argv[1]));
+        e->positional_params = positional_params_create_from_argv(cfg->argv[0], cfg->argc - 1, (const char **)&(cfg->argv[1]));
     }
     else
     {
@@ -767,9 +767,6 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
 
     switch (root->type)
     {
-    case AST_PROGRAM:
-        /* AST_PROGRAM is just a wrapper around the body command list */
-        return exec_execute(executor, root->data.program.body);
     case AST_SIMPLE_COMMAND:
         return exec_execute_simple_command(executor, root);
     case AST_PIPELINE:
@@ -2413,7 +2410,14 @@ static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
 
     for (int i = saved_count - 1; i >= 0; i--)
     {
-        _dup2(saved[i].backup_fd, saved[i].fd);
+        if (_dup2(saved[i].backup_fd, saved[i].fd) < 0)
+        {
+            // Handle error: log, set error, cleanup, etc.
+            // Example:
+            // exec_set_error(executor, "_dup2(%d, %d) failed: %s", saved[i].backup_fd, saved[i].fd,
+            //               strerror(errno));
+            // Optionally, perform any necessary cleanup here
+        }
         _close(saved[i].backup_fd);
     }
 }
@@ -3153,7 +3157,7 @@ string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t 
 
     for (size_t i = 0; i < we.we_wordc; i++) {
         string_t *path = string_create_from_cstr(we.we_wordv[i]);
-        string_list_move_push_back(result, path);
+        string_list_move_push_back(result, &path);
     }
 
     wordfree(&we);
@@ -3189,7 +3193,7 @@ string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t 
 
         // Add the matched filename to the result list
         string_t *filename = string_create_from_cstr(fd.name);
-        string_list_move_push_back(result, filename);
+        string_list_move_push_back(result, &filename);
 
     } while (_findnext(handle, &fd) == 0);
 

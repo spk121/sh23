@@ -23,7 +23,7 @@ positional_params_t *positional_params_create(void)
     return p;
 }
 
-positional_params_t *positional_params_create_from_array(string_t **params, int count)
+positional_params_t *positional_params_create_from_array(const string_t *arg0, int count, const string_t **params)
 {
     Expects(count >= 0);
     if (count > POSITIONAL_PARAMS_MAX)
@@ -33,13 +33,17 @@ positional_params_t *positional_params_create_from_array(string_t **params, int 
         Expects_not_null(params);
 
     positional_params_t *p = xcalloc(1, sizeof(positional_params_t));
-    p->params = params;
     p->count = count;
+    p->arg0 = string_create_from(arg0);
+    p->params = xcalloc((size_t)count + 1, sizeof(string_t *));
+    for (int i = 0; i < count; i++)
+        p->params[i] = string_create_from(params[i]);
+    p->params[count] = NULL;
     p->max_params = POSITIONAL_PARAMS_MAX;
     return p;
 }
 
-positional_params_t *positional_params_create_from_argv(int argc, const char **argv)
+positional_params_t *positional_params_create_from_argv(const char *arg0, int argc, const char **argv)
 {
     Expects(argc >= 0);
     if (argc > 0)
@@ -50,7 +54,7 @@ positional_params_t *positional_params_create_from_argv(int argc, const char **a
 
     positional_params_t *p = xcalloc(1, sizeof(positional_params_t));
     p->max_params = POSITIONAL_PARAMS_MAX;
-
+    p->arg0 = string_create_from_cstr(arg0);
     if (argc == 0)
     {
         p->params = NULL;
@@ -58,14 +62,12 @@ positional_params_t *positional_params_create_from_argv(int argc, const char **a
         return p;
     }
 
-    p->params = xcalloc((size_t)argc, sizeof(string_t *));
+    p->params = xcalloc((size_t)argc + 1, sizeof(string_t *));
     p->count = argc;
 
     for (int i = 0; i < argc; i++)
-    {
         p->params[i] = string_create_from_cstr(argv[i]);
-    }
-
+    p->params[argc] = NULL;
     return p;
 }
 
@@ -76,6 +78,7 @@ positional_params_t *positional_params_copy(const positional_params_t *src)
     positional_params_t *p = xcalloc(1, sizeof(positional_params_t));
     p->max_params = src->max_params;
     p->count = src->count;
+    p->arg0 = string_create_from(src->arg0);
 
     if (src->count == 0 || src->params == NULL)
     {
@@ -106,6 +109,8 @@ void positional_params_destroy(positional_params_t **params)
             if (p->params[i] != NULL)
                 string_destroy(&p->params[i]);
         }
+        if (p->arg0 != NULL)
+            string_destroy(&p->arg0);
         xfree(p->params);
     }
 

@@ -16,8 +16,6 @@
  */
 typedef enum
 {
-    AST_PROGRAM,            // top-level program node
-
     /* Basic command constructs */
     AST_SIMPLE_COMMAND,    // command with arguments and redirections
     AST_PIPELINE,          // sequence of commands connected by pipes
@@ -36,10 +34,12 @@ typedef enum
     AST_FOR_CLAUSE,        // for/in/do/done
     AST_CASE_CLAUSE,       // case/in/esac
     AST_FUNCTION_DEF,      // name() compound-command [redirections]
-    AST_REDIRECTED_COMMAND, // generic wrapper: command + trailing redirections
+    AST_REDIRECTED_COMMAND, // a decorator for commands with redirections. It may have multiple redirections.
+                           // It can have many different command types as its child.
 
     /* Auxiliary nodes */
-    AST_REDIRECTION,       // I/O redirection
+    AST_REDIRECTION,        // A single I/O redirection. There are one or more of these per
+                            // REDIRECTED_COMMAND.
 #if 0
     AST_WORD,              // word node (wraps token)
 #endif
@@ -230,17 +230,13 @@ struct ast_node_t
     /* Common fields used by different node types */
     union
     {
-        /* AST_PROGRAM */
-        struct
-        {
-            ast_node_t *body; // A single command list node
-        } program;
-
         /* AST_SIMPLE_COMMAND */
         struct
         {
             token_list_t *words;           // command name and arguments
             ast_node_list_t *redirections; // redirections for this command
+                                           // NOTE: simple commands's redirections apply only to this command,
+                                           // while AST_REDIRECTED_COMMAND's redirections apply to the entire command or compound.
             token_list_t *assignments;     // variable assignments (name=value)
         } simple_command;
 
@@ -344,11 +340,19 @@ struct ast_node_t
             redirection_type_t redir_type;
             int io_number;                // fd being redirected (or -1)
             redir_operand_kind_t operand; // operand type
+#if !FUTURE
             int padding;
-
             string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
             token_t *target;           // used when operand == FILENAME or FD
             string_t *heredoc_content; // used when operand == HEREDOC
+#else
+            redir_payload_t payload_type;
+            union {
+                string_t *io_location;     // used only when operand == REDIR_OPERAND_IOLOC
+                token_t *target;           // used when operand == FILENAME or FD
+                string_t *heredoc_content; // used when operand == HEREDOC
+            } data;
+#endif
         } redirection;
     } data;
 };
@@ -433,8 +437,6 @@ const char *redirection_type_to_string(redirection_type_t type);
  *     the parser to clear pointers without destroying tokens
  *   - Then free the token_list structure itself
  */
-
-ast_node_t *ast_create_program(void);
 
 /**
  * Create a simple command node.

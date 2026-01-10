@@ -140,13 +140,13 @@ static int check_command_file_readable(const char *command_file)
     return SH_EXIT_SUCCESS;
 }
 
-static shell_mode_t compute_shell_mode(int flag_c, int flag_s, int flag_i, const char *command_file)
+static shell_mode_t compute_shell_mode(int c_flag, int s_flag, int i_flag, const char *command_file)
 {
     shell_mode_t mode = SHELL_MODE_UNKNOWN;
 
-    if (flag_c)
+    if (c_flag)
         mode = SHELL_MODE_COMMAND_STRING;
-    else if (flag_i)
+    else if (i_flag)
     {
 #ifdef POSIX_API
         if (getuid() != geteuid() || getgid() != getegid())
@@ -154,7 +154,7 @@ static shell_mode_t compute_shell_mode(int flag_c, int flag_s, int flag_i, const
 #endif
         mode = SHELL_MODE_INTERACTIVE;
     }
-    else if (flag_s || !command_file)
+    else if (s_flag || !command_file)
         mode = SHELL_MODE_STDIN;
     else
         mode = SHELL_MODE_SCRIPT_FILE;

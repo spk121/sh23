@@ -34,9 +34,6 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
     switch (node->type)
     {
         // These node types contain pointers to owned data that need to be cloned.
-    case AST_PROGRAM:
-        new_node->data.program.body = ast_node_clone(node->data.program.body);
-        break;
     case AST_SIMPLE_COMMAND:
         new_node->data.simple_command.words = token_list_clone(node->data.simple_command.words);
         new_node->data.simple_command.redirections =
@@ -150,12 +147,6 @@ void ast_node_destroy(ast_node_t **node)
 
     switch (n->type)
     {
-    case AST_PROGRAM:
-        if (n->data.program.body != NULL)
-        {
-            ast_node_destroy(&n->data.program.body);
-        }
-        break;
     case AST_SIMPLE_COMMAND:
         if (n->data.simple_command.words != NULL)
         {
@@ -371,13 +362,6 @@ void ast_redirection_node_set_heredoc_content(ast_node_t *node, const string_t *
 /* ============================================================================
  * AST Node Creation Helpers
  * ============================================================================ */
-
-ast_node_t *ast_create_program(void)
-{
-    ast_node_t *node = ast_node_create(AST_PROGRAM);
-    node->data.program.body = NULL;
-    return node;
-}
 
 ast_node_t *ast_create_simple_command(token_list_t *words,
                                      ast_node_list_t *redirections,
@@ -636,8 +620,6 @@ const char *ast_node_type_to_string(ast_node_type_t type)
 {
     switch (type)
     {
-    case AST_PROGRAM:
-        return "PROGRAM";
     case AST_SIMPLE_COMMAND:
         return "SIMPLE_COMMAND";
     case AST_PIPELINE:
@@ -735,21 +717,6 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
     // Recursively print children based on node type
     switch (node->type)
     {
-    case AST_PROGRAM:
-        indent_str(result, indent_level + 1);
-        string_append_cstr(result, "body:\n");
-        if (node->data.program.body != NULL)
-        {
-            ast_node_to_string_helper(node->data.program.body, result, indent_level + 2);
-        }
-        else
-        {
-            indent_str(result, indent_level + 2);
-            string_append_cstr(result, "(null)\n");
-        }
-        string_append_cstr(result, "\n");
-        break;
-
     case AST_SIMPLE_COMMAND:
         if (node->data.simple_command.assignments != NULL &&
             node->data.simple_command.assignments->size > 0)

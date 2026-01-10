@@ -30,8 +30,9 @@
  */
 typedef struct positional_params_t
 {
+    string_t *arg0;     ///< Command name or argv[0]
     string_t **params;  ///< Array of parameters (params[0] is $1)
-    int count;          ///< Number of parameters
+    int count;          ///< Number of parameters not including arg0
     int max_params;     ///< Maximum allowed (for validation)
 } positional_params_t;
 
@@ -51,24 +52,24 @@ positional_params_t *positional_params_create(void);
 /**
  * @brief Create positional parameters from an argv-style array
  *
- * Takes ownership of the params array.
- *
+ * @param arg0 Zeroth parameter
+ * @param count Count of parameters not including arg0
  * @param params Array of string_t* (params[0] is $1)
- * @param count Number of parameters
  * @return New positional_params_t, or NULL if count exceeds maximum
  */
-positional_params_t *positional_params_create_from_array(string_t **params, int count);
+positional_params_t *positional_params_create_from_array(const string_t *arg0, int count, const string_t **params);
 
 /**
  * @brief Create positional parameters from C-style argv
  *
  * Creates string_t copies of the C strings.
  *
- * @param argc Number of arguments
+ * @param arg0 Zeroth parameter
+ * @param argc Number of arguments not including arg0
  * @param argv Array of C strings
  * @return New positional_params_t, or NULL on allocation failure
  */
-positional_params_t *positional_params_create_from_argv(int argc, const char **argv);
+positional_params_t *positional_params_create_from_argv(const char *arg0, int argc, const char **argv);
 
 /**
  * @brief Copy positional parameters

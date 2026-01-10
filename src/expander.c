@@ -115,8 +115,6 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
     string_t *result = NULL;
 
     // Check for positional parameters
-    // Note: $0 is not in positional_params; it's managed by the executor as shell_name
-    // and should be provided via the variable store
     if (strcmp(name, "#") == 0)
     {
         if (exp->params)
@@ -132,17 +130,31 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
             result = positional_params_get_all_joined(exp->params, ' ');
         }
     }
+    else if (strcmp(name, "*") == 0)
+    {
+        if (exp->params)
+        {
+            result = positional_params_get_all_joined(exp->params, ' ');
+        }
+    }
     else
     {
         // Check if name is a digit (positional param like $1, $2, etc.)
         char *endptr;
         int n = (int)strtol(name, &endptr, 10);
-        if (*endptr == '\0' && n > 0 && exp->params)
+        if (*endptr == '\0')
         {
-            const string_t *param = positional_params_get(exp->params, n);
-            if (param)
+            if (n > 0 && exp->params)
             {
-                result = string_create_from(param);
+                const string_t *param = positional_params_get(exp->params, n);
+                if (param)
+                {
+                    result = string_create_from(param);
+                }
+            }
+            else if (n == 0)
+            {
+                result = string_create_from(exp->params->arg0);
             }
         }
     }
@@ -260,7 +272,7 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
         // No expansion needed: return literal text as single string
         string_t *text = token_get_all_text(tok);
         string_list_t *result = string_list_create();
-        string_list_move_push_back(result, text);
+        string_list_move_push_back(result, &text);
         return result;
     }
 
@@ -314,12 +326,13 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
     {
         if (expanded)
         {
-            string_list_move_push_back(fields, expanded);
+            string_list_move_push_back(fields, &expanded);
         }
         else
         {
             // If expanded is NULL, create an empty string
-            string_list_move_push_back(fields, string_create());
+            string_t *empty_str = string_create();
+            string_list_move_push_back(fields, &empty_str);
         }
     }
 
@@ -535,7 +548,7 @@ const char *pattern_str = string_cstr(pattern);
                 continue;
 
             string_t *expanded = string_create_from_cstr(path);
-            string_list_move_push_back(result, expanded);
+            string_list_move_push_back(result, &expanded);
         }
 
         globfree(&glob_result);
@@ -586,7 +599,7 @@ const char *pattern_str = string_cstr(pattern);
 
         // Add the matched filename to the result list
         string_t *filename = string_create_from_cstr(fd.name);
-        string_list_move_push_back(result, filename);
+        string_list_move_push_back(result, &filename);
 
     } while (_findnext64i32(handle, &fd) == 0);
 

@@ -208,7 +208,7 @@ string_t *string_create_from_cstr_len(const char *data, int len)
     int needed_capacity = len + 1;
     string_ensure_capacity(str, needed_capacity);
 
-    memcpy(str->data, data, len);
+    memmove(str->data, data, len);
     str->data[len] = '\0';
     str->length = len;
 
