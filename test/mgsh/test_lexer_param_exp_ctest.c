@@ -814,8 +814,10 @@ CTEST(test_param_in_word_of_braced)
     (void)ctest;
 }
 
-int main()
+int main(int argc, char **argv)
 {
+	(void)argc;
+	(void)argv;
     arena_start();
 
     CTestEntry *suite[] = {

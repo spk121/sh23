@@ -55,6 +55,7 @@ CTEST(test_expander_pathname_expansion_callback)
     // Build a WORD token containing a literal with glob chars
     token_t *word = token_create_word();
     token_add_literal_part(word, string_create_from_cstr("*.txt"));
+    word->needs_pathname_expansion = true;
 
     // Expand the word
     string_list_t *res = expander_expand_word(exp, word);
@@ -93,6 +94,7 @@ CTEST(test_expander_recursive_param_assign_default)
     p->param_kind = PARAM_ASSIGN_DEFAULT;
     p->word = string_create_from_cstr("${bar}");
     token_add_part(word, p);
+	word->needs_expansion = true;
 
     string_list_t *res = expander_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
@@ -103,7 +105,8 @@ CTEST(test_expander_recursive_param_assign_default)
     CTEST_ASSERT_EQ(ctest, variable_store_has_name_cstr(vars, "foo"), 1, "foo present");
     const char *foo_val = variable_store_get_value_cstr(vars, "foo");
     CTEST_ASSERT_NOT_NULL(ctest, foo_val, "foo assigned");
-    CTEST_ASSERT_STR_EQ(ctest, foo_val, "B", "foo == B");
+    if (foo_val)
+        CTEST_ASSERT_STR_EQ(ctest, foo_val, "B", "foo == B");
 
     string_list_destroy(&res);
     token_destroy(&word);
@@ -818,8 +821,12 @@ CTEST(test_expander_positionals_basic)
     string_t *parg0 = string_create_from_cstr("mgsh");
     string_t *p1 = string_create_from_cstr("one");
     string_t *p2 = string_create_from_cstr("two");
-    string_t *pargs[] = { parg0, p1, p2 };
-    positional_params_t *params = positional_params_create_from_array(pargs, 3);
+    const string_t *pargs[] = { p1, p2 };
+    positional_params_t *params = positional_params_create_from_array(parg0, 2, pargs);
+    string_destroy(&parg0);
+    string_destroy(&p1);
+    string_destroy(&p2);
+
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 
@@ -881,8 +888,13 @@ CTEST(test_expander_positionals_at_star)
     string_t *pa = string_create_from_cstr("a");
     string_t *pb = string_create_from_cstr("b");
     string_t *pc = string_create_from_cstr("c");
-    string_t *pargs[] = { p0, pa, pb, pc };
-    positional_params_t *params = positional_params_create_from_array(pargs, 4);
+    const string_t *pargs[] = { pa, pb, pc };
+    positional_params_t *params = positional_params_create_from_array(p0, 3, pargs);
+	string_destroy(&p0);
+	string_destroy(&pa);
+    string_destroy(&pb);
+    string_destroy(&pc);
+
     expander_t *exp = expander_create(vars, params);
     CTEST_ASSERT_NOT_NULL(ctest, exp, "expander created");
 

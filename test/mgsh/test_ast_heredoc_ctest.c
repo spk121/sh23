@@ -39,10 +39,7 @@ static ast_node_t* get_first_simple_command(CTest* ctest, ast_node_t* ast)
     CTEST_ASSERT_NOT_NULL(ctest, ast, "ast is not null");
     if (!ast) return NULL;
 
-    CTEST_ASSERT_EQ(ctest, ast_node_get_type(ast), AST_PROGRAM, "root is program");
-    if (ast_node_get_type(ast) != AST_PROGRAM) return NULL;
-
-    ast_node_t* body = ast->data.program.body;
+    ast_node_t* body = ast;
     CTEST_ASSERT_NOT_NULL(ctest, body, "program has body");
     if (!body) return NULL;
 

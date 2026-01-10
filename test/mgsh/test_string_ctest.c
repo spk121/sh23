@@ -149,9 +149,9 @@ CTEST(test_string_push_pop)
 CTEST(test_string_resize_grow)
 {
     string_t* s = string_create_from_cstr("abc");
-    string_resize(s, 6);
+    string_resize_with_char(s, 6, 'x');
     CTEST_ASSERT_EQ(ctest, string_length(s), 6, "length 6");
-    CTEST_ASSERT_STR_EQ(ctest, string_cstr(s), "abc\0\0\0", "resize grow zero-fills");
+    CTEST_ASSERT_STR_EQ(ctest, string_cstr(s), "abcxxx", "resize grow fills with 'x'");
     string_destroy(&s);
 }
 

@@ -234,8 +234,10 @@ CTEST(test_colon_prefix_missing_arg)
     CTEST_ASSERT_EQ(ctest, state.optopt, 'o', "optopt set to 'o'");
 }
 
-int main()
+int main(int argc, char **argv)
 {
+	(void)argc;
+	(void)argv;
     CTestEntry* suite[] = {
         CTEST_ENTRY(test_basic_toggle_set),
         CTEST_ENTRY(test_basic_toggle_unset),

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if [ -d build ])",
+      "Bash(then echo \"build directory exists\")",
+      "Bash(else echo \"no build directory\")",
+      "Bash(fi)",
+      "Bash(cmake --build:*)",
+      "Bash(cmake:*)"
+    ]
+  }
+}
