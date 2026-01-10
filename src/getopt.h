@@ -82,6 +82,13 @@ struct getopt_state
     int first_nonopt;
     int last_nonopt;
     int opt_plus_prefix;
+    /* POSIX shell extension: if set, a lone '-' argument terminates option
+     * processing (like '--') but is itself skipped rather than preserved
+     * as an operand. Per POSIX.1-2024 sh utility specification:
+     * "A single <hyphen-minus> shall be treated as the first operand and
+     * then ignored."
+     */
+    int posix_hyphen;
 };
 
 int getopt_r(int argc, char *const argv[], const char *optstring, struct getopt_state *state);

@@ -234,10 +234,203 @@ CTEST(test_colon_prefix_missing_arg)
     CTEST_ASSERT_EQ(ctest, state.optopt, 'o', "optopt set to 'o'");
 }
 
-int main(int argc, char **argv)
+/* ============================================================================
+ * POSIX single-hyphen handling tests
+ * ============================================================================ */
+
+CTEST(test_posix_hyphen_terminates_options)
 {
-	(void)argc;
-	(void)argv;
+    /* sh -a - script.sh arg1
+     * The '-' should terminate option processing and be skipped.
+     * optind should point to 'script.sh'
+     */
+    char* argv[] = { "sh", "-a", "-", "script.sh", "arg1", NULL };
+    int argc = 5;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    state.posix_hyphen = 1;  /* Enable POSIX hyphen handling */
+    flag_a = 0;
+
+    int c;
+    int count = 0;
+    while ((c = getopt_long_plus_r(argc, argv, "aev", shell_options, NULL, &state)) != -1) {
+        count++;
+        if (c == 'a')
+            flag_a = 1;
+    }
+
+    CTEST_ASSERT_EQ(ctest, count, 1, "only one option parsed (-a)");
+    CTEST_ASSERT_EQ(ctest, flag_a, 1, "-a was set");
+    CTEST_ASSERT_EQ(ctest, state.optind, 3, "optind points past the hyphen to script.sh");
+    CTEST_ASSERT_STR_EQ(ctest, argv[state.optind], "script.sh", "first operand is script.sh");
+}
+
+CTEST(test_posix_hyphen_skips_following_options)
+{
+    /* sh -a - -e script.sh
+     * The '-' terminates options, so '-e' is NOT parsed as an option.
+     * It becomes an operand.
+     */
+    char* argv[] = { "sh", "-a", "-", "-e", "script.sh", NULL };
+    int argc = 5;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    state.posix_hyphen = 1;
+    flag_a = 0;
+    flag_e = 0;
+
+    int c;
+    while ((c = getopt_long_plus_r(argc, argv, "ae", shell_options, NULL, &state)) != -1) {
+        if (c == 'a') flag_a = 1;
+        if (c == 'e') flag_e = 1;
+    }
+
+    CTEST_ASSERT_EQ(ctest, flag_a, 1, "-a was set");
+    CTEST_ASSERT_EQ(ctest, flag_e, 0, "-e was NOT set (came after hyphen)");
+    CTEST_ASSERT_EQ(ctest, state.optind, 3, "optind points to -e (now an operand)");
+    CTEST_ASSERT_STR_EQ(ctest, argv[state.optind], "-e", "first operand is -e");
+}
+
+CTEST(test_posix_hyphen_alone)
+{
+    /* sh - script.sh
+     * The '-' as first argument terminates options immediately.
+     */
+    char* argv[] = { "sh", "-", "script.sh", NULL };
+    int argc = 3;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    state.posix_hyphen = 1;
+
+    int c;
+    int count = 0;
+    while ((c = getopt_long_plus_r(argc, argv, "aev", shell_options, NULL, &state)) != -1) {
+        count++;
+    }
+
+    CTEST_ASSERT_EQ(ctest, count, 0, "no options parsed");
+    CTEST_ASSERT_EQ(ctest, state.optind, 2, "optind points to script.sh");
+    CTEST_ASSERT_STR_EQ(ctest, argv[state.optind], "script.sh", "first operand is script.sh");
+}
+
+CTEST(test_posix_hyphen_at_end)
+{
+    /* sh -a -
+     * The '-' terminates options, no operands follow.
+     */
+    char* argv[] = { "sh", "-a", "-", NULL };
+    int argc = 3;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    state.posix_hyphen = 1;
+    flag_a = 0;
+
+    int c;
+    while ((c = getopt_long_plus_r(argc, argv, "a", shell_options, NULL, &state)) != -1) {
+        if (c == 'a') flag_a = 1;
+    }
+
+    CTEST_ASSERT_EQ(ctest, flag_a, 1, "-a was set");
+    CTEST_ASSERT_EQ(ctest, state.optind, 3, "optind is argc (no operands)");
+}
+
+CTEST(test_posix_hyphen_disabled)
+{
+    /* With posix_hyphen = 0, lone '-' should be treated as non-option argument
+     * (standard getopt behavior with PERMUTE ordering)
+     */
+    char* argv[] = { "sh", "-a", "-", "-e", NULL };
+    int argc = 4;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    state.posix_hyphen = 0;  /* Disabled */
+    flag_a = 0;
+    flag_e = 0;
+
+    int c;
+    while ((c = getopt_long_plus_r(argc, argv, "ae", shell_options, NULL, &state)) != -1) {
+        if (c == 'a') flag_a = 1;
+        if (c == 'e') flag_e = 1;
+    }
+
+    /* With PERMUTE (default), options are extracted from anywhere */
+    CTEST_ASSERT_EQ(ctest, flag_a, 1, "-a was set");
+    CTEST_ASSERT_EQ(ctest, flag_e, 1, "-e was also set (hyphen handling disabled)");
+}
+
+CTEST(test_posix_hyphen_vs_double_dash)
+{
+    /* Verify '-' and '--' behave similarly but '-' is skipped
+     * sh -a -- -e   -> optind points to -e, which is an operand
+     * sh -a - -e    -> optind points to -e, which is an operand
+     * The difference: '--' is consumed but could be preserved in some modes,
+     * while '-' per POSIX is always ignored.
+     */
+    char* argv1[] = { "sh", "-a", "--", "-e", NULL };
+    char* argv2[] = { "sh", "-a", "-", "-e", NULL };
+    int argc = 4;
+
+    /* Test with -- */
+    struct getopt_state state1 = { 0 };
+    state1.opterr = 0;
+    state1.posix_hyphen = 1;
+    flag_a = 0;
+    flag_e = 0;
+
+    int c;
+    while ((c = getopt_long_plus_r(argc, argv1, "ae", shell_options, NULL, &state1)) != -1) {
+        if (c == 'a') flag_a = 1;
+        if (c == 'e') flag_e = 1;
+    }
+
+    int optind_double_dash = state1.optind;
+
+    /* Test with - */
+    struct getopt_state state2 = { 0 };
+    state2.opterr = 0;
+    state2.posix_hyphen = 1;
+    flag_a = 0;
+    flag_e = 0;
+
+    while ((c = getopt_long_plus_r(argc, argv2, "ae", shell_options, NULL, &state2)) != -1) {
+        if (c == 'a') flag_a = 1;
+        if (c == 'e') flag_e = 1;
+    }
+
+    int optind_single_dash = state2.optind;
+
+    /* Both should leave -e as the first operand */
+    CTEST_ASSERT_EQ(ctest, optind_double_dash, 3, "-- leaves optind at -e");
+    CTEST_ASSERT_EQ(ctest, optind_single_dash, 3, "- leaves optind at -e");
+    CTEST_ASSERT_STR_EQ(ctest, argv1[optind_double_dash], "-e", "-- case: first operand is -e");
+    CTEST_ASSERT_STR_EQ(ctest, argv2[optind_single_dash], "-e", "- case: first operand is -e");
+}
+
+CTEST(test_posix_hyphen_with_plus_options)
+{
+    /* sh +a - script.sh
+     * Plus-prefix options should work before the hyphen terminator.
+     */
+    char* argv[] = { "sh", "+a", "-", "script.sh", NULL };
+    int argc = 4;
+    struct getopt_state state = { 0 };
+    state.opterr = 0;
+    state.posix_hyphen = 1;
+    flag_a = 1;  /* Start with flag set */
+
+    int c;
+    while ((c = getopt_long_plus_r(argc, argv, "a", shell_options, NULL, &state)) != -1) {
+        /* +a returns 0 when flag is handled */
+    }
+
+    CTEST_ASSERT_EQ(ctest, flag_a, 0, "+a cleared the flag");
+    CTEST_ASSERT_EQ(ctest, state.optind, 3, "optind points to script.sh");
+}
+
+int main(int argc, char** argv)
+{
+    (void)argc;
+    (void)argv;
     CTestEntry* suite[] = {
         CTEST_ENTRY(test_basic_toggle_set),
         CTEST_ENTRY(test_basic_toggle_unset),
@@ -252,6 +445,14 @@ int main(int argc, char **argv)
         CTEST_ENTRY(test_optional_argument_present),
         CTEST_ENTRY(test_optional_argument_missing),
         CTEST_ENTRY(test_colon_prefix_missing_arg),
+        /* POSIX single-hyphen tests */
+        CTEST_ENTRY(test_posix_hyphen_terminates_options),
+        CTEST_ENTRY(test_posix_hyphen_skips_following_options),
+        CTEST_ENTRY(test_posix_hyphen_alone),
+        CTEST_ENTRY(test_posix_hyphen_at_end),
+        CTEST_ENTRY(test_posix_hyphen_disabled),
+        CTEST_ENTRY(test_posix_hyphen_vs_double_dash),
+        CTEST_ENTRY(test_posix_hyphen_with_plus_options),
         NULL
     };
 

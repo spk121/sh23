@@ -277,7 +277,8 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
                 exchange((char **)argv, st);
             else if (st->last_nonopt != st->optind)
                 st->first_nonopt = st->optind;
-            while (st->optind < argc && NONOPTION_P)
+            while (st->optind < argc && NONOPTION_P &&
+                   !(st->posix_hyphen && argv[st->optind][0] == '-' && argv[st->optind][1] == '\0'))
                 ++st->optind;
             st->last_nonopt = st->optind;
         }
@@ -291,6 +292,28 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
                 st->first_nonopt = st->optind;
             st->last_nonopt = argc;
             st->optind = argc;
+        }
+
+        /* POSIX shell single-hyphen handling:
+         * Per POSIX.1-2024: "A single <hyphen-minus> shall be treated as the
+         * first operand and then ignored."
+         * Unlike "--", the lone '-' is skipped entirely (not an operand).
+         * This behavior is only enabled when posix_hyphen is set.
+         */
+        if (st->posix_hyphen && st->optind != argc && argv[st->optind][0] == '-' &&
+            argv[st->optind][1] == '\0')
+        {
+            ++st->optind; /* Skip past the hyphen */
+            /* Mark remaining arguments as operands, terminate option processing */
+            if (st->first_nonopt != st->last_nonopt && st->last_nonopt != st->optind)
+                exchange((char **)argv, st);
+            else if (st->first_nonopt == st->last_nonopt)
+                st->first_nonopt = st->optind;
+            st->last_nonopt = argc;
+            /* Return -1 to signal end of options, with optind pointing to
+             * the first operand (or argc if there are no more arguments).
+             */
+            return -1;
         }
 
         if (st->optind == argc)
