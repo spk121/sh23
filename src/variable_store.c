@@ -190,8 +190,9 @@ var_store_error_t variable_store_add(variable_store_t *store, const string_t *na
     mapped.exported = exported;
     mapped.read_only = read_only;
 
-    // Insert or update the variable
-    variable_map_insert_or_assign_move(store->map, name, &mapped);
+    /* Insert or update the variable, transferring ownership of 'mapped' */
+    variable_map_insert_or_assign(store->map, name, &mapped);
+    string_destroy(&mapped.value);
 
     // Invalidate cached envp
     free_cached_envp(store);
