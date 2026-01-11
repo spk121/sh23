@@ -263,6 +263,53 @@ var_store_error_t variable_store_set_exported_cstr(variable_store_t *store, cons
  */
 int32_t variable_store_get_value_length(const variable_store_t *store, const string_t *name);
 
+typedef void (*var_store_iter_fn)(const string_t *name, const string_t *value, bool exported,
+                                  bool read_only, void *user_data);
+
+
+/**
+ * Iterates over all variables in the store, calling the provided function for each.
+ * Does not modify the store.
+ *
+ * @param store Variable store.
+ * @param fn Function to call for each variable.
+ * @param user_data User data passed to the function.
+ */
+void variable_store_for_each(const variable_store_t *store, var_store_iter_fn fn, void *user_data);
+
+/**
+ * Actions that can be taken during variable store mapping.
+ */
+typedef enum
+{
+    VAR_STORE_MAP_ACTION_SKIP = 0, /**< Do not modify the variable. */
+    VAR_STORE_MAP_ACTION_UPDATE,   /**< Update the variable with new values. */
+    VAR_STORE_MAP_ACTION_REMOVE    /**< Remove the variable from the store. */
+} var_store_map_action_t;
+
+typedef var_store_map_action_t (*var_store_map_fn)(string_t *name, string_t *value, bool *exported,
+                                                   bool *read_only, void *user_data);
+
+/**
+ * Iterates over all variables in the store, allowing modification via the provided function.
+ * Stop iteration if the function returns an error.
+ * N.B.: you cannot use this function to remove an entry from the store.
+ *
+ * @param store Variable store.
+ * @param fn Function to call for each variable.
+ * @param user_data User data passed to the function.
+ * @param failed_name If non-NULL, set to the unmodified name of the variable that caused an error.
+ */
+var_store_error_t variable_store_map(variable_store_t *store, var_store_map_fn fn, void *user_data,
+                                     string_t **failed_name);
+
+    /**
+ * Prints all exported variables to the log at DEBUG level.
+ *
+ * @param store Variable store.
+ */
+void variable_store_debug_print_exported(const variable_store_t *store);
+
 /**
  * Rebuilds and returns the environment array for execve().
  * The returned pointer remains valid until the next update call.

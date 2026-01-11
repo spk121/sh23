@@ -54,6 +54,12 @@ builtin_func_t builtin_get_function_cstr(const char *name);
  *   other - command-specific error codes
  */
 
+int builtin_colon(exec_t *ex, const string_list_t *args);
+
+int builtin_dot(exec_t *ex, const string_list_t *args);
+
+int builtin_export(exec_t *ex, const string_list_t *args);
+
 /**
  * set - Set or unset shell options and positional parameters
  *
@@ -62,5 +68,16 @@ builtin_func_t builtin_get_function_cstr(const char *name);
  * @return Exit status code
  */
 int builtin_set(exec_t *ex, const string_list_t *args);
+
+int builtin_unset(exec_t *ex, const string_list_t *args);
+
+/* ============================================================================
+ * Regular (non-special) built-ins
+ * ============================================================================
+ */
+
+int builtin_jobs(exec_t *ex, const string_list_t *args);
+
+
 
 #endif /* BUILTINS_H */

@@ -467,6 +467,110 @@ int32_t variable_store_get_value_length(const variable_store_t *store, const str
     return value ? string_length(value) : 0;
 }
 
+void variable_store_for_each(const variable_store_t* store, var_store_iter_fn fn, void* user_data)
+{
+    if (!store || !fn)
+    {
+        return;
+    }
+    for (int32_t i = 0; i < store->map->capacity; i++)
+    {
+        if (store->map->entries[i].occupied)
+        {
+            const string_t *name = store->map->entries[i].key;
+            const string_t *value = store->map->entries[i].mapped.value;
+            bool exported = store->map->entries[i].mapped.exported;
+            bool read_only = store->map->entries[i].mapped.read_only;
+            fn(name, value, exported, read_only, user_data);
+        }
+    }
+}
+
+var_store_error_t variable_store_map(variable_store_t* store, var_store_map_fn fn, void* user_data, string_t **failed_name)
+{
+    Expects_not_null(store);
+    Expects_not_null(fn);
+
+    for (int32_t i = 0; i < store->map->capacity; i++)
+    {
+        if (store->map->entries[i].occupied)
+        {
+            string_t *name = string_create_from(store->map->entries[i].key);
+            string_t *value = string_create_from(store->map->entries[i].mapped.value);
+            bool exported = store->map->entries[i].mapped.exported;
+            bool read_only = store->map->entries[i].mapped.read_only;
+            var_store_map_action_t action = fn(name, value, &exported, &read_only, user_data);
+            if (action == VAR_STORE_MAP_ACTION_SKIP)
+            {
+                string_destroy(&name);
+                string_destroy(&value);
+                continue;
+            }
+            if (action == VAR_STORE_MAP_ACTION_REMOVE)
+            {
+                variable_store_remove(store, store->map->entries[i].key);
+                string_destroy(&name);
+                string_destroy(&value);
+                continue;
+            }
+            var_store_error_t name_err = validate_variable_name(name);
+            var_store_error_t value_err = validate_variable_name(value);
+            if (name_err != VAR_STORE_ERROR_NONE)
+            {
+                string_destroy(&name);
+                string_destroy(&value);
+                if (failed_name)
+                {
+                    *failed_name = string_create_from(store->map->entries[i].key);
+                }
+                return name_err;
+            }
+            if (value_err != VAR_STORE_ERROR_NONE)
+            {
+                string_destroy(&name);
+                string_destroy(&value);
+                if (failed_name)
+                {
+                    *failed_name = string_create_from(store->map->entries[i].key);
+                }
+                return value_err;
+            }
+            string_set(store->map->entries[i].key, name);
+            string_set(store->map->entries[i].mapped.value, value);
+            store->map->entries[i].mapped.exported = exported;
+            store->map->entries[i].mapped.read_only = read_only;
+            string_destroy(&name);
+            string_destroy(&value);
+        }
+    }
+    return VAR_STORE_ERROR_NONE;
+}
+
+static void dbg_print_export(const string_t* var, const string_t* val, bool exported, bool read_only, void* user_data)
+{
+    if (exported)
+    {
+        if (val)
+        {
+            log_debug("export %s=\"%s\"", string_cstr(var), string_cstr(val));
+        }
+        else
+        {
+            log_debug("export %s", string_cstr(var));
+        }
+    }
+}
+
+void variable_store_debug_print_exported(const variable_store_t* store)
+{
+    if (!store)
+    {
+        return;
+    }
+    variable_store_for_each(store, dbg_print_export, NULL);
+}
+
+
 char *const *variable_store_update_envp(variable_store_t *store)
 {
     return variable_store_update_envp_with_parent(store, NULL);

@@ -1,4 +1,4 @@
-#include "builtins.h"
+﻿#include "builtins.h"
 #include "string_t.h"
 #include "logging.h"
 #include "getopt.h"
@@ -21,20 +21,20 @@ typedef struct builtin_implemented_function_map_t
 
 builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "break", BUILTIN_SPECIAL, builtin_break}, */
-    /* { ":", BUILTIN_SPECIAL, builtin_colon}, */
+    { ":", BUILTIN_SPECIAL, builtin_colon},
     /* { "continue", BUILTIN_SPECIAL, builtin_continue}, */
-    /* { ".", BUILTIN_SPECIAL, builtin_dot}, */
+    { ".", BUILTIN_SPECIAL, builtin_dot},
     /* { "eval", BUILTIN_SPECIAL, builtin_eval}, */
     /* { "exec", BUILTIN_SPECIAL, builtin_exec}, */
     /* { "exit", BUILTIN_SPECIAL, builtin_exit}, */
-    /* { "export", BUILTIN_SPECIAL, builtin_export}, */
+    { "export", BUILTIN_SPECIAL, builtin_export},
     /* { "readonly", BUILTIN_SPECIAL, builtin_readonly}, */
     /* { "return", BUILTIN_SPECIAL, builtin_return}, */
     {"set", BUILTIN_SPECIAL, builtin_set},
     /* { "shift", BUILTIN_SPECIAL, builtin_shift}, */
     /* { "times", BUILTIN_SPECIAL, builtin_times}, */
     /* { "trap", BUILTIN_SPECIAL, builtin_trap}, */
-    /* { "unset", BUILTIN_SPECIAL, builtin_unset}, */
+    { "unset", BUILTIN_SPECIAL, builtin_unset},
 
     /* { "cd", BUILTIN_REGULAR, builtin_cd}, */
     /* { "pwd", BUILTIN_REGULAR, builtin_pwd}, */
@@ -51,7 +51,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "hash", BUILTIN_REGULAR, builtin_hash}, */
     /* { "umask", BUILTIN_REGULAR, builtin_umask}, */
     /* { "ulimit", BUILTIN_REGULAR, builtin_ulimit}, */
-    /* { "jobs", BUILTIN_REGULAR, builtin_jobs}, */
+    { "jobs", BUILTIN_REGULAR, builtin_jobs},
     /* { "fg", BUILTIN_REGULAR, builtin_fg}, */
     /* { "bg", BUILTIN_REGULAR, builtin_bg}, */
     /* { "wait", BUILTIN_REGULAR, builtin_wait}, */
@@ -60,6 +60,192 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "false", BUILTIN_REGULAR, builtin_false}, */
     {NULL, BUILTIN_NONE, NULL} // Sentinel
 };
+
+/* ============================================================================
+ * colon - do nothing builtin
+ * ============================================================================
+ */
+
+int builtin_colon(exec_t *ex, const string_list_t *args)
+{
+    /* Suppress unused parameter warnings */
+    (void)ex;
+    (void)args;
+
+    /* Do nothing, return success */
+    return 0;
+}
+
+/* ============================================================================
+ * dot - run file contents in current environment
+ * ============================================================================
+ */
+
+int builtin_dot(exec_t *ex, const string_list_t *args)
+{
+    Expects_not_null(ex);
+    Expects_not_null(args);
+
+    if (string_list_size(args) != 1)
+    {
+        exec_set_error(ex, "dot: filename argument required");
+        return 2; /* misuse of shell builtin */
+    }
+    FILE *fp = fopen(string_cstr(string_list_at(args, 1)), "r");
+    if (!fp)
+    {
+        exec_set_error(ex, "dot: cannot open file: %s", string_cstr(string_list_at(args, 1)));
+        return 1; /* general error */
+    }
+    exec_status_t status = exec_execute_stream(ex, fp);
+    fclose(fp);
+    return (status == EXEC_OK) ? 0 : 1;
+}
+
+/* ============================================================================
+ * export - export variables to environment
+ * ============================================================================
+ */
+
+static void builtin_export_print_usage(FILE *stream)
+{
+    fprintf(stream, "Usage: export [VAR[=VALUE] ...]\n");
+    fprintf(stream, "Export shell variables to the environment.\n");
+    fprintf(stream, "With no arguments, prints all exported variables.\n");
+}
+
+void builtin_export_variable_store_print(const string_t *name, const string_t *val, bool exported,
+                                         bool read_only, void *user_data)
+{
+    Expects_not_null(name);
+    Expects_not_null(val);
+    FILE *stream = (FILE *)user_data;
+    if (stream == NULL)
+    {
+        stream = stdout;
+    }
+    if (exported)
+    {
+        /* Quote according to POSIX shell rules so output is reinput-safe */
+        string_t *quoted = lib_quote(name, val);
+        fprintf(stream, "export %s\n", string_cstr(quoted));
+        string_destroy(&quoted);
+    }
+}
+
+static void builtin_export_variable_store_print_exported(const variable_store_t *var_store)
+{
+    Expects_not_null(var_store);
+    if (!var_store->map)
+    {
+        return; /* No variables to print */
+    }
+    variable_store_for_each(var_store, builtin_export_variable_store_print, stdout);
+}
+
+int builtin_export(exec_t *ex, const string_list_t *args)
+{
+    Expects_not_null(ex);
+    Expects_not_null(args);
+
+    variable_store_t *var_store = ex->variables;
+    if (!var_store)
+    {
+        exec_set_error(ex, "export: no variable store available");
+        return 1;
+    }
+
+    /* No arguments → print exported variables */
+    if (string_list_size(args) == 1)
+    {
+        builtin_export_variable_store_print_exported(var_store);
+        return 0;
+    }
+
+    int exit_status = 0;
+
+    for (int i = 1; i < string_list_size(args); i++)
+    {
+        const string_t *arg = string_list_at(args, i);
+        if (!arg || string_empty(arg))
+        {
+            exec_set_error(ex, "export: invalid variable name");
+            exit_status = 2;
+            continue;
+        }
+
+#if defined(POSIX_API) || defined(UCRT_API)
+        int eq_pos = string_find_cstr(arg, "=");
+
+        string_t *name = NULL;
+        string_t *value = NULL;
+
+        /* eq_pos == 0 should never happen. */
+        if (eq_pos > 0)
+        {
+            /* VAR=value */
+            name = string_substring(arg, 0, eq_pos);
+            value = string_substring(arg, eq_pos + 1, string_length(arg));
+        }
+        else
+        {
+            /* VAR */
+            name = string_create_from(arg);
+            value = NULL;
+        }
+
+        var_store_error_t res = variable_store_add(var_store, name, value, false, false);
+
+        if (res == VAR_STORE_ERROR_READ_ONLY)
+        {
+            exec_set_error(ex, "export: variable '%s' is read-only", string_cstr(name));
+            exit_status = 1;
+        }
+        else if (res == VAR_STORE_ERROR_EMPTY_NAME || res == VAR_STORE_ERROR_NAME_TOO_LONG ||
+                 res == VAR_STORE_ERROR_NAME_STARTS_WITH_DIGIT ||
+                 res == VAR_STORE_ERROR_NAME_INVALID_CHARACTER)
+        {
+            exec_set_error(ex, "export: invalid variable name '%s'", string_cstr(name));
+            exit_status = 2;
+        }
+        else if (res != VAR_STORE_ERROR_NONE)
+        {
+            exec_set_error(ex, "export: failed to set variable");
+            exit_status = 1;
+        }
+        else
+        {
+            /* Successful: update environment + store */
+#ifdef POSIX_API
+            if (eq_pos)
+                putenv(string_cstr(arg));
+#elifdef UCRT_API
+            if (eq_pos)
+            {
+                int ret = _putenv_s(string_cstr(name), string_cstr(value));
+                if (ret != 0)
+                {
+                    exec_set_error(ex, "export: failed to set environment variable");
+                    exit_status = 1;
+                }
+            }
+#endif
+            variable_store_set_exported(var_store, name, true);
+        }
+
+        string_destroy(&name);
+        string_destroy(&value);
+
+#else
+        exec_set_error(ex, "export: not supported on this platform");
+        exit_status = 1;
+#endif
+    }
+
+    return exit_status;
+}
+
+
 
 /* ============================================================================
  * set - Set or unset shell options and positional parameters
@@ -459,6 +645,362 @@ int builtin_set(exec_t *ex, const string_list_t *args)
     return 0;
 }
 
+/* ============================================================================
+ * unset - unset values and attributes of variables and functions
+ * ============================================================================
+ */
+int builtin_unset(exec_t *ex, const string_list_t *args)
+{
+    Expects_not_null(ex);
+    Expects_not_null(args);
+    int flag_f = 0;
+    int flag_v = 0;
+    int flag_err = 0;
+    int err_count = 0;
+    int c;
+    variable_store_t *var_store = ex->variables;
+    func_store_t *func_store = ex->functions;
+    string_t *opts = string_create_from_cstr("fv");
+
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'f':
+            if (flag_v)
+                flag_err++;
+            else
+                flag_f++;
+            break;
+        case 'v':
+            if (flag_f)
+                flag_err++;
+            else
+                flag_v++;
+            break;
+        case '?':
+            fprintf(stderr, "unset: Unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+    if (flag_err)
+    {
+        fprintf(stderr, "usage:");
+        return 2;
+    }
+    for (; optind < string_list_size(args); optind++)
+    {
+        if (flag_f)
+        {
+            func_store_error_t err;
+            err = func_store_remove(func_store, string_list_at(args, optind));
+            if (err == FUNC_STORE_ERROR_NOT_FOUND)
+            {
+                fprintf(stderr, "unset: function '%s' not found\n",
+                        string_cstr(string_list_at(args, optind)));
+                err_count++;
+            }
+            else if (err == FUNC_STORE_ERROR_EMPTY_NAME || err == FUNC_STORE_ERROR_NAME_TOO_LONG ||
+                     err == FUNC_STORE_ERROR_NAME_INVALID_CHARACTER ||
+                     err == FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT)
+            {
+                fprintf(stderr, "unset: invalid function name '%s'\n",
+                        string_cstr(string_list_at(args, optind)));
+                err_count++;
+            }
+        }
+        else
+        {
+            /* Either flag_v or no specific flag */
+            if (!variable_store_has_name(var_store, string_list_at(args, optind)))
+            {
+                fprintf(stderr, "unset: variable '%s' not found\n",
+                        string_cstr(string_list_at(args, optind)));
+                err_count++;
+            }
+            else if (variable_store_is_read_only(var_store, string_list_at(args, optind)))
+            {
+                fprintf(stderr, "unset: variable '%s' is read-only\n",
+                        string_cstr(string_list_at(args, optind)));
+                err_count++;
+            }
+            else
+                variable_store_remove(var_store, string_list_at(args, optind));
+        }
+    }
+    if (err_count > 0)
+        return 1;
+    return 0;
+}
+
+
+/* ============================================================================
+ * jobs - Job control builtins
+ * ============================================================================
+ */
+
+/* ============================================================================
+ * builtin_jobs.c
+ *
+ * Implementation of the POSIX 'jobs' builtin command.
+ *
+ * Synopsis:
+ *   jobs [-l | -p] [job_id...]
+ *
+ * Options:
+ *   -l    Long format: include process IDs
+ *   -p    PID only: display only the process group leader's PID
+ *
+ * If job_id arguments are given, only those jobs are displayed.
+ * Otherwise, all jobs are displayed.
+ *
+ * Exit status:
+ *   0     Successful completion
+ *   >0    An error occurred (e.g., invalid job_id)
+ *
+ * ============================================================================ */
+
+typedef enum
+{
+    JOBS_FORMAT_DEFAULT,
+    JOBS_FORMAT_LONG,    /* -l: include PIDs */
+    JOBS_FORMAT_PID_ONLY /* -p: only PIDs */
+} jobs_format_t;
+
+static const char *builtin_jobs_job_state_to_string(job_state_t state)
+{
+    switch (state)
+    {
+    case JOB_RUNNING:
+        return "Running";
+    case JOB_STOPPED:
+        return "Stopped";
+    case JOB_DONE:
+        return "Done";
+    case JOB_TERMINATED:
+        return "Terminated";
+    default:
+        return "Unknown";
+    }
+}
+
+static char builtin_jobs_job_indicator(const job_store_t *store, const job_t *job)
+{
+    if (job == store->current_job)
+        return '+';
+    if (job == store->previous_job)
+        return '-';
+    return ' ';
+}
+
+/* ----------------------------------------------------------------------------
+ * Helper: Parse job_id from string
+ *
+ * Accepts:
+ *   %n    - job number n
+ *   %+    - current job
+ *   %%    - current job
+ *   %-    - previous job
+ *   %?str - job whose command contains str (not implemented)
+ *   %str  - job whose command starts with str (not implemented)
+ *   n     - job number n (without %)
+ *
+ * Returns job_id on success, -1 on error
+ * ---------------------------------------------------------------------------- */
+
+static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
+{
+    if (!arg || !*arg)
+        return -1;
+
+    if (arg[0] == '%')
+    {
+        arg++; /* Skip % */
+
+        if (*arg == '\0' || *arg == '+' || *arg == '%')
+        {
+            /* %%, %+, or just % -> current job */
+            job_t *current = job_store_get_current(store);
+            return current ? current->job_id : -1;
+        }
+
+        if (*arg == '-')
+        {
+            /* %- -> previous job */
+            job_t *previous = job_store_get_previous(store);
+            return previous ? previous->job_id : -1;
+        }
+
+        /* %n -> job number n */
+        char *endptr;
+        long val = strtol(arg, &endptr, 10);
+        if (*endptr == '\0' && val > 0)
+        {
+            return (int)val;
+        }
+
+        /* %?str or %str not implemented */
+        return -1;
+    }
+
+    /* Plain number */
+    char *endptr;
+    long val = strtol(arg, &endptr, 10);
+    if (*endptr == '\0' && val > 0)
+    {
+        return (int)val;
+    }
+
+    return -1;
+}
+
+static void builtin_jobs_print_job(const job_store_t *store, const job_t *job, jobs_format_t format)
+{
+    if (!job)
+        return;
+
+    char indicator = builtin_jobs_job_indicator(store, job);
+    const char *state_str = builtin_jobs_job_state_to_string(job->state);
+    const char *cmd = job->command_line ? string_cstr(job->command_line) : "";
+
+    switch (format)
+    {
+    case JOBS_FORMAT_PID_ONLY:
+        /* Print only the process group leader PID */
+        if (job->processes)
+        {
+#ifdef POSIX_API
+            printf("%d\n", (int)job->pgid);
+#else
+            printf("%d\n", job->pgid);
+#endif
+        }
+        break;
+
+    case JOBS_FORMAT_LONG:
+        /* Long format: [job_id]± PID state command */
+        printf("[%d]%c ", job->job_id, indicator);
+
+        /* Print each process in the pipeline */
+        for (process_t *proc = job->processes; proc; proc = proc->next)
+        {
+#ifdef POSIX_API
+            printf("%d ", (int)proc->pid);
+#else
+            printf("%d ", proc->pid);
+#endif
+        }
+
+        printf(" %s\t%s\n", state_str, cmd);
+        break;
+
+    case JOBS_FORMAT_DEFAULT:
+    default:
+        /* Default format: [job_id]± state command */
+        printf("[%d]%c  %s\t\t%s\n", job->job_id, indicator, state_str, cmd);
+        break;
+    }
+}
+
+int builtin_jobs(exec_t *ex, const string_list_t *args)
+{
+    if (!ex)
+        return 1;
+
+    job_store_t *store = ex->jobs;
+    if (!store)
+    {
+        /* No job store - nothing to show */
+        return 0;
+    }
+
+    jobs_format_t format = JOBS_FORMAT_DEFAULT;
+    int first_operand = 1; /* Index of first non-option argument */
+    int exit_status = 0;
+
+    /* Parse options */
+    int argc = string_list_size(args);
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (arg[0] != '-')
+        {
+            first_operand = i;
+            break;
+        }
+
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Parse option characters */
+        for (const char *p = arg + 1; *p; p++)
+        {
+            switch (*p)
+            {
+            case 'l':
+                format = JOBS_FORMAT_LONG;
+                break;
+            case 'p':
+                format = JOBS_FORMAT_PID_ONLY;
+                break;
+            default:
+                fprintf(stderr, "jobs: -%c: invalid option\n", *p);
+                fprintf(stderr, "jobs: usage: jobs [-lp] [job_id ...]\n");
+                return 2;
+            }
+        }
+
+        first_operand = i + 1;
+    }
+
+    /* If specific job_ids are given, show only those */
+    if (first_operand < argc)
+    {
+        for (int i = first_operand; i < argc; i++)
+        {
+            const char *arg = string_cstr(string_list_at(args, i));
+            int job_id = builtin_jobs_parse_job_id(store, arg);
+
+            if (job_id < 0)
+            {
+                fprintf(stderr, "jobs: %s: no such job\n", arg);
+                exit_status = 1;
+                continue;
+            }
+
+            job_t *job = job_store_find(store, job_id);
+            if (!job)
+            {
+                fprintf(stderr, "jobs: %s: no such job\n", arg);
+                exit_status = 1;
+                continue;
+            }
+
+            builtin_jobs_print_job(store, job, format);
+        }
+    }
+    else
+    {
+        /* No job_ids specified - show all jobs */
+        for (job_t *job = store->jobs; job; job = job->next)
+        {
+            builtin_jobs_print_job(store, job, format);
+        }
+    }
+
+    return exit_status;
+}
+
+/* ============================================================================
+ * Builtin function classification and lookup
+ * ============================================================================
+ */
 builtin_class_t builtin_classify_cstr(const char *name)
 {
     if (name == NULL)
@@ -496,7 +1038,8 @@ bool builtin_is_defined_cstr(const char *name)
 {
     if (name == NULL)
         return false;
-    for (builtin_implemented_function_map_t *p = builtin_implemented_functions; p->name != NULL; p++)
+    for (builtin_implemented_function_map_t *p = builtin_implemented_functions; p->name != NULL;
+         p++)
     {
         if (strcmp(name, p->name) == 0)
             return true;
@@ -511,11 +1054,12 @@ bool builtin_is_defined(const string_t *name)
     return builtin_is_defined_cstr(string_cstr(name));
 }
 
-builtin_func_t builtin_get_function_cstr(const char* name)
+builtin_func_t builtin_get_function_cstr(const char *name)
 {
     if (name == NULL)
         return NULL;
-    for (builtin_implemented_function_map_t *p = builtin_implemented_functions; p->name != NULL; p++)
+    for (builtin_implemented_function_map_t *p = builtin_implemented_functions; p->name != NULL;
+         p++)
     {
         if (strcmp(name, p->name) == 0)
             return p->func;
