@@ -87,7 +87,7 @@ void func_store_clear(func_store_t *store)
 }
 
 func_store_error_t func_store_add(func_store_t *store, const string_t *name,
-                                   ast_node_t *value)
+                                  const ast_node_t *value)
 {
     if (!store || !store->map)
         return FUNC_STORE_ERROR_STORAGE_FAILURE;
@@ -104,11 +104,9 @@ func_store_error_t func_store_add(func_store_t *store, const string_t *name,
     if (!value)
         return FUNC_STORE_ERROR_STORAGE_FAILURE;
 
-    // Create mapped value - clone the name and take ownership of the AST node pointer
-    // The caller transfers ownership of the value pointer to this function.
     func_map_mapped_t mapped;
     mapped.name = string_create_from(name);
-    mapped.func = value; // Take ownership - caller must not use this pointer afterward
+    mapped.func = ast_node_clone(value);
     mapped.exported = false; // Default to not exported
 
     func_map_insert_or_assign_move(store->map, name, &mapped);
@@ -117,7 +115,7 @@ func_store_error_t func_store_add(func_store_t *store, const string_t *name,
 }
 
 func_store_error_t func_store_add_cstr(func_store_t *store, const char *name,
-                                        ast_node_t *value)
+                                       const ast_node_t *value)
 {
     if (!name)
         return FUNC_STORE_ERROR_EMPTY_NAME;

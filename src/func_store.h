@@ -36,9 +36,9 @@ void func_store_clear(func_store_t *store);
 
 // Note: Takes ownership of the value node pointer. Caller must not use it after this call.
 func_store_error_t func_store_add(func_store_t *store, const string_t *name,
-                                     ast_node_t *value);
+                                  const ast_node_t *value);
 func_store_error_t func_store_add_cstr(func_store_t *store, const char *name,
-                                          ast_node_t *value);
+                                       const ast_node_t *value);
 func_store_error_t func_store_remove(func_store_t *store, const string_t *name);
 func_store_error_t func_store_remove_cstr(func_store_t *store, const char *name);
 bool func_store_has_name(const func_store_t *store, const string_t *name);
