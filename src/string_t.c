@@ -2145,3 +2145,32 @@ void string_list_clear(string_list_t *list)
 
     list->size = 0;
 }
+
+char **string_list_release_cstr_array(string_list_t **list, int *out_size)
+{
+    Expects_not_null(list);
+    Expects_not_null(*list);
+    Expects_not_null(out_size);
+    string_list_t *slist = *list;
+
+    if (slist->size == 0)
+    {
+        *list = NULL;
+        *out_size = 0;
+        if (string_list_is_heap_allocated(slist))
+            xfree(slist->strings);
+        xfree(slist);
+        return NULL;
+    }
+
+    char **cstr_array = xcalloc(slist->size + 1, sizeof(char *));
+    *out_size = slist->size;
+    for (int i = 0; i < slist->size; i++)
+        cstr_array[i] = string_release(&slist->strings[i]);
+    if (string_list_is_heap_allocated(slist))
+        xfree(slist->strings);
+    xfree(slist);
+    *list = NULL;
+    *out_size = slist->size;
+    return cstr_array;
+}

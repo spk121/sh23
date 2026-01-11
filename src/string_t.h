@@ -868,4 +868,13 @@ void string_list_erase(string_list_t *list, int index);
  * Clears the list, destroying all strings contained in it.
  */
 void string_list_clear(string_list_t *list);
+
+/*
+ * Returns an null-terminated array of C-strings representing the strings in the list.
+ * The array and the C-strings are heap-allocated.
+ * The number of strings is returned in out_size.
+ * After this operation, the list is destroyed and set to NULL.
+ * Caller frees the array and each C-string.
+ */
+char **string_list_release_cstr_array(string_list_t **list, int *out_size);
 #endif
