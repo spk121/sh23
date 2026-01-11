@@ -51,7 +51,7 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 # API selection option
 # ============================================================================
 
-set(API_TYPE "POSIX" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
+set(API_TYPE "UCRT" CACHE STRING "Choose the API type: POSIX, UCRT, or ISO_C")
 set_property(CACHE API_TYPE PROPERTY STRINGS "POSIX" "UCRT" "ISO_C")
 
 # Define the appropriate API macro based on selection
@@ -105,6 +105,9 @@ if(MSVC)
         /Wall           # Enable almost all warnings (stronger than /W4)
         # /WX             # Treat warnings as errors
         /wd5045         # Disable Spectre mitigation warning
+        /wd6011         # Disable warning about dereferencing NULL pointer
+        /wd4820         # Disable padding warning
+        /wd4061         # Disable enum not handled in switch warning
         /Zi             # Debug info
     )
 
@@ -316,6 +319,8 @@ enable_strict_linking(sh23store)
 set(SH23LOGIC_SOURCES
     src/arithmetic.c
     src/arithmetic.h
+    src/job_store.c
+    src/job_store.h
     src/lower.c
     src/lower.h
     src/lexer.c
