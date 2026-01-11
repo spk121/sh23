@@ -202,7 +202,7 @@ struct ast_node_t
         /* AST_COMMAND_LIST */
         struct
         {
-            ast_node_list_t *items;       // list of commands/pipelines
+            ast_node_list_t *items;           // list of commands/pipelines
             cmd_separator_list_t *separators; // separator after each item
         } command_list;
 
@@ -273,7 +273,7 @@ struct ast_node_t
             int io_number;                // fd being redirected (or -1)
             redir_target_kind_t operand; // operand type
 #ifndef FUTURE
-            int padding;
+            bool buffer_needs_expansion; // for BUFFER type: whether to expand content
             string_t *fd_string;     // used only when operand == REDIR_TARGET_FD_STRING
             token_t *target;           // used when operand == FILENAME or FD
             string_t *buffer;        // used when operand == BUFFER (heredoc content)
@@ -282,7 +282,11 @@ struct ast_node_t
             union {
                 string_t *fd_string;     // used only when operand == REDIR_TARGET_FD_STRING
                 token_t *target;           // used when operand == FILENAME or FD
-                string_t *buffer;        // used when operand == BUFFER (heredoc content)
+                struct
+                {
+                    bool needs_expansion; // for BUFFER type: whether to expand content
+                    string_t *buffer;     // used when operand == BUFFER (heredoc content)
+                } buffer;
             } data;
 #endif
         } redirection;

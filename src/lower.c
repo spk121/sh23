@@ -108,43 +108,18 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
         const gnode_t *gcmd = lst->nodes[i];
         Expects_eq(gcmd->type, G_COMPLETE_COMMAND);
 
+        /* A complete_command is itself a list, but, we can't flatten here
+         * because we need to preserve the background/sequential separator
+         * over the entire complete_command.
+         */
         ast_node_t *item = lower_complete_command(gcmd);
         if (!item)
         {
             ast_node_destroy(&cl);
             return NULL;
         }
-
-        /* If item is itself a command list, flatten it into our list */
-        if (ast_node_get_type(item) == AST_COMMAND_LIST)
-        {
-            ast_node_list_t *sub_items = item->data.command_list.items;
-            cmd_separator_list_t *sub_seps = item->data.command_list.separators;
-            int sub_count = sub_items ? sub_items->size : 0;
-
-            for (int j = 0; j < sub_count; j++)
-            {
-                ast_node_t *sub_item = sub_items->nodes[j];
-                sub_items->nodes[j] = NULL; /* Transfer ownership */
-                ast_command_list_node_append_item(cl, sub_item);
-
-                /* Use the separator from the sub-list if available */
-                cmd_separator_t sep = CMD_EXEC_END;
-                if (sub_seps && j < sub_count)
-                    sep = sub_seps->separators[j];
-                ast_command_list_node_append_separator(cl, sep);
-            }
-
-            /* Clean up the now-empty sub-list wrapper */
-            sub_items->size = 0;
-            ast_node_destroy(&item);
-        }
-        else
-        {
-            /* Single command - add directly */
-            ast_command_list_node_append_item(cl, item);
-            ast_command_list_node_append_separator(cl, CMD_EXEC_END);
-        }
+        ast_command_list_node_append_item(cl, item);
+        ast_command_list_node_append_separator(cl, CMD_EXEC_END);
     }
 
     return cl;
@@ -165,24 +140,72 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
 
     if (!list_node)
         return NULL;
-#if 0
-    /* Unwrap single-item command lists to avoid unnecessary nesting.
-     * A command list with one item and EOL separator is effectively just
-     * that single command. */
-    if (ast_node_get_type(list_node) == AST_COMMAND_LIST)
+
+    int num_cmd_items = ast_node_list_size(list_node->data.command_list.items);
+    int num_separators = list_node->data.command_list.separators->len;
+
+    bool update_final_separator = num_separators < num_cmd_items ? true : false;
+    cmd_separator_t final_separator;
+    const gnode_t *sep = g->data.multi.b;
+    if (!sep)
     {
-        ast_node_list_t *items = list_node->data.command_list.items;
-        if (items && items->size == 1)
+        final_separator = CMD_EXEC_END;
+    }
+    else if (sep->type != G_SEPARATOR_OP)
+    {
+        log_error("lower_complete_command: expected G_SEPARATOR_OP or NULL, got %d",
+                  (int)sep->type);
+        ast_node_destroy(&list_node);
+        return NULL;
+    }
+    else
+    {
+        /* sep is a valid G_SEPARATOR_OP */
+        switch (sep->data.token->type)
         {
-            /* Extract the single item and destroy the wrapper */
-            ast_node_t *single_item = items->nodes[0];
-            items->nodes[0] = NULL; /* Prevent destruction of the item */
-            items->size = 0;
+        case TOKEN_AMPER:
+            final_separator = CMD_EXEC_BACKGROUND;
+            update_final_separator = true;
+            break;
+        case TOKEN_SEMI:
+            // A semicolon means sequential execution, but, in this position,
+            // it has no special effect beyond the default.
+            final_separator = CMD_EXEC_SEQUENTIAL;
+            update_final_separator = true;
+            break;
+        default:
+            log_error("lower_complete_command: unexpected separator token %d",
+                      (int)sep->data.token->type);
             ast_node_destroy(&list_node);
-            return single_item;
+            return NULL;
         }
     }
-#endif
+
+    if (update_final_separator)
+    {
+        if (num_cmd_items == 0)
+        {
+            log_error("lower_complete_command: no commands in list to apply final separator");
+            ast_node_destroy(&list_node);
+            return NULL;
+        }
+        else if (num_cmd_items == num_separators + 1)
+        {
+            ast_command_list_node_append_separator(list_node, final_separator);
+        }
+        else if (num_cmd_items == num_separators)
+        {
+            list_node->data.command_list.separators
+                ->separators[num_separators - 1] = final_separator;
+        }
+        else
+        {
+            log_error("lower_complete_command: inconsistent command/separator counts");
+            ast_node_destroy(&list_node);
+            return NULL;
+        }
+    }
+
     return list_node;
 }
 
@@ -1124,6 +1147,7 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     redir_target_kind_t operand = REDIR_TARGET_INVALID;
     token_t *target_tok = NULL;
     string_t *buffer_content = NULL;
+    bool buffer_needs_expansion = false;
     token_t *op_tok = NULL;
     token_type_t op_type;
 
@@ -1158,9 +1182,11 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
 
         /* Get heredoc_content from the TOKEN_END_OF_HEREDOC token */
         token_t *here_tok = gtarget->data.io_here.tok;
+        bool heredoc_quoted = here_tok ? here_tok->heredoc_delim_quoted : false;
         if (here_tok && here_tok->heredoc_content)
         {
             buffer_content = string_create_from(here_tok->heredoc_content);
+            buffer_needs_expansion = !heredoc_quoted;
         }
 
         operand = REDIR_TARGET_BUFFER;
@@ -1180,6 +1206,7 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
         ast_create_redirection(rtype, operand, io_number, fd_string, cloned_target);
     node->data.redirection.operand = operand;
     node->data.redirection.buffer = buffer_content;
+    node->data.redirection.buffer_needs_expansion = buffer_needs_expansion;
 
     return node;
 }

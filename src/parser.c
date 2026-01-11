@@ -34,11 +34,12 @@ parser_t *parser_create(void)
     return parser;
 }
 
-parser_t *parser_create_with_tokens(token_list_t *tokens)
+parser_t *parser_create_with_tokens_move(token_list_t **tokens)
 {
     parser_t *parser = parser_create();
-    parser->tokens = tokens;
+    parser->tokens = *tokens;
     parser->position = 0;
+    *tokens = NULL;
     return parser;
 }
 
@@ -102,6 +103,24 @@ token_type_t parser_current_token_type(const parser_t *parser)
         return TOKEN_EOF;
     }
     return token_get_type(tok);
+}
+
+static int parser_get_current_position(const parser_t *parser)
+{
+    Expects_not_null(parser);
+
+    return parser->position;
+}
+
+static int parser_rewind_to_position(parser_t* parser, int position)
+{
+    Expects_not_null(parser);
+    if (position < 0 || position >= token_list_size(parser->tokens))
+    {
+        return -1;
+    }
+    parser->position = position;
+    return 0;
 }
 
 bool parser_advance(parser_t *parser)
@@ -243,7 +262,6 @@ parse_status_t gparse_program(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     /* Create the top-level grammar node */
-    // gnode_t *program = g_node_create(G_PROGRAM);
     gnode_t *program = nullptr;
 
     /* Skip leading newlines (linebreak) */
@@ -413,6 +431,14 @@ parse_status_t gparse_list(parser_t *parser, gnode_t **out_node)
     /* Loop: separator_op and_or */
     while (true)
     {
+        /* There is an ambiguity here. To continue the list,
+         * there needs to be both a separator_op and an and_or.
+         * If we only have a separator_op but no and_or,
+         * we should not consume the separator_op because it might
+         * belong to a higher-level complete_command.
+         */
+        int position_cur = parser_get_current_position(parser);
+
         gnode_t *sep = NULL;
         status = gparse_separator_op(parser, &sep);
 
@@ -425,9 +451,10 @@ parse_status_t gparse_list(parser_t *parser, gnode_t **out_node)
 
         if (status != PARSE_OK)
         {
+            /* Failed to parse and_or after separator_op → rewind and end list */
             g_node_destroy(&sep);
-            g_node_destroy(&list);
-            return status;
+            parser_rewind_to_position(parser, position_cur);
+            break;
         }
 
         /* Append both separator and next element */
@@ -2490,7 +2517,7 @@ parse_status_t gparse_separator_op(parser_t *parser, gnode_t **out_node)
         return PARSE_ERROR; /* Not a separator_op */
 
     gnode_t *node = g_node_create(G_SEPARATOR_OP);
-    node->data.token = parser_current_token(parser);
+    node->data.token = token_clone(parser_current_token(parser));
 
     parser_advance(parser);
 
@@ -2569,13 +2596,7 @@ parser_t *parser_create_from_string(const char* input)
         token_list_destroy(&tokens);
         return NULL;
     }
-    parser_t *parser = parser_create_with_tokens(tokens);
-    if (!parser)
-    {
-        token_list_destroy(&tokens);
-        return NULL;
-    }
-
+    parser_t *parser = parser_create_with_tokens_move(&tokens);
     return parser;
 }
 

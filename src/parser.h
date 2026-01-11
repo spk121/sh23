@@ -47,22 +47,11 @@ parser_t *parser_create(void);
 /**
  * Create a new parser with a token list.
  *
- * @param tokens The list of tokens to parse (parser does not take ownership)
+ * @param tokens The list of tokens to parse. The parser takes ownership of the
+ *                list of tokens, and `tokens` is set to NULL.
  *
- * OWNERSHIP POLICY:
- *   - The parser does NOT take ownership of the token_list structure itself
- *   - The resulting grammar AST DOES take ownership of individual token_t objects
- *     from the list
- *   - After successful parsing, the caller must:
- *     1. Call token_list_release_tokens() to clear pointers without
- *        destroying tokens (which are now owned by the grammar AST)
- *     2. Free the token_list structure itself
- *     3. Eventually destroy the grammar AST with g_node_destroy(), which will
- *        destroy all the tokens
- *   - On parse failure, the token_list retains all its tokens and should
- *     be destroyed normally with token_list_destroy()
  */
-parser_t *parser_create_with_tokens(token_list_t *tokens);
+parser_t *parser_create_with_tokens_move(token_list_t **tokens);
 
 /**
  * Destroy a parser and free all associated memory.
