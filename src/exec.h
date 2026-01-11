@@ -33,6 +33,10 @@ typedef enum
     EXEC_ERROR,         // error during execution
     EXEC_NOT_IMPL,      // feature not yet implemented
     EXEC_OK_INTERNAL_FUNCTION_STORED, // internal: function node moved to store, don't free
+    EXEC_RETURN,                   // internal: 'return' executed
+    EXEC_BREAK,                    // internal: 'break' executed
+    EXEC_CONTINUE,                  // internal: 'continue' executed
+    EXEC_EXIT                      // internal: 'exit' executed
 } exec_status_t;
 
 /* ============================================================================
@@ -98,6 +102,7 @@ typedef struct exec_t
     variable_store_t *variables;
     positional_params_t *positional_params; // Derive $@, $*, $1, $2, ...
 
+    // Command-line arguments passed to the shell at startup
     // $? - Exit status of last command
     int last_exit_status;
     bool last_exit_status_set;
@@ -160,6 +165,9 @@ typedef struct exec_t
 
     // Error reporting
     string_t *error_msg;
+
+    // For multi-frame returns
+    int return_count; // Number of frames to break/continue/return through
 } exec_t;
 
 typedef struct
@@ -277,6 +285,8 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
  * Execute a function definition.
  */
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
+
+void exec_reap_background_jobs(exec_t *executor);
 
 /* ============================================================================
  * Visitor Pattern Support

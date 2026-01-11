@@ -57,7 +57,6 @@ typedef struct
     bool verbose;   // -v
     bool vi;
     bool xtrace;    // -x
-    int padding;
 } shell_flags_t;
 
 typedef enum
@@ -74,7 +73,6 @@ typedef struct
 {
     // Start-up environment
     shell_mode_t mode;
-    int padding;
     char *command_name; // argv[0]
     char *command_string; // -c command string (if any)
     char *command_file;   // command file (if any)

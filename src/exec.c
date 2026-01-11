@@ -84,6 +84,257 @@ static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
 // Note: exec_apply_redirections_iso_c forward declaration removed - defined inline in ISO_C section
 
 /* ============================================================================
+ * Helper functions
+ * ============================================================================ */
+
+ /**
+ * Result of parsing a file descriptor number.
+ */
+typedef struct
+{
+    bool success;
+    int fd;
+} parse_fd_result_t;
+
+/**
+ * Parse a file descriptor number from a string.
+ *
+ * @param str     The string to parse (e.g., "1", "2")
+ * @param out_fd  Output parameter for the parsed fd
+ * @return        true on success, false if str is not a valid non-negative integer
+ *
+ * Unlike atoi(), this function:
+ * - Rejects empty strings
+ * - Rejects strings with non-digit characters (except leading whitespace)
+ * - Rejects negative numbers
+ * - Detects overflow
+ */
+static parse_fd_result_t parse_fd_number(const char *str)
+{
+    parse_fd_result_t result = {.success = false, .fd = -1};
+
+    if (str == NULL || *str == '\0')
+        return result;
+
+    /* Skip leading whitespace */
+    while (*str == ' ' || *str == '\t')
+        str++;
+
+    if (*str == '\0')
+        return result;
+
+    /* Reject negative numbers */
+    if (*str == '-')
+        return result;
+
+    /* Skip optional '+' */
+    if (*str == '+')
+        str++;
+
+    if (*str == '\0' || !(*str >= '0' && *str <= '9'))
+        return result;
+
+    /* Parse digits, checking for overflow */
+    long long val = 0;
+    while (*str >= '0' && *str <= '9')
+    {
+        val = val * 10 + (*str - '0');
+        if (val > INT_MAX)
+            return result; /* Overflow */
+        str++;
+    }
+
+    /* Reject trailing non-whitespace characters */
+    while (*str == ' ' || *str == '\t')
+        str++;
+
+    if (*str != '\0')
+        return result;
+
+    result.success = true;
+    result.fd = (int)val;
+    return result;
+}
+
+/**
+ * Apply prefix assignments from a simple command to the shell's variable store.
+ * Used for special builtins where POSIX requires assignments to persist.
+ *
+ * @param executor  The executor context
+ * @param node      The AST_SIMPLE_COMMAND node
+ * @param exp       Expander to use for assignment value expansion
+ * @return          EXEC_OK on success, EXEC_ERROR on failure
+ */
+static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_node_t *node,
+                                                   expander_t *exp)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_SIMPLE_COMMAND);
+
+    const token_list_t *assignments = node->data.simple_command.assignments;
+    if (!assignments)
+        return EXEC_OK;
+
+    for (int i = 0; i < token_list_size(assignments); i++)
+    {
+        token_t *tok = token_list_get(assignments, i);
+        string_t *value = expander_expand_assignment_value(exp, tok);
+        if (!value)
+        {
+            exec_set_error(executor, "Failed to expand assignment value");
+            return EXEC_ERROR;
+        }
+
+        var_store_error_t err = variable_store_add(executor->variables, tok->assignment_name, value,
+                                                   /*exported=*/false,
+                                                   /*read_only=*/false);
+        string_destroy(&value);
+
+        if (err != VAR_STORE_ERROR_NONE)
+        {
+            exec_set_error(executor, "Cannot assign variable (error %d)", err);
+            return EXEC_ERROR;
+        }
+    }
+
+    return EXEC_OK;
+}
+
+/**
+ * Execute a shell function.
+ *
+ * @param executor  The executor context
+ * @param func_def  The AST_FUNCTION_DEF node from the function store
+ * @param args      Expanded arguments (args[0] is function name, args[1..n] are $1..$n)
+ * @param exp       Expander for any redirections on the function definition
+ * @return          EXEC_OK on success, EXEC_ERROR on failure
+ */
+static exec_status_t exec_invoke_function(exec_t *executor, const ast_node_t *func_def,
+                                          const string_list_t *args, expander_t *exp)
+{
+    Expects_not_null(executor);
+    Expects_not_null(func_def);
+    Expects_eq(func_def->type, AST_FUNCTION_DEF);
+    Expects_not_null(args);
+
+    exec_status_t status = EXEC_OK;
+
+    /* Save current positional parameters */
+    positional_params_t *saved_params = executor->positional_params;
+
+    /* Build new positional parameters from function arguments.
+     * args[0] is the function name (becomes $0 in some shells, but POSIX
+     * says $0 remains the shell name). args[1..n] become $1..$n. */
+    int argc = string_list_size(args);
+    if (argc > 1)
+    {
+        /* Convert string_list to char** for positional_params_create_from_argv */
+        const char **argv = xcalloc((size_t)(argc - 1), sizeof(char *));
+        for (int i = 1; i < argc; i++)
+        {
+            argv[i - 1] = string_cstr(string_list_at(args, i));
+        }
+
+        /* $0 stays as the shell name, not the function name */
+        const char *shell_name = executor->shell_name ? string_cstr(executor->shell_name) : "sh";
+        executor->positional_params =
+            positional_params_create_from_argv(shell_name, argc - 1, argv);
+        xfree(argv);
+    }
+    else
+    {
+        /* No arguments - empty positional params */
+        executor->positional_params = positional_params_create();
+    }
+
+    if (!executor->positional_params)
+    {
+        exec_set_error(executor, "Failed to create positional parameters for function");
+        executor->positional_params = saved_params;
+        return EXEC_ERROR;
+    }
+
+    /* Apply function-level redirections if any */
+    const ast_node_list_t *func_redirs = func_def->data.function_def.redirections;
+#ifdef POSIX_API
+    saved_fd_t *saved_fds = NULL;
+    int saved_count = 0;
+
+    if (func_redirs && ast_node_list_size(func_redirs) > 0)
+    {
+        status =
+            exec_apply_redirections_posix(executor, exp, func_redirs, &saved_fds, &saved_count);
+        if (status != EXEC_OK)
+        {
+            positional_params_destroy(&executor->positional_params);
+            executor->positional_params = saved_params;
+            return status;
+        }
+    }
+#elifdef UCRT_API
+    saved_fd_t *saved_fds = NULL;
+    int saved_count = 0;
+
+    if (func_redirs && ast_node_list_size(func_redirs) > 0)
+    {
+        fflush(NULL);
+        status =
+            exec_apply_redirections_ucrt_c(executor, exp, func_redirs, &saved_fds, &saved_count);
+        if (status != EXEC_OK)
+        {
+            positional_params_destroy(&executor->positional_params);
+            executor->positional_params = saved_params;
+            return status;
+        }
+    }
+#else
+    /* ISO C: redirections not supported */
+    if (func_redirs && ast_node_list_size(func_redirs) > 0)
+    {
+        exec_set_error(executor, "Function redirections not supported in ISO_C mode");
+        positional_params_destroy(&executor->positional_params);
+        executor->positional_params = saved_params;
+        return EXEC_ERROR;
+    }
+#endif
+
+    /* Execute the function body */
+    const ast_node_t *body = func_def->data.function_def.body;
+    if (body)
+    {
+        status = exec_execute(executor, body);
+    }
+    else
+    {
+        /* Empty function body - success with status 0 */
+        exec_set_exit_status(executor, 0);
+    }
+
+    /* Restore redirections */
+#ifdef POSIX_API
+    if (func_redirs && saved_fds)
+    {
+        exec_restore_redirections_posix(saved_fds, saved_count);
+        xfree(saved_fds);
+    }
+#elifdef UCRT_API
+    if (func_redirs && saved_fds)
+    {
+        fflush(NULL);
+        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
+        xfree(saved_fds);
+    }
+#endif
+
+    /* Restore original positional parameters */
+    positional_params_destroy(&executor->positional_params);
+    executor->positional_params = saved_params;
+
+    return status;
+}
+
+/* ============================================================================
  * Executor Lifecycle Functions
  * ============================================================================ */
 
@@ -885,15 +1136,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         }
 
         // Parse the tokens into a grammar tree
-        parser_t *parser = parser_create_with_tokens(processed_tokens);
-        if (!parser)
-        {
-            exec_set_error(executor, "Failed to create parser");
-            token_list_destroy(&processed_tokens);
-            final_status = EXEC_ERROR;
-            break;
-        }
-
+        parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
         gnode_t *gnode = NULL;
         parse_status_t parse_status = parser_parse_program(parser, &gnode);
 
@@ -902,7 +1145,6 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             const char *err = parser_get_error(parser);
             exec_set_error(executor, "Parse error: %s", err ? err : "unknown");
             parser_destroy(&parser);
-            token_list_destroy(&processed_tokens);
             final_status = EXEC_ERROR;
             break;
         }
@@ -914,7 +1156,6 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             if (gnode)
                 g_node_destroy(&gnode);
             parser_destroy(&parser);
-            token_list_destroy(&processed_tokens);
             continue;
         }
 
@@ -922,7 +1163,6 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         {
             // Empty input (comments only, blank lines), continue
             parser_destroy(&parser);
-            token_list_destroy(&processed_tokens);
             continue;
         }
 
@@ -940,9 +1180,6 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         // Clean up parser and tokens
         // Note: parser doesn't own tokens, gnode took ownership of individual tokens
         parser_destroy(&parser);
-        token_list_release_tokens(processed_tokens);
-        xfree(processed_tokens->tokens);
-        xfree(processed_tokens);
 
         if (!ast)
         {
@@ -974,6 +1211,516 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
     return final_status;
 }
 
+/* ============================================================================
+ * Background Execution in exec_execute_command_list()
+ *
+ * When a command has CMD_EXEC_BACKGROUND separator (&), we need to:
+ *   1. Fork a child process (POSIX) or note limitation (UCRT/ISO C)
+ *   2. Execute the command in the child
+ *   3. Parent continues immediately without waiting
+ *   4. Record the job in job_store for later tracking
+ *   5. Set $! to the child's PID
+ *
+ * ============================================================================ */
+
+#ifdef POSIX_API
+/**
+ * Execute an AST node in the background (POSIX implementation).
+ *
+ * Forks a child process to execute the command, adds it to the job store,
+ * and returns immediately in the parent.
+ *
+ * @param executor  The executor context
+ * @param node      The AST node to execute in background
+ * @return          EXEC_OK on successful fork, EXEC_ERROR on failure
+ */
+static exec_status_t exec_run_background(exec_t *executor, ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+
+    /* Get command string for job display */
+    string_t *cmd_str = ast_node_to_string(node);
+    if (!cmd_str)
+        cmd_str = string_create_from_cstr("(unknown)");
+
+    pid_t pid = fork();
+
+    if (pid < 0)
+    {
+        /* Fork failed */
+        exec_set_error(executor, "fork failed for background job");
+        string_destroy(&cmd_str);
+        return EXEC_ERROR;
+    }
+
+    if (pid == 0)
+    {
+        /* Child process */
+
+        /* Reset signal handlers to default for background process */
+        /* (In a full implementation, you'd reset SIGINT, SIGQUIT, etc.) */
+
+        /* Execute the command */
+        exec_status_t status = exec_execute(executor, node);
+
+        /* Exit with the command's exit status */
+        int exit_code = executor->last_exit_status;
+        if (status == EXEC_ERROR)
+            exit_code = 1;
+
+        _exit(exit_code);
+    }
+
+    /* Parent process */
+
+    /* Create a job entry */
+    string_t *job_cmd = string_create_from(cmd_str); /* job_store takes ownership */
+    int job_id = job_store_add(executor->jobs, job_cmd, /*is_background=*/true);
+
+    if (job_id < 0)
+    {
+        exec_set_error(executor, "failed to create job entry");
+        string_destroy(&cmd_str);
+        /* Child is still running, but we can't track it */
+        return EXEC_ERROR;
+    }
+
+    /* Add the process to the job */
+    string_t *proc_cmd = cmd_str; /* job_store_add_process takes ownership */
+    job_store_add_process(executor->jobs, job_id, pid, proc_cmd);
+
+    /* Update $! */
+    executor->last_background_pid = pid;
+    executor->last_background_pid_set = true;
+
+    /* Print job notification (interactive shells) */
+    if (executor->is_interactive)
+    {
+        fprintf(stderr, "[%d] %d\n", job_id, (int)pid);
+    }
+
+    /* Background job started successfully - exit status is 0 */
+    exec_set_exit_status(executor, 0);
+
+    return EXEC_OK;
+}
+
+#elifdef UCRT_API
+/**
+ * Attempt to execute a simple command in the background using _spawn.
+ *
+ * @param executor       The executor context
+ * @param node           The AST_SIMPLE_COMMAND node
+ * @return               EXEC_OK on success, EXEC_ERROR on failure,
+ *                       EXEC_NOT_IMPL if not a simple external command
+ */
+static exec_status_t exec_run_background_simple_command_ucrt(exec_t *executor,
+                                                             const ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+    Expects_eq(node->type, AST_SIMPLE_COMMAND);
+
+    const token_list_t *word_tokens = node->data.simple_command.words;
+    const token_list_t *assign_tokens = node->data.simple_command.assignments;
+    const ast_node_list_t *redirs = node->data.simple_command.redirections;
+
+    /* Check if we can handle this command */
+    if (!word_tokens || token_list_size(word_tokens) == 0)
+    {
+        /* Assignment-only command - execute synchronously */
+        return EXEC_NOT_IMPL;
+    }
+
+    if (redirs && ast_node_list_size(redirs) > 0)
+    {
+        /* Redirections require handle manipulation we can't do with pure UCRT */
+        return EXEC_NOT_IMPL;
+    }
+
+    /* Create expander for word expansion */
+    expander_t *exp = expander_create(executor->variables, executor->positional_params);
+    if (!exp)
+    {
+        exec_set_error(executor, "failed to create expander");
+        return EXEC_ERROR;
+    }
+
+    expander_set_userdata(exp, executor);
+    expander_set_getenv(exp, expander_getenv);
+    expander_set_tilde_expand(exp, expander_tilde_expand);
+    expander_set_glob(exp, exec_pathname_expansion_callback);
+    expander_set_command_substitute(exp, exec_command_subst_callback);
+
+    /* Expand command words */
+    string_list_t *expanded_words = expander_expand_words(exp, word_tokens);
+    expander_destroy(&exp);
+
+    if (!expanded_words || string_list_size(expanded_words) == 0)
+    {
+        if (expanded_words)
+            string_list_destroy(&expanded_words);
+        exec_set_exit_status(executor, 0);
+        return EXEC_OK;
+    }
+
+    const char *cmd_name = string_cstr(string_list_at(expanded_words, 0));
+
+    /* Check if this is a builtin or function - can't background those */
+    builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
+    if (builtin_class != BUILTIN_NONE)
+    {
+        string_list_destroy(&expanded_words);
+        return EXEC_NOT_IMPL;
+    }
+
+    if (func_store_has_name_cstr(executor->functions, cmd_name))
+    {
+        string_list_destroy(&expanded_words);
+        return EXEC_NOT_IMPL;
+    }
+
+    /* Build argv[] */
+    int argc = string_list_size(expanded_words);
+    char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
+    for (int i = 0; i < argc; i++)
+    {
+        argv[i] = xstrdup(string_cstr(string_list_at(expanded_words, i)));
+    }
+    argv[argc] = NULL;
+
+    /* Build environment - handle prefix assignments */
+    variable_store_t *temp_vars = NULL;
+    char *const *envp;
+
+    if (assign_tokens && token_list_size(assign_tokens) > 0)
+    {
+        /* Create temp store with prefix assignments */
+        temp_vars = variable_store_create();
+        variable_store_copy_all(temp_vars, executor->variables);
+
+        expander_t *assign_exp = expander_create(temp_vars, executor->positional_params);
+        expander_set_userdata(assign_exp, executor);
+        expander_set_getenv(assign_exp, expander_getenv);
+        expander_set_tilde_expand(assign_exp, expander_tilde_expand);
+        expander_set_glob(assign_exp, exec_pathname_expansion_callback);
+        expander_set_command_substitute(assign_exp, exec_command_subst_callback);
+
+        for (int i = 0; i < token_list_size(assign_tokens); i++)
+        {
+            token_t *tok = token_list_get(assign_tokens, i);
+            string_t *value = expander_expand_assignment_value(assign_exp, tok);
+            if (value)
+            {
+                variable_store_add(temp_vars, tok->assignment_name, value,
+                                   /*exported=*/true, /*read_only=*/false);
+                string_destroy(&value);
+            }
+        }
+        expander_destroy(&assign_exp);
+
+        envp = variable_store_update_envp(temp_vars);
+    }
+    else
+    {
+        envp = variable_store_update_envp(executor->variables);
+    }
+
+    /* Spawn the process in background (_P_NOWAIT) */
+    intptr_t spawn_result =
+        _spawnvpe(_P_NOWAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
+
+    /* Clean up argv */
+    for (int i = 0; argv[i]; i++)
+        xfree(argv[i]);
+    xfree(argv);
+
+    if (temp_vars)
+        variable_store_destroy(&temp_vars);
+
+    if (spawn_result == -1)
+    {
+        int err = errno;
+        if (err == ENOENT)
+            exec_set_error(executor, "%s: command not found", cmd_name);
+        else
+            exec_set_error(executor, "%s: spawn failed (errno=%d)", cmd_name, err);
+
+        string_list_destroy(&expanded_words);
+        exec_set_exit_status(executor, 127);
+        return EXEC_ERROR;
+    }
+
+    /* spawn_result is the process handle (not PID, but we use it as identifier) */
+    /* Note: To get actual PID, we'd need GetProcessId() from Win32 */
+    int pseudo_pid = (int)spawn_result;
+
+    /* Create job entry */
+    string_t *cmd_str = ast_node_to_string(node);
+    if (!cmd_str)
+        cmd_str = string_create_from_cstr(cmd_name);
+
+    int job_id = job_store_add(executor->jobs, cmd_str, /*is_background=*/true);
+
+    if (job_id >= 0)
+    {
+        string_t *proc_cmd = string_create_from(string_list_at(expanded_words, 0));
+        job_store_add_process(executor->jobs, job_id, pseudo_pid, proc_cmd);
+
+        if (executor->is_interactive)
+        {
+            fprintf(stderr, "[%d] %d\n", job_id, pseudo_pid);
+        }
+    }
+
+    /* Update $! (using handle as pseudo-PID) */
+    executor->last_background_pid = pseudo_pid;
+    executor->last_background_pid_set = true;
+
+    string_list_destroy(&expanded_words);
+    exec_set_exit_status(executor, 0);
+
+    return EXEC_OK;
+}
+
+/**
+ * Execute an AST node in the background (UCRT implementation).
+ *
+ * Only simple external commands can be truly backgrounded.
+ * Everything else falls back to synchronous execution.
+ */
+static exec_status_t exec_run_background(exec_t *executor, ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+
+    /* Try to background simple commands */
+    if (node->type == AST_SIMPLE_COMMAND)
+    {
+        exec_status_t status = exec_run_background_simple_command_ucrt(executor, node);
+        if (status != EXEC_NOT_IMPL)
+        {
+            return status;
+        }
+        /* Fall through to synchronous execution */
+    }
+
+    /* For pipelines, compound commands, functions, builtins, etc.:
+     * We cannot background these with pure UCRT.
+     * Execute synchronously with a warning. */
+    if (executor->is_interactive)
+    {
+        fprintf(stderr, "mgsh: warning: backgrounding complex commands not supported, "
+                        "running synchronously\n");
+    }
+
+    return exec_execute(executor, node);
+}
+
+#else
+/**
+ * Execute an AST node in the background (ISO C implementation).
+ *
+ * ISO C has no process control, so background execution is not possible.
+ */
+static exec_status_t exec_run_background(exec_t *executor, ast_node_t *node)
+{
+    Expects_not_null(executor);
+    Expects_not_null(node);
+
+    /* ISO C: No background execution possible */
+    if (executor->is_interactive)
+    {
+        fprintf(stderr, "mgsh: background execution (&) not supported\n");
+    }
+
+    /* Execute synchronously as fallback */
+    exec_status_t status = exec_execute(executor, node);
+
+    return status;
+}
+#endif
+
+
+/* ----------------------------------------------------------------------------
+ * Optional: Helper to reap completed background jobs (call periodically)
+ *
+ * This should be called before displaying a prompt in interactive mode
+ * to notify the user of completed jobs.
+ * ---------------------------------------------------------------------------- */
+
+#ifdef POSIX_API
+#include <sys/wait.h>
+
+/**
+ * Check for and reap any completed background jobs.
+ * Prints notifications for completed jobs in interactive mode.
+ *
+ * @param executor  The executor context
+ */
+void exec_reap_background_jobs(exec_t *executor)
+{
+    if (!executor || !executor->jobs)
+        return;
+
+    int wstatus;
+    pid_t pid;
+
+    /* Non-blocking wait for any child */
+    while ((pid = waitpid(-1, &wstatus, WNOHANG)) > 0)
+    {
+        job_state_t new_state;
+        int exit_status = 0;
+
+        if (WIFEXITED(wstatus))
+        {
+            new_state = JOB_DONE;
+            exit_status = WEXITSTATUS(wstatus);
+        }
+        else if (WIFSIGNALED(wstatus))
+        {
+            new_state = JOB_TERMINATED;
+            exit_status = WTERMSIG(wstatus);
+        }
+        else if (WIFSTOPPED(wstatus))
+        {
+            new_state = JOB_STOPPED;
+            exit_status = WSTOPSIG(wstatus);
+        }
+        else
+        {
+            continue; /* Unknown state, skip */
+        }
+
+        /* Update job store */
+        job_store_set_process_state(executor->jobs, pid, new_state, exit_status);
+
+        /* Find the job for notification */
+        for (job_t *job = executor->jobs->jobs; job; job = job->next)
+        {
+            for (process_t *proc = job->processes; proc; proc = proc->next)
+            {
+                if (proc->pid == pid)
+                {
+                    /* Print notification if interactive and not yet notified */
+                    if (executor->is_interactive && !job->is_notified)
+                    {
+                        const char *state_str = "";
+                        switch (job->state)
+                        {
+                        case JOB_DONE:
+                            state_str = "Done";
+                            break;
+                        case JOB_STOPPED:
+                            state_str = "Stopped";
+                            break;
+                        case JOB_TERMINATED:
+                            state_str = "Terminated";
+                            break;
+                        default:
+                            break;
+                        }
+
+                        if (job->state != JOB_RUNNING)
+                        {
+                            fprintf(stderr, "[%d]%c  %s\t\t%s\n", job->job_id,
+                                    (job == executor->jobs->current_job)    ? '+'
+                                    : (job == executor->jobs->previous_job) ? '-'
+                                                                            : ' ',
+                                    state_str,
+                                    job->command_line ? string_cstr(job->command_line) : "");
+                            job->is_notified = true;
+                        }
+                    }
+                    goto next_pid;
+                }
+            }
+        }
+    next_pid:;
+    }
+
+    /* Clean up notified completed jobs */
+    job_store_remove_completed(executor->jobs);
+}
+#elifdef UCRT_API
+/**
+ * Check for completed background jobs (UCRT implementation).
+ *
+ * Uses _cwait() with WNOHANG-like behavior to check job status.
+ */
+void exec_reap_background_jobs(exec_t *executor)
+{
+    if (!executor || !executor->jobs)
+        return;
+
+    /* Iterate through jobs and check each process */
+    for (job_t *job = executor->jobs->jobs; job; job = job->next)
+    {
+        if (job->state == JOB_RUNNING)
+        {
+            for (process_t *proc = job->processes; proc; proc = proc->next)
+            {
+                if (proc->state == JOB_RUNNING)
+                {
+                    int term_status = 0;
+                    /* _cwait with the process handle */
+                    intptr_t result = _cwait(&term_status, (intptr_t)proc->pid, _WAIT_CHILD);
+
+                    if (result != -1)
+                    {
+                        /* Process completed */
+                        proc->state = JOB_DONE;
+                        proc->exit_status = term_status;
+
+                        /* Update overall job state */
+                        bool all_done = true;
+                        for (process_t *p = job->processes; p; p = p->next)
+                        {
+                            if (p->state == JOB_RUNNING)
+                            {
+                                all_done = false;
+                                break;
+                            }
+                        }
+
+                        if (all_done)
+                        {
+                            job->state = JOB_DONE;
+
+                            if (executor->is_interactive && !job->is_notified)
+                            {
+                                fprintf(stderr, "[%d]%c  Done\t\t%s\n", job->job_id,
+                                        (job == executor->jobs->current_job) ? '+' : ' ',
+                                        job->command_line ? string_cstr(job->command_line) : "");
+                                job->is_notified = true;
+                            }
+                        }
+                    }
+                    /* If result == -1 and errno == ECHILD, process doesn't exist anymore */
+                    else if (errno == ECHILD)
+                    {
+                        proc->state = JOB_DONE;
+                        proc->exit_status = 0;
+                    }
+                    /* Otherwise, process still running - continue */
+                }
+            }
+        }
+    }
+
+    /* Clean up completed jobs */
+    job_store_remove_completed(executor->jobs);
+}
+#else
+/* Non-POSIX: no-op */
+void exec_reap_background_jobs(exec_t *executor)
+{
+    (void)executor;
+}
+#endif
+
+
 exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -987,39 +1734,57 @@ exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node
         return EXEC_OK;
     }
 
-    for (int i = 0; i < node->data.command_list.items->size; i++)
+    int item_count = node->data.command_list.items->size;
+
+    for (int i = 0; i < item_count; i++)
     {
         ast_node_t *item = node->data.command_list.items->nodes[i];
-        status = exec_execute(executor, item);
 
-        // Handle special case: function definition moved to function store
-        if (status == EXEC_OK_INTERNAL_FUNCTION_STORED)
+        /* Get the separator for this command */
+        cmd_separator_t sep = CMD_EXEC_END;
+        if (i < ast_node_command_list_separator_count(node))
         {
-            // The AST node has been moved to the function store.
-            // Replace it with a placeholder to prevent double-free.
-            ast_node_t *placeholder = ast_node_create_function_stored();
-            node->data.command_list.items->nodes[i] = placeholder;
-            // Normalize status for upstream
-            status = EXEC_OK;
+            sep = ast_node_command_list_get_separator(node, i);
         }
 
-        if (status != EXEC_OK)
+        /* Check if this command should run in background */
+        if (sep == CMD_EXEC_BACKGROUND)
         {
-            // In a command list, continue execution even if one command fails
-            // unless it's a critical error
+            status = exec_run_background(executor, item);
+
+            /* Handle function definition in background (unusual but possible) */
+            if (status == EXEC_OK_INTERNAL_FUNCTION_STORED)
+            {
+                ast_node_t *placeholder = ast_node_create_function_stored();
+                node->data.command_list.items->nodes[i] = placeholder;
+                status = EXEC_OK;
+            }
+
+            /* Continue to next command regardless of background job status */
             continue;
         }
 
-        // Check separator - if background, don't wait
-        if (i < ast_node_command_list_separator_count(node))
+        /* Sequential execution */
+        status = exec_execute(executor, item);
+
+        /* Handle special case: function definition moved to function store */
+        if (status == EXEC_OK_INTERNAL_FUNCTION_STORED)
         {
-            cmd_separator_t sep = ast_node_command_list_get_separator(node, i);
-            if (sep == CMD_EXEC_BACKGROUND)
-            {
-                // Background execution - in a real shell, fork and don't wait
-                // For now, we just note it
-            }
+            ast_node_t *placeholder = ast_node_create_function_stored();
+            node->data.command_list.items->nodes[i] = placeholder;
+            status = EXEC_OK;
         }
+
+        /* Handle control flow signals */
+        if (status == EXEC_RETURN || status == EXEC_BREAK || status == EXEC_CONTINUE ||
+            status == EXEC_EXIT)
+        {
+            /* Propagate control flow up */
+            return status;
+        }
+
+        /* For EXEC_ERROR, continue execution per POSIX
+         * (unless errexit is set, which would be handled elsewhere) */
     }
 
     return status;
@@ -1432,36 +2197,76 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     }
 #endif
 
-    /* ============================================================
-     * 5. Execute builtin or external command
+   /* ============================================================
+     * 5. Classify command and handle special builtin assignments
      * ============================================================ */
     int cmd_exit_status = 0;
+    builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
 
-    // Very minimal builtin set; extend as needed.
-    bool is_builtin = (strcmp(cmd_name, ":") == 0 || strcmp(cmd_name, "exit") == 0 ||
-                       strcmp(cmd_name, "set") == 0);
-
-    if (is_builtin)
+    /* For special builtins, prefix assignments affect the shell environment
+     * permanently, not just the command's environment. We must apply them
+     * to executor->variables, not just temp_vars. */
+    if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
     {
-        if (strcmp(cmd_name, ":") == 0)
+        exec_status_t assign_status = exec_apply_prefix_assignments(executor, node, exp);
+        if (assign_status != EXEC_OK)
         {
-            cmd_exit_status = 0; // no-op
-        }
-        else if (strcmp(cmd_name, "exit") == 0)
-        {
-            // For now, just set status; actual shell exit handling is elsewhere.
-            // Optional: parse argument as exit status.
-            cmd_exit_status = 0;
-        }
-        else if (strcmp(cmd_name, "set") == 0)
-        {
-            cmd_exit_status = builtin_set(executor, expanded_words);
+            /* For special builtins, assignment errors may be fatal in
+             * non-interactive shells. For now, we just report the error. */
+            string_list_destroy(&expanded_words);
+            status = assign_status;
+            goto out_restore_redirs;
         }
     }
-    else
+
+    /* ============================================================
+     * 6. Execute the command (search order per POSIX)
+     * ============================================================ */
+
+    /* 6a. Special builtins (already classified above) */
+    if (builtin_class == BUILTIN_SPECIAL)
+    {
+        builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
+        if (builtin_fn != NULL)
+        {
+            cmd_exit_status = (*builtin_fn)(executor, expanded_words);
+            goto done_execution;
+        }
+        /* Special builtin recognized but not implemented - this is an error
+         * since special builtins cannot fall through to external commands */
+        exec_set_error(executor, "%s: special builtin not implemented", cmd_name);
+        cmd_exit_status = 1;
+        goto done_execution;
+    }
+
+    /* 6b. Shell functions */
+    const ast_node_t *func_def = func_store_get_def_cstr(executor->functions, cmd_name);
+    if (func_def != NULL)
+    {
+        exec_status_t func_status = exec_invoke_function(executor, func_def, expanded_words, exp);
+        cmd_exit_status = executor->last_exit_status;
+        if (func_status != EXEC_OK)
+            status = func_status;
+        goto done_execution;
+    }
+
+    /* 6c. Regular builtins */
+    if (builtin_class == BUILTIN_REGULAR)
+    {
+        builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
+        if (builtin_fn != NULL)
+        {
+            cmd_exit_status = (*builtin_fn)(executor, expanded_words);
+            goto done_execution;
+        }
+        /* Regular builtin recognized but not implemented - fall through
+         * to external command (e.g., /bin/echo as fallback for echo) */
+    }
+
+    /* 6d. External command */
     {
 #ifdef POSIX_API
-        // Build argv[]
+        /* Build argv[] */
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++)
@@ -1470,7 +2275,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         }
         argv[argc] = NULL;
 
-        // Build envp from temp_vars + (non-overridden) parent vars
+        /* Build envp from temp_vars + (non-overridden) parent vars */
         char *const *envp = variable_store_update_envp_with_parent(temp_vars, executor->variables);
 
         pid_t pid = fork();
@@ -1481,16 +2286,16 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         }
         else if (pid == 0)
         {
-            // Child
+            /* Child */
             execve(cmd_name, argv, envp);
-            // If we reach here execve failed; try PATH search via execvp as fallback
+            /* If we reach here execve failed; try PATH search via execvp */
             execvp(cmd_name, argv);
             perror(cmd_name);
             _exit(127);
         }
         else
         {
-            // Parent
+            /* Parent */
             int wstatus = 0;
             if (waitpid(pid, &wstatus, 0) < 0)
             {
@@ -1510,13 +2315,13 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             }
         }
 
-        // Free argv
+        /* Free argv */
         for (int i = 0; argv[i]; i++)
             xfree(argv[i]);
         xfree(argv);
 
 #elif defined(UCRT_API)
-        // Build argv[] for _spawnvpe
+        /* Build argv[] for _spawnvpe */
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++)
@@ -1525,24 +2330,21 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         }
         argv[argc] = NULL;
 
-        // Build envp from temp_vars + (non-overridden) parent vars
+        /* Build envp from temp_vars + (non-overridden) parent vars */
         char *const *envp = variable_store_update_envp_with_parent(temp_vars, executor->variables);
 
-        // Use _spawnvpe to search PATH and execute
-        // P_WAIT means wait for child to complete
-        intptr_t spawn_result = _spawnvpe(_P_WAIT, cmd_name, (const char * const *)argv, (const char * const *)envp);
+        intptr_t spawn_result =
+            _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
 
         if (spawn_result == -1)
         {
-            // Command not found or execution failed
             int err = errno;
             if (err == ENOENT)
-                exec_set_error(executor, "%s: command not found (errno=%d)", cmd_name, err);
+                exec_set_error(executor, "%s: command not found", cmd_name);
             else if (err == ENOEXEC)
-                exec_set_error(executor, "%s: specified file isn't executable or has an invalid executable file format (errno=%d)", cmd_name, err);
+                exec_set_error(executor, "%s: not executable", cmd_name);
             else
-                exec_set_error(executor,
-                               "%s: specified file failed to execute (errno=%d)", cmd_name, err);
+                exec_set_error(executor, "%s: execution failed (errno=%d)", cmd_name, err);
 
             cmd_exit_status = 127;
             status = EXEC_ERROR;
@@ -1552,12 +2354,13 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             cmd_exit_status = (int)spawn_result;
         }
 
-        // Free argv
+        /* Free argv */
         for (int i = 0; argv[i]; i++)
             xfree(argv[i]);
         xfree(argv);
+
 #else
-        // ISO_C: fall back to system(), but temp_vars can't influence env
+        /* ISO_C: fall back to system() */
         string_t *cmdline = string_create();
         for (int i = 0; i < string_list_size(expanded_words); i++)
         {
@@ -1579,12 +2382,13 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 #endif
     }
 
+done_execution:
     /* ============================================================
-     * 6. Update special variables and exit status
+     * 7. Update special variables and exit status
      * ============================================================ */
     exec_set_exit_status(executor, cmd_exit_status);
 
-    // Update $_ with last argument, if any
+    /* Update $_ with last argument, if any */
     if (string_list_size(expanded_words) > 1)
     {
         const string_t *last_arg =
@@ -1598,24 +2402,25 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 
     string_list_destroy(&expanded_words);
 
+out_restore_redirs:
 #if defined(POSIX_API)
-    // Restore redirections
+    /* Restore redirections */
     if (redirs && saved_fds)
     {
         exec_restore_redirections_posix(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #elif defined(UCRT_API)
-    // Restore redirections
+    /* Restore redirections */
     if (redirs && saved_fds)
     {
-        fflush(NULL);  // Flush before restoring
+        fflush(NULL);
         exec_restore_redirections_ucrt_c(saved_fds, saved_count);
         xfree(saved_fds);
     }
 #endif
 
-    // Only set status to EXEC_OK if no error occurred
+    /* Only set status to EXEC_OK if no error occurred */
     if (status != EXEC_ERROR)
         status = EXEC_OK;
 
@@ -2155,12 +2960,27 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
 
         case REDIR_TARGET_FD: {
             string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
-            const char *lex = string_cstr(fd_str);
-            int src = atoi(lex);
-
-            if (dup2(src, fd) < 0)
+            if (!fd_str)
             {
-                exec_set_error(executor, "dup2(%d,%d) failed", src, fd);
+                exec_set_error(executor, "Failed to expand file descriptor target");
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            const char *lex = string_cstr(fd_str);
+            parse_fd_result_t src = parse_fd_number(lex);
+
+            if (!src.success)
+            {
+                exec_set_error(executor, "Invalid file descriptor: '%s'", lex);
+                string_destroy(&fd_str);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            if (dup2(src.fd, fd) < 0)
+            {
+                exec_set_error(executor, "dup2(%d, %d) failed: %s", src.fd, fd, strerror(errno));
                 string_destroy(&fd_str);
                 xfree(saved);
                 return EXEC_ERROR;
@@ -2175,17 +2995,32 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
         }
 
         case REDIR_TARGET_BUFFER: {
+            /* Heredoc content: expand unless delimiter was quoted */
+            string_t *content_str = NULL;
+            if (r->data.redirection.buffer)
+            {
+                if (r->data.redirection.buffer_needs_expansion)
+                {
+                    /* Unquoted delimiter: perform parameter, command, and arithmetic expansion */
+                    content_str = expander_expand_heredoc(exp, r->data.redirection.buffer,
+                                                          /*is_quoted=*/false);
+                }
+                else
+                {
+                    /* Quoted delimiter: no expansion, preserve literal content */
+                    content_str = string_create_from(r->data.redirection.buffer);
+                }
+            }
+            const char *content = content_str ? string_cstr(content_str) : "";
+
             int pipefd[2];
             if (pipe(pipefd) < 0)
             {
                 exec_set_error(executor, "pipe() failed");
+                string_destroy(&content_str);
                 xfree(saved);
                 return EXEC_ERROR;
             }
-
-            const char *content = r->data.redirection.buffer
-                                      ? string_cstr(r->data.redirection.buffer)
-                                      : "";
 
             write(pipefd[1], content, strlen(content));
             close(pipefd[1]);
@@ -2194,11 +3029,13 @@ static exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t 
             {
                 exec_set_error(executor, "dup2() failed for heredoc");
                 close(pipefd[0]);
+                string_destroy(&content_str);
                 xfree(saved);
                 return EXEC_ERROR;
             }
 
             close(pipefd[0]);
+            string_destroy(&content_str);
             break;
         }
 
@@ -2354,22 +3191,32 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
         }
 
         case REDIR_TARGET_FD: {
-            // Duplicate file descriptor
             string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
             if (!fd_str)
             {
-                exec_set_error(executor, "Failed to expand file descriptor");
+                exec_set_error(executor, "Failed to expand file descriptor target");
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
                 xfree(saved);
                 return EXEC_ERROR;
             }
-            const char *lex = string_cstr(fd_str);
-            int src = atoi(lex);
 
-            if (_dup2(src, fd) < 0)
+            const char *lex = string_cstr(fd_str);
+            parse_fd_result_t src = parse_fd_number(lex);
+
+            if (!src.success)
             {
-                exec_set_error(executor, "_dup2(%d,%d) failed: %s", src, fd, strerror(errno));
+                exec_set_error(executor, "Invalid file descriptor: '%s'", lex);
+                string_destroy(&fd_str);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            if (_dup2(src.fd, fd) < 0)
+            {
+                exec_set_error(executor, "_dup2(%d, %d) failed: %s", src.fd, fd, strerror(errno));
                 string_destroy(&fd_str);
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
@@ -2386,7 +3233,63 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
             break;
         }
 
-        case REDIR_TARGET_BUFFER:
+        case REDIR_TARGET_BUFFER: {
+            /* Heredoc content: expand unless delimiter was quoted */
+            string_t *content_str = NULL;
+            if (r->data.redirection.buffer)
+            {
+                if (r->data.redirection.buffer_needs_expansion)
+                {
+                    /* Unquoted delimiter: perform parameter, command, and arithmetic expansion */
+                    content_str = expander_expand_heredoc(exp, r->data.redirection.buffer,
+                                                          /*is_quoted=*/false);
+                }
+                else
+                {
+                    /* Quoted delimiter: no expansion, preserve literal content */
+                    content_str = string_create_from(r->data.redirection.buffer);
+                }
+            }
+            const char *content = content_str ? string_cstr(content_str) : "";
+            size_t content_len = strlen(content);
+
+            /* Use _pipe() to create a pipe for the heredoc content.
+             * Note: _pipe() on Windows has a size parameter; we use a reasonable buffer size.
+             * The pipe is opened in text mode by default; use _O_BINARY if needed. */
+            int pipefd[2];
+            if (_pipe(pipefd, (unsigned int)(content_len + 1024), _O_BINARY) < 0)
+            {
+                exec_set_error(executor, "_pipe() failed: %s", strerror(errno));
+                string_destroy(&content_str);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            /* Write content to the write end of the pipe */
+            if (content_len > 0)
+            {
+                _write(pipefd[1], content, (unsigned int)content_len);
+            }
+            _close(pipefd[1]); /* Close write end */
+            string_destroy(&content_str);
+
+            /* Redirect the target fd to the read end of the pipe */
+            if (_dup2(pipefd[0], fd) < 0)
+            {
+                exec_set_error(executor, "_dup2() failed for heredoc: %s", strerror(errno));
+                _close(pipefd[0]);
+                for (int j = 0; j < saved_i; j++)
+                    _close(saved[j].backup_fd);
+                xfree(saved);
+                return EXEC_ERROR;
+            }
+
+            _close(pipefd[0]); /* Close original read end, dup2'd copy remains */
+            break;
+        }
+
         case REDIR_TARGET_FD_STRING:
         case REDIR_TARGET_INVALID:
         default:
@@ -3166,7 +4069,7 @@ string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t 
 #elifdef UCRT_API
     (void)user_data;  // unused
 
-    const char *pattern_str = string_data(pattern);
+    const char *pattern_str = string_cstr(pattern);
     log_debug("exec_pathname_expansion_callback: UCRT glob pattern='%s'", pattern_str);
     struct _finddata_t fd;
     intptr_t handle;

@@ -133,6 +133,8 @@ static sh_status_t shell_execute_script_file(shell_t *sh, const char *filename)
     }
 }
 
+extern void exec_reap_background_jobs(exec_t *executor);
+
 static sh_status_t shell_execute_interactive(shell_t *sh)
 {
     Expects_not_null(sh);
@@ -146,6 +148,7 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
     fprintf(stdout, "%s", ps1);
     fflush(stdout);
 
+    exec_reap_background_jobs(sh->current_exec);
     while (fgets(line_buffer, sizeof(line_buffer), stdin) != NULL)
     {
         // Check for exit command
