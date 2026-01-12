@@ -2330,6 +2330,16 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         }
         argv[argc] = NULL;
 
+        if (!cmd_name || strlen(cmd_name) == 0)
+        {
+            exec_set_error(executor, "empty command name");
+            cmd_exit_status = 127;
+            /* Free argv */
+            for (int i = 0; argv[i]; i++)
+                xfree(argv[i]);
+            xfree(argv);
+            goto done_execution;
+        }
         /* Build envp from temp_vars + (non-overridden) parent vars */
         char *const *envp = variable_store_update_envp_with_parent(temp_vars, executor->variables);
 
@@ -3486,6 +3496,21 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
     return EXEC_NOT_IMPL;
 }
 
+/* ============================================================================
+ * exec_execute_subshell - Subshell Execution
+ *
+ * Subshells execute commands in a child environment where:
+ *   - Variable changes don't affect the parent
+ *   - Exit/return only exits the subshell
+ *   - File descriptors are inherited but changes don't affect parent
+ *
+ * Platform implementations:
+ *   POSIX:  fork() + exec_execute() in child
+ *   UCRT:   Emulate with isolated executor (no true process isolation)
+ *   ISO_C:  Emulate with isolated executor (no true process isolation)
+ *
+ * ============================================================================ */
+
 exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -3495,6 +3520,10 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
     const ast_node_t *body = node->data.compound.body;
 
 #ifdef POSIX_API
+    /* ========================================================================
+     * POSIX Implementation: True subshell via fork()
+     * ======================================================================== */
+
     pid_t pid = fork();
     if (pid < 0)
     {
@@ -3506,17 +3535,36 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
     {
         /* ---------------- CHILD PROCESS ---------------- */
 
-        /* Create a child executor */
+        /* Create a child executor that inherits parent state */
         exec_t *child = exec_create_subshell(executor);
+        if (!child)
+        {
+            _exit(127);
+        }
 
         /* Execute the body */
         exec_status_t st = exec_execute(child, body);
 
         int exit_code = 0;
-        if (st == EXEC_OK)
+        if (st == EXEC_OK || st == EXEC_EXIT)
+        {
             exit_code = child->last_exit_status;
+        }
+        else if (st == EXEC_RETURN)
+        {
+            /* 'return' in a subshell (not in a function) is an error,
+             * but we treat it as exit for robustness */
+            exit_code = child->last_exit_status;
+        }
+        else if (st == EXEC_BREAK || st == EXEC_CONTINUE)
+        {
+            /* break/continue outside loop in subshell - error */
+            exit_code = 1;
+        }
         else
+        {
             exit_code = 127;
+        }
 
         exec_destroy(&child);
         _exit(exit_code);
@@ -3542,11 +3590,123 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
     exec_set_exit_status(executor, exit_code);
     return EXEC_OK;
 
+#elif defined(UCRT_API)
+    /* ========================================================================
+     * UCRT Implementation: Emulated subshell
+     *
+     * UCRT has no fork(), so we cannot create a true subshell process.
+     * We emulate subshell semantics by:
+     *   1. Creating an isolated executor (copies parent state)
+     *   2. Executing the body in that isolated context
+     *   3. Discarding the isolated executor (changes don't propagate)
+     *
+     * Limitations:
+     *   - No true process isolation (signals, resource limits shared)
+     *   - exit() in subshell would exit the whole shell (we handle EXEC_EXIT)
+     *   - File descriptor changes affect the real process
+     * ======================================================================== */
+
+    /* Create an isolated executor */
+    exec_t *child = exec_create_subshell(executor);
+    if (!child)
+    {
+        exec_set_error(executor, "failed to create subshell executor");
+        return EXEC_ERROR;
+    }
+
+    /* Execute the body */
+    exec_status_t st = exec_execute(child, body);
+
+    int exit_code = 0;
+    if (st == EXEC_OK)
+    {
+        exit_code = child->last_exit_status;
+    }
+    else if (st == EXEC_EXIT)
+    {
+        /* 'exit' in emulated subshell - don't actually exit, just get status */
+        exit_code = child->last_exit_status;
+    }
+    else if (st == EXEC_RETURN)
+    {
+        /* 'return' outside function in subshell */
+        exit_code = child->last_exit_status;
+    }
+    else if (st == EXEC_BREAK || st == EXEC_CONTINUE)
+    {
+        /* break/continue outside loop */
+        fprintf(stderr, "mgsh: break/continue outside loop in subshell\n");
+        exit_code = 1;
+    }
+    else
+    {
+        exit_code = 1;
+    }
+
+    exec_destroy(&child);
+    exec_set_exit_status(executor, exit_code);
+    return EXEC_OK;
+
 #else
-    exec_set_error(executor, "subshells not supported in this build");
-    return EXEC_NOT_IMPL;
+    /* ========================================================================
+     * ISO C Implementation: Emulated subshell (same as UCRT)
+     * ======================================================================== */
+
+    exec_t *child = exec_create_subshell(executor);
+    if (!child)
+    {
+        exec_set_error(executor, "failed to create subshell executor");
+        return EXEC_ERROR;
+    }
+
+    exec_status_t st = exec_execute(child, body);
+
+    int exit_code = 0;
+    if (st == EXEC_OK)
+    {
+        exit_code = child->last_exit_status;
+    }
+    else if (st == EXEC_EXIT)
+    {
+        exit_code = child->last_exit_status;
+    }
+    else if (st == EXEC_RETURN)
+    {
+        exit_code = child->last_exit_status;
+    }
+    else if (st == EXEC_BREAK || st == EXEC_CONTINUE)
+    {
+        fprintf(stderr, "mgsh: break/continue outside loop in subshell\n");
+        exit_code = 1;
+    }
+    else
+    {
+        exit_code = 1;
+    }
+
+    exec_destroy(&child);
+    exec_set_exit_status(executor, exit_code);
+    return EXEC_OK;
+
 #endif
 }
+
+/* ============================================================================
+ * exec_execute_brace_group - Brace Group Execution
+ *
+ * Brace groups { list; } execute commands in the CURRENT shell environment.
+ * Unlike subshells, variable changes persist to the parent.
+ *
+ * Key differences from subshell:
+ *   - No fork (same process)
+ *   - Variable changes affect current shell
+ *   - break/continue/return propagate to enclosing constructs
+ *
+ * Note: Redirections on brace groups (e.g., { cmd; } >file) are handled by
+ * wrapping the brace group in AST_REDIRECTED_COMMAND. The brace group node
+ * itself just has a body.
+ *
+ * ============================================================================ */
 
 exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
 {
@@ -3556,75 +3716,23 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
 
     const ast_node_t *body = node->data.compound.body;
 
-    // Create an expander for redirection targets
-    expander_t *exp = expander_create(executor->variables, executor->positional_params);
-    if (!exp)
+    if (!body)
     {
-        exec_set_error(executor, "failed to create expander");
-        return EXEC_ERROR;
+        /* Empty brace group - success with status 0 */
+        exec_set_exit_status(executor, 0);
+        return EXEC_OK;
     }
 
-    expander_set_userdata(exp, executor);
-    expander_set_getenv(exp, expander_getenv);
-    expander_set_tilde_expand(exp, expander_tilde_expand);
-    expander_set_glob(exp, exec_pathname_expansion_callback);
-    expander_set_command_substitute(exp, exec_command_subst_callback);
+    /* Execute the body in the current shell environment.
+     * All side effects (variable assignments, function definitions,
+     * directory changes, etc.) persist in the current shell. */
+    exec_status_t status = exec_execute(executor, body);
 
-#ifdef POSIX_API
-    saved_fd_t *saved_fds = NULL;
-    int saved_count = 0;
-
-    exec_status_t st = exec_apply_redirections_posix(
-        executor, exp, node->data.redirected_command.redirections, &saved_fds, &saved_count);
-    if (st != EXEC_OK)
-    {
-        expander_destroy(&exp);
-        return st;
-    }
-#elifdef UCRT_API
-    saved_fd_t *saved_fds = NULL;
-    int saved_count = 0;
-
-    exec_status_t st =
-        exec_apply_redirections_ucrt_c(executor, exp, node->data.redirected_command.redirections, &saved_fds, &saved_count);
-    if (st != EXEC_OK)
-    {
-        expander_destroy(&exp);
-        return st;
-    }
-#else
-    exec_status_t st =
-        exec_apply_redirections_iso_c(executor, node->data.redirected_command.redirections);
-    if (st != EXEC_OK)
-    {
-        expander_destroy(&exp);
-        return st;
-    }
-#endif
-
-    // Execute the body in the current shell (no fork)
-    st = exec_execute(executor, body);
-
-#if defined(POSIX_API)
-    // Restore redirections
-    if (saved_fds)
-    {
-        exec_restore_redirections_posix(saved_fds, saved_count);
-        xfree(saved_fds);
-    }
-#elif defined(UCRT_API)
-    // Restore redirections
-    if (saved_fds)
-    {
-        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
-        xfree(saved_fds);
-    }
-#endif
-
-    expander_destroy(&exp);
-    return st;
+    /* Propagate control flow signals.
+     * Unlike subshells, brace groups allow break/continue/return
+     * to affect enclosing loops or functions. */
+    return status;
 }
-
 
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node)
 {
