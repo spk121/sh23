@@ -489,6 +489,9 @@ parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node)
     /* Loop: (AND_IF | OR_IF) linebreak pipeline */
     while (true)
     {
+        /* Need all 3 elements to be valid. */
+        int start_pos = parser_get_current_position(parser);
+
         token_type_t t = parser_current_token_type(parser);
 
         if (t != TOKEN_AND_IF && t != TOKEN_OR_IF)
@@ -496,7 +499,7 @@ parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node)
 
         /* Create operator node */
         gnode_t *op = g_node_create(G_AND_OR);
-        op->data.token = parser_current_token(parser);
+        op->data.token = token_clone(parser_current_token(parser));
 
         parser_advance(parser);
 
@@ -509,9 +512,9 @@ parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node)
 
         if (status != PARSE_OK)
         {
-            g_node_destroy(&left);
+            parser_rewind_to_position(parser, start_pos);
             g_node_destroy(&op);
-            return status;
+            break;
         }
 
         /*
@@ -529,6 +532,15 @@ parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node)
         left = node;
     }
 
+    /* Handle singleton pipelines and_or nodes. */
+    if (left->type == G_PIPELINE)
+    {
+        gnode_t *node = g_node_create(G_AND_OR);
+        node->data.multi.a = left;
+        node->data.multi.b = NULL;
+        node->data.multi.c = NULL;
+        left = node;
+    }
     *out_node = left;
     return PARSE_OK;
 }
@@ -725,8 +737,10 @@ parse_status_t gparse_compound_command(parser_t *parser, gnode_t **out_node)
     Expects_not_null(out_node);
 
     *out_node = NULL;
-
-    token_type_t t = parser_current_token_type(parser);
+    token_t *tok = parser_current_token(parser);
+    token_type_t t = token_get_type(tok);
+    if (t == TOKEN_WORD && token_try_promote_to_lbrace(tok))
+        t = TOKEN_LBRACE;
 
     gnode_t *child = NULL;
     parse_status_t status;
@@ -849,16 +863,16 @@ parse_status_t gparse_compound_list(parser_t *parser, gnode_t **out_node)
         return status;
     }
 
-    node->data.multi.a = term;
+    node->data.pair.left = term;
 
     /* optional separator */
     gnode_t *sep = NULL;
     status = gparse_separator(parser, &sep);
 
     if (status == PARSE_OK)
-        node->data.multi.b = sep;
+        node->data.pair.right = sep;
     else
-        node->data.multi.b = NULL;
+        node->data.pair.right = NULL;
 
     *out_node = node;
     return PARSE_OK;
@@ -894,6 +908,9 @@ parse_status_t gparse_term(parser_t *parser, gnode_t **out_node)
     /* Loop: separator and_or */
     while (true)
     {
+        /* Need both the separator and the and_or. A 
+         * single separator without a following and_or is handled elsewhere . */
+        int position_cur = parser_get_current_position(parser);
         gnode_t *sep = NULL;
         status = gparse_separator(parser, &sep);
 
@@ -907,8 +924,8 @@ parse_status_t gparse_term(parser_t *parser, gnode_t **out_node)
         if (status != PARSE_OK)
         {
             g_node_destroy(&sep);
-            g_node_destroy(&node);
-            return status;
+            parser_rewind_to_position(parser, position_cur);
+            break;
         }
 
         /* Append both separator and next element */
@@ -1886,6 +1903,18 @@ parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
     if (parser_current_token_type(parser) != TOKEN_LBRACE)
         return PARSE_ERROR;
 
+    /* Make sure that the next '}' has been promoted to a TOKEN_RBRACE */
+    int offset = 1;
+    while (true)
+    {
+        token_t *tok = parser_peek_token(parser, offset);
+        token_type_t t = token_get_type(tok);
+        if (t == TOKEN_EOF)
+            return PARSE_INCOMPLETE;
+        if ((t == TOKEN_WORD && token_try_promote_to_rbrace(tok)) || (t == TOKEN_RBRACE))
+            break;
+        offset++;
+    }
     gnode_t *node = g_node_create(G_BRACE_GROUP);
 
     /* '{' */
@@ -2545,7 +2574,7 @@ parse_status_t gparse_separator(parser_t *parser, gnode_t **out_node)
 
         /* separator_op */
         gnode_t *op = g_node_create(G_SEPARATOR_OP);
-        op->data.token = parser_current_token(parser);
+        op->data.token = token_clone(parser_current_token(parser));
         parser_advance(parser);
 
         /* linebreak */

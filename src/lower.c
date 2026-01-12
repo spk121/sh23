@@ -362,12 +362,13 @@ static ast_node_t *lower_and_or(const gnode_t *g)
         return ast_create_andor_list(left, right, op);
     }
 
-    /* Otherwise treat this as a single pipeline (degenerate form) */
-    /* In your parser, a single pipeline is not wrapped in G_AND_OR.
-       So this path might never be used, but kept for robustness. */
-    const gnode_t *maybe_pipeline = g->data.multi.a ? g->data.multi.a : g->data.child;
-    if (maybe_pipeline && maybe_pipeline->type == G_PIPELINE)
-        return lower_pipeline(maybe_pipeline);
+    if (g->data.multi.a && g->data.multi.b == NULL && g->data.multi.c == NULL)
+    {
+        /* Otherwise treat this as a single pipeline (degenerate form) */
+        const gnode_t *maybe_pipeline = g->data.multi.a;
+        if (maybe_pipeline->type == G_PIPELINE)
+            return lower_pipeline(maybe_pipeline);
+    }
 
     log_error("lower_and_or: unexpected structure");
     return NULL;
@@ -480,12 +481,11 @@ static ast_node_t *lower_command(const gnode_t *g)
     Expects_eq(g->type, G_COMMAND);
 
     /* G_COMMAND is a wrapper node - the actual command is in data.child or data.multi.a */
-    const gnode_t *child = g->data.child;
-    if (!child)
-    {
-        /* Try multi.a if child is NULL */
+    const gnode_t *child = NULL;
+    if (g->payload_type == GNODE_PAYLOAD_CHILD)
+        child = g->data.child;
+    else if (g->payload_type == GNODE_PAYLOAD_MULTI)
         child = g->data.multi.a;
-    }
 
     if (!child)
     {
@@ -496,10 +496,16 @@ static ast_node_t *lower_command(const gnode_t *g)
     /* Dispatch based on the actual command type */
     switch (child->type)
     {
+    case G_COMMAND:
+        return lower_command(child);
     case G_SIMPLE_COMMAND:
         return lower_simple_command(child);
     case G_SUBSHELL:
+        /* multi.a and multi.c should be '(' and ')' */
+        return lower_compound_command(child->data.multi.b);
     case G_BRACE_GROUP:
+        /* multi.a and multi.c should be '{' and '}' */
+        return lower_compound_command(child->data.multi.b);
     case G_FOR_CLAUSE:
     case G_CASE_CLAUSE:
     case G_IF_CLAUSE:
@@ -517,7 +523,8 @@ static ast_node_t *lower_command(const gnode_t *g)
         break;
     }
 
-    log_error("lower_command: unexpected child kind %d", (int)child->type);
+    log_error("lower_command: unexpected child kind %s (%d)", g_node_type_to_cstr(child->type),
+        (int)child->type);
     return NULL;
 }
 
@@ -637,6 +644,8 @@ static ast_node_t *lower_compound_command(const gnode_t *g)
         return lower_while_clause(g);
     case G_UNTIL_CLAUSE:
         return lower_until_clause(g);
+    case G_COMPOUND_COMMAND:
+        return lower_compound_command(g->data.child);
     default:
         log_error("lower_compound_command: unexpected kind %d", (int)g->type);
         return NULL;
@@ -646,7 +655,9 @@ static ast_node_t *lower_compound_command(const gnode_t *g)
 static ast_node_t *lower_subshell(const gnode_t *g)
 {
     Expects_eq(g->type, G_SUBSHELL);
-    const gnode_t *clist = g->data.child;
+    /* multi.a and multi.c should be '(' and ')' */
+    const gnode_t *clist = g->data.multi.b;
+
     ast_node_t *body = lower_compound_list(clist);
     if (!body)
         return NULL;
@@ -656,7 +667,8 @@ static ast_node_t *lower_subshell(const gnode_t *g)
 static ast_node_t *lower_brace_group(const gnode_t *g)
 {
     Expects_eq(g->type, G_BRACE_GROUP);
-    const gnode_t *clist = g->data.child;
+    /* multi.a and multi.c should be '{' and '}' */
+    const gnode_t *clist = g->data.multi.b;
     ast_node_t *body = lower_compound_list(clist);
     if (!body)
         return NULL;
@@ -672,12 +684,74 @@ static ast_node_t *lower_compound_list(const gnode_t *g)
 {
     Expects_eq(g->type, G_COMPOUND_LIST);
     /* Your G_COMPOUND_LIST wraps a list whose first element is a G_TERM. */
-    gnode_list_t *lst = g->data.list;
-    if (lst->size == 0)
-        return ast_create_command_list();
-    const gnode_t *term = lst->nodes[0];
+    const gnode_t *term = g->data.pair.left;
     EXPECT_TYPE(term, G_TERM);
-    return lower_term_as_command_list(term);
+    ast_node_t *list_node = lower_term_as_command_list(term);
+
+    int num_cmd_items = ast_node_list_size(list_node->data.command_list.items);
+    int num_separators = list_node->data.command_list.separators->len;
+    bool update_final_separator = num_separators < num_cmd_items ? true : false;
+    cmd_separator_t final_separator;
+    gnode_t *sep = g->data.pair.right;
+    if (!sep)
+    {
+        final_separator = CMD_EXEC_END;
+    }
+    else if (sep->type != G_SEPARATOR)
+    {
+        log_error("lower_complete_command: expected G_SEPARATOR or NULL, got %s",
+                  g_node_type_to_cstr(sep->type));
+        ast_node_destroy(&list_node);
+        return NULL;
+    }
+    else
+    {
+        /* sep is a valid G_SEPARATOR */
+        gnode_t *sep_op = sep->data.child;
+        switch (sep_op->data.token->type)
+        {
+        case TOKEN_AMPER:
+            final_separator = CMD_EXEC_BACKGROUND;
+            update_final_separator = true;
+            break;
+        case TOKEN_SEMI:
+            final_separator = CMD_EXEC_SEQUENTIAL;
+            update_final_separator = true;
+            break;
+        default:
+            log_error("lower_complete_command: unexpected separator token %d",
+                      (int)sep_op->data.token->type);
+            ast_node_destroy(&list_node);
+            return NULL;
+        }
+    }
+
+    if (update_final_separator)
+    {
+        if (num_cmd_items == 0)
+        {
+            log_error("lower_complete_command: no commands in list to apply final separator");
+            ast_node_destroy(&list_node);
+            return NULL;
+        }
+        else if (num_cmd_items == num_separators + 1)
+        {
+            ast_command_list_node_append_separator(list_node, final_separator);
+        }
+        else if (num_cmd_items == num_separators)
+        {
+            list_node->data.command_list.separators->separators[num_separators - 1] =
+                final_separator;
+        }
+        else
+        {
+            log_error("lower_complete_command: inconsistent command/separator counts");
+            ast_node_destroy(&list_node);
+            return NULL;
+        }
+    }
+
+    return list_node;
 }
 
 /* term: and_or (separator and_or)* → COMMAND_LIST */

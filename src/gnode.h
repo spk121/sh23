@@ -198,6 +198,8 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type);
  * ============================================================================
  */
 
+const char *g_node_type_to_cstr(const gnode_type_t t);
+
 string_t *g_node_to_string(const gnode_t *node);
 void g_node_print(const gnode_t *node);
 

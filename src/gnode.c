@@ -165,13 +165,14 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_CASE_LIST_NS:
     case G_PATTERN_LIST:
     case G_WORDLIST:
-    case G_COMPOUND_LIST:
     case G_TERM:
     case G_DO_GROUP:
     case G_NEWLINE_LIST:
         return GNODE_PAYLOAD_LIST;
 
-    /* Pair nodes - NONE currently use .pair union member */
+    case G_COMPOUND_LIST:
+        return GNODE_PAYLOAD_PAIR;
+
     case G_ELSE_PART:
         /* else_part can be either simple (multi.a only) or elif (multi.a/b/c) */
         return GNODE_PAYLOAD_MULTI;
@@ -180,8 +181,6 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     /* Single-child nodes */
     case G_PROGRAM:
     case G_CMD_PREFIX:
-    case G_SUBSHELL:
-    case G_BRACE_GROUP:
     case G_FUNCTION_BODY:
     case G_SEPARATOR:
     case G_LINEBREAK:
@@ -190,6 +189,7 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
 
     /* Multi-child nodes */
     case G_AND_OR:
+    case G_BRACE_GROUP:
     case G_COMPLETE_COMMAND:
     case G_IF_CLAUSE:
     case G_WHILE_CLAUSE:
@@ -201,6 +201,7 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_FUNCTION_DEFINITION:
     case G_IO_REDIRECT:
     case G_IO_FILE:
+    case G_SUBSHELL:
         return GNODE_PAYLOAD_MULTI;
 
     /* Nodes with context-dependent payload */
@@ -292,6 +293,7 @@ void g_node_destroy(gnode_t **pnode)
         /* No payload to destroy */
         break;
     }
+    memset(node, 0, sizeof(gnode_t));
     node->type = G_UNSPECIFIED;
     xfree(node);
     *pnode = NULL;
@@ -302,6 +304,121 @@ void g_node_destroy(gnode_t **pnode)
  * ============================================================================
  */
 
+const char *g_node_type_to_cstr(const gnode_type_t t)
+{
+    switch (t)
+    {
+    case G_UNSPECIFIED:
+        return "G_UNSPECIFIED";
+    case G_PROGRAM:
+        return "G_PROGRAM";
+    case G_COMPLETE_COMMANDS:
+        return "G_COMPLETE_COMMANDS";
+    case G_COMPLETE_COMMAND:
+        return "G_COMPLETE_COMMAND";
+    case G_LIST:
+        return "G_LIST";
+    case G_AND_OR:
+        return "G_AND_OR";
+    case G_PIPELINE:
+        return "G_PIPELINE";
+    case G_PIPE_SEQUENCE:
+        return "G_PIPE_SEQUENCE";
+    case G_COMMAND:
+        return "G_COMMAND";
+
+    case G_SIMPLE_COMMAND:
+        return "G_SIMPLE_COMMAND";
+    case G_CMD_PREFIX:
+        return "G_CMD_PREFIX";
+    case G_CMD_SUFFIX:
+        return "G_CMD_SUFFIX";
+    case G_CMD_NAME:
+        return "G_CMD_NAME";
+    case G_ASSIGNMENT_WORD:
+        return "G_ASSIGNMENT_WORD";
+    case G_WORD_NODE:
+        return "G_WORD_NODE";
+
+    case G_REDIRECT_LIST:
+        return "G_REDIRECT_LIST";
+    case G_IO_REDIRECT:
+        return "G_IO_REDIRECT";
+    case G_IO_FILE:
+        return "G_IO_FILE";
+    case G_IO_HERE:
+        return "G_IO_HERE";
+    case G_FILENAME:
+        return "G_FILENAME";
+    case G_HERE_END:
+        return "G_HERE_END";
+
+    case G_COMPOUND_COMMAND:
+        return "G_COMPOUND_COMMAND";
+    case G_SUBSHELL:
+        return "G_SUBSHELL";
+    case G_BRACE_GROUP:
+        return "G_BRACE_GROUP";
+    case G_IF_CLAUSE:
+        return "G_IF_CLAUSE";
+    case G_ELSE_PART:
+        return "G_ELSE_PART";
+    case G_WHILE_CLAUSE:
+        return "G_WHILE_CLAUSE";
+    case G_UNTIL_CLAUSE:
+        return "G_UNTIL_CLAUSE";
+    case G_FOR_CLAUSE:
+        return "G_FOR_CLAUSE";
+    case G_CASE_CLAUSE:
+        return "G_CASE_CLAUSE";
+    case G_CASE_LIST:
+        return "G_CASE_LIST";
+    case G_CASE_LIST_NS:
+        return "G_CASE_LIST_NS";
+    case G_CASE_ITEM:
+        return "G_CASE_ITEM";
+    case G_CASE_ITEM_NS:
+        return "G_CASE_ITEM_NS";
+    case G_PATTERN_LIST:
+        return "G_PATTERN_LIST";
+    case G_DO_GROUP:
+        return "G_DO_GROUP";
+    case G_COMPOUND_LIST:
+        return "G_COMPOUND_LIST";
+    case G_TERM:
+        return "G_TERM";
+
+    case G_FUNCTION_DEFINITION:
+        return "G_FUNCTION_DEFINITION";
+    case G_FUNCTION_BODY:
+        return "G_FUNCTION_BODY";
+    case G_FNAME:
+        return "G_FNAME";
+
+    case G_SEPARATOR_OP:
+        return "G_SEPARATOR_OP";
+    case G_SEPARATOR:
+        return "G_SEPARATOR";
+    case G_SEQUENTIAL_SEP:
+        return "G_SEQUENTIAL_SEP";
+    case G_NEWLINE_LIST:
+        return "G_NEWLINE_LIST";
+    case G_LINEBREAK:
+        return "G_LINEBREAK";
+
+    case G_NAME_NODE:
+        return "G_NAME_NODE";
+    case G_WORDLIST:
+        return "G_WORDLIST";
+    case G_IO_NUMBER_NODE:
+        return "G_IO_NUMBER_NODE";
+    case G_IO_LOCATION_NODE:
+        return "G_IO_LOCATION_NODE";
+    default:
+        return "(unknown gnode type)";
+    }
+}
+
 string_t *g_node_to_string(const gnode_t *node)
 {
     string_t *s = string_create();
@@ -311,8 +428,8 @@ string_t *g_node_to_string(const gnode_t *node)
         return s;
     }
 
-    char buf[64];
-    snprintf(buf, sizeof(buf), "<GNode type=%d>", node->type);
+    char buf[80];
+    snprintf(buf, sizeof(buf), "<GNode type=%s (%d)>", g_node_type_to_cstr(node->type), node->type);
     string_append_cstr(s, buf);
     return s;
 }

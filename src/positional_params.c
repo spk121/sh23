@@ -78,7 +78,7 @@ positional_params_t *positional_params_copy(const positional_params_t *src)
     positional_params_t *p = xcalloc(1, sizeof(positional_params_t));
     p->max_params = src->max_params;
     p->count = src->count;
-    p->arg0 = string_create_from(src->arg0);
+    p->arg0 = src->arg0 ? string_create_from(src->arg0) : string_create_from_cstr("mgsh");
 
     if (src->count == 0 || src->params == NULL)
     {
