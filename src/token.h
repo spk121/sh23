@@ -418,7 +418,7 @@ int token_get_first_column(const token_t *token);
 /**
  * Convert a token type to a human-readable string.
  */
-const char *token_type_to_string(token_type_t type);
+const char *token_type_to_cstr(token_type_t type);
 
 /**
  * Create a debug string representation of a token.

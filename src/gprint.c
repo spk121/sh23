@@ -101,13 +101,13 @@ static void gprint_token(const token_t *tok, int depth)
 
     if (token_get_type(tok) == TOKEN_WORD) {
         string_t *str = token_get_all_text(tok);
-        printf("TOKEN_%s(\"%s\")\n", token_type_to_string(token_get_type(tok)),
+        printf("TOKEN_%s(\"%s\")\n", token_type_to_cstr(token_get_type(tok)),
                str ? string_cstr(str) : "");
         string_destroy(&str);
     }
     else
     {
-        printf("TOKEN_%s\n", token_type_to_string(token_get_type(tok)));
+        printf("TOKEN_%s\n", token_type_to_cstr(token_get_type(tok)));
     }
 
 }
@@ -199,7 +199,7 @@ static void gprint_node(const gnode_t *node, int depth)
 
     case GNODE_PAYLOAD_IO_HERE:
         indent(depth + 2);
-        printf("io_here.op: TOKEN_%s\n", token_type_to_string(node->data.io_here.op));
+        printf("io_here.op: TOKEN_%s\n", token_type_to_cstr(node->data.io_here.op));
         indent(depth + 2);
         printf("io_here.here_end: \"%s\"\n",
                node->data.io_here.here_end ? string_cstr(node->data.io_here.here_end) : "<null>");

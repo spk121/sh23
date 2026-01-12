@@ -155,11 +155,11 @@ parse_status_t parser_expect(parser_t *parser, token_type_t type)
     if (got == TOKEN_EOF)
     {
         parser_set_error(parser, "Unexpected end of input (expected %s)",
-                         token_type_to_string(type));
+                         token_type_to_cstr(type));
         return PARSE_INCOMPLETE;
     }
-    parser_set_error(parser, "Expected %s but got %s", token_type_to_string(type),
-                     token_type_to_string(got));
+    parser_set_error(parser, "Expected %s but got %s", token_type_to_cstr(type),
+                     token_type_to_cstr(got));
     return PARSE_ERROR;
 }
 

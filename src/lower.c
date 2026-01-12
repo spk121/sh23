@@ -16,8 +16,8 @@
     {                                                                                              \
         if (!(node) || (node)->type != (k))                                                        \
         {                                                                                          \
-            log_error("ast_lower: expected type %s, got %d", #k,                                   \
-                      (int)((node) ? (node)->type : G_UNSPECIFIED));	\
+            log_error("ast_lower: expected type %s, got %s (%d)", #k,                                   \
+                      g_node_type_to_cstr((node) ? (node)->type : G_UNSPECIFIED), (int)((node) ? (node)->type : G_UNSPECIFIED));	\
             return NULL;                                                                           \
         }                                                                                          \
     } while (0)
@@ -153,8 +153,8 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
     }
     else if (sep->type != G_SEPARATOR_OP)
     {
-        log_error("lower_complete_command: expected G_SEPARATOR_OP or NULL, got %d",
-                  (int)sep->type);
+        log_error("lower_complete_command: expected G_SEPARATOR_OP or NULL, got %s (%d)",
+                  g_node_type_to_cstr(sep->type), (int)sep->type);
         ast_node_destroy(&list_node);
         return NULL;
     }
@@ -174,8 +174,8 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
             update_final_separator = true;
             break;
         default:
-            log_error("lower_complete_command: unexpected separator token %d",
-                      (int)sep->data.token->type);
+            log_error("lower_complete_command: unexpected separator token %s (%d)",
+                      token_type_to_cstr(sep->data.token->type), (int)sep->data.token->type);
             ast_node_destroy(&list_node);
             return NULL;
         }
@@ -242,8 +242,8 @@ static ast_node_t *lower_list(const gnode_t *g)
         }
         else
         {
-            log_error("lower_list: expected G_AND_OR or G_PIPELINE at index %zu, got %d",
-                      i, (int)elem->type);
+            log_error("lower_list: expected G_AND_OR or G_PIPELINE at index %zu, got %s (%d)",
+                      i, g_node_type_to_cstr(elem->type), (int)elem->type);
             ast_node_destroy(&cl);
             return NULL;
         }
@@ -315,7 +315,7 @@ static ast_node_t *lower_and_or(const gnode_t *g)
             left = lower_pipeline(left_node);
         else
         {
-            log_error("lower_and_or: unexpected left kind %d", (int)left_node->type);
+            log_error("lower_and_or: unexpected left kind %s (%d)", g_node_type_to_cstr(left_node->type), (int)left_node->type);
             return NULL;
         }
         if (!left)
@@ -333,7 +333,7 @@ static ast_node_t *lower_and_or(const gnode_t *g)
             op = ANDOR_OP_OR;
         else
         {
-            log_error("lower_and_or: unexpected operator token");
+            log_error("lower_and_or: unexpected operator token %s (%d)", token_type_to_cstr(t), (int)t);
             ast_node_destroy(&left);
             return NULL;
         }
@@ -347,7 +347,7 @@ static ast_node_t *lower_and_or(const gnode_t *g)
                 right = lower_and_or(gp);
             else
             {
-                log_error("lower_and_or: unexpected right kind %d", (int)gp->type);
+                log_error("lower_and_or: unexpected right kind %s (%d)", g_node_type_to_cstr(gp->type), (int)gp->type);
                 ast_node_destroy(&left);
                 return NULL;
             }
@@ -611,7 +611,7 @@ static ast_node_t *lower_simple_command(const gnode_t *g)
         }
 
         default:
-            log_error("lower_simple_command: unexpected child kind %d", (int)elem->type);
+            log_error("lower_simple_command: unexpected child kind %s (%d)", g_node_type_to_cstr(elem->type), (int)elem->type);
             token_list_destroy(&assignments);
             token_list_destroy(&words);
             ast_node_list_destroy(&redirs);
@@ -647,7 +647,7 @@ static ast_node_t *lower_compound_command(const gnode_t *g)
     case G_COMPOUND_COMMAND:
         return lower_compound_command(g->data.child);
     default:
-        log_error("lower_compound_command: unexpected kind %d", (int)g->type);
+        log_error("lower_compound_command: unexpected kind %s (%d)", g_node_type_to_cstr(g->type), (int)g->type);
         return NULL;
     }
 }
@@ -699,8 +699,8 @@ static ast_node_t *lower_compound_list(const gnode_t *g)
     }
     else if (sep->type != G_SEPARATOR)
     {
-        log_error("lower_complete_command: expected G_SEPARATOR or NULL, got %s",
-                  g_node_type_to_cstr(sep->type));
+        log_error("lower_complete_command: expected G_SEPARATOR or NULL, got %s (%d)",
+                  g_node_type_to_cstr(sep->type), (int)sep->type);
         ast_node_destroy(&list_node);
         return NULL;
     }
@@ -719,8 +719,8 @@ static ast_node_t *lower_compound_list(const gnode_t *g)
             update_final_separator = true;
             break;
         default:
-            log_error("lower_complete_command: unexpected separator token %d",
-                      (int)sep_op->data.token->type);
+            log_error("lower_complete_command: unexpected separator token %s (%d)",
+                      token_type_to_cstr(sep_op->data.token->type), (int)sep_op->data.token->type);
             ast_node_destroy(&list_node);
             return NULL;
         }
@@ -768,7 +768,7 @@ static ast_node_t *lower_term_as_command_list(const gnode_t *g)
 
         if (elem->type != G_AND_OR)
         {
-            log_error("lower_term: expected G_AND_OR");
+            log_error("lower_term: expected G_AND_OR, got %s (%d)", g_node_type_to_cstr(elem->type), (int)elem->type);
             ast_node_destroy(&cl);
             return NULL;
         }
@@ -1015,7 +1015,7 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
                 ci = lower_case_item_ns(item);
             else
             {
-                log_error("lower_case_clause: unexpected item kind %d", (int)item->type);
+                log_error("lower_case_clause: unexpected item kind %s (%d)", g_node_type_to_cstr(item->type), (int)item->type);
                 ast_node_destroy(&node);
                 return NULL;
             }
@@ -1267,7 +1267,7 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     }
     else
     {
-        log_error("lower_io_redirect: unexpected target kind %d", (int)gtarget->type);
+        log_error("lower_io_redirect: unexpected target kind %s (%d)", g_node_type_to_cstr(gtarget->type), (int)gtarget->type);
         if (fd_string)
             string_destroy(&fd_string);
         return NULL;
@@ -1347,7 +1347,7 @@ static redirection_type_t map_redir_type_from_io_file(const gnode_t *io_file)
     case TOKEN_CLOBBER:
         return REDIR_WRITE_FORCE;
     default:
-        log_error("map_redir_type_from_io_file: unexpected token type %d", (int)t);
+        log_error("map_redir_type_from_io_file: unexpected token type %s (%d)", token_type_to_cstr(t), (int)t);
         return REDIR_READ;
     }
 }

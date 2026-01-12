@@ -586,7 +586,7 @@ int token_get_first_column(const token_t *token)
  * Token Utility Functions
  * ============================================================================ */
 
-const char *token_type_to_string(token_type_t type)
+const char *token_type_to_cstr(token_type_t type)
 {
     switch (type)
     {
@@ -688,7 +688,7 @@ string_t *token_to_string(const token_t *token)
     string_t *result = string_create();
 
     string_append_cstr(result, "Token(");
-    string_append_cstr(result, token_type_to_string(token->type));
+    string_append_cstr(result, token_type_to_cstr(token->type));
 
     if (token->type == TOKEN_WORD && token->parts != NULL)
     {
