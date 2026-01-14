@@ -17,6 +17,14 @@ typedef struct variable_store_t
     /** Map of variable names to values and metadata. */
     variable_map_t *map;
 
+    /** Increment on any modification */
+    uint32_t generation;
+    /** Cached environment array generation info. */
+    uint32_t cached_generation;
+    /** Parent generation info for cache validation. */
+    uint32_t cached_parent_gen;
+    /** Parent store that we built the cache against for cache validation. */
+    const struct variable_store_t *cached_parent;
     /**
      * Cached NULL‑terminated environment array.
      * Owned by the store and rebuilt on demand.

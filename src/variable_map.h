@@ -142,7 +142,7 @@ variable_map_insert_result_t variable_map_insert(variable_map_t *map, const stri
                                                 const variable_map_mapped_t *mapped);
 
 /**
- * Inserts or assigns a key/value pair, transferring ownership of *mapped.
+ * Inserts or assigns a key/value pair. It deep-copies *mapped, thus not transferring owernship.
  * If the key exists, its value is replaced.
  *
  * @param map Variable map.
@@ -151,7 +151,7 @@ variable_map_insert_result_t variable_map_insert(variable_map_t *map, const stri
  * @return Position of the entry.
  */
 int32_t variable_map_insert_or_assign(variable_map_t *map, const string_t *key,
-                                      variable_map_mapped_t *mapped);
+                                      const variable_map_mapped_t *mapped);
 
 /**
  * Removes the entry with the given key.
@@ -160,6 +160,15 @@ int32_t variable_map_insert_or_assign(variable_map_t *map, const string_t *key,
  * @param key Variable name.
  */
 void variable_map_erase(variable_map_t *map, const string_t *key);
+
+/**
+ * Removes multiple entries with the given keys. Note that the keys must be unique,
+ * or the behavior is undefined.
+ *
+ * @param map Variable map.
+ * @param keys List of variable names to remove.
+ */
+void variable_map_erase_multiple(variable_map_t *map, const string_list_t *keys);
 
 /**
  * Removes the entry at the given position.

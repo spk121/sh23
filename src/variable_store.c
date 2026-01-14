@@ -70,6 +70,27 @@ static var_store_error_t validate_variable_value(const string_t *value)
     return VAR_STORE_ERROR_NONE;
 }
 
+/**
+ * Helper to construct a "NAME=VALUE" environment string.
+ */
+static char *make_env_cstr(const string_t *name, const string_t *value)
+{
+    int name_len = string_length(name);
+    int value_len = value ? string_length(value) : 0;
+    int total_len = name_len + 1 + value_len + 1; // name + '=' + value + '\0'
+
+    char *env_str = xmalloc(total_len);
+    memcpy(env_str, string_cstr(name), name_len);
+    env_str[name_len] = '=';
+    if (value_len)
+    {
+        memcpy(env_str + name_len + 1, string_cstr(value), value_len);
+    }
+    env_str[name_len + 1 + value_len] = '\0';
+
+    return env_str;
+}
+
 // Helper function to free cached envp array
 static void free_cached_envp(variable_store_t *store)
 {
@@ -88,8 +109,86 @@ variable_store_t *variable_store_create(void)
 {
     variable_store_t *store = xmalloc(sizeof(variable_store_t));
     store->map = variable_map_create();
+    store->generation = 0;
+    store->cached_generation = 0;
+    store->cached_parent_gen = 0;
+    store->cached_parent = NULL;
     store->cached_envp = NULL;
     return store;
+}
+
+/**
+ * Parse a "NAME=VALUE" environment string into separate name and value strings.
+ *
+ * Validates that the name and value conform to POSIX shell variable rules.
+ * Non-conforming entries are logged and skipped.
+ *
+ * On success, *out_name and *out_value are set to newly allocated strings
+ * that the caller must free with string_destroy().
+ *
+ * Returns true on success, false if the input is malformed or fails validation.
+ * On failure, *out_name and *out_value are set to NULL.
+ */
+static bool parse_env_cstr(const char *env_str, string_t **out_name, string_t **out_value)
+{
+    *out_name = NULL;
+    *out_value = NULL;
+
+    if (!env_str || env_str[0] == '\0')
+    {
+        return false;
+    }
+
+    // POSIX names cannot start with '=' or be empty before '='
+    if (env_str[0] == '=')
+    {
+        log_debug("Skipping environment variable: name starts with '=' (%s)", env_str);
+        return false;
+    }
+
+    const char *equals = strchr(env_str, '=');
+    if (!equals)
+    {
+        log_debug("Skipping environment variable: no '=' delimiter (%s)", env_str);
+        return false;
+    }
+
+    intptr_t name_len = equals - env_str;
+    if (name_len <= 0 || name_len > INT_MAX)
+    {
+        log_debug("Skipping environment variable: invalid name length (%s)", env_str);
+        return false;
+    }
+
+    string_t *name = string_create_from_cstr_len(env_str, (int)name_len);
+    string_t *value = string_create_from_cstr(equals + 1);
+
+    // Validate name conforms to POSIX rules
+    var_store_error_t name_err = validate_variable_name(name);
+    if (name_err != VAR_STORE_ERROR_NONE)
+    {
+        log_debug("Skipping environment variable: invalid name '%s' (error %d)", string_cstr(name),
+                  name_err);
+        string_destroy(&name);
+        string_destroy(&value);
+        return false;
+    }
+
+    // Validate value conforms to limits
+    var_store_error_t value_err = validate_variable_value(value);
+    if (value_err != VAR_STORE_ERROR_NONE)
+    {
+        log_debug("Skipping environment variable: invalid value for '%s' (error %d)",
+                  string_cstr(name), value_err);
+        string_destroy(&name);
+        string_destroy(&value);
+        return false;
+    }
+
+    *out_name = name;
+    *out_value = value;
+
+    return true;
 }
 
 variable_store_t *variable_store_create_from_envp(char **envp)
@@ -100,18 +199,11 @@ variable_store_t *variable_store_create_from_envp(char **envp)
     {
         for (int i = 0; envp[i] != NULL; i++)
         {
-            // Parse "NAME=VALUE" format
-            char *equals = strchr(envp[i], '=');
-            if (equals)
-            {
-                intptr_t name_len = equals - envp[i];
-                if (name_len <= 0 || name_len > INT_MAX)
-                {
-                    continue; // Skip invalid entries
-                }
-                string_t *name = string_create_from_cstr_len(envp[i], (int)name_len);
-                string_t *value = string_create_from_cstr(equals + 1);
+            string_t *name;
+            string_t *value;
 
+            if (parse_env_cstr(envp[i], &name, &value))
+            {
                 // Environment variables are exported by default and not read-only
                 variable_store_add(store, name, value, true, false);
 
@@ -145,7 +237,11 @@ void variable_store_clear(variable_store_t *store)
     }
 
     variable_map_clear(store->map);
-    free_cached_envp(store);
+    store->generation++;
+    store->cached_generation = 0;
+    store->cached_parent_gen = 0;
+    store->cached_parent = NULL;
+    // We choose not to free cached_envp here; it will be freed when accessed next time
 }
 
 var_store_error_t variable_store_add(variable_store_t *store, const string_t *name,
@@ -190,12 +286,12 @@ var_store_error_t variable_store_add(variable_store_t *store, const string_t *na
     mapped.exported = exported;
     mapped.read_only = read_only;
 
-    /* Insert or update the variable, transferring ownership of 'mapped' */
+    // Insert or update the variable; insert_or_assign deep-copies so we still own mapped.value
     variable_map_insert_or_assign(store->map, name, &mapped);
     string_destroy(&mapped.value);
 
     // Invalidate cached envp
-    free_cached_envp(store);
+    store->generation++;
 
     return VAR_STORE_ERROR_NONE;
 }
@@ -229,18 +325,11 @@ void variable_store_add_env(variable_store_t *store, const char *env)
         return;
     }
 
-    // Parse "NAME=VALUE" format
-    char *equals = strchr(env, '=');
-    if (equals)
-    {
-        intptr_t name_len = equals - env;
-        if (name_len <= 0 || name_len > INT_MAX)
-        {
-            return; // Skip invalid entries
-        }
-        string_t *name = string_create_from_cstr_len(env, (int)name_len);
-        string_t *value = string_create_from_cstr(equals + 1);
+    string_t *name;
+    string_t *value;
 
+    if (parse_env_cstr(env, &name, &value))
+    {
         // Environment variables are exported by default and not read-only
         variable_store_add(store, name, value, true, false);
 
@@ -257,7 +346,8 @@ void variable_store_remove(variable_store_t *store, const string_t *name)
     }
 
     variable_map_erase(store->map, name);
-    free_cached_envp(store);
+    // Invalidate cached envp
+    store->generation++;
 }
 
 void variable_store_remove_cstr(variable_store_t *store, const char *name)
@@ -405,6 +495,8 @@ var_store_error_t variable_store_set_read_only(variable_store_t *store, const st
     }
 
     mapped->read_only = read_only;
+    // Invalidate cached envp
+    store->generation++;
     return VAR_STORE_ERROR_NONE;
 }
 
@@ -442,7 +534,8 @@ var_store_error_t variable_store_set_exported(variable_store_t *store, const str
     }
 
     mapped->exported = exported;
-    free_cached_envp(store);
+    // Invalidate cached envp
+    store->generation++;
 
     return VAR_STORE_ERROR_NONE;
 }
@@ -463,11 +556,15 @@ var_store_error_t variable_store_set_exported_cstr(variable_store_t *store, cons
 
 int32_t variable_store_get_value_length(const variable_store_t *store, const string_t *name)
 {
-    const string_t *value = variable_store_get_value(store, name);
-    return value ? string_length(value) : 0;
+    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    if (!entry)
+    {
+        return -1;
+    }
+    return entry->mapped.value ? string_length(entry->mapped.value) : 0;
 }
 
-void variable_store_for_each(const variable_store_t* store, var_store_iter_fn fn, void* user_data)
+void variable_store_for_each(const variable_store_t *store, var_store_iter_fn fn, void *user_data)
 {
     if (!store || !fn)
     {
@@ -486,68 +583,204 @@ void variable_store_for_each(const variable_store_t* store, var_store_iter_fn fn
     }
 }
 
-var_store_error_t variable_store_map(variable_store_t* store, var_store_map_fn fn, void* user_data, string_t **failed_name)
+var_store_error_t variable_store_map(variable_store_t *store, var_store_map_fn fn, void *user_data,
+                                     string_t **failed_name)
 {
-    Expects_not_null(store);
-    Expects_not_null(fn);
+    if (!store || !fn)
+    {
+        return VAR_STORE_ERROR_NOT_FOUND;
+    }
+
+    // Collect keys to remove after iteration to avoid invalidating the iteration
+    string_list_t *keys_to_remove = NULL;
+
+    // Collect renames: parallel lists for new names and values, plus flag arrays
+    string_list_t *rename_new_names = NULL;
+    string_list_t *rename_values = NULL;
+    bool *rename_exported = NULL;
+    bool *rename_read_only = NULL;
+    int rename_count = 0;
+    int rename_capacity = 0;
+
+    var_store_error_t err = VAR_STORE_ERROR_NONE;
 
     for (int32_t i = 0; i < store->map->capacity; i++)
     {
-        if (store->map->entries[i].occupied)
+        if (!store->map->entries[i].occupied)
         {
-            string_t *name = string_create_from(store->map->entries[i].key);
-            string_t *value = string_create_from(store->map->entries[i].mapped.value);
-            bool exported = store->map->entries[i].mapped.exported;
-            bool read_only = store->map->entries[i].mapped.read_only;
-            var_store_map_action_t action = fn(name, value, &exported, &read_only, user_data);
-            if (action == VAR_STORE_MAP_ACTION_SKIP)
+            continue;
+        }
+
+        string_t *name = string_create_from(store->map->entries[i].key);
+        string_t *value = store->map->entries[i].mapped.value
+                              ? string_create_from(store->map->entries[i].mapped.value)
+                              : NULL;
+        bool exported = store->map->entries[i].mapped.exported;
+        bool read_only = store->map->entries[i].mapped.read_only;
+
+        var_store_map_action_t action = fn(name, value, &exported, &read_only, user_data);
+
+        if (action == VAR_STORE_MAP_ACTION_SKIP)
+        {
+            string_destroy(&name);
+            if (value)
             {
-                string_destroy(&name);
                 string_destroy(&value);
-                continue;
             }
-            if (action == VAR_STORE_MAP_ACTION_REMOVE)
+            continue;
+        }
+
+        if (action == VAR_STORE_MAP_ACTION_REMOVE)
+        {
+            if (!keys_to_remove)
             {
-                variable_store_remove(store, store->map->entries[i].key);
-                string_destroy(&name);
-                string_destroy(&value);
-                continue;
+                keys_to_remove = string_list_create();
             }
-            var_store_error_t name_err = validate_variable_name(name);
-            var_store_error_t value_err = validate_variable_name(value);
-            if (name_err != VAR_STORE_ERROR_NONE)
+            string_list_push_back(keys_to_remove, store->map->entries[i].key);
+
+            string_destroy(&name);
+            if (value)
             {
-                string_destroy(&name);
                 string_destroy(&value);
-                if (failed_name)
+            }
+            continue;
+        }
+
+        // VAR_STORE_MAP_ACTION_UPDATE
+        err = validate_variable_name(name);
+        if (err != VAR_STORE_ERROR_NONE)
+        {
+            if (failed_name)
+            {
+                *failed_name = string_create_from(store->map->entries[i].key);
+            }
+            string_destroy(&name);
+            if (value)
+            {
+                string_destroy(&value);
+            }
+            goto cleanup;
+        }
+
+        err = validate_variable_value(value);
+        if (err != VAR_STORE_ERROR_NONE)
+        {
+            if (failed_name)
+            {
+                *failed_name = string_create_from(store->map->entries[i].key);
+            }
+            string_destroy(&name);
+            if (value)
+            {
+                string_destroy(&value);
+            }
+            goto cleanup;
+        }
+
+        // Check if the name was changed
+        if (!string_eq(name, store->map->entries[i].key))
+        {
+            // Rename: delete old key, insert new key with updated values
+            if (!keys_to_remove)
+            {
+                keys_to_remove = string_list_create();
+            }
+            string_list_push_back(keys_to_remove, store->map->entries[i].key);
+
+            // Store the rename for later insertion
+            if (!rename_new_names)
+            {
+                rename_new_names = string_list_create();
+                rename_values = string_list_create();
+            }
+
+            if (rename_count >= rename_capacity)
+            {
+                int new_capacity = rename_capacity == 0 ? 8 : rename_capacity * 2;
+                rename_exported = xrealloc(rename_exported, new_capacity * sizeof(bool));
+                rename_read_only = xrealloc(rename_read_only, new_capacity * sizeof(bool));
+                rename_capacity = new_capacity;
+            }
+
+            string_list_move_push_back(rename_new_names, &name);
+            string_list_move_push_back(rename_values, &value);
+            rename_exported[rename_count] = exported;
+            rename_read_only[rename_count] = read_only;
+            rename_count++;
+        }
+        else
+        {
+            // No rename, just update value and flags in place
+            if (store->map->entries[i].mapped.value)
+            {
+                if (value)
                 {
-                    *failed_name = string_create_from(store->map->entries[i].key);
+                    string_set(store->map->entries[i].mapped.value, value);
                 }
-                return name_err;
-            }
-            if (value_err != VAR_STORE_ERROR_NONE)
-            {
-                string_destroy(&name);
-                string_destroy(&value);
-                if (failed_name)
+                else
                 {
-                    *failed_name = string_create_from(store->map->entries[i].key);
+                    string_destroy(&store->map->entries[i].mapped.value);
                 }
-                return value_err;
             }
-            string_set(store->map->entries[i].key, name);
-            string_set(store->map->entries[i].mapped.value, value);
+            else if (value)
+            {
+                store->map->entries[i].mapped.value = string_create_from(value);
+            }
+
             store->map->entries[i].mapped.exported = exported;
             store->map->entries[i].mapped.read_only = read_only;
+
             string_destroy(&name);
-            string_destroy(&value);
+            if (value)
+            {
+                string_destroy(&value);
+            }
         }
     }
+
+    // Perform deferred removals (includes both explicit removes and rename sources)
+    if (keys_to_remove)
+    {
+        variable_map_erase_multiple(store->map, keys_to_remove);
+        string_list_destroy(&keys_to_remove);
+    }
+
+    // Perform deferred insertions for renames
+    for (int i = 0; i < rename_count; i++)
+    {
+        variable_map_mapped_t mapped;
+        mapped.value = string_create_from(string_list_at(rename_values, i));
+        mapped.exported = rename_exported[i];
+        mapped.read_only = rename_read_only[i];
+
+        variable_map_insert_or_assign(store->map, string_list_at(rename_new_names, i), &mapped);
+        string_destroy(&mapped.value);
+    }
+
+    string_list_destroy(&rename_new_names);
+    string_list_destroy(&rename_values);
+    xfree(rename_exported);
+    xfree(rename_read_only);
+
+    store->generation++;
     return VAR_STORE_ERROR_NONE;
+
+cleanup:
+    string_list_destroy(&keys_to_remove);
+    string_list_destroy(&rename_new_names);
+    string_list_destroy(&rename_values);
+    xfree(rename_exported);
+    xfree(rename_read_only);
+    return err;
 }
 
-static void dbg_print_export(const string_t* var, const string_t* val, bool exported, bool read_only, void* user_data)
+
+static void dbg_print_export(const string_t *var, const string_t *val, bool exported,
+                             bool read_only, void *user_data)
 {
+    (void)read_only;
+    (void)user_data;
+
     if (exported)
     {
         if (val)
@@ -561,7 +794,7 @@ static void dbg_print_export(const string_t* var, const string_t* val, bool expo
     }
 }
 
-void variable_store_debug_print_exported(const variable_store_t* store)
+void variable_store_debug_print_exported(const variable_store_t *store)
 {
     if (!store)
     {
@@ -570,12 +803,51 @@ void variable_store_debug_print_exported(const variable_store_t* store)
     variable_store_for_each(store, dbg_print_export, NULL);
 }
 
-
 char *const *variable_store_update_envp(variable_store_t *store)
 {
     return variable_store_update_envp_with_parent(store, NULL);
 }
 
+/**
+ * Check if the cached envp is still valid.
+ */
+static bool envp_cache_valid(const variable_store_t *store, const variable_store_t *parent)
+{
+    // No cache exists
+    if (!store->cached_envp)
+    {
+        return false;
+    }
+
+    // Our own data changed
+    if (store->cached_generation != store->generation)
+    {
+        return false;
+    }
+
+    // Parent situation changed
+    if (store->cached_parent != parent)
+    {
+        return false;
+    }
+
+    // Parent's data changed since we cached
+    if (parent && store->cached_parent_gen != parent->generation)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Generate a NULL-terminated envp array suitable for _spawnvpe() and friends.
+ *
+ * Merges exported variables from the current store and an optional parent store,
+ * with the current store's variables taking precedence over parent's.
+ *
+ * The returned array is cached and owned by the store; do not free it.
+ */
 char *const *variable_store_update_envp_with_parent(variable_store_t *store,
                                                     const variable_store_t *parent)
 {
@@ -584,39 +856,24 @@ char *const *variable_store_update_envp_with_parent(variable_store_t *store,
         return NULL;
     }
 
+    // Check if cached envp is still valid
+    if (envp_cache_valid(store, parent))
+    {
+        return store->cached_envp;
+    }
+
     // Free old cached envp
     free_cached_envp(store);
 
-    // Count exported variables from both stores
-    int count = 0;
-
-    // Count from current store
-    for (int32_t i = 0; i < store->map->capacity; i++)
-    {
-        if (store->map->entries[i].occupied && store->map->entries[i].mapped.exported)
-        {
-            count++;
-        }
-    }
-
-    // Count from parent store (only if not overridden)
+    // Allocate for worst case: all variables from both stores could be exported
+    // This avoids a separate counting pass
+    int max_count = store->map->size;
     if (parent)
     {
-        for (int32_t i = 0; i < parent->map->capacity; i++)
-        {
-            if (parent->map->entries[i].occupied && parent->map->entries[i].mapped.exported)
-            {
-                // Check if this variable is overridden in the current store
-                if (!variable_map_contains(store->map, parent->map->entries[i].key))
-                {
-                    count++;
-                }
-            }
-        }
+        max_count += parent->map->size;
     }
 
-    // Allocate envp array (NULL-terminated)
-    store->cached_envp = xcalloc(count + 1, sizeof(char *));
+    store->cached_envp = xcalloc(max_count + 1, sizeof(char *));
 
     int idx = 0;
 
@@ -625,64 +882,39 @@ char *const *variable_store_update_envp_with_parent(variable_store_t *store,
     {
         if (store->map->entries[i].occupied && store->map->entries[i].mapped.exported)
         {
-            const string_t *name = store->map->entries[i].key;
-            const string_t *value = store->map->entries[i].mapped.value;
-
-            // Format: NAME=VALUE
-            int name_len = string_length(name);
-            int value_len = value ? string_length(value) : 0;
-            int total_len = name_len + 1 + value_len + 1; // name + '=' + value + '\0'
-
-            char *env_str = xmalloc(total_len);
-            memcpy(env_str, string_cstr(name), name_len);
-            env_str[name_len] = '=';
-            if (value)
-            {
-                memcpy(env_str + name_len + 1, string_cstr(value), value_len);
-            }
-            env_str[name_len + 1 + value_len] = '\0';
-
-            store->cached_envp[idx++] = env_str;
+            store->cached_envp[idx++] =
+                make_env_cstr(store->map->entries[i].key, store->map->entries[i].mapped.value);
         }
     }
 
-    // Add exported variables from parent (if not overridden)
+    // Add exported variables from parent (if not overridden in current store)
     if (parent)
     {
         for (int32_t i = 0; i < parent->map->capacity; i++)
         {
-            if (parent->map->entries[i].occupied && parent->map->entries[i].mapped.exported)
+            if (!parent->map->entries[i].occupied || !parent->map->entries[i].mapped.exported)
             {
-                const string_t *name = parent->map->entries[i].key;
-
-                // Skip if overridden in current store
-                if (variable_map_contains(store->map, name))
-                {
-                    continue;
-                }
-
-                const string_t *value = parent->map->entries[i].mapped.value;
-
-                // Format: NAME=VALUE
-                int name_len = string_length(name);
-                int value_len = value ? string_length(value) : 0;
-                int total_len = name_len + 1 + value_len + 1;
-
-                char *env_str = xmalloc(total_len);
-                memcpy(env_str, string_cstr(name), name_len);
-                env_str[name_len] = '=';
-                if (value)
-                {
-                    memcpy(env_str + name_len + 1, string_cstr(value), value_len);
-                }
-                env_str[name_len + 1 + value_len] = '\0';
-
-                store->cached_envp[idx++] = env_str;
+                continue;
             }
+
+            const string_t *name = parent->map->entries[i].key;
+
+            // Skip if overridden in current store (even if not exported there)
+            if (variable_map_contains(store->map, name))
+            {
+                continue;
+            }
+
+            store->cached_envp[idx++] = make_env_cstr(name, parent->map->entries[i].mapped.value);
         }
     }
 
-    store->cached_envp[idx] = NULL; // NULL-terminate the array
+    store->cached_envp[idx] = NULL; // NULL-terminate
+
+    // Update cache validity tracking
+    store->cached_generation = store->generation;
+    store->cached_parent = parent;
+    store->cached_parent_gen = parent ? parent->generation : 0;
 
     return store->cached_envp;
 }
