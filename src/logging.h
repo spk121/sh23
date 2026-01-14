@@ -408,6 +408,8 @@ void log_fatal(const char *format, ...);
 
 // Non-recoverable precondition macros using log_fatal
 
+#ifdef _MSC_VER
+// For MSVC, use _Analysis_assume_ to help static analysis tools stop warning about null pointers.
 #define Expects_not_null(ptr)                                                                                          \
     do                                                                                                                 \
     {                                                                                                                  \
@@ -415,7 +417,20 @@ void log_fatal(const char *format, ...);
         {                                                                                                              \
             log_fatal("Contract violation at %s:%d - %s is NULL", __func__, __LINE__, #ptr);\
         }                                                                                                              \
+        _Analysis_assume_((ptr) != NULL);                                                          \
+        _Analysis_assume_((ptr) != 0);                                                               \
     } while (0)
+#else
+#define Expects_not_null(ptr)                                                                  \
+        do                                                                                         \
+        {                                                                                          \
+            if ((ptr) == NULL)                                                                     \
+            {                                                                                      \
+                log_fatal("Contract violation at %s:%d - %s is NULL", __func__, __LINE__, #ptr);   \
+            }
+while (0)
+#endif
+
 
 #define Expects(condition)                                                                                             \
     do                                                                                                                 \
