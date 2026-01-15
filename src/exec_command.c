@@ -69,7 +69,7 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
 
     if (ex->opt_flags_set)
     {
-        char flags[16];
+        char flags[16] = {0};
         int idx = 0;
 
         if (ex->opt.allexport) flags[idx++] = 'a';

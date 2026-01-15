@@ -90,7 +90,7 @@ static parse_fd_result_t parse_fd_number(const char *str)
     const char *start_digits = str;
     while (*str >= '0' && *str <= '9')
     {
-        val = val * 10 + (*str - '0');
+        val = val * 10 + (long long)(*str - '0');
         if (val > INT_MAX) // You could also check INT_MIN if you want to be pedantic
             return result;
         str++;

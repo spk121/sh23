@@ -3,12 +3,10 @@
 #endif
 
 #include <stdbool.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "exec_expander.h"
 #include "expander.h"
-#include "logging.h"
 #include "positional_params.h"
 #include "string_t.h"
 #include "token.h"
@@ -19,10 +17,6 @@
 #include <glob.h>
 #include <pwd.h>
 #include <unistd.h>
-#endif
-#ifdef UCRT_API
-#include <errno.h>
-#include <io.h>
 #endif
 /*
  * Internal structure for the expander.
@@ -460,6 +454,8 @@ string_t *expander_expand_heredoc(expander_t *exp, const string_t *body, bool is
  * ============================================================================
  */
 
+#if 0
+
 const char *expander_getenv_cstr(void *userdata, const char *name)
 {
     (void)userdata;
@@ -472,8 +468,7 @@ const char *expander_getenv_cstr(void *userdata, const char *name)
 #endif
 }
 
-#if 0
-string_t *_expander_tilde_expand(void *userdata, const string_t *text)
+static string_t *_expander_tilde_expand(void *userdata, const string_t *text)
 {
     (void)userdata;
 
