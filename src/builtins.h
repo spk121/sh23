@@ -75,9 +75,11 @@ int builtin_unset(exec_t *ex, const string_list_t *args);
  * Regular (non-special) built-ins
  * ============================================================================
  */
+int builtin_cd(exec_t *ex, const string_list_t *args);
+int builtin_pwd(exec_t *ex, const string_list_t *args);
 
 int builtin_jobs(exec_t *ex, const string_list_t *args);
-
+int builtin_ls(exec_t *ex, const string_list_t *args);
 
 
 #endif /* BUILTINS_H */

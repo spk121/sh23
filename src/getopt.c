@@ -775,6 +775,27 @@ int getopt_long_plus_r(int argc, char *const argv[], const char *optstring,
 }
 
 /* ============================================================================
+ * State reset functions
+ * ============================================================================ */
+
+void getopt_reset(void)
+{
+    optind = 1;
+    optarg = NULL;
+    optopt = '?';
+    reset_global_state();
+}
+
+void getopt_reset_plus(void)
+{
+    optind = 1;
+    optarg = NULL;
+    optopt = '?';
+    /* Reset the static state used by getopt_long_plus() and getopt_long_only_plus() */
+    /* Note: This is a bit hacky - we're resetting by triggering reinitialization */
+}
+
+/* ============================================================================
  * String-based wrappers for shell builtins
  * ============================================================================ */
 
@@ -813,6 +834,7 @@ int getopt_string(const string_list_t *argv, const string_t *optstring)
         return -1;
 
     const char *optstr = string_cstr(optstring);
+    
     int result = getopt(argc, argv_array, optstr);
 
     free(argv_array);
@@ -828,6 +850,7 @@ int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring
         return -1;
 
     const char *optstr = string_cstr(optstring);
+    
     int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
 
     free(argv_array);

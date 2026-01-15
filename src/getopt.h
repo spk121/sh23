@@ -139,4 +139,8 @@ int getopt_string(const string_list_t *argv, const string_t *optstring);
 int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring,
                             const struct option_ex *longopts, int *longind);
 
+/* State reset functions */
+void getopt_reset(void);
+void getopt_reset_plus(void);
+
 #endif /* GETOPT_H */

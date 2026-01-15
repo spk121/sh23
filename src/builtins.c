@@ -11,6 +11,11 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#ifdef UCRT_API
+#include <io.h>
+#include <time.h>
+#include <direct.h>
+#endif
 
 typedef struct builtin_implemented_function_map_t
 {
@@ -36,6 +41,10 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "trap", BUILTIN_SPECIAL, builtin_trap}, */
     { "unset", BUILTIN_SPECIAL, builtin_unset},
 
+#ifdef UCRT_API
+    {"cd", BUILTIN_REGULAR, builtin_cd },
+        {"pwd", BUILTIN_REGULAR, builtin_pwd},
+#endif
     /* { "cd", BUILTIN_REGULAR, builtin_cd}, */
     /* { "pwd", BUILTIN_REGULAR, builtin_pwd}, */
     /* { "echo", BUILTIN_REGULAR, builtin_echo}, */
@@ -52,6 +61,9 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "umask", BUILTIN_REGULAR, builtin_umask}, */
     /* { "ulimit", BUILTIN_REGULAR, builtin_ulimit}, */
     { "jobs", BUILTIN_REGULAR, builtin_jobs},
+#ifdef UCRT_API
+    {"ls", BUILTIN_REGULAR, builtin_ls},
+#endif
     /* { "fg", BUILTIN_REGULAR, builtin_fg}, */
     /* { "bg", BUILTIN_REGULAR, builtin_bg}, */
     /* { "wait", BUILTIN_REGULAR, builtin_wait}, */
@@ -72,6 +84,8 @@ int builtin_colon(exec_t *ex, const string_list_t *args)
     (void)ex;
     (void)args;
 
+    getopt_reset();
+
     /* Do nothing, return success */
     return 0;
 }
@@ -85,6 +99,8 @@ int builtin_dot(exec_t *ex, const string_list_t *args)
 {
     Expects_not_null(ex);
     Expects_not_null(args);
+
+    getopt_reset();
 
     if (string_list_size(args) != 1)
     {
@@ -147,6 +163,8 @@ int builtin_export(exec_t *ex, const string_list_t *args)
 {
     Expects_not_null(ex);
     Expects_not_null(args);
+
+    getopt_reset();
 
     variable_store_t *var_store = ex->variables;
     if (!var_store)
@@ -421,6 +439,8 @@ int builtin_set(exec_t *ex, const string_list_t *args)
     Expects_not_null(ex);
     Expects_not_null(args);
 
+    getopt_reset();
+
     // Shell option flags - initialized to -1 so we can detect "not mentioned"
     int flag_a = -1; /* allexport */
     int flag_b = -1; /* notify (job control) - not yet implemented */
@@ -653,6 +673,9 @@ int builtin_unset(exec_t *ex, const string_list_t *args)
 {
     Expects_not_null(ex);
     Expects_not_null(args);
+
+    getopt_reset();
+
     int flag_f = 0;
     int flag_v = 0;
     int flag_err = 0;
@@ -735,6 +758,269 @@ int builtin_unset(exec_t *ex, const string_list_t *args)
     return 0;
 }
 
+/* ============================================================================
+ * cd - Change the shell working directory
+ * ============================================================================
+ */
+#ifdef UCRT_API
+int builtin_cd(exec_t *ex, const string_list_t *args)
+{
+    Expects_not_null(ex);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int flag_err = 0;
+    int c;
+    variable_store_t *var_store = ex->variables;
+
+    string_t *opts = string_create_from_cstr("LP");
+
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'L':
+        case 'P':
+            /* Accepted but ignored on Windows - no symlink distinction */
+            break;
+        case '?':
+            fprintf(stderr, "cd: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+
+    if (flag_err)
+    {
+        fprintf(stderr, "usage: cd [-L|-P] [directory]\n");
+        return 2;
+    }
+
+    const char *target_dir = NULL;
+    string_t *allocated_target = NULL;
+
+    int remaining = string_list_size(args) - optind;
+
+    if (remaining > 1)
+    {
+        fprintf(stderr, "cd: too many arguments\n");
+        return 1;
+    }
+
+    if (remaining == 0)
+    {
+        /* No argument: go to HOME or USERPROFILE */
+        const char *home = variable_store_get_value_cstr(var_store, "HOME");
+        if (!home || home[0] == '\0')
+        {
+            home = variable_store_get_value_cstr(var_store, "USERPROFILE");
+        }
+        if (!home || home[0] == '\0')
+        {
+            home = getenv("HOME");
+        }
+        if (!home || home[0] == '\0')
+        {
+            home = getenv("USERPROFILE");
+        }
+        if (!home || home[0] == '\0')
+        {
+            fprintf(stderr, "cd: HOME not set\n");
+            return 1;
+        }
+        target_dir = home;
+    }
+    else
+    {
+        const string_t *arg = string_list_at(args, optind);
+        const char *arg_cstr = string_cstr(arg);
+
+        if (strcmp(arg_cstr, "-") == 0)
+        {
+            /* cd - : go to OLDPWD */
+            const char *oldpwd = variable_store_get_value_cstr(var_store, "OLDPWD");
+            if (!oldpwd || oldpwd[0] == '\0')
+            {
+                fprintf(stderr, "cd: OLDPWD not set\n");
+                return 1;
+            }
+            target_dir = oldpwd;
+            /* Print the directory when using cd - */
+            printf("%s\n", target_dir);
+        }
+        else
+        {
+            target_dir = arg_cstr;
+        }
+    }
+
+    /* Get current directory before changing (for OLDPWD) */
+    char *old_cwd = _getcwd(NULL, 0);
+    if (!old_cwd)
+    {
+        fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+        return 1;
+    }
+
+    /* Attempt to change directory */
+    if (_chdir(target_dir) != 0)
+    {
+        int saved_errno = errno;
+
+        switch (saved_errno)
+        {
+        case ENOENT:
+            fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+            break;
+        case EACCES:
+            fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+            break;
+        case ENOTDIR:
+            fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+            break;
+        default:
+            fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+            break;
+        }
+
+        free(old_cwd);
+        if (allocated_target)
+        {
+            string_destroy(&allocated_target);
+        }
+        return 1;
+    }
+
+    /* Get new current directory (resolved path) */
+    char *new_cwd = _getcwd(NULL, 0);
+    if (!new_cwd)
+    {
+        fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+        /* Continue anyway - the chdir succeeded */
+        new_cwd = xstrdup(target_dir);
+    }
+
+    /* Update OLDPWD and PWD */
+    variable_store_add_cstr(var_store, "OLDPWD", old_cwd, true, false);
+    variable_store_add_cstr(var_store, "PWD", new_cwd, true, false);
+
+    free(old_cwd);
+    free(new_cwd);
+
+    if (allocated_target)
+    {
+        string_destroy(&allocated_target);
+    }
+
+    return 0;
+}
+#endif
+
+/* ============================================================================
+ * pwd - Print working directory
+ * ============================================================================
+ */
+#ifdef UCRT_API
+/**
+ * builtin_pwd - Print working directory (Windows UCRT implementation)
+ *
+ * Implements the 'pwd' command for Windows using only UCRT functions.
+ *
+ * Options:
+ *   -P    Print the physical directory (resolve symlinks) - default on Windows
+ *   -L    Print the logical directory (from PWD variable if valid)
+ *
+ * @param ex   Execution context
+ * @param args Command arguments (including "pwd" as args[0])
+ * @return 0 on success, 1 on failure
+ */
+int builtin_pwd(exec_t *ex, const string_list_t *args)
+{
+    Expects_not_null(ex);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int flag_L = 0;
+    int flag_P = 0;
+    int flag_err = 0;
+    int c;
+    variable_store_t *var_store = ex->variables;
+
+    string_t *opts = string_create_from_cstr("LP");
+
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'L':
+            flag_L = 1;
+            flag_P = 0;
+            break;
+        case 'P':
+            flag_P = 1;
+            flag_L = 0;
+            break;
+        case '?':
+            fprintf(stderr, "pwd: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+
+    if (flag_err)
+    {
+        fprintf(stderr, "usage: pwd [-L|-P]\n");
+        return 2;
+    }
+
+    if (optind < string_list_size(args))
+    {
+        fprintf(stderr, "pwd: too many arguments\n");
+        return 1;
+    }
+
+    const char *pwd_to_print = NULL;
+
+    if (flag_L)
+    {
+        /*
+         * Logical mode: use PWD if it's set and valid.
+         * "Valid" means it refers to the same directory as the actual cwd.
+         * On Windows without Windows API, we can't easily verify this,
+         * so we just check that PWD is set and non-empty, then trust it.
+         */
+        const char *pwd_var = variable_store_get_value_cstr(var_store, "PWD");
+        if (pwd_var && pwd_var[0] != '\0')
+        {
+            pwd_to_print = pwd_var;
+        }
+    }
+
+    if (!pwd_to_print)
+    {
+        /* Physical mode (default) or PWD not available: use _getcwd */
+        char *cwd = _getcwd(NULL, 0);
+        if (!cwd)
+        {
+            fprintf(stderr, "pwd: cannot determine current directory: %s\n", strerror(errno));
+            return 1;
+        }
+
+        printf("%s\n", cwd);
+        free(cwd);
+    }
+    else
+    {
+        printf("%s\n", pwd_to_print);
+    }
+
+    return 0;
+}
+#endif
 
 /* ============================================================================
  * jobs - Job control builtins
@@ -906,6 +1192,8 @@ static void builtin_jobs_print_job(const job_store_t *store, const job_t *job, j
 
 int builtin_jobs(exec_t *ex, const string_list_t *args)
 {
+    getopt_reset();
+
     if (!ex)
         return 1;
 
@@ -997,7 +1285,471 @@ int builtin_jobs(exec_t *ex, const string_list_t *args)
     return exit_status;
 }
 
-/* ============================================================================
+/* ===========================================================================
+ * ls - list files
+ * =========================================================================== 
+ */
+#ifdef UCRT_API
+/**
+ * builtin_ls - List directory contents (Windows UCRT implementation)
+ *
+ * Implements a basic 'ls' command for Windows since there's no standard
+ * external 'ls' command available. Uses only UCRT functions, no Windows API.
+ *
+ * Options:
+ *   -a    Include hidden files and directories (those starting with '.')
+ *   -A    Like -a, but exclude '.' and '..'
+ *   -l    Long listing format (size and name; limited metadata available)
+ *   -1    One entry per line (default if output is not a terminal)
+ *   -F    Append indicator (/ for directories, * for executables)
+ *   -h    Human-readable sizes (with -l)
+ *
+ * @param ex   Execution context
+ * @param args Command arguments (including "ls" as args[0])
+ * @return 0 on success, 1 on minor errors, 2 on usage errors
+ */
+
+/**
+ * Entry structure for collecting and sorting
+ */
+typedef struct ls_entry_t
+{
+    char *name;
+    unsigned attrib;
+    uint64_t size;
+    time_t mtime;
+} ls_entry_t;
+
+/**
+ * Format a file size in human-readable form (K, M, G, T)
+ */
+static void ls_format_size_human(uint64_t size, char *buf, size_t buf_size)
+{
+    const char *units[] = {"", "K", "M", "G", "T", "P"};
+    int unit_index = 0;
+    double display_size = (double)size;
+
+    while (display_size >= 1024.0 && unit_index < 5)
+    {
+        display_size /= 1024.0;
+        unit_index++;
+    }
+
+    if (unit_index == 0)
+    {
+        snprintf(buf, buf_size, "%7llu", (unsigned long long)size);
+    }
+    else
+    {
+        snprintf(buf, buf_size, "%6.1f%s", display_size, units[unit_index]);
+    }
+}
+
+/**
+ * Format time_t to a readable date string
+ */
+static void ls_format_time(time_t t, char *buf, size_t buf_size)
+{
+    static const char *month_names[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+    struct tm *tm_info = localtime(&t);
+    if (!tm_info)
+    {
+        snprintf(buf, buf_size, "            ");
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm *now_info = localtime(&now);
+
+    /* Show time if within the last 6 months, otherwise show year */
+    int months_diff = 12; /* Default to showing year */
+    if (now_info)
+    {
+        months_diff =
+            (now_info->tm_year - tm_info->tm_year) * 12 + (now_info->tm_mon - tm_info->tm_mon);
+    }
+
+    if (months_diff < 6 && months_diff >= 0)
+    {
+        snprintf(buf, buf_size, "%s %2d %02d:%02d", month_names[tm_info->tm_mon], tm_info->tm_mday,
+                 tm_info->tm_hour, tm_info->tm_min);
+    }
+    else
+    {
+        snprintf(buf, buf_size, "%s %2d  %4d", month_names[tm_info->tm_mon], tm_info->tm_mday,
+                 tm_info->tm_year + 1900);
+    }
+}
+
+/**
+ * Check if a file should be shown based on flags
+ */
+static bool ls_should_show_entry(const char *name, unsigned attrib, int flag_a, int flag_A)
+{
+    bool is_dot = (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
+    bool starts_with_dot = (name[0] == '.');
+    bool is_hidden = (attrib & _A_HIDDEN) != 0;
+
+    if (flag_a)
+    {
+        return true;
+    }
+
+    if (flag_A)
+    {
+        return !is_dot;
+    }
+
+    return !starts_with_dot && !is_hidden;
+}
+
+/**
+ * Get type indicator character for -F option
+ */
+static char ls_get_type_indicator(unsigned attrib, const char *name)
+{
+    if (attrib & _A_SUBDIR)
+    {
+        return '/';
+    }
+
+    /* Check for executable extensions */
+    const char *ext = strrchr(name, '.');
+    if (ext)
+    {
+        if (_stricmp(ext, ".exe") == 0 || _stricmp(ext, ".cmd") == 0 ||
+            _stricmp(ext, ".bat") == 0 || _stricmp(ext, ".com") == 0)
+        {
+            return '*';
+        }
+    }
+
+    return '\0';
+}
+
+/**
+ * Comparison function for sorting entries by name
+ */
+static int ls_compare_entries(const void *a, const void *b)
+{
+    const ls_entry_t *ea = (const ls_entry_t *)a;
+    const ls_entry_t *eb = (const ls_entry_t *)b;
+    return lib_strcoll(ea->name, eb->name);
+}
+
+/**
+ * List a single directory's contents
+ */
+static int ls_list_directory(const string_t *dir_path, int flag_a, int flag_A, int flag_l,
+                             int flag_1, int flag_F, int flag_h)
+{
+    struct _finddata_t find_data; // _finddata64i32_t
+    intptr_t find_handle;
+
+    /* Build search pattern: "dir_path/*" or "dir_path\*" */
+    string_t *pattern = string_create_from(dir_path);
+    int len = string_length(pattern);
+    if (len > 0)
+    {
+        char last = string_cstr(pattern)[len - 1];
+        if (last != '/' && last != '\\')
+        {
+            string_append_cstr(pattern, "/");
+        }
+    }
+    string_append_cstr(pattern, "*");
+
+    find_handle = _findfirst(string_cstr(pattern), &find_data);
+    string_destroy(&pattern);
+
+    if (find_handle == -1)
+    {
+        if (errno == ENOENT)
+        {
+            fprintf(stderr, "ls: cannot access '%s': No such file or directory\n",
+                    string_cstr(dir_path));
+        }
+        else if (errno == EACCES)
+        {
+            fprintf(stderr, "ls: cannot open '%s': Permission denied\n", string_cstr(dir_path));
+        }
+        else
+        {
+            fprintf(stderr, "ls: cannot access '%s': %s\n", string_cstr(dir_path), strerror(errno));
+        }
+        return 1;
+    }
+
+    /* Collect entries */
+    int capacity = 64;
+    int count = 0;
+    ls_entry_t *entries = xmalloc(capacity * sizeof(ls_entry_t));
+
+    do
+    {
+        if (!ls_should_show_entry(find_data.name, find_data.attrib, flag_a, flag_A))
+        {
+            continue;
+        }
+
+        if (count >= capacity)
+        {
+            capacity *= 2;
+            entries = xrealloc(entries, capacity * sizeof(ls_entry_t));
+        }
+
+        entries[count].name = xstrdup(find_data.name);
+        entries[count].attrib = find_data.attrib;
+        entries[count].size = (uint64_t)find_data.size;
+        entries[count].mtime = find_data.time_write;
+        count++;
+
+    } while (_findnext(find_handle, &find_data) == 0);
+
+    _findclose(find_handle);
+
+    /* Sort entries by name */
+    if (count > 1)
+    {
+        qsort(entries, count, sizeof(ls_entry_t), ls_compare_entries);
+    }
+
+    /* Calculate column width for non-long format */
+    int max_name_len = 0;
+    if (!flag_1 && !flag_l)
+    {
+        for (int i = 0; i < count; i++)
+        {
+            int name_len = (int)strlen(entries[i].name);
+            if (flag_F && ls_get_type_indicator(entries[i].attrib, entries[i].name))
+            {
+                name_len++;
+            }
+            if (name_len > max_name_len)
+            {
+                max_name_len = name_len;
+            }
+        }
+    }
+
+    /* Output entries */
+    int col = 0;
+    int term_width = 80; /* Default; no portable way to detect without Windows API */
+    int col_width = max_name_len + 2;
+    int cols_per_row = (col_width > 0) ? (term_width / col_width) : 1;
+    if (cols_per_row < 1)
+    {
+        cols_per_row = 1;
+    }
+
+    for (int i = 0; i < count; i++)
+    {
+        ls_entry_t *entry = &entries[i];
+        bool is_dir = (entry->attrib & _A_SUBDIR) != 0;
+        char indicator = flag_F ? ls_get_type_indicator(entry->attrib, entry->name) : '\0';
+
+        if (flag_l)
+        {
+            char size_buf[16];
+            char date_buf[16];
+
+            ls_format_time(entry->mtime, date_buf, sizeof(date_buf));
+
+            if (is_dir)
+            {
+                snprintf(size_buf, sizeof(size_buf), "      -");
+            }
+            else if (flag_h)
+            {
+                ls_format_size_human(entry->size, size_buf, sizeof(size_buf));
+            }
+            else
+            {
+                snprintf(size_buf, sizeof(size_buf), "%7llu", (unsigned long long)entry->size);
+            }
+
+            printf("%s %s %s", size_buf, date_buf, entry->name);
+            if (indicator)
+            {
+                putchar(indicator);
+            }
+            putchar('\n');
+        }
+        else if (flag_1)
+        {
+            printf("%s", entry->name);
+            if (indicator)
+            {
+                putchar(indicator);
+            }
+            putchar('\n');
+        }
+        else
+        {
+            /* Columnar output */
+            int printed;
+            if (indicator)
+            {
+                printed = printf("%s%c", entry->name, indicator);
+            }
+            else
+            {
+                printed = printf("%s", entry->name);
+            }
+            /* Pad to column width */
+            for (int p = printed; p < col_width; p++)
+            {
+                putchar(' ');
+            }
+
+            col++;
+            if (col >= cols_per_row)
+            {
+                putchar('\n');
+                col = 0;
+            }
+        }
+    }
+
+    /* Final newline for columnar output if needed */
+    if (!flag_1 && !flag_l && col > 0)
+    {
+        putchar('\n');
+    }
+
+    /* Cleanup */
+    for (int i = 0; i < count; i++)
+    {
+        xfree(entries[i].name);
+    }
+    xfree(entries);
+
+    return 0;
+}
+
+int builtin_ls(exec_t *ex, const string_list_t *args)
+{
+    Expects_not_null(ex);
+    Expects_not_null(args);
+
+    (void)ex; /* Unused, but kept for consistent builtin signature */
+
+    getopt_reset();
+
+    int flag_a = 0;
+    int flag_A = 0;
+    int flag_l = 0;
+    int flag_1 = 0;
+    int flag_F = 0;
+    int flag_h = 0;
+    int flag_err = 0;
+    int err_count = 0;
+    int c;
+
+    string_t *opts = string_create_from_cstr("aAlFh1");
+
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'a':
+            flag_a = 1;
+            break;
+        case 'A':
+            flag_A = 1;
+            break;
+        case 'l':
+            flag_l = 1;
+            break;
+        case '1':
+            flag_1 = 1;
+            break;
+        case 'F':
+            flag_F = 1;
+            break;
+        case 'h':
+            flag_h = 1;
+            break;
+        case '?':
+            fprintf(stderr, "ls: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+
+    if (flag_err)
+    {
+        fprintf(stderr, "usage: ls [-aAlFh1] [directory...]\n");
+        return 2;
+    }
+
+    /* Default to one-per-line if not a terminal or if -l is set */
+    int is_tty = _isatty(_fileno(stdout));
+    if (!is_tty || flag_l)
+    {
+        flag_1 = 1;
+    }
+
+    /* Collect directories to list */
+    int dir_count = string_list_size(args) - optind;
+    int start_index = optind;
+
+    /* Default to current directory if none specified */
+    string_t *default_dir = NULL;
+    if (dir_count == 0)
+    {
+        default_dir = string_create_from_cstr(".");
+        dir_count = 1;
+    }
+
+    /* Process each directory */
+    for (int i = 0; i < dir_count; i++)
+    {
+        const string_t *dir_path;
+        if (default_dir)
+        {
+            dir_path = default_dir;
+        }
+        else
+        {
+            dir_path = string_list_at(args, start_index + i);
+        }
+
+        /* Print directory name if listing multiple directories */
+        if (dir_count > 1)
+        {
+            if (i > 0)
+            {
+                printf("\n");
+            }
+            printf("%s:\n", string_cstr(dir_path));
+        }
+
+        int result = ls_list_directory(dir_path, flag_a, flag_A, flag_l, flag_1, flag_F, flag_h);
+        if (result != 0)
+        {
+            err_count++;
+        }
+    }
+
+    if (default_dir)
+    {
+        string_destroy(&default_dir);
+    }
+
+    return err_count > 0 ? 1 : 0;
+}
+#else
+int builtin_ls(exec_t* ex, const string_list_t* args)
+{
+    fprintf(stderr, "ls: not supported on this platform\n");
+    return -2;
+}
+#endif
+    /* ============================================================================
  * Builtin function classification and lookup
  * ============================================================================
  */
