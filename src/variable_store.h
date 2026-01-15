@@ -135,6 +135,10 @@ void variable_store_remove_cstr(variable_store_t *store, const char *name);
  */
 bool variable_store_has_name(const variable_store_t *store, const string_t *name);
 
+bool variable_store_with_parent_has_name(const variable_store_t *store,
+                                         const variable_store_t *parent, const string_t *name);
+
+
 /**
  * Checks whether a variable exists using a C‑string name.
  *
@@ -143,6 +147,11 @@ bool variable_store_has_name(const variable_store_t *store, const string_t *name
  * @return true if the variable exists.
  */
 bool variable_store_has_name_cstr(const variable_store_t *store, const char *name);
+
+bool variable_store_with_parent_has_name_cstr(const variable_store_t *store,
+                                              const variable_store_t *parent, const char *name);
+
+
 
 /**
  * Retrieves a variable entry by name.
@@ -154,6 +163,10 @@ bool variable_store_has_name_cstr(const variable_store_t *store, const char *nam
 const variable_map_entry_t *variable_store_get_variable(const variable_store_t *store,
                                                         const string_t *name);
 
+const variable_map_entry_t *variable_store_with_parent_get_variable(const variable_store_t *store,
+                                                                    const variable_store_t *parent,
+                                                                    const string_t *name);
+
 /**
  * Retrieves a variable entry by C‑string name.
  *
@@ -164,6 +177,9 @@ const variable_map_entry_t *variable_store_get_variable(const variable_store_t *
 const variable_map_entry_t *variable_store_get_variable_cstr(const variable_store_t *store,
                                                              const char *name);
 
+const variable_map_entry_t *variable_store_with_parent_get_variable_cstr(
+    const variable_store_t *store, const variable_store_t *parent, const char *name);
+
 /**
  * Retrieves a variable's value.
  *
@@ -173,6 +189,10 @@ const variable_map_entry_t *variable_store_get_variable_cstr(const variable_stor
  */
 const string_t *variable_store_get_value(const variable_store_t *store, const string_t *name);
 
+const string_t *variable_store_with_parent_get_value(const variable_store_t *store,
+                                                     const variable_store_t *parent,
+                                                     const string_t *name);
+
 /**
  * Retrieves a variable's value as a C‑string.
  *
@@ -181,6 +201,10 @@ const string_t *variable_store_get_value(const variable_store_t *store, const st
  * @return Value string or NULL.
  */
 const char *variable_store_get_value_cstr(const variable_store_t *store, const char *name);
+
+const char *variable_store_with_parent_get_value_cstr(const variable_store_t *store,
+                                                      const variable_store_t *parent,
+                                                      const char *name);
 
 /**
  * Checks whether a variable is read‑only.
@@ -319,23 +343,24 @@ var_store_error_t variable_store_map(variable_store_t *store, var_store_map_fn f
 void variable_store_debug_print_exported(const variable_store_t *store);
 
 /**
- * Rebuilds and returns the environment array for execve().
+ * Returns the environment array for the variable store.
  * The returned pointer remains valid until the next update call.
  *
  * @param vs Variable store.
  * @return NULL‑terminated environment array.
  */
-char *const *variable_store_update_envp(variable_store_t *vs);
+char *const *variable_store_get_envp(variable_store_t *vs);
 
 /**
- * Rebuilds the environment array, inheriting exported variables
+ * Returns environment array, inheriting exported variables
  * from a parent store.
+ * The returned pointer remains valid until the next update call.
  *
  * @param vs Child variable store.
  * @param parent Parent variable store.
  * @return NULL‑terminated environment array.
  */
-char *const *variable_store_update_envp_with_parent(variable_store_t *vs,
+char *const *variable_store_with_parent_get_envp(variable_store_t *vs,
                                                     const variable_store_t *parent);
 
 #endif

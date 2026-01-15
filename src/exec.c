@@ -93,7 +93,8 @@ static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
 typedef struct
 {
     bool success;
-    int fd;
+    int fd;           // -1 means "just close" case (plain "-")
+    bool close_after_use; // true if we saw trailing '-' after a number
 } parse_fd_result_t;
 
 /**
@@ -109,9 +110,10 @@ typedef struct
  * - Rejects negative numbers
  * - Detects overflow
  */
+
 static parse_fd_result_t parse_fd_number(const char *str)
 {
-    parse_fd_result_t result = {.success = false, .fd = -1};
+    parse_fd_result_t result = {.success = false, .fd = -1, .close_after_use = false};
 
     if (str == NULL || *str == '\0')
         return result;
@@ -123,36 +125,70 @@ static parse_fd_result_t parse_fd_number(const char *str)
     if (*str == '\0')
         return result;
 
-    /* Reject negative numbers */
+    /* Special case: plain "-" → close the target fd */
+    if (*str == '-' && (str[1] == '\0' || (str[1] == ' ' || str[1] == '\t')))
+    {
+        // Consume the '-' and any trailing whitespace
+        str++;
+        while (*str == ' ' || *str == '\t')
+            str++;
+        if (*str == '\0')
+        {
+            result.success = true;
+            result.fd = -1; // marker for "just close"
+            return result;
+        }
+        // else: trailing junk after plain '-', fall through to failure
+    }
+
+    /* Reject standalone negative sign or negative numbers */
     if (*str == '-')
         return result;
 
-    /* Skip optional '+' */
+    /* Allow optional leading '+' (like your original) */
     if (*str == '+')
         str++;
 
     if (*str == '\0' || !(*str >= '0' && *str <= '9'))
         return result;
 
-    /* Parse digits, checking for overflow */
+    /* Parse digits with overflow check */
     long long val = 0;
+    const char *start_digits = str;
     while (*str >= '0' && *str <= '9')
     {
         val = val * 10 + (*str - '0');
-        if (val > INT_MAX)
-            return result; /* Overflow */
+        if (val > INT_MAX) // You could also check INT_MIN if you want to be pedantic
+            return result;
         str++;
     }
 
-    /* Reject trailing non-whitespace characters */
+    /* Now we expect either end-of-string or a trailing '-' (move+close) */
+    bool saw_minus = false;
+    if (*str == '-')
+    {
+        saw_minus = true;
+        str++;
+    }
+
+    /* Skip trailing whitespace */
     while (*str == ' ' || *str == '\t')
         str++;
 
+    /* Must be end of string now — no trailing garbage allowed */
     if (*str != '\0')
         return result;
 
+    /* If we saw '-', it must have come right after digits (no space) */
+    if (saw_minus && str == start_digits)
+    {
+        // "-" was not after digits — invalid
+        return result;
+    }
+
     result.success = true;
     result.fd = (int)val;
+    result.close_after_use = saw_minus;
     return result;
 }
 
@@ -199,6 +235,72 @@ static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_n
     }
 
     return EXEC_OK;
+}
+
+/**
+ * If the MGSH_ENV_FILE variable is set, this function will
+ * build envp from temp_vars + (non-overridden) parent vars and save them to a file.
+ * In ISO C, there is no other way to pass envp to an executable.
+ */
+static string_t *create_tmp_env_file(const variable_store_t *vars,
+                                     const variable_store_t *parent_vars)
+{
+    Expects_not_null(vars);
+
+    if (!variable_store_with_parent_has_name_cstr(vars, parent_vars, "MGSH_ENV_FILE"))
+        return NULL;
+
+    const char *fname =
+        variable_store_with_parent_get_value_cstr(vars, parent_vars, "MGSH_ENV_FILE");
+
+    if (!fname || *fname == '\0')
+    {
+        if (fname && *fname == '\0')
+            log_debug("create_tmp_env_file: MGSH_ENV_FILE is empty");
+        return NULL;
+    }
+
+    FILE *fp = fopen(fname, "w");
+    if (!fp)
+    {
+        log_debug("create_tmp_env_file: failed to open env file %s for writing", fname);
+        return NULL;
+    }
+
+    string_t *result = string_create_from_cstr(fname);
+    char *const *envp = variable_store_with_parent_get_envp(vars, parent_vars);
+
+    for (char *const *env = envp; *env; env++)
+    {
+        if (fprintf(fp, "%s\n", *env) < 0)
+        {
+            log_debug("create_tmp_env_file: failed to write to env file %s", fname);
+            fclose(fp);
+            string_destroy(&result);
+            return NULL;
+        }
+    }
+
+    fclose(fp);
+    return result;
+}
+
+/**
+ * Delete the temporary environment file created for ISO C envp passing.
+ *
+ * @param env_file_path  Pointer to the string_t* containing the path to the temp env file.
+ */
+static void delete_temp_env_file(string_t **env_file_path)
+{
+    if (env_file_path && *env_file_path)
+    {
+        const char *path_cstr = string_cstr(*env_file_path);
+        if (remove(path_cstr) != 0)
+        {
+            log_debug("delete_temp_env_file: failed to delete temp env file %s", path_cstr);
+        }
+        string_destroy(env_file_path);
+    }
 }
 
 /**
@@ -1183,9 +1285,9 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         if (!ast)
         {
-            exec_set_error(executor, "Failed to lower parse tree to AST");
-            final_status = EXEC_ERROR;
-            break;
+            // Empty program after lowering - this is valid (e.g., blank lines, 
+            // comments only, or G_PROGRAM with no commands). Continue reading.
+            continue;
         }
 
         // Execute the AST
@@ -1420,11 +1522,11 @@ static exec_status_t exec_run_background_simple_command_ucrt(exec_t *executor,
         }
         expander_destroy(&assign_exp);
 
-        envp = variable_store_update_envp(temp_vars);
+        envp = variable_store_with_parent_get_envp(temp_vars, executor->variables);
     }
     else
     {
-        envp = variable_store_update_envp(executor->variables);
+        envp = variable_store_get_envp(executor->variables);
     }
 
     /* Spawn the process in background (_P_NOWAIT) */
@@ -2276,7 +2378,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         argv[argc] = NULL;
 
         /* Build envp from temp_vars + (non-overridden) parent vars */
-        char *const *envp = variable_store_update_envp_with_parent(temp_vars, executor->variables);
+        char *const *envp = variable_store_with_parent_get_envp(temp_vars, executor->variables);
 
         pid_t pid = fork();
         if (pid == -1)
@@ -2340,8 +2442,9 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             xfree(argv);
             goto done_execution;
         }
+
         /* Build envp from temp_vars + (non-overridden) parent vars */
-        char *const *envp = variable_store_update_envp_with_parent(temp_vars, executor->variables);
+        char *const *envp = variable_store_with_parent_get_envp(temp_vars, executor->variables);
 
         intptr_t spawn_result =
             _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
@@ -2378,7 +2481,12 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
                 string_append_cstr(cmdline, " ");
             string_append(cmdline, string_list_at(expanded_words, i));
         }
+
+
+        string_t *env_fname = create_tmp_env_file(temp_vars, executor->variables);
         int rc = system(string_cstr(cmdline));
+        delete_tmp_env_file(&env_fname);
+
         string_destroy(&cmdline);
         if (rc == -1)
         {
@@ -2473,15 +2581,7 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
      * ============================================================ */
     expander_t *base_exp = expander_create(executor->variables, executor->positional_params);
     if (!base_exp)
-    {
-#ifdef POSIX_API
         _exit(127);
-#elifdef UCRT_API
-        _exit(127);
-#else
-        return;
-#endif
-    }
 
     expander_set_userdata(base_exp, executor);
     expander_set_getenv(base_exp, expander_getenv);
@@ -2496,13 +2596,7 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
         exec_build_temp_store_for_simple_command(executor, node, base_exp);
     if (!temp_vars)
     {
-#ifdef POSIX_API
         _exit(127);
-#elifdef UCRT_API
-        _exit(127);
-#else
-        return;
-#endif
     }
 
     /* ============================================================
@@ -2511,13 +2605,7 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
     expander_t *exp = expander_create(temp_vars, executor->positional_params);
     if (!exp)
     {
-#ifdef POSIX_API
         _exit(127);
-#elifdef UCRT_API
-        _exit(127);
-#else
-        return;
-#endif
     }
 
     expander_set_userdata(exp, executor);
@@ -2533,13 +2621,7 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
     if (!expanded_words || string_list_size(expanded_words) == 0)
     {
         // Empty command → exit 0
-#ifdef POSIX_API
         _exit(0);
-#elifdef UCRT_API
-        _exit(0);
-#else
-        return;
-#endif
     }
 
     const string_t *cmd_name_str = string_list_at(expanded_words, 0);
@@ -2574,7 +2656,7 @@ static void exec_run_simple_command_child(exec_t *executor, const ast_node_t *no
     argv[argc] = NULL;
 
     // Build environment from temp_vars only (it already contains parent vars)
-    char *const *envp = variable_store_update_envp(temp_vars);
+    char *const *envp = variable_store_get_envp(temp_vars);
 
     /* ============================================================
      * 7. Exec the command
@@ -2646,10 +2728,7 @@ static void exec_run_redirected_command_child(exec_t *executor, const ast_node_t
     exec_status_t st =
         exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
-    {
-        // Redirection failure: in a child, just exit with failure.
         _exit(127);
-    }
 
     /* ------------------------------------------------------------
      * 2. Execute the wrapped command in the child.
@@ -2710,6 +2789,10 @@ static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node)
      * 1. Create a child executor
      * ------------------------------------------------------------ */
     exec_t *child = exec_create_subshell(executor);
+    if (!child)
+    {
+        _exit(127);
+    }
 
     /* ------------------------------------------------------------
      * 2. Execute the subshell body
@@ -2719,6 +2802,12 @@ static void exec_run_subshell_child(exec_t *executor, const ast_node_t *node)
     int exit_code = 0;
     if (st == EXEC_OK)
         exit_code = child->last_exit_status;
+    else if (st == EXEC_EXIT)
+        exit_code = child->last_exit_status;
+    else if (st == EXEC_RETURN)
+        exit_code = child->last_exit_status;
+    else if (st == EXEC_BREAK || st == EXEC_CONTINUE)
+        exit_code = 1;
     else
         exit_code = 127;
 
@@ -2750,6 +2839,10 @@ static void exec_run_brace_group_child(exec_t *executor, const ast_node_t *node)
      * 1. Create a child executor
      * ------------------------------------------------------------ */
     exec_t *child = exec_create_subshell(executor);
+    if (!child)
+    {
+        _exit(127);
+    }
 
     /* ------------------------------------------------------------
      * 2. Execute the brace group body
@@ -3090,11 +3183,6 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
 
     int count = ast_node_list_size(redirs);
     saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
-    if (!saved)
-    {
-        exec_set_error(executor, "Out of memory");
-        return EXEC_ERROR;
-    }
 
     int saved_i = 0;
 
@@ -3205,8 +3293,6 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
             if (!fd_str)
             {
                 exec_set_error(executor, "Failed to expand file descriptor target");
-                for (int j = 0; j < saved_i; j++)
-                    _close(saved[j].backup_fd);
                 xfree(saved);
                 return EXEC_ERROR;
             }
@@ -3218,21 +3304,39 @@ static exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t
             {
                 exec_set_error(executor, "Invalid file descriptor: '%s'", lex);
                 string_destroy(&fd_str);
-                for (int j = 0; j < saved_i; j++)
-                    _close(saved[j].backup_fd);
                 xfree(saved);
                 return EXEC_ERROR;
+            }
+
+            if (src.fd == -1)
+            { // Plain '-': treat as close
+                _close(fd);
+                break;
             }
 
             if (_dup2(src.fd, fd) < 0)
             {
                 exec_set_error(executor, "_dup2(%d, %d) failed: %s", src.fd, fd, strerror(errno));
                 string_destroy(&fd_str);
-                for (int j = 0; j < saved_i; j++)
-                    _close(saved[j].backup_fd);
                 xfree(saved);
                 return EXEC_ERROR;
             }
+
+            if (src.close_after_use)
+            {
+                if (src.fd == fd)
+                {
+                    fprintf(stderr,
+                            "Warning: Self-move redirection (%d>&%d-) ignored\n", fd,
+                            src.fd);
+                }
+                else if (_close(src.fd) < 0)
+                {
+                    fprintf(stderr, "Warning: Failed to close source FD %d after move: %s\n",
+                            src.fd, strerror(errno));
+                }
+            }
+
             string_destroy(&fd_str);
             break;
         }
@@ -3325,24 +3429,30 @@ static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
     {
         if (_dup2(saved[i].backup_fd, saved[i].fd) < 0)
         {
-            // Handle error: log, set error, cleanup, etc.
-            // Example:
-            // exec_set_error(executor, "_dup2(%d, %d) failed: %s", saved[i].backup_fd, saved[i].fd,
-            //               strerror(errno));
-            // Optionally, perform any necessary cleanup here
+            fprintf(stderr, "Warning: Failed to restore FD %d from %d: %s\n", saved[i].fd,
+                    saved[i].backup_fd, strerror(errno));
+            // Don't set exec_error here if you want to continue; just warn.
+            // Do I want to continue?
         }
         _close(saved[i].backup_fd);
     }
 }
 #else
 static exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
-                                                       const ast_node_list_t *redirs)
+                                                   const ast_node_list_t *redirs)
 {
     (void)redirs;
 
     exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
 
     return EXEC_ERROR;
+}
+
+static void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
+{
+    (void)saved;
+    (void)saved_count;
+    // No-op in ISO_C_API mode
 }
 #endif
 
@@ -3546,25 +3656,16 @@ exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node)
         exec_status_t st = exec_execute(child, body);
 
         int exit_code = 0;
-        if (st == EXEC_OK || st == EXEC_EXIT)
-        {
+        if (st == EXEC_OK)
             exit_code = child->last_exit_status;
-        }
+        else if (st == EXEC_EXIT)
+            exit_code = child->last_exit_status;
         else if (st == EXEC_RETURN)
-        {
-            /* 'return' in a subshell (not in a function) is an error,
-             * but we treat it as exit for robustness */
             exit_code = child->last_exit_status;
-        }
         else if (st == EXEC_BREAK || st == EXEC_CONTINUE)
-        {
-            /* break/continue outside loop in subshell - error */
             exit_code = 1;
-        }
         else
-        {
             exit_code = 127;
-        }
 
         exec_destroy(&child);
         _exit(exit_code);

@@ -137,6 +137,13 @@ typedef struct exec_t
     exec_opt_flags_t opt;
     bool opt_flags_set;
 
+#if !defined(POSIX_API) && !defined(UCRT_API)
+    // ISO C can't pass environment variables via envp, so before
+    // calling system() to execute external commands, we write this
+    // environment to a temporary file and set ENV_FILE to its path.
+    string_t *env_file_path;
+#endif
+
     // Background jobs and their associated process IDs, and process IDs of
     // child processes created to execute asynchronous AND-OR lists while job
     // control is disabled; together these process IDs constitute the process

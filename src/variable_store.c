@@ -372,6 +372,21 @@ bool variable_store_has_name(const variable_store_t *store, const string_t *name
     return variable_map_contains(store->map, name);
 }
 
+bool variable_store_with_parent_has_name(const variable_store_t *store,
+                                              const variable_store_t *parent,
+                                              const string_t *name)
+{
+    if (variable_store_has_name(store, name))
+    {
+        return true;
+    }
+    if (parent)
+    {
+        return variable_store_has_name(parent, name);
+    }
+    return false;
+}
+
 bool variable_store_has_name_cstr(const variable_store_t *store, const char *name)
 {
     if (!name)
@@ -384,6 +399,21 @@ bool variable_store_has_name_cstr(const variable_store_t *store, const char *nam
     string_destroy(&name_str);
     return result;
 }
+
+bool variable_store_with_parent_has_name_cstr(const variable_store_t *store,
+                                                     const variable_store_t *parent,
+                                                     const char *name)
+{
+    if (!name)
+    {
+        return false;
+    }
+    string_t *name_str = string_create_from_cstr(name);
+    bool result = variable_store_with_parent_has_name(store, parent, name_str);
+    string_destroy(&name_str);
+    return result;
+}
+
 
 const variable_map_entry_t *variable_store_get_variable(const variable_store_t *store,
                                                         const string_t *name)
@@ -402,6 +432,21 @@ const variable_map_entry_t *variable_store_get_variable(const variable_store_t *
     return &store->map->entries[pos];
 }
 
+const variable_map_entry_t *variable_store_with_parent_get_variable(
+    const variable_store_t *store, const variable_store_t *parent, const string_t *name)
+{
+    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    if (entry)
+    {
+        return entry;
+    }
+    if (parent)
+    {
+        return variable_store_get_variable(parent, name);
+    }
+    return NULL;
+}
+
 const variable_map_entry_t *variable_store_get_variable_cstr(const variable_store_t *store,
                                                              const char *name)
 {
@@ -416,9 +461,31 @@ const variable_map_entry_t *variable_store_get_variable_cstr(const variable_stor
     return result;
 }
 
+const variable_map_entry_t *variable_store_with_parent_get_variable_cstr(const variable_store_t *store,
+                                                                          const variable_store_t *parent,
+                                                                          const char *name)
+{
+    if (!name)
+    {
+        return NULL;
+    }
+    string_t *name_str = string_create_from_cstr(name);
+    const variable_map_entry_t *result =
+        variable_store_with_parent_get_variable(store, parent, name_str);
+    string_destroy(&name_str);
+    return result;
+}
+
 const string_t *variable_store_get_value(const variable_store_t *store, const string_t *name)
 {
     const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    return entry ? entry->mapped.value : NULL;
+}
+
+const string_t *variable_store_with_parent_get_value(
+    const variable_store_t *store, const variable_store_t *parent, const string_t *name)
+{
+    const variable_map_entry_t *entry = variable_store_with_parent_get_variable(store, parent, name);
     return entry ? entry->mapped.value : NULL;
 }
 
@@ -433,6 +500,19 @@ const char *variable_store_get_value_cstr(const variable_store_t *store, const c
         string_destroy(&name_str);
     }
 
+    return value ? string_cstr(value) : NULL;
+}
+
+const char *variable_store_with_parent_get_value_cstr(
+    const variable_store_t *store, const variable_store_t *parent, const char *name)
+{
+    const string_t *value = NULL;
+    if (name)
+    {
+        string_t *name_str = string_create_from_cstr(name);
+        value = variable_store_with_parent_get_value(store, parent, name_str);
+        string_destroy(&name_str);
+    }
     return value ? string_cstr(value) : NULL;
 }
 
@@ -803,9 +883,9 @@ void variable_store_debug_print_exported(const variable_store_t *store)
     variable_store_for_each(store, dbg_print_export, NULL);
 }
 
-char *const *variable_store_update_envp(variable_store_t *store)
+char *const *variable_store_get_envp(variable_store_t *store)
 {
-    return variable_store_update_envp_with_parent(store, NULL);
+    return variable_store_with_parent_get_envp(store, NULL);
 }
 
 /**
@@ -848,7 +928,7 @@ static bool envp_cache_valid(const variable_store_t *store, const variable_store
  *
  * The returned array is cached and owned by the store; do not free it.
  */
-char *const *variable_store_update_envp_with_parent(variable_store_t *store,
+char *const *variable_store_with_parent_get_envp(variable_store_t *store,
                                                     const variable_store_t *parent)
 {
     if (!store)

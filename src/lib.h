@@ -9,37 +9,35 @@
  * and libraries.
  * */
 
-#ifndef __cplusplus  /* Skip entirely in C++ (has native nullptr since C++11) */
+#ifndef __cplusplus
+#include <stddef.h>
 
-#include <stddef.h>  /* For nullptr_t in conforming C23 implementations */
+/* Check for known guard macros that indicate nullptr_t exists */
+#if defined(_GCC_NULLPTR_T)
+#define LIB_NULLPTR_PROVIDED 1
+#endif
 
-/* If compiling as true C23 (most modern GCC does this when -std=c23 or default) */
+/* Check for Clang's indicator (varies by version) */
+#if defined(__clang__) && defined(__clang_major__) && __clang_major__ >= 16
+#ifndef LIB_NULLPTR_PROVIDED
+#define LIB_NULLPTR_PROVIDED 1
+#endif
+#endif
+
+/* Check for proper C23 */
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 202311L
-    #if defined(_MSC_VER)
-        /* MSVC claims C23 but lacks nullptr support */
-        typedef void* nullptr_t;
-        #define nullptr ((nullptr_t)0)
-    #else
-        /* Assume <stddef.h> provides nullptr_t; use native nullptr keyword */
-    #endif
+#if !defined(_MSC_VER)
+#ifndef LIB_NULLPTR_PROVIDED
+#define LIB_NULLPTR_PROVIDED 1
+#endif
+#endif
+#endif
 
-/* GCC had experimental nullptr before full C23 __STDC_VERSION__ */
-#elif defined(__GNUC__)
-    /* <stddef.h> already handles nullptr_t where supported */
-    #ifndef _GCC_NULLPTR_T
-        #define nullptr ((void*)0)
-        typedef void* nullptr_t;
-    #endif
-
-/* MSVC in pre-C23 mode lacks nullptr */
-#elif defined(_MSC_VER)
-    typedef void* nullptr_t;
-    #define nullptr ((nullptr_t)0)
-
-/* Fallback for any other pre-C23 compiler */
-#else
-    typedef void* nullptr_t;
-    #define nullptr ((nullptr_t)0)
+/* Fallback: provide our own */
+#ifndef LIB_NULLPTR_PROVIDED
+typedef void *nullptr_t;
+#define nullptr ((void *)0)
+#define LIB_NULLPTR_PROVIDED 1
 #endif
 
 #endif /* !__cplusplus */
