@@ -6,7 +6,6 @@
 #include "builtins.h"
 #include "exec.h"
 #include "exec_command.h"
-#include "exec_expander.h"
 #include "exec_internal.h"
 #include "exec_redirect.h"
 #include "expander.h"
@@ -19,7 +18,6 @@
 #include "xalloc.h"
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #ifdef POSIX_API

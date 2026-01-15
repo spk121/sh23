@@ -4,10 +4,8 @@
 
 #include <stdio.h>
 #include <string.h>
-#include "exec.h"
 #include "exec_expander.h"
 #include "exec_internal.h"
-#include "expander.h"
 #include "logging.h"
 #include "string_t.h"
 #include "variable_store.h"

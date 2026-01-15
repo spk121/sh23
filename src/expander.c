@@ -472,6 +472,7 @@ const char *expander_getenv_cstr(void *userdata, const char *name)
 #endif
 }
 
+#if 0
 string_t *_expander_tilde_expand(void *userdata, const string_t *text)
 {
     (void)userdata;
@@ -758,3 +759,4 @@ string_t *expander_command_subst(void *user_data, const string_t *command)
     return NULL;
 #endif
 }
+#endif

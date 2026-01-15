@@ -1,9 +1,8 @@
-#include "variable_map.h"
+#include <stdint.h>
 #include "logging.h"
 #include "string_t.h"
+#include "variable_map.h"
 #include "xalloc.h"
-#include <stdint.h>
-#include <string.h>
 
 #define VARIABLE_MAP_INITIAL_CAPACITY 16
 

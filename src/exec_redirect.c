@@ -4,7 +4,6 @@
 
 #include <limits.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include "ast.h"
 #include "exec_internal.h"

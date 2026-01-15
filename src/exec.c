@@ -3,21 +3,13 @@
 #endif
 
 #include <stdarg.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include "alias_store.h"
 #include "ast.h"
-#include "builtins.h"
 #include "exec.h"
 #include "exec_command.h"
-#include "exec_compound.h"
-#include "exec_control.h"
-#include "exec_expander.h"
 #include "exec_internal.h"
-#include "exec_redirect.h"
-#include "expander.h"
 #include "fd_table.h"
 #include "func_store.h"
 #include "gnode.h"
@@ -47,7 +39,6 @@
 #endif
 #ifdef UCRT_API
 #include <io.h>
-#include <errno.h>
 #include <process.h>
 #include <direct.h>
 #endif

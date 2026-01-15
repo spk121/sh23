@@ -1,16 +1,21 @@
-﻿#include "builtins.h"
-#include "string_t.h"
-#include "logging.h"
-#include "getopt.h"
-#include "xalloc.h"
-#include "exec.h"
-#include "variable_store.h"
-#include "variable_map.h"
-#include "lib.h"
-#include <stdio.h>
-#include <string.h>
+﻿#define _CRT_SECURE_NO_WARNINGS
+
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "builtins.h"
+#include "exec.h"
+#include "func_store.h"
+#include "getopt.h"
+#include "job_store.h"
+#include "lib.h"
+#include "logging.h"
+#include "positional_params.h"
+#include "string_t.h"
+#include "variable_map.h"
+#include "variable_store.h"
+#include "xalloc.h"
 #ifdef UCRT_API
 #include <io.h>
 #include <time.h>
@@ -130,7 +135,7 @@ static void builtin_export_print_usage(FILE *stream)
     fprintf(stream, "With no arguments, prints all exported variables.\n");
 }
 
-void builtin_export_variable_store_print(const string_t *name, const string_t *val, bool exported,
+static void builtin_export_variable_store_print(const string_t *name, const string_t *val, bool exported,
                                          bool read_only, void *user_data)
 {
     Expects_not_null(name);

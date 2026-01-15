@@ -1,6 +1,5 @@
 #pragma once
 
-#include "exec_internal.h"
 #include "string_t.h"
 
 /* Forward declaration */

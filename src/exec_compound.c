@@ -5,19 +5,12 @@
 #include "ast.h"
 #include "exec.h"
 #include "exec_compound.h"
-#include "exec_expander.h"
 #include "exec_internal.h"
-#include "exec_redirect.h"
-#include "expander.h"
 #include "job_store.h"
 #include "logging.h"
 #include "string_t.h"
-#include "variable_store.h"
-#include "xalloc.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #ifdef POSIX_API
 #include <sys/wait.h>
