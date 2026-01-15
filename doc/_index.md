@@ -55,6 +55,9 @@ This document provides an overview of the sh23 shell command and shell language.
 - [trap — Set Signal Handlers](trap-set-signal-handlers.md) - TODO
 - [unset — Unset Variables and Functions](unset-unset-variables-functions.md) - TODO
 
+### Platform-Specific Features
+- [Platform-Specific Features Overview](platform-overview.md) - TODO
+
 ### Interactive Features
 - [Interactive Shell Overview](interactive-shell-overview.md) - TODO
 - [Command History](command-history.md) - TODO
