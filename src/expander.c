@@ -2,19 +2,28 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "expander.h"
-#include "xalloc.h"
+#include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "exec_expander.h"
+#include "expander.h"
+#include "logging.h"
+#include "positional_params.h"
+#include "string_t.h"
+#include "token.h"
+#include "variable_store.h"
+#include "xalloc.h"
+
 #ifdef POSIX_API
 #include <glob.h>
 #include <pwd.h>
 #include <unistd.h>
 #endif
 #ifdef UCRT_API
-#include <io.h>
 #include <errno.h>
+#include <io.h>
 #endif
-
 /*
  * Internal structure for the expander.
  */
@@ -32,17 +41,19 @@ struct expander_t
     void *userdata;
 };
 
-const char *expander_getenv(void *userdata, const char *name);
+#if 0
+const char *expander_getenv_cstr(void *userdata, const char *name);
 string_t *expander_tilde_expand(void *userdata, const string_t *text);
 string_list_t *expander_glob(void *user_data, const string_t *pattern);
 string_t *expander_command_subst(void *user_data, const string_t *command);
+#endif
 
-    /* ============================================================================
-     * Constructor / Destructor
-     * ============================================================================
-     */
+/* ============================================================================
+ * Constructor / Destructor
+ * ============================================================================
+ */
 
-    expander_t *expander_create(variable_store_t *vars, positional_params_t *params)
+expander_t *expander_create(variable_store_t *vars, positional_params_t *params)
 {
     expander_t *exp = xcalloc(1, sizeof(expander_t));
     if (!exp)
@@ -52,10 +63,10 @@ string_t *expander_command_subst(void *user_data, const string_t *command);
     exp->params = params;
 
     /* Overrideable system interaction hooks with default implementations */
-    exp->fn_getenv = expander_getenv;
-    exp->fn_tilde_expand = expander_tilde_expand;
-    exp->fn_glob = expander_glob;
-    exp->fn_command_subst = expander_command_subst;
+    exp->fn_getenv = exec_getenv_callback;
+    exp->fn_tilde_expand = exec_tilde_expand_callback;
+    exp->fn_glob = exec_pathname_expansion_callback;
+    exp->fn_command_subst = exec_command_subst_callback;
     exp->userdata = NULL;
 
     return exp;
@@ -95,10 +106,11 @@ void expander_set_command_substitute(expander_t *exp, expander_command_subst_fn 
     exp->fn_command_subst = fn;
 }
 
-void expander_set_userdata(expander_t *exp, void *userdata)
+static void expander_set_userdata(expander_t *exp, void *userdata)
 {
     exp->userdata = userdata;
 }
+
 
 /* ============================================================================
  * Static helper functions for expansion activities
@@ -169,7 +181,14 @@ static string_t *expand_parameter(expander_t *exp, const part_t *part)
         }
         if (!value)
         {
-            value = exp->fn_getenv(exp->userdata, name);
+            string_t *value_str = exp->fn_getenv(exp->userdata, part->param_name);
+            if (value_str)
+            {
+                value = string_cstr(value_str);
+                string_destroy(&value_str);
+            }
+            else
+                value = NULL;
         }
         if (value)
         {
@@ -287,7 +306,18 @@ string_list_t *expander_expand_word(expander_t *exp, const token_t *tok)
     }
     if (!ifs)
     {
-        ifs = exp->fn_getenv(exp->userdata, "IFS");
+        string_t *ifs_key_str = string_create_from_cstr("IFS");
+        string_t *ifs_val_str = exp->fn_getenv(exp->userdata, ifs_key_str);
+        string_destroy(&ifs_key_str);
+        if (ifs_val_str)
+        {
+            ifs = string_cstr(ifs_val_str);
+            string_destroy(&ifs_val_str);
+        }
+        else
+        {
+            ifs = NULL;
+        }
     }
     if (!ifs)
     {
@@ -430,7 +460,7 @@ string_t *expander_expand_heredoc(expander_t *exp, const string_t *body, bool is
  * ============================================================================
  */
 
-const char *expander_getenv(void *userdata, const char *name)
+const char *expander_getenv_cstr(void *userdata, const char *name)
 {
     (void)userdata;
 #ifdef POSIX_API
@@ -442,7 +472,7 @@ const char *expander_getenv(void *userdata, const char *name)
 #endif
 }
 
-string_t *expander_tilde_expand(void *userdata, const string_t *text)
+string_t *_expander_tilde_expand(void *userdata, const string_t *text)
 {
     (void)userdata;
 
@@ -523,23 +553,26 @@ string_t *expander_tilde_expand(void *userdata, const string_t *text)
 string_list_t *expander_glob(void *user_data, const string_t *pattern)
 {
 #ifdef POSIX_API
-const char *pattern_str = string_cstr(pattern);
+    const char *pattern_str = string_cstr(pattern);
 
     glob_t glob_result;
-    int flags = GLOB_NOCHECK;  // Critical: return pattern if no match
+    int flags = GLOB_NOCHECK; // Critical: return pattern if no match
     int ret = glob(pattern_str, flags, NULL, &glob_result);
 
-    if (ret != 0 && ret != GLOB_NOMATCH) {
+    if (ret != 0 && ret != GLOB_NOMATCH)
+    {
         // Real error: GLOB_NOSPACE, etc.
         return NULL;
     }
 
     // If matches found
-    if (glob_result.gl_pathc > 0) {
+    if (glob_result.gl_pathc > 0)
+    {
         // Filter out . and .. if they appear (some systems include them)
         string_list_t *result = string_list_create();
 
-        for (size_t i = 0; i < glob_result.gl_pathc; ++i) {
+        for (size_t i = 0; i < glob_result.gl_pathc; ++i)
+        {
             const char *path = glob_result.gl_pathv[i];
             const char *name = strrchr(path, '/');
             name = name ? name + 1 : path;
@@ -553,9 +586,10 @@ const char *pattern_str = string_cstr(pattern);
 
         globfree(&glob_result);
 
-        if (string_list_size(result) == 0) {
+        if (string_list_size(result) == 0)
+        {
             string_list_destroy(&result);
-            return NULL;  // only . and .. matched → no real matches
+            return NULL; // only . and .. matched → no real matches
         }
 
         return result;
@@ -564,7 +598,7 @@ const char *pattern_str = string_cstr(pattern);
     // No matches: GLOB_NOCHECK returns the pattern itself in gl_pathv[0]
     // We return NULL to signal "keep literal"
     globfree(&glob_result);
-    return NULL;  
+    return NULL;
 
 #elifdef UCRT_API
     (void)user_data; // unused

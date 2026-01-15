@@ -102,8 +102,11 @@ if(MSVC)
     # MSVC: Maximum useful warnings + treat as errors
     add_compile_options(
         /std:clatest    # Latest C standard (C23-ish)
-        /Wall           # Enable almost all warnings (stronger than /W4)
+        # /Wall           # Enable almost all warnings (stronger than /W4)
+        /W3 		  # Level 3 warnings (practical balance)
         # /WX             # Treat warnings as errors
+        /we4028
+        /we4029
         /wd5045         # Disable Spectre mitigation warning
         /wd6011         # Disable warning about dereferencing NULL pointer
         /wd4820         # Disable padding warning
@@ -345,6 +348,17 @@ set(SH23LOGIC_SOURCES
     src/parser.h
     src/exec.c
     src/exec.h
+    src/exec_command.c
+    src/exec_command.h
+    src/exec_compound.c
+    src/exec_compound.h
+    src/exec_expander.c
+    src/exec_expander.h
+    src/exec_control.c
+    src/exec_control.h
+    src/exec_internal.h
+    src/exec_redirect.c
+    src/exec_redirect.h
     src/expander.c
     src/expander.h
     src/shell.c

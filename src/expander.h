@@ -18,7 +18,8 @@ typedef struct expander_t expander_t;
  * know or care what it actually is.
  */
 
-typedef const char *(*expander_getenv_fn)(void *userdata, const char *name);
+// typedef const char *(*expander_getenv_fn)(void *userdata, const char *name);
+typedef string_t *(*expander_getenv_fn)(void *userdata, const string_t *name);
 
 typedef string_t *(*expander_tilde_expand_fn)(void *userdata, const string_t *input);
 
@@ -83,33 +84,10 @@ string_t *expander_expand_heredoc(expander_t *exp, const string_t *body, bool is
  * System interaction hooks
  * ============================================================================
  */
-
-/*
- * Set the system interaction functions.
- * These must be set by the executor after creation.
- */
 void expander_set_getenv(expander_t *exp, expander_getenv_fn fn);
 void expander_set_tilde_expand(expander_t *exp, expander_tilde_expand_fn fn);
 void expander_set_glob(expander_t *exp, expander_glob_fn fn);
 void expander_set_command_substitute(expander_t *exp, expander_command_subst_fn fn);
-
-/*
- * Set the userdata pointer passed to all system hooks.
- */
 void expander_set_userdata(expander_t *exp, void *userdata);
-
-/* ============================================================================
- * Default system interaction implementations
- * ============================================================================
- */
-
-/*
- * Default implementations of system interaction functions.
- * These can be used as the callbacks for expander_set_* functions.
- */
-const char *expander_getenv(void *userdata, const char *name);
-string_t *expander_tilde_expand(void *userdata, const string_t *text);
-string_list_t *expander_glob(void *user_data, const string_t *pattern);
-string_t *expander_command_subst(void *user_data, const string_t *command);
 
 #endif /* EXPANDER_H */
