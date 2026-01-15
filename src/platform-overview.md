@@ -151,6 +151,8 @@ In ISO C mode, when the `MGSH_REDIR_FILE` variable has been set, then, upon ever
 
 A command to be executed would have to be adapted to take advantage of this information, since ISO C provides no way of doing redirections.
 
+When compiled in ISO C mode, the shell built-in commands that generate output such as `set` and `ls` will attempt to execute in accordance with the requested redirections when possible.
+
 **Example usage:**
 ```sh
 export MGSH_REDIR_FILE=/tmp/mgsh_redir.txt
@@ -163,6 +165,13 @@ In this example, before executing `ls`, the shell creates `/tmp/mgsh_redir.txt` 
 ```
 
 These workarounds allow commands executed in ISO C mode to at least be aware of the shell's environment variables and requested redirections, even though the shell itself cannot implement these features directly.
+
+### Pipelines Workaround
+
+The workaround for pipelines in ISO C mode puts the onus on the executed command to handle the pipeline logic itself.
+In ISO C mode, as discussed previously, when the `MGSH_ENV_FILE` environment variable is set, the shell will create a file containing exported variables before executing a command.  The workaround for pipelines is for the shell to set two environment variables before executing a command that contains a pipeline: `MGSH_PIPELINE_INPUT_FILE` and `MGSH_PIPELINE_OUTPUT_FILE`.  Each command in the pipeline may choose to read these environment variables to determine from which file to read input and to which file to write output.
+
+The only help that the shell provides is to create an empty input file for the first command in the pipeline, and, after the last command of the pipeline is executed, to read the output file and provide its contents as the overall output of the pipeline. It will also ensure that the intermediate files are deleted after execution.
 
 ## Build Configuration
 The build configuration for the shell can be selected at compile time using the following options:
