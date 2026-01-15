@@ -13,9 +13,9 @@ compound-list
 done
 ```
 
-- `name` — the loop variable that will take on each value in turn.
-- `in word ...` — optional list of words to iterate over. If omitted, the loop defaults to iterating over the positional parameters (`"$@"`).
-- `compound-list` — the commands to execute for each iteration.
+- `name` - the loop variable that will take on each value in turn.
+- `in word ...` - optional list of words to iterate over. If omitted, the loop defaults to iterating over the positional parameters (`"$@"`).
+- `compound-list` - the commands to execute for each iteration.
 
 ### Word Expansion
 
@@ -44,7 +44,7 @@ I like cherry
 ```
 
 
-### Default behavior (no `in` clause) — iterates over positional parameters
+### Default behavior (no `in` clause) - iterates over positional parameters
 
 ```sh
 for arg

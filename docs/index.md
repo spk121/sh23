@@ -39,21 +39,21 @@ This document provides an overview of the sh23 shell command and shell language.
 
 ### Built-in Commands
 - [Builtin Commands Overview](builtin-commands-overview.md) - TODO
-- [break — Exit from Loop](break-exit-loop.md) - TODO
-- [colon — No-op Command](colon-noop.md) - TODO
-- [continue — Continue Loop](continue-loop.md) - TODO
-- [dot — Source File](dot-source-file.md) - TODO
-- [eval — Evaluate Command](eval-evaluate-command.md) - TODO
-- [exec — Execute Command](exec-execute-command.md) - TODO
-- [exit — Exit Shell](exit-shell.md) - TODO
-- [export — Set Environment Variables](export-set-environment-variables.md) - TODO
-- [readonly — Set Read-Only Variables](readonly-set-readonly-variables.md) - TODO
-- [return — Return from Function](return-from-function.md) - TODO
-- [set — Shell Options](set-options.md)
-- [shift — Shift Positional Parameters](shift-positional-parameters.md) - TODO
-- [times — Print CPU Times](times-print-cpu-times.md) - TODO
-- [trap — Set Signal Handlers](trap-set-signal-handlers.md) - TODO
-- [unset — Unset Variables and Functions](unset-unset-variables-functions.md) - TODO
+- [break - Exit from Loop](break-exit-loop.md) - TODO
+- [colon - No-op Command](colon-noop.md) - TODO
+- [continue - Continue Loop](continue-loop.md) - TODO
+- [dot - Source File](dot-source-file.md) - TODO
+- [eval - Evaluate Command](eval-evaluate-command.md) - TODO
+- [exec - Execute Command](exec-execute-command.md) - TODO
+- [exit - Exit Shell](exit-shell.md) - TODO
+- [export - Set Environment Variables](export-set-environment-variables.md) - TODO
+- [readonly - Set Read-Only Variables](readonly-set-readonly-variables.md) - TODO
+- [return - Return from Function](return-from-function.md) - TODO
+- [set - Shell Options](set-options.md)
+- [shift - Shift Positional Parameters](shift-positional-parameters.md) - TODO
+- [times - Print CPU Times](times-print-cpu-times.md) - TODO
+- [trap - Set Signal Handlers](trap-set-signal-handlers.md) - TODO
+- [unset - Unset Variables and Functions](unset-unset-variables-functions.md) - TODO
 
 ### Platform-Specific Features
 - [Platform-Specific Features Overview](platform-overview.md) - TODO

@@ -1,6 +1,6 @@
 # Shell Introduction
 
-The shell is a command language interpreter. The name of the language it interprets is the Shell Command Language. The Shell Command Language is defined in the The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024, Copyright © 2001-2024 The IEEE and The Open Group.
+The shell is a command language interpreter. The name of the language it interprets is the Shell Command Language. The Shell Command Language is defined in the The Open Group Base Specifications Issue 8, IEEE Std 1003.1-2024, Copyright - 2001-2024 The IEEE and The Open Group.
 
 For most users, the usage of the shell command is quite straightforward: limited to entering commands interactively into a prompt, or occassionally writing a short script to perform a repetitive task, but, the Shell Command Language is quite powerful in its own right; it, however, quite arcane for those of use used to scripting in Python.
 
