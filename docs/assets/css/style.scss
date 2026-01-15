@@ -1,0 +1,76 @@
+// Lo-fi and plain SCSS for Jekyll on GitHub Pages
+
+$primary-color: #000;
+$secondary-color: #666;
+$background-color: #fff;
+$font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+body {
+  font-family: $font-family;
+  color: $primary-color;
+  background-color: $background-color;
+  margin: 0;
+  padding: 0;
+  line-height: 1.6;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  border-bottom: 1px solid $secondary-color;
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: $primary-color;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+p {
+  margin-bottom: 1em;
+}
+
+a {
+  color: $primary-color;
+  text-decoration: underline;
+}
+
+a:hover {
+  color: $secondary-color;
+}
+
+code {
+  background-color: #f4f4f4;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+}
+
+pre {
+  background-color: #f4f4f4;
+  padding: 10px;
+  border-radius: 5px;
+  overflow-x: auto;
+}
+
+ul, ol {
+  margin-bottom: 1em;
+}
+
+li {
+  margin-bottom: 0.5em;
+}
+
+footer {
+  border-top: 1px solid $secondary-color;
+  padding-top: 10px;
+  margin-top: 20px;
+  text-align: center;
+  color: $secondary-color;
+}
