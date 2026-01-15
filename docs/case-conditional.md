@@ -13,10 +13,10 @@ case word in
 esac
 ```
 
-- `word` — the value to match (subject to tilde, parameter, command substitution, arithmetic expansion, and quote removal).
-- `pattern1 | pattern2 ...` — one or more patterns separated by `|` (any one can match). The leading `(` is optional.
-- `compound-list` — the commands to execute if the pattern(s) match.
-- `terminator` — either `;;` (default: stop here) or `;&` (fall through to next clause).
+- `word` ï¿½ the value to match (subject to tilde, parameter, command substitution, arithmetic expansion, and quote removal).
+- `pattern1 | pattern2 ...` ï¿½ one or more patterns separated by `|` (any one can match). The leading `(` is optional.
+- `compound-list` ï¿½ the commands to execute if the pattern(s) match.
+- `terminator` ï¿½ either `;;` (default: stop here) or `;&` (fall through to next clause).
 - The final clause does not require a terminator.
 - The construct ends with `esac` (case spelled backward).
 
@@ -30,8 +30,8 @@ Matching stops at the **first** pattern that matches the expanded `word`. The or
 
 | Terminator | Behavior                                                                 |
 |------------|--------------------------------------------------------------------------|
-| `;;`       | Execute the matching clause and **stop** — do not process further clauses (default). |
-| `;&`       | Execute the matching clause and **fall through** — continue executing the next clause(s) regardless of pattern match. |
+| `;;`       | Execute the matching clause and **stop** ï¿½ do not process further clauses (default). |
+| `;&`       | Execute the matching clause and **fall through** ï¿½ continue executing the next clause(s) regardless of pattern match. |
 
 ## Examples
 
