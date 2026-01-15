@@ -1,7 +1,70 @@
 #include "ast.h"
 #include "exec_control.h"
+#include "exec_expander.h"
 #include "exec_internal.h"
+#include "expander.h"
 #include "logging.h"
+#include "positional_params.h"
+#include "string_t.h"
+#include "token.h"
+#include "variable_store.h"
+
+#include <string.h>
+
+#ifdef POSIX_API
+#include <fnmatch.h>
+#endif
+
+/* ============================================================================
+ * Helper Functions
+ * ============================================================================ */
+
+#ifndef POSIX_API
+/**
+ * Simple glob pattern matcher for non-POSIX platforms.
+ * Supports * and ? wildcards.
+ */
+static bool simple_glob_match(const char *pattern, const char *string)
+{
+    while (*pattern)
+    {
+        if (*pattern == '*')
+        {
+            pattern++;
+            if (!*pattern)
+                return true; // * at end matches everything
+            
+            // Try matching rest of pattern at each position
+            while (*string)
+            {
+                if (simple_glob_match(pattern, string))
+                    return true;
+                string++;
+            }
+            return false;
+        }
+        else if (*pattern == '?')
+        {
+            if (!*string)
+                return false;
+            pattern++;
+            string++;
+        }
+        else
+        {
+            if (*pattern != *string)
+                return false;
+            pattern++;
+            string++;
+        }
+    }
+    return *string == '\0';
+}
+#endif
+
+/* ============================================================================
+ * If/Elif/Else Execution
+ * ============================================================================ */
 
 exec_status_t exec_execute_if_clause(exec_t *executor, const ast_node_t *node)
 {
@@ -54,6 +117,10 @@ exec_status_t exec_execute_if_clause(exec_t *executor, const ast_node_t *node)
     return EXEC_OK;
 }
 
+/* ============================================================================
+ * While Loop Execution
+ * ============================================================================ */
+
 exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
@@ -68,26 +135,52 @@ exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node
         status = exec_execute(executor, node->data.loop_clause.condition);
         if (status != EXEC_OK)
         {
+            // Control flow or error in condition
+            if (status == EXEC_BREAK || status == EXEC_CONTINUE)
+            {
+                // Break/continue in condition is unusual but valid
+                // POSIX: break in condition should break the loop
+                status = EXEC_OK;
+            }
             break;
         }
 
         // Check condition result
         if (executor->last_exit_status != 0)
         {
-            // Condition failed - exit loop
+            // Condition failed - exit loop normally
+            status = EXEC_OK;
             break;
         }
 
         // Execute body
         status = exec_execute(executor, node->data.loop_clause.body);
-        if (status != EXEC_OK)
+        
+        if (status == EXEC_BREAK)
         {
+            // Break out of loop
+            status = EXEC_OK;
+            break;
+        }
+        else if (status == EXEC_CONTINUE)
+        {
+            // Continue to next iteration
+            status = EXEC_OK;
+            continue;
+        }
+        else if (status != EXEC_OK)
+        {
+            // Error, return, or exit
             break;
         }
     }
 
     return status;
 }
+
+/* ============================================================================
+ * Until Loop Execution
+ * ============================================================================ */
 
 exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node)
 {
@@ -103,19 +196,36 @@ exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node
         status = exec_execute(executor, node->data.loop_clause.condition);
         if (status != EXEC_OK)
         {
+            // Control flow or error in condition
+            if (status == EXEC_BREAK || status == EXEC_CONTINUE)
+            {
+                status = EXEC_OK;
+            }
             break;
         }
 
         // Check condition result (inverted compared to while)
         if (executor->last_exit_status == 0)
         {
-            // Condition succeeded - exit loop
+            // Condition succeeded - exit loop normally
+            status = EXEC_OK;
             break;
         }
 
         // Execute body
         status = exec_execute(executor, node->data.loop_clause.body);
-        if (status != EXEC_OK)
+        
+        if (status == EXEC_BREAK)
+        {
+            status = EXEC_OK;
+            break;
+        }
+        else if (status == EXEC_CONTINUE)
+        {
+            status = EXEC_OK;
+            continue;
+        }
+        else if (status != EXEC_OK)
         {
             break;
         }
@@ -124,19 +234,119 @@ exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node
     return status;
 }
 
+/* ============================================================================
+ * For Loop Execution
+ * ============================================================================ */
+
 exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
     Expects_eq(node->type, AST_FOR_CLAUSE);
 
-    // For now, not fully implemented
-    // Would need to:
-    // 1. Expand word list
-    // 2. For each word, set variable and execute body
-    exec_set_error(executor, "For loop execution not yet implemented");
-    return EXEC_NOT_IMPL;
+    const string_t *var_name = node->data.for_clause.variable;
+    const token_list_t *word_tokens = node->data.for_clause.words;
+    const ast_node_t *body = node->data.for_clause.body;
+
+    if (!var_name)
+    {
+        exec_set_error(executor, "for loop missing variable name");
+        return EXEC_ERROR;
+    }
+
+    // Create expander for word expansion
+    expander_t *exp = expander_create(executor->variables, executor->positional_params);
+    if (!exp)
+    {
+        exec_set_error(executor, "failed to create expander for for loop");
+        return EXEC_ERROR;
+    }
+
+    string_list_t *word_list = NULL;
+
+    // Expand word list (or use positional parameters if omitted)
+    if (word_tokens && token_list_size(word_tokens) > 0)
+    {
+        // Expand the word list
+        word_list = expander_expand_words(exp, word_tokens);
+        if (!word_list)
+        {
+            expander_destroy(&exp);
+            exec_set_error(executor, "failed to expand for loop word list");
+            return EXEC_ERROR;
+        }
+    }
+    else
+    {
+        // No word list: use positional parameters "$@"
+        word_list = string_list_create();
+        if (executor->positional_params)
+        {
+            int count = positional_params_count(executor->positional_params);
+            for (int i = 1; i <= count; i++)
+            {
+                const char *param = positional_params_get(executor->positional_params, i);
+                if (param)
+                {
+                    string_t *param_str = string_create_from_cstr(param);
+                    string_list_move_push_back(word_list, &param_str);
+                }
+            }
+        }
+    }
+
+    expander_destroy(&exp);
+
+    // Execute loop body for each word
+    exec_status_t status = EXEC_OK;
+    int word_count = string_list_size(word_list);
+
+    for (int i = 0; i < word_count; i++)
+    {
+        const string_t *word = string_list_at(word_list, i);
+
+        // Set loop variable
+        var_store_error_t err = variable_store_add(executor->variables, var_name, word,
+                                                    false, false);
+        if (err != VAR_STORE_ERROR_NONE)
+        {
+            exec_set_error(executor, "failed to set for loop variable");
+            status = EXEC_ERROR;
+            break;
+        }
+
+        // Execute body
+        if (body)
+        {
+            status = exec_execute(executor, body);
+
+            if (status == EXEC_BREAK)
+            {
+                // Break out of loop
+                status = EXEC_OK;
+                break;
+            }
+            else if (status == EXEC_CONTINUE)
+            {
+                // Continue to next iteration
+                status = EXEC_OK;
+                continue;
+            }
+            else if (status != EXEC_OK)
+            {
+                // Error, return, or exit - propagate up
+                break;
+            }
+        }
+    }
+
+    string_list_destroy(&word_list);
+    return status;
 }
+
+/* ============================================================================
+ * Case Statement Execution
+ * ============================================================================ */
 
 exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
 {
@@ -144,11 +354,101 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
     Expects_not_null(node);
     Expects_eq(node->type, AST_CASE_CLAUSE);
 
-    // For now, not fully implemented
-    // Would need to:
-    // 1. Expand the word to match
-    // 2. For each case item, check if pattern matches
-    // 3. Execute matching case body
-    exec_set_error(executor, "Case statement execution not yet implemented");
-    return EXEC_NOT_IMPL;
+    const token_t *word_token = node->data.case_clause.word;
+    const ast_node_list_t *case_items = node->data.case_clause.case_items;
+
+    if (!word_token)
+    {
+        exec_set_error(executor, "case statement missing word to match");
+        return EXEC_ERROR;
+    }
+
+    // Create expander for word expansion
+    expander_t *exp = expander_create(executor->variables, executor->positional_params);
+    if (!exp)
+    {
+        exec_set_error(executor, "failed to create expander for case statement");
+        return EXEC_ERROR;
+    }
+
+    // Expand the word to match
+    string_t *expanded_word = expander_expand_word(exp, word_token);
+    if (!expanded_word)
+    {
+        expander_destroy(&exp);
+        exec_set_error(executor, "failed to expand case word");
+        return EXEC_ERROR;
+    }
+
+    const char *word_str = string_cstr(expanded_word);
+    exec_status_t status = EXEC_OK;
+    bool matched = false;
+
+    // Try each case item
+    if (case_items)
+    {
+        for (int i = 0; i < case_items->size && !matched; i++)
+        {
+            const ast_node_t *case_item = case_items->nodes[i];
+            
+            if (case_item->type != AST_CASE_ITEM)
+            {
+                continue;
+            }
+
+            const token_list_t *patterns = case_item->data.case_item.patterns;
+            
+            // Check each pattern in this case item
+            if (patterns)
+            {
+                for (int j = 0; j < token_list_size(patterns); j++)
+                {
+                    token_t *pattern_token = token_list_get(patterns, j);
+                    
+                    // Expand the pattern (patterns can contain variables, etc.)
+                    string_t *expanded_pattern = expander_expand_word(exp, pattern_token);
+                    if (!expanded_pattern)
+                    {
+                        continue;
+                    }
+
+                    const char *pattern_str = string_cstr(expanded_pattern);
+
+                    // Match pattern against word
+#ifdef POSIX_API
+                    int match_result = fnmatch(pattern_str, word_str, 0);
+                    bool pattern_matches = (match_result == 0);
+#else
+                    bool pattern_matches = simple_glob_match(pattern_str, word_str);
+#endif
+
+                    string_destroy(&expanded_pattern);
+
+                    if (pattern_matches)
+                    {
+                        matched = true;
+                        
+                        // Execute the case item body
+                        const ast_node_t *body = case_item->data.case_item.body;
+                        if (body)
+                        {
+                            status = exec_execute(executor, body);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    string_destroy(&expanded_word);
+    expander_destroy(&exp);
+
+    // If no match found, case statement succeeds with exit status 0
+    if (!matched)
+    {
+        exec_set_exit_status(executor, 0);
+    }
+
+    return status;
 }
