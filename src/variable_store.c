@@ -1016,3 +1016,47 @@ void variable_store_copy_all(variable_store_t *dst, const variable_store_t *src)
         variable_store_add(dst, name, value, exported, read_only);
     }
 }
+
+string_t *variable_store_write_env_file(variable_store_t *vars,
+                                       const variable_store_t *parent_vars)
+{
+    Expects_not_null(vars);
+
+    if (!variable_store_with_parent_has_name_cstr(vars, parent_vars, "MGSH_ENV_FILE"))
+        return NULL;
+
+    const char *fname =
+        variable_store_with_parent_get_value_cstr(vars, parent_vars, "MGSH_ENV_FILE");
+
+    if (!fname || *fname == '\0')
+    {
+        if (fname && *fname == '\0')
+            log_debug("variable_store_write_env_file: MGSH_ENV_FILE is empty");
+        return NULL;
+    }
+
+    FILE *fp = fopen(fname, "w");
+    if (!fp)
+    {
+        log_debug("variable_store_write_env_file: failed to open env file %s for writing", fname);
+        return NULL;
+    }
+
+    string_t *result = string_create_from_cstr(fname);
+    char *const *envp = variable_store_with_parent_get_envp(vars, parent_vars);
+
+    for (char *const *env = envp; *env; env++)
+    {
+        if (fprintf(fp, "%s\n", *env) < 0)
+        {
+            log_debug("variable_store_write_env_file: failed to write to env file %s", fname);
+            fclose(fp);
+            string_destroy(&result);
+            return NULL;
+        }
+    }
+
+    fclose(fp);
+    return result;
+}
+

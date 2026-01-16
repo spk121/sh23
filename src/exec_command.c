@@ -11,9 +11,9 @@
 #include "builtins.h"
 #include "exec.h"
 #include "exec_command.h"
+#include "exec_expander.h"
 #include "exec_internal.h"
 #include "exec_redirect.h"
-#include "expander.h"
 #include "func_store.h"
 #include "logging.h"
 #include "positional_params.h"
@@ -96,13 +96,11 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
  *   - overlays assignment words from the command with expanded RHS
  */
 static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
-                                                                   const ast_node_t *node,
-                                                                   expander_t *base_exp)
+                                                                   const ast_node_t *node)
 {
     Expects_not_null(ex);
     Expects_not_null(node);
     Expects_eq(node->type, AST_SIMPLE_COMMAND);
-    Expects_not_null(base_exp);
 
     variable_store_t *temp = variable_store_create();
     if (!temp)
@@ -114,20 +112,12 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
     token_list_t *assignments = node->data.simple_command.assignments;
     if (assignments)
     {
-        expander_t *assign_exp = expander_create(temp, ex->positional_params);
-        if (!assign_exp)
-        {
-            variable_store_destroy(&temp);
-            return NULL;
-        }
-
         for (int i = 0; i < token_list_size(assignments); i++)
         {
             token_t *tok = token_list_get(assignments, i);
-            string_t *value = expander_expand_assignment_value(assign_exp, tok);
+            string_t *value = exec_expand_assignment_value(ex, tok);  // Direct call
             if (!value)
             {
-                expander_destroy(&assign_exp);
                 variable_store_destroy(&temp);
                 return NULL;
             }
@@ -138,13 +128,10 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
 
             if (err != VAR_STORE_ERROR_NONE)
             {
-                expander_destroy(&assign_exp);
                 variable_store_destroy(&temp);
                 return NULL;
             }
         }
-
-        expander_destroy(&assign_exp);
     }
 
     return temp;
@@ -154,8 +141,7 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
  * Apply prefix assignments to the shell's variable store.
  * Used for special builtins where POSIX requires assignments to persist.
  */
-static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_node_t *node,
-                                                    expander_t *exp)
+static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -168,7 +154,7 @@ static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_n
     for (int i = 0; i < token_list_size(assignments); i++)
     {
         token_t *tok = token_list_get(assignments, i);
-        string_t *value = expander_expand_assignment_value(exp, tok);
+        string_t *value = exec_expand_assignment_value(executor, tok);
         if (!value)
         {
             exec_set_error(executor, "Failed to expand assignment value");
@@ -190,74 +176,10 @@ static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_n
 }
 
 /**
- * Create temporary environment file for ISO C (MGSH_ENV_FILE support).
- * Note that the `vars` parameter is mutable because we may need to update its
- * internal state when generating the envp array.
- */
-static string_t *create_tmp_env_file(variable_store_t *vars,
-                                      const variable_store_t *parent_vars)
-{
-    Expects_not_null(vars);
-
-    if (!variable_store_with_parent_has_name_cstr(vars, parent_vars, "MGSH_ENV_FILE"))
-        return NULL;
-
-    const char *fname =
-        variable_store_with_parent_get_value_cstr(vars, parent_vars, "MGSH_ENV_FILE");
-
-    if (!fname || *fname == '\0')
-    {
-        if (fname && *fname == '\0')
-            log_debug("create_tmp_env_file: MGSH_ENV_FILE is empty");
-        return NULL;
-    }
-
-    FILE *fp = fopen(fname, "w");
-    if (!fp)
-    {
-        log_debug("create_tmp_env_file: failed to open env file %s for writing", fname);
-        return NULL;
-    }
-
-    string_t *result = string_create_from_cstr(fname);
-    char *const *envp = variable_store_with_parent_get_envp(vars, parent_vars);
-
-    for (char *const *env = envp; *env; env++)
-    {
-        if (fprintf(fp, "%s\n", *env) < 0)
-        {
-            log_debug("create_tmp_env_file: failed to write to env file %s", fname);
-            fclose(fp);
-            string_destroy(&result);
-            return NULL;
-        }
-    }
-
-    fclose(fp);
-    return result;
-}
-
-/**
- * Delete temporary environment file.
- */
-static void delete_temp_env_file(string_t **env_file_path)
-{
-    if (env_file_path && *env_file_path)
-    {
-        const char *path_cstr = string_cstr(*env_file_path);
-        if (remove(path_cstr) != 0)
-        {
-            log_debug("delete_temp_env_file: failed to delete temp env file %s", path_cstr);
-        }
-        string_destroy(env_file_path);
-    }
-}
-
-/**
  * Execute a shell function.
  */
 static exec_status_t exec_invoke_function(exec_t *executor, const ast_node_t *func_def,
-                                           const string_list_t *args, expander_t *exp)
+                                           const string_list_t *args)
 {
     Expects_not_null(executor);
     Expects_not_null(func_def);
@@ -302,7 +224,7 @@ static exec_status_t exec_invoke_function(exec_t *executor, const ast_node_t *fu
     if (func_redirs && ast_node_list_size(func_redirs) > 0)
     {
         status =
-            exec_apply_redirections_posix(executor, exp, func_redirs, &saved_fds, &saved_count);
+            exec_apply_redirections_posix(executor, func_redirs, &saved_fds, &saved_count);
         if (status != EXEC_OK)
         {
             positional_params_destroy(&executor->positional_params);
@@ -318,7 +240,7 @@ static exec_status_t exec_invoke_function(exec_t *executor, const ast_node_t *fu
     {
         fflush(NULL);
         status =
-            exec_apply_redirections_ucrt_c(executor, exp, func_redirs, &saved_fds, &saved_count);
+            exec_apply_redirections_ucrt_c(executor, func_redirs, &saved_fds, &saved_count);
         if (status != EXEC_OK)
         {
             positional_params_destroy(&executor->positional_params);
@@ -385,14 +307,6 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 
     bool has_words = (word_tokens && token_list_size(word_tokens) > 0);
 
-    /* Create base expander */
-    expander_t *base_exp = expander_create(executor->variables, executor->positional_params);
-    if (!base_exp)
-    {
-        exec_set_error(executor, "failed to create expander");
-        return EXEC_ERROR;
-    }
-
     /* Assignment-only command */
     if (!has_words)
     {
@@ -401,7 +315,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             for (int i = 0; i < token_list_size(assign_tokens); i++)
             {
                 token_t *tok = token_list_get(assign_tokens, i);
-                string_t *value = expander_expand_assignment_value(base_exp, tok);
+                string_t *value = exec_expand_assignment_value(executor, tok);
                 if (!value)
                 {
                     exec_set_error(executor, "assignment expansion failed");
@@ -430,7 +344,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 
     /* Build temporary variable store */
     variable_store_t *temp_vars =
-        exec_build_temp_store_for_simple_command(executor, node, base_exp);
+        exec_build_temp_store_for_simple_command(executor, node);
     if (!temp_vars)
     {
         exec_set_error(executor, "failed to build temporary variable store");
@@ -438,17 +352,8 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         goto out_base_exp;
     }
 
-    expander_t *exp = expander_create(temp_vars, executor->positional_params);
-    if (!exp)
-    {
-        exec_set_error(executor, "failed to create expander");
-        variable_store_destroy(&temp_vars);
-        status = EXEC_ERROR;
-        goto out_base_exp;
-    }
-
     /* Expand command words */
-    string_list_t *expanded_words = expander_expand_words(exp, word_tokens);
+    string_list_t *expanded_words = exec_expand_words(executor, word_tokens);
     if (!expanded_words || string_list_size(expanded_words) == 0)
     {
         exec_set_exit_status(executor, 0);
@@ -466,7 +371,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
-    status = exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
+    status = exec_apply_redirections_posix(executor, redirs, &saved_fds, &saved_count);
     if (status != EXEC_OK)
     {
         string_list_destroy(&expanded_words);
@@ -478,7 +383,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
 
     fflush(NULL);
 
-    status = exec_apply_redirections_ucrt_c(executor, exp, redirs, &saved_fds, &saved_count);
+    status = exec_apply_redirections_ucrt_c(executor, redirs, &saved_fds, &saved_count);
     if (status != EXEC_OK)
     {
         string_list_destroy(&expanded_words);
@@ -501,7 +406,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     /* Special builtins: apply prefix assignments permanently */
     if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
     {
-        exec_status_t assign_status = exec_apply_prefix_assignments(executor, node, exp);
+        exec_status_t assign_status = exec_apply_prefix_assignments(executor, node);
         if (assign_status != EXEC_OK)
         {
             string_list_destroy(&expanded_words);
@@ -528,7 +433,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     const ast_node_t *func_def = func_store_get_def_cstr(executor->functions, cmd_name);
     if (func_def != NULL)
     {
-        exec_status_t func_status = exec_invoke_function(executor, func_def, expanded_words, exp);
+        exec_status_t func_status = exec_invoke_function(executor, func_def, expanded_words);
         cmd_exit_status = executor->last_exit_status;
         if (func_status != EXEC_OK)
             status = func_status;
@@ -652,9 +557,13 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             string_append(cmdline, string_list_at(expanded_words, i));
         }
 
-        string_t *env_fname = create_tmp_env_file(temp_vars, executor->variables);
+        string_t *env_fname = variable_store_write_env_file(temp_vars, executor->variables);
         int rc = system(string_cstr(cmdline));
-        delete_temp_env_file(&env_fname);
+        if (env_fname)
+        {
+            remove(string_cstr(env_fname));
+            string_destroy(&env_fname);
+        }
 
         string_destroy(&cmdline);
         if (rc == -1)
@@ -706,11 +615,9 @@ out_restore_redirs:
         status = EXEC_OK;
 
 out_exp_temp:
-    expander_destroy(&exp);
     variable_store_destroy(&temp_vars);
 
 out_base_exp:
-    expander_destroy(&base_exp);
     return status;
 }
 
@@ -788,39 +695,29 @@ exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t
     const ast_node_t *inner = node->data.redirected_command.command;
     const ast_node_list_t *redirs = node->data.redirected_command.redirections;
 
-    expander_t *exp = expander_create(executor->variables, executor->positional_params);
-    if (!exp)
-    {
-        exec_set_error(executor, "failed to create expander");
-        return EXEC_ERROR;
-    }
-
 #ifdef POSIX_API
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
     exec_status_t st =
-        exec_apply_redirections_posix(executor, exp, redirs, &saved_fds, &saved_count);
+        exec_apply_redirections_posix(executor, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
-        expander_destroy(&exp);
         return st;
     }
 #elifdef UCRT_API
     saved_fd_t *saved_fds = NULL;
     int saved_count = 0;
 
-    exec_status_t st = exec_apply_redirections_ucrt_c(executor, exp, redirs, &saved_fds, &saved_count);
+    exec_status_t st = exec_apply_redirections_ucrt_c(executor, redirs, &saved_fds, &saved_count);
     if (st != EXEC_OK)
     {
-        expander_destroy(&exp);
         return st;
     }
 #else
     exec_status_t st = exec_apply_redirections_iso_c(executor, redirs);
     if (st != EXEC_OK)
     {
-        expander_destroy(&exp);
         return st;
     }
 #endif
@@ -841,6 +738,5 @@ exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t
     }
 #endif
 
-    expander_destroy(&exp);
     return st;
 }

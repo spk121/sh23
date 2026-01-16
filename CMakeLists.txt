@@ -258,6 +258,8 @@ endfunction()
 set(SH23BASE_SOURCES
     src/getopt.c
     src/getopt.h
+    src/glob_util.c
+    src/glob_util.h
     src/lib.c
     src/lib.h
     src/logging.c
@@ -360,8 +362,6 @@ set(SH23LOGIC_SOURCES
     src/exec_internal.h
     src/exec_redirect.c
     src/exec_redirect.h
-    src/expander.c
-    src/expander.h
     src/shell.c
     src/shell.h
     src/builtins.c
@@ -432,7 +432,7 @@ set(SH23LOGIC_TEST_SOURCES
     test/mgsh/test_parser_ctest.c
     test/mgsh/test_ast_heredoc_ctest.c
     test/mgsh/test_tokenizer_ctest.c
-    test/mgsh/test_expander_ctest.c
+    # test/mgsh/test_expander_ctest.c
     test/mgsh/test_exec_ctest.c
 )
 

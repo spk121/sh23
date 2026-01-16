@@ -8,7 +8,7 @@
 #include "ast.h"
 #include "exec_internal.h"
 #include "exec_redirect.h"
-#include "expander.h"
+#include "exec_expander.h"
 #include "lib.h"
 #include "logging.h"
 #include "string_t.h"
@@ -126,12 +126,11 @@ static parse_fd_result_t parse_fd_number(const char *str)
 }
 
 #ifdef POSIX_API
-exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t *exp,
+exec_status_t exec_apply_redirections_posix(exec_t *executor,
                                             const ast_node_list_t *redirs, saved_fd_t **out_saved,
                                             int *out_saved_count)
 {
     Expects_not_null(executor);
-    Expects_not_null(exp);
     Expects_not_null(redirs);
     Expects_not_null(out_saved);
     Expects_not_null(out_saved_count);
@@ -178,7 +177,7 @@ exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t *exp,
 
         case REDIR_TARGET_FILE: {
             string_t *fname_str =
-                expander_expand_redirection_target(exp, r->data.redirection.target);
+                exec_expand_redirection_target(executor, r->data.redirection.target);
             const char *fname = string_cstr(fname_str);
             int flags = 0;
             mode_t mode = 0666;
@@ -231,7 +230,7 @@ exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t *exp,
         }
 
         case REDIR_TARGET_FD: {
-            string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
+            string_t *fd_str = exec_expand_redirection_target(executor, r->data.redirection.target);
             if (!fd_str)
             {
                 exec_set_error(executor, "Failed to expand file descriptor target");
@@ -275,7 +274,7 @@ exec_status_t exec_apply_redirections_posix(exec_t *executor, expander_t *exp,
                 {
                     /* Unquoted delimiter: perform parameter, command, and arithmetic expansion
                      */
-                    content_str = expander_expand_heredoc(exp, r->data.redirection.buffer,
+                    content_str = exec_expand_heredoc(executor, r->data.redirection.buffer,
                                                           /*is_quoted=*/false);
                 }
                 else
@@ -334,12 +333,11 @@ void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count)
 }
 
 #elifdef UCRT_API
-exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t *exp,
+exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
                                                     const ast_node_list_t *redirs,
                                                     saved_fd_t **out_saved, int *out_saved_count)
 {
     Expects_not_null(executor);
-    Expects_not_null(exp);
     Expects_not_null(out_saved);
     Expects_not_null(out_saved_count);
 
@@ -390,7 +388,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t *exp,
         case REDIR_TARGET_FILE: {
             // Expand the filename
             string_t *fname_str =
-                expander_expand_redirection_target(exp, r->data.redirection.target);
+                exec_expand_redirection_target(executor, r->data.redirection.target);
             if (!fname_str)
             {
                 exec_set_error(executor, "Failed to expand redirection target");
@@ -460,7 +458,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t *exp,
         }
 
         case REDIR_TARGET_FD: {
-            string_t *fd_str = expander_expand_redirection_target(exp, r->data.redirection.target);
+            string_t *fd_str =
+                exec_expand_redirection_target(executor, r->data.redirection.target);
             if (!fd_str)
             {
                 exec_set_error(executor, "Failed to expand file descriptor target");
@@ -525,7 +524,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor, expander_t *exp,
                 if (r->data.redirection.buffer_needs_expansion)
                 {
                     /* Unquoted delimiter: perform parameter, command, and arithmetic expansion */
-                    content_str = expander_expand_heredoc(exp, r->data.redirection.buffer,
+                    content_str = exec_expand_heredoc(executor, r->data.redirection.buffer,
                                                           /*is_quoted=*/false);
                 }
                 else
@@ -609,7 +608,7 @@ void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
 }
 #endif
 
-exec_status_t exec_apply_redirections_iso_c(exec_t *executor, expander_t *exp,
+exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
                                             const ast_node_list_t *redirs, saved_fd_t **out_saved,
                                             int *out_saved_count)
 {

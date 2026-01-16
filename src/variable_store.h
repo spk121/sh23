@@ -379,4 +379,16 @@ char *const *variable_store_get_envp(variable_store_t *vs);
 char *const *variable_store_with_parent_get_envp(variable_store_t *vs,
                                                     const variable_store_t *parent);
 
+/**
+ * Write the environment variables from `vars` (with `parent_vars` as parent)
+ * to the env file specified by the MGSH_ENV_FILE variable, if set.
+ * Note that the `vars` parameter is mutable because we may need to update its
+ * internal state when generating the envp array.
+ *
+ * Returns the path to the env file as a newly allocated string, or NULL on failure
+ * or if MGSH_ENV_FILE is not set.
+ */
+string_t *variable_store_write_env_file(variable_store_t *vars,
+                                        const variable_store_t *parent_vars);
+
 #endif

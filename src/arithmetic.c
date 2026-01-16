@@ -1,16 +1,16 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include "alias_store.h"
 #include "arithmetic.h"
+#include "exec_expander.h"
+#include "lexer.h"
+#include "logging.h"
+#include "parser.h"
 #include "string_t.h"
-#include "expander.h"
+#include "tokenizer.h"
 #include "variable_store.h"
 #include "xalloc.h"
-#include "lexer.h"
-#include "parser.h"
-#include "tokenizer.h"
-#include "alias_store.h"
-#include "logging.h"
 
 // Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
 #ifdef _MSC_VER
@@ -22,7 +22,7 @@ typedef struct {
     string_t *input;
     int pos;
     int padding;
-    expander_t *exp;
+    exec_t *exp;
     variable_store_t *vars;
 } math_parser_t;
 
@@ -80,7 +80,7 @@ static bool is_alpha_or_underscore(char c) {
 }
 
 // Initialize parser
-static void parser_init(math_parser_t *parser, expander_t *exp, variable_store_t *vars, const string_t *input) {
+static void parser_init(math_parser_t *parser, exec_t *exp, variable_store_t *vars, const string_t *input) {
     parser->input = string_create_from(input);
     parser->pos = 0;
     parser->exp = exp;
@@ -818,7 +818,7 @@ static ArithmeticResult parse_primary(math_parser_t *parser) {
  * 4. Expand the AST (parameter expansion, command substitution, quote removal)
  * 5. Return the fully expanded string
  */
-static string_t *arithmetic_expand_expression(expander_t *exp, const string_t *expr_text)
+static string_t *arithmetic_expand_expression(exec_t *exp, const string_t *expr_text)
 {
     // Step 1: Re-lex the raw text inside $(())
     lexer_t *lx = lexer_create();
@@ -878,7 +878,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, const string_t *e
 
         if (token_get_type(tok) == TOKEN_WORD) {
             // Expand the word
-            string_list_t *expanded_words = expander_expand_word(exp, tok);
+            string_list_t *expanded_words = exec_expand_word(exp, tok);
 
             // Concatenate all expanded words without adding spaces
             // Arithmetic expressions should not have field splitting
@@ -904,7 +904,7 @@ static string_t *arithmetic_expand_expression(expander_t *exp, const string_t *e
 }
 
 // Evaluate arithmetic expression
-ArithmeticResult arithmetic_evaluate(expander_t *exp, variable_store_t *vars, const string_t *expression) {
+ArithmeticResult arithmetic_evaluate(exec_t *exp, variable_store_t *vars, const string_t *expression) {
     // Step 1-4: Perform full recursive expansion
     string_t *expanded_str = arithmetic_expand_expression(exp, expression);
     if (!expanded_str) {

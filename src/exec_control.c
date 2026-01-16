@@ -1,12 +1,13 @@
 #include "ast.h"
 #include "exec_control.h"
+#include "exec_expander.h"
 #include "exec_internal.h"
-#include "expander.h"
 #include "logging.h"
 #include "positional_params.h"
 #include "string_t.h"
 #include "token.h"
 #include "variable_store.h"
+#include "glob_util.h"
 
 #ifdef POSIX_API
 #include <fnmatch.h>
@@ -15,49 +16,6 @@
 /* ============================================================================
  * Helper Functions
  * ============================================================================ */
-
-#ifndef POSIX_API
-/**
- * Simple glob pattern matcher for non-POSIX platforms.
- * Supports * and ? wildcards.
- */
-static bool simple_glob_match(const char *pattern, const char *string)
-{
-    while (*pattern)
-    {
-        if (*pattern == '*')
-        {
-            pattern++;
-            if (!*pattern)
-                return true; // * at end matches everything
-            
-            // Try matching rest of pattern at each position
-            while (*string)
-            {
-                if (simple_glob_match(pattern, string))
-                    return true;
-                string++;
-            }
-            return false;
-        }
-        else if (*pattern == '?')
-        {
-            if (!*string)
-                return false;
-            pattern++;
-            string++;
-        }
-        else
-        {
-            if (*pattern != *string)
-                return false;
-            pattern++;
-            string++;
-        }
-    }
-    return *string == '\0';
-}
-#endif
 
 /* ============================================================================
  * If/Elif/Else Execution
@@ -251,27 +209,13 @@ exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node)
         return EXEC_ERROR;
     }
 
-    // Create expander for word expansion
-    expander_t *exp = expander_create(executor->variables, executor->positional_params);
-    if (!exp)
-    {
-        exec_set_error(executor, "failed to create expander for for loop");
-        return EXEC_ERROR;
-    }
-
     string_list_t *word_list = NULL;
 
     // Expand word list (or use positional parameters if omitted)
     if (word_tokens && token_list_size(word_tokens) > 0)
     {
         // Expand the word list
-        word_list = expander_expand_words(exp, word_tokens);
-        if (!word_list)
-        {
-            expander_destroy(&exp);
-            exec_set_error(executor, "failed to expand for loop word list");
-            return EXEC_ERROR;
-        }
+        word_list = exec_expand_words(executor, word_tokens);
     }
     else
     {
@@ -291,8 +235,6 @@ exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node)
             }
         }
     }
-
-    expander_destroy(&exp);
 
     // Execute loop body for each word
     exec_status_t status = EXEC_OK;
@@ -360,20 +302,11 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
         return EXEC_ERROR;
     }
 
-    // Create expander for word expansion
-    expander_t *exp = expander_create(executor->variables, executor->positional_params);
-    if (!exp)
-    {
-        exec_set_error(executor, "failed to create expander for case statement");
-        return EXEC_ERROR;
-    }
-
     // Expand the word to match
-    string_list_t *word_list = expander_expand_word(exp, word_token);
+    string_list_t *word_list = exec_expand_word(executor, word_token);
     string_t *expanded_word = string_list_join_move(&word_list, " ");
     if (!expanded_word)
     {
-        expander_destroy(&exp);
         exec_set_error(executor, "failed to expand case word");
         return EXEC_ERROR;
     }
@@ -404,7 +337,8 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
                     token_t *pattern_token = token_list_get(patterns, j);
                     
                     // Expand the pattern (patterns can contain variables, etc.)
-                    string_list_t *pattern_list = expander_expand_word(exp, pattern_token);
+                    string_list_t *pattern_list =
+                        exec_expand_word(executor, pattern_token);
                     string_t *expanded_pattern = string_list_join_move(&pattern_list, " ");
                     if (!expanded_pattern)
                     {
@@ -418,7 +352,7 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
                     int match_result = fnmatch(pattern_str, word_str, 0);
                     bool pattern_matches = (match_result == 0);
 #else
-                    bool pattern_matches = simple_glob_match(pattern_str, word_str);
+                    bool pattern_matches = glob_util_match(pattern_str, word_str, 0);
 #endif
 
                     string_destroy(&expanded_pattern);
@@ -441,7 +375,6 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
     }
 
     string_destroy(&expanded_word);
-    expander_destroy(&exp);
 
     // If no match found, case statement succeeds with exit status 0
     if (!matched)

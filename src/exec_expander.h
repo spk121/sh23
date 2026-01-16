@@ -1,57 +1,85 @@
-#pragma once
+#ifndef EXEC_EXPANDER_H
+#define EXEC_EXPANDER_H
 
 #include "string_t.h"
+#include "token.h"
 
-/* Forward declaration */
-struct exec_t;
-struct expander_t;
+/* Forward declarations */
+typedef struct exec_t exec_t;
 
 /* ============================================================================
- * Expander Callback Functions
+ * Expansion Callback Functions
  * ============================================================================ */
 
 /**
- * Command substitution callback for the expander.
- * Executes a command and returns its output.
- *
- * @param userdata Pointer to the executor context
- * @param command The command string to execute
- * @return The output of the command as a newly allocated string_t (caller must free),
- *         or an empty string on error
+ * Perform tilde expansion.
+ * 
+ * @param executor Executor context
+ * @param text Text starting with tilde
+ * @return Expanded path, or original text if expansion fails
  */
-string_t *exec_command_subst_callback(void *userdata, const string_t *command);
+string_t *exec_expand_tilde(exec_t *executor, const string_t *text);
+
+/* ============================================================================
+ * Word Expansion Functions
+ * ============================================================================ */
 
 /**
- * Pathname expansion (glob) callback for the expander.
- * Platform behavior:
- * - POSIX_API: uses POSIX wordexp() for pathname expansion.
- * - UCRT_API: uses _findfirst/_findnext from <io.h> for wildcard matching.
- * - ISO_C: returns the literal pattern (no glob available).
- *
- * @param user_data Pointer to the shell_t context (currently unused)
- * @param pattern The glob pattern to expand
- * @return On success with matches: a newly allocated list of filenames
- *         (caller must free with string_list_destroy). On no matches or error:
- *         returns NULL, signaling the expander to leave the pattern unexpanded.
+ * Expand a single word token.
+ * 
+ * Performs all POSIX expansions in order:
+ * 1. Tilde expansion
+ * 2. Parameter expansion
+ * 3. Command substitution
+ * 4. Arithmetic expansion
+ * 5. Field splitting
+ * 6. Pathname expansion (globbing)
+ * 
+ * @param executor Executor context
+ * @param tok Token to expand (must be TOKEN_WORD)
+ * @return List of expanded strings, or NULL on error
  */
-string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t *pattern);
+string_list_t *exec_expand_word(exec_t *executor, const token_t *tok);
 
 /**
- * Environment variable lookup callback for the expander.
- * Looks up a variable in the executor's variable store.
- *
- * @param userdata Pointer to the executor context
- * @param name The variable name to look up
- * @return The variable value as a newly allocated string_t, or NULL if not found
+ * Expand multiple word tokens.
+ * 
+ * @param executor Executor context
+ * @param tokens List of tokens to expand
+ * @return List of all expanded strings, or NULL on error
  */
-string_t *exec_getenv_callback(void *userdata, const string_t *name);
+string_list_t *exec_expand_words(exec_t *executor, const token_list_t *tokens);
 
 /**
- * Tilde expansion callback for the expander.
- * Expands ~ and ~user to home directories.
- *
- * @param userdata Pointer to the executor context (currently unused)
- * @param username The username after ~, or NULL for current user
- * @return The home directory path as a newly allocated string_t, or NULL if not found
+ * Expand a redirection target.
+ * 
+ * Performs expansions without field splitting or pathname expansion.
+ * 
+ * @param executor Executor context
+ * @param tok Redirection target token
+ * @return Expanded string, or NULL on error
  */
-string_t *exec_tilde_expand_callback(void *userdata, const string_t *username);
+string_t *exec_expand_redirection_target(exec_t *executor, const token_t *tok);
+
+/**
+ * Expand an assignment value.
+ * 
+ * Performs expansions without field splitting or pathname expansion.
+ * 
+ * @param executor Executor context
+ * @param tok Assignment token (must be TOKEN_ASSIGNMENT_WORD)
+ * @return Expanded value string, or NULL on error
+ */
+string_t *exec_expand_assignment_value(exec_t *executor, const token_t *tok);
+
+/**
+ * Expand a heredoc body.
+ * 
+ * @param executor Executor context
+ * @param body Heredoc body text
+ * @param is_quoted Whether the heredoc delimiter was quoted
+ * @return Expanded heredoc body, or NULL on error
+ */
+string_t *exec_expand_heredoc(exec_t *executor, const string_t *body, bool is_quoted);
+
+#endif /* EXEC_EXPANDER_H */

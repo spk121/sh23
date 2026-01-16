@@ -6,7 +6,7 @@
 #include "ast.h"
 #include "exec_command.h"
 #include "exec_internal.h"
-#include "expander.h"
+#include "exec_expander.h"
 #include "positional_params.h"
 #include "string_t.h"
 #include "variable_store.h"
@@ -254,6 +254,16 @@ string_t *exec_command_subst_callback(void *userdata, const string_t *command);
  *         returns NULL, signaling the expander to leave the pattern unexpanded.
  */
 string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t *pattern);
+
+/**
+ * Get positional parameters from executor (for expander).
+ */
+positional_params_t *exec_get_positional_params(const exec_t *executor);
+
+/**
+ * Get variable store from executor (for expander).
+ */
+variable_store_t *exec_get_variables(const exec_t *executor);
 
 #endif
 

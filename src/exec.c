@@ -503,6 +503,18 @@ const char *exec_get_ps2(const exec_t *executor)
     return "> ";
 }
 
+positional_params_t *exec_get_positional_params(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->positional_params;
+}
+
+variable_store_t *exec_get_variables(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->variables;
+}
+
 /* ============================================================================
  * Execution Functions
  * ============================================================================ */
