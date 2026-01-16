@@ -1,10 +1,9 @@
-#include "variable_store.h"
+#include <ctype.h>
+#include "logging.h"
 #include "string_t.h"
 #include "variable_map.h"
+#include "variable_store.h"
 #include "xalloc.h"
-#include <ctype.h>
-#include <stdlib.h>
-#include <string.h>
 
 // POSIX limits for variable names and values
 #define MAX_VAR_NAME_LENGTH 1024
@@ -274,7 +273,7 @@ var_store_error_t variable_store_add(variable_store_t *store, const string_t *na
     }
 
     // Create mapped value
-    variable_map_mapped_t mapped;
+    variable_map_mapped_t mapped = {0};
     if (value)
     {
         mapped.value = string_create_from(value);
@@ -828,7 +827,7 @@ var_store_error_t variable_store_map(variable_store_t *store, var_store_map_fn f
     // Perform deferred insertions for renames
     for (int i = 0; i < rename_count; i++)
     {
-        variable_map_mapped_t mapped;
+        variable_map_mapped_t mapped = {0};
         mapped.value = string_create_from(string_list_at(rename_values, i));
         mapped.exported = rename_exported[i];
         mapped.read_only = rename_read_only[i];
@@ -997,4 +996,23 @@ char *const *variable_store_with_parent_get_envp(variable_store_t *store,
     store->cached_parent_gen = parent ? parent->generation : 0;
 
     return store->cached_envp;
+}
+
+void variable_store_copy_all(variable_store_t *dst, const variable_store_t *src)
+{
+    if (!dst || !src || !src->map)
+        return;
+
+    for (int32_t i = 0; i < src->map->capacity; i++)
+    {
+        if (!src->map->entries[i].occupied)
+            continue;
+
+        const string_t *name = src->map->entries[i].key;
+        const string_t *value = src->map->entries[i].mapped.value;
+        bool exported = src->map->entries[i].mapped.exported;
+        bool read_only = src->map->entries[i].mapped.read_only;
+
+        variable_store_add(dst, name, value, exported, read_only);
+    }
 }

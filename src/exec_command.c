@@ -2,6 +2,11 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <errno.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include "ast.h"
 #include "builtins.h"
 #include "exec.h"
@@ -17,18 +22,15 @@
 #include "variable_store.h"
 #include "xalloc.h"
 
-#include <stdio.h>
-#include <string.h>
-
 #ifdef POSIX_API
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
 
 #ifdef UCRT_API
-#include <errno.h>
 #include <process.h>
 #endif
+
 
 /* ============================================================================
  * Helper Functions
@@ -84,28 +86,6 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
 
         flags[idx] = '\0';
         variable_store_add_cstr(store, "-", flags, false, false);
-    }
-}
-
-/**
- * Copy all variables from src into dst (values are cloned).
- */
-static void variable_store_copy_all(variable_store_t *dst, const variable_store_t *src)
-{
-    if (!dst || !src || !src->map)
-        return;
-
-    for (int32_t i = 0; i < src->map->capacity; i++)
-    {
-        if (!src->map->entries[i].occupied)
-            continue;
-
-        const string_t *name = src->map->entries[i].key;
-        const string_t *value = src->map->entries[i].mapped.value;
-        bool exported = src->map->entries[i].mapped.exported;
-        bool read_only = src->map->entries[i].mapped.read_only;
-
-        variable_store_add(dst, name, value, exported, read_only);
     }
 }
 

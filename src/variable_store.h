@@ -77,6 +77,22 @@ void variable_store_destroy(variable_store_t **store);
 void variable_store_clear(variable_store_t *store);
 
 /**
+ * Copies all variables from one store to another.
+ * 
+ * Iterates through all variables in the source store and adds them to the
+ * destination store, preserving their values, export status, and read-only
+ * flags. This is a deep copy operation - values are cloned, not shared.
+ * 
+ * This function is commonly used when creating child execution environments
+ * or building temporary variable stores for command execution with prefix
+ * assignments.
+ *
+ * @param dst Destination variable store (must not be NULL).
+ * @param src Source variable store (must not be NULL).
+ */
+void variable_store_copy_all(variable_store_t *dst, const variable_store_t *src);
+
+/**
  * Adds or updates a variable using string_t values.
  *
  * @param store Variable store.
