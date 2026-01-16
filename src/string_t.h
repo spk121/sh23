@@ -211,10 +211,8 @@ void string_destroy(string_t **str);
  */
 char *string_release(string_t **str);
 
-#if 0
-string_t *string_vcreate(const char *format, va_list args);
-string_t *string_create_from_format(const char *format, ...);
-#endif
+// string_t *string_vcreate(const char *format, va_list args);
+// string_t *string_create_from_format(const char *format, ...);
 
 // Setters
 
@@ -751,11 +749,10 @@ int string_cmp(const string_t *str1, const string_t *str2);
  */
 void string_printf(string_t *str, const char *format, ...);
 void string_vprintf(string_t *str, const char *format, va_list args);
-#if 0
-string_scanf_result_t string_scanf(const string_t *str, const char *format, ...);
-string_vscanf_result_t string_vscanf(const string_t *str, const char *format,
-                                        va_list args);
-#endif
+
+// string_scanf_result_t string_scanf(const string_t *str, const char *format, ...);
+// string_vscanf_result_t string_vscanf(const string_t *str, const char *format,
+//                                        va_list args);
 
 /*
  * Reads a line from the given stream into the string, resizing as necessary.
@@ -877,4 +874,10 @@ void string_list_clear(string_list_t *list);
  * Caller frees the array and each C-string.
  */
 char **string_list_release_cstr_array(string_list_t **list, int *out_size);
+
+/**
+ * Returns a new string that is the result of joining all strings in the list with the given
+ * separator character.  After this operation, the list is destroyed and set to NULL.
+ */
+string_t *string_list_join_move(string_list_t **list, const char *separator);
 #endif

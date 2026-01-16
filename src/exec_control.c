@@ -1,6 +1,5 @@
 #include "ast.h"
 #include "exec_control.h"
-#include "exec_expander.h"
 #include "exec_internal.h"
 #include "expander.h"
 #include "logging.h"
@@ -8,8 +7,6 @@
 #include "string_t.h"
 #include "token.h"
 #include "variable_store.h"
-
-#include <string.h>
 
 #ifdef POSIX_API
 #include <fnmatch.h>
@@ -285,10 +282,10 @@ exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node)
             int count = positional_params_count(executor->positional_params);
             for (int i = 1; i <= count; i++)
             {
-                const char *param = positional_params_get(executor->positional_params, i);
+                const string_t *param = positional_params_get(executor->positional_params, i);
                 if (param)
                 {
-                    string_t *param_str = string_create_from_cstr(param);
+                    string_t *param_str = string_create_from(param);
                     string_list_move_push_back(word_list, &param_str);
                 }
             }
@@ -372,7 +369,8 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
     }
 
     // Expand the word to match
-    string_t *expanded_word = expander_expand_word(exp, word_token);
+    string_list_t *word_list = expander_expand_word(exp, word_token);
+    string_t *expanded_word = string_list_join_move(&word_list, " ");
     if (!expanded_word)
     {
         expander_destroy(&exp);
@@ -406,7 +404,8 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
                     token_t *pattern_token = token_list_get(patterns, j);
                     
                     // Expand the pattern (patterns can contain variables, etc.)
-                    string_t *expanded_pattern = expander_expand_word(exp, pattern_token);
+                    string_list_t *pattern_list = expander_expand_word(exp, pattern_token);
+                    string_t *expanded_pattern = string_list_join_move(&pattern_list, " ");
                     if (!expanded_pattern)
                     {
                         continue;

@@ -103,10 +103,11 @@ if(MSVC)
     add_compile_options(
         /std:clatest    # Latest C standard (C23-ish)
         # /Wall           # Enable almost all warnings (stronger than /W4)
-        /W3 		  # Level 3 warnings (practical balance)
+        /W3 		    # Level 3 warnings (practical balance)
         # /WX             # Treat warnings as errors
-        /we4028
-        /we4029
+        /we4028         # Treat formal parameter unreferenced warnings as errors
+        /we4029         # Treat redefinition warnings as errors
+        /we4133         # Treat incompatible pointer type warnings as errors
         /wd5045         # Disable Spectre mitigation warning
         /wd6011         # Disable warning about dereferencing NULL pointer
         /wd4820         # Disable padding warning

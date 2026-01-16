@@ -211,8 +211,10 @@ static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_n
 
 /**
  * Create temporary environment file for ISO C (MGSH_ENV_FILE support).
+ * Note that the `vars` parameter is mutable because we may need to update its
+ * internal state when generating the envp array.
  */
-static string_t *create_tmp_env_file(const variable_store_t *vars,
+static string_t *create_tmp_env_file(variable_store_t *vars,
                                       const variable_store_t *parent_vars)
 {
     Expects_not_null(vars);

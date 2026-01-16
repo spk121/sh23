@@ -1,10 +1,10 @@
-#include "string_t.h"
-#include "logging.h"
-#include "xalloc.h"
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include "logging.h"
+#include "string_t.h"
+#include "xalloc.h"
 
 // ============================================================================
 // Internal helper functions for small string optimization
@@ -2173,4 +2173,29 @@ char **string_list_release_cstr_array(string_list_t **list, int *out_size)
     *list = NULL;
     *out_size = slist->size;
     return cstr_array;
+}
+
+string_t* string_list_join_move(string_list_t** list, const char* separator)
+{
+    Expects_not_null(list);
+    Expects_not_null(*list);
+    string_list_t* slist = *list;
+    string_t* result = string_create();
+    if (slist->size == 0)
+    {
+        string_list_destroy(list);
+        return result;
+    }
+    for (int i = 0; i < slist->size; i++)
+    {
+        string_t* current_str = slist->strings[i];
+        string_append(result, current_str);
+        if (i < slist->size - 1 && separator != NULL)
+        {
+            string_append_cstr(result, separator);
+        }
+        string_destroy(&current_str);
+    }
+    string_list_destroy(list);
+    return result;
 }

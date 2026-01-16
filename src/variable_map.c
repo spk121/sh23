@@ -20,6 +20,17 @@ static bool keys_equal(const string_t *a, const string_t *b)
     return string_eq(a, b);
 }
 
+static int32_t find_slot(const string_t *key, int32_t capacity)
+{
+    Expects_not_null(key);
+    Expects_gt(capacity, 0);
+
+    uint32_t hash = string_hash(key); // returns uint32_t
+    uint32_t uindex = hash % (uint32_t)capacity; // unsigned modulo
+
+    return (int32_t)uindex; // safe narrowing
+}
+
 static void clear_entry(variable_map_entry_t *entry)
 {
     Expects_not_null(entry);
@@ -93,8 +104,7 @@ static void variable_map_resize(variable_map_t *map, int32_t new_capacity)
     {
         if (map->entries[i].occupied)
         {
-            uint32_t hash = hash_key(map->entries[i].key);
-            int32_t pos = hash % new_capacity;
+            int32_t pos = find_slot(map->entries[i].key, new_capacity);
             while (new_entries[pos].occupied)
             {
                 pos = (pos + 1) % new_capacity;
@@ -120,7 +130,7 @@ static void backward_shift_deletion(variable_map_t *map, int32_t empty)
 
     while (map->entries[curr].occupied)
     {
-        uint32_t ideal = hash_key(map->entries[curr].key) % map->capacity;
+        int32_t ideal = find_slot(map->entries[curr].key, map->capacity);
 
         // Determine if the entry at curr should move to empty.
         // An entry should move if its ideal position is "at or before" empty
@@ -188,8 +198,7 @@ const variable_map_mapped_t *variable_map_at(const variable_map_t *map, const st
     Expects_not_null(map);
     Expects_not_null(key);
 
-    uint32_t hash = hash_key(key);
-    int32_t pos = hash % map->capacity;
+    int32_t pos = find_slot(key, map->capacity);
 
     for (int32_t i = 0; i < map->capacity; i++)
     {
@@ -253,8 +262,7 @@ variable_map_insert_result_t variable_map_insert(variable_map_t *map, const stri
         variable_map_resize(map, map->capacity * 2);
     }
 
-    uint32_t hash = hash_key(key);
-    int32_t pos = hash % map->capacity;
+    int32_t pos = find_slot(key, map->capacity);
 
     while (map->entries[pos].occupied)
     {
@@ -284,8 +292,7 @@ int32_t variable_map_insert_or_assign(variable_map_t *map, const string_t *key,
         variable_map_resize(map, map->capacity * 2);
     }
 
-    uint32_t hash = hash_key(key);
-    int32_t pos = hash % map->capacity;
+    int32_t pos = find_slot(key, map->capacity);
 
     while (map->entries[pos].occupied)
     {
@@ -412,8 +419,7 @@ void variable_map_erase_multiple(variable_map_t *map, const string_list_t *keys)
     {
         if (old_entries[i].occupied)
         {
-            uint32_t hash = hash_key(old_entries[i].key);
-            int32_t pos = hash % map->capacity;
+            int32_t pos = find_slot(old_entries[i].key, map->capacity);
             while (map->entries[pos].occupied)
             {
                 pos = (pos + 1) % map->capacity;
@@ -479,8 +485,7 @@ int32_t variable_map_find(const variable_map_t *map, const string_t *key)
     Expects_not_null(map);
     Expects_not_null(key);
 
-    uint32_t hash = hash_key(key);
-    int32_t pos = hash % map->capacity;
+    int32_t pos = find_slot(key, map->capacity);
 
     for (int32_t i = 0; i < map->capacity; i++)
     {

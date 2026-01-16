@@ -1,12 +1,12 @@
 ﻿#ifndef VARIABLE_STORE_H
 #define VARIABLE_STORE_H
 
+#include <stdbool.h>
+#include <stdint.h>
 #include "ast.h"
 #include "logging.h"
 #include "string_t.h"
 #include "variable_map.h"
-#include <stdbool.h>
-#include <stdint.h>
 
 /**
  * Represents a shell variable store containing name/value pairs,
