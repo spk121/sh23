@@ -698,7 +698,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         if (!ast)
         {
-            // Empty program after lowering - this is valid (e.g., blank lines, 
+            // Empty program after lowering - this is valid (e.g., blank lines,
             // comments only, or G_PROGRAM with no commands). Continue reading.
             continue;
         }

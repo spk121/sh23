@@ -123,7 +123,7 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
     case AST_FUNCTION_STORED:
         // No owned data to clone.
         break;
-    case AST_NODE_TYPE_COUNT:   
+    case AST_NODE_TYPE_COUNT:
     default:
         // Other node types do not own any heap data; shallow copy is sufficient.
         break;

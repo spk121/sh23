@@ -182,7 +182,7 @@ string_t *exec_expand_tilde(exec_t *userdata, const string_t *username)
     (void)userdata; // unused
 
     struct passwd *pw;
-    
+
     if (username == NULL || string_length(username) == 0)
     {
         // Expand ~ to current user's home
@@ -213,14 +213,14 @@ string_t *exec_expand_tilde(exec_t *userdata, const string_t *username)
         {
             home = getenv("HOME");
         }
-        
+
         if (home != NULL)
         {
             return string_create_from_cstr(home);
         }
     }
     // ~username not supported on Windows
-    
+
     return NULL;
 
 #else
@@ -316,7 +316,7 @@ static string_t *expand_parameter(exec_t *executor, const part_t *part)
         {
             result = string_create_from_cstr(value);
         }
-        
+
         if (!result)
         {
             result = string_create(); // Empty string if not set
@@ -344,7 +344,7 @@ static string_t *expand_command_subst(exec_t *executor, const part_t *part)
             string_append_cstr(cmd, " ");
         }
     }
-    
+
     string_t *result = exec_command_subst_callback(executor, cmd);
     string_destroy(&cmd);
     return result ? result : string_create();
@@ -379,7 +379,7 @@ static string_t *expand_parts_to_string(exec_t *executor, const part_list_t *par
     {
         const part_t *part = part_list_get(parts, i);
         string_t *part_expanded = NULL;
-        
+
         switch (part->type)
         {
         case PART_LITERAL:
@@ -398,7 +398,7 @@ static string_t *expand_parts_to_string(exec_t *executor, const part_list_t *par
             part_expanded = expand_tilde(executor, part);
             break;
         }
-        
+
         if (part_expanded)
         {
             string_append(result, part_expanded);
@@ -450,7 +450,7 @@ string_list_t *exec_expand_word(exec_t *executor, const token_t *tok)
     // Field splitting
     string_list_t *fields = string_list_create();
     bool do_split = tok->needs_field_splitting && *ifs != '\0';
-    
+
     if (do_split)
     {
         char *str = string_release(&expanded);
@@ -519,7 +519,7 @@ string_list_t *exec_expand_words(exec_t *executor, const token_list_t *tokens)
     {
         return NULL;
     }
-    
+
     string_list_t *result = string_list_create();
     for (int i = 0; i < token_list_size(tokens); i++)
     {
@@ -550,10 +550,8 @@ string_t *exec_expand_redirection_target(exec_t *executor, const token_t *tok)
 
 string_t *exec_expand_assignment_value(exec_t *executor, const token_t *tok)
 {
-    if (!tok || tok->type != TOKEN_ASSIGNMENT_WORD)
-    {
-        return NULL;
-    }
+    Expects_not_null(tok);
+    Expects_eq(token_get_type(tok), TOKEN_ASSIGNMENT_WORD);
     // Assignment values undergo tilde, parameter, command, arithmetic expansion,
     // but no field splitting or pathname expansion
     return expand_parts_to_string(executor, tok->assignment_value);

@@ -68,7 +68,7 @@ typedef struct string_list_t
  * static inline void string_list_normalize_capacity(string_list_t* list, int new_capacity);
  */
 
-#if 0 
+#if 0
 // FIXME: Move this to the string_t.c file when done.
 static inline bool string_is_inline(const string_t *str) {
     return str->capacity <= STRING_INITIAL_CAPACITY;
@@ -245,7 +245,7 @@ void string_set_char(string_t *str, char ch);
  * The 'data' buffer need not be null-terminated.
  * If 'n' is zero or negative, the string becomes empty.
  * If 'data' is NULL, the string becomes empty.
- * 
+ *
  * N.B.: If data contains null bytes, only the data up to the first null byte will be used for
  * replacement.
  */
@@ -371,7 +371,7 @@ void string_insert_cstr(string_t *str, int pos, const char *cstr);
  * The position pos will clamped to 0 and the string length.
  * If pos == the string length, it will append.
  * If 'data' is NULL, does nothing.
- * 
+ *
  * N.B.: If data contains null bytes, the string will be truncated at the first null byte.
  */
 void string_insert_data(string_t *str, int pos, const char *data, int len);
@@ -424,7 +424,7 @@ void string_append_n_chars(string_t *str, int count, char ch);
  * The data buffer need not be null-terminated.
  * If 'data' is NULL, does nothing.
  * If 'len' is zero or negative, does nothing.
- * 
+ *
  * N.B.: If 'data' contains null bytes, the string will be truncated at the first null byte.
  */
 void string_append_data(string_t *str, const char *data, int len);
@@ -488,7 +488,7 @@ void string_replace_n_chars(string_t *str, int pos, int len, int count, char ch)
  * If pos + len exceeds the string length, it replaces up to the end of the string.
  * If 'data' is NULL, does nothing.
  * If 'data_len' is zero or negative, this effectively erases the specified range.
- * 
+ *
  * N.B.: If 'data' contains null bytes, the string will be truncated at the first null byte during
  * replacement.
  */

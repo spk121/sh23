@@ -13,7 +13,7 @@ struct expander_t;
 
 /**
  * Execute a simple command.
- * 
+ *
  * Handles the complete simple command execution sequence:
  * - Assignment-only commands
  * - Variable expansion and assignment prefix handling

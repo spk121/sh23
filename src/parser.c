@@ -908,7 +908,7 @@ parse_status_t gparse_term(parser_t *parser, gnode_t **out_node)
     /* Loop: separator and_or */
     while (true)
     {
-        /* Need both the separator and the and_or. A 
+        /* Need both the separator and the and_or. A
          * single separator without a following and_or is handled elsewhere . */
         int position_cur = parser_get_current_position(parser);
         gnode_t *sep = NULL;

@@ -834,7 +834,7 @@ int getopt_string(const string_list_t *argv, const string_t *optstring)
         return -1;
 
     const char *optstr = string_cstr(optstring);
-    
+
     int result = getopt(argc, argv_array, optstr);
 
     free(argv_array);
@@ -850,7 +850,7 @@ int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring
         return -1;
 
     const char *optstr = string_cstr(optstring);
-    
+
     int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
 
     free(argv_array);

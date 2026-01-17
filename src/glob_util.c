@@ -27,19 +27,19 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
 {
     // Convert our flags to POSIX fnmatch flags
     int fn_flags = 0;
-    
+
     if (flags & GLOB_UTIL_PATHNAME)
         fn_flags |= FNM_PATHNAME;
     if (flags & GLOB_UTIL_PERIOD)
         fn_flags |= FNM_PERIOD;
     if (flags & GLOB_UTIL_NOESCAPE)
         fn_flags |= FNM_NOESCAPE;
-    
+
     #ifdef FNM_CASEFOLD
     if (flags & GLOB_UTIL_CASEFOLD)
         fn_flags |= FNM_CASEFOLD;
     #endif
-    
+
     return fnmatch(pattern, string, fn_flags) == 0;
 }
 
@@ -47,12 +47,12 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
 
 /**
  * Custom fnmatch implementation for non-POSIX platforms.
- * 
+ *
  * This is a comprehensive implementation that supports:
  * - Wildcards: * (zero or more), ? (exactly one)
  * - Character classes: [abc], [a-z], [!abc], [^abc]
  * - Backtracking for proper * matching
- * 
+ *
  * Based on the implementation from pattern_removal.c, enhanced for
  * full glob semantics.
  */
@@ -74,7 +74,7 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
                 p++;
                 continue;
             }
-            
+
             // Remember this position for backtracking
             star_pattern = p++;
             star_string = s;
@@ -86,7 +86,7 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
             {
                 goto backtrack;
             }
-            
+
             // '?' matches any character, or exact match
             p++;
             s++;
@@ -167,7 +167,7 @@ bool glob_util_match_str(const string_t *pattern, const string_t *string, int fl
 {
     if (!pattern || !string)
         return false;
-    
+
     return glob_util_match(string_cstr(pattern), string_cstr(string), flags);
 }
 
@@ -247,7 +247,7 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
     const char *pattern_str = string_cstr(pattern);
     log_debug("glob_util_expand_path: UCRT glob pattern='%s'", pattern_str);
-    
+
     struct _finddata_t fd;
     intptr_t handle;
 
@@ -309,17 +309,17 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
 #endif
 
-string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags, 
+string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags,
                                         const char *base_dir)
 {
     // For now, ignore flags and base_dir - future enhancement
     (void)flags;
     (void)base_dir;
-    
+
     if (base_dir != NULL)
     {
         log_warn("glob_util_expand_path_ex: base_dir parameter not yet implemented");
     }
-    
+
     return glob_util_expand_path(pattern);
 }

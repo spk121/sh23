@@ -96,16 +96,13 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
  *   - overlays assignment words from the command with expanded RHS
  */
 static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
-                                                                   const ast_node_t *node)
+                                                                  const ast_node_t *node)
 {
     Expects_not_null(ex);
     Expects_not_null(node);
     Expects_eq(node->type, AST_SIMPLE_COMMAND);
 
     variable_store_t *temp = variable_store_create();
-    if (!temp)
-        return NULL;
-
     variable_store_copy_all(temp, ex->variables);
     exec_populate_special_variables(temp, ex);
 
@@ -140,8 +137,13 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_t *ex,
 /**
  * Apply prefix assignments to the shell's variable store.
  * Used for special builtins where POSIX requires assignments to persist.
+ *
+ * This gets called when the executor is executing a special builtin command,
+ * and when it's variable store is the shell's temp store for that command.
+ * So we apply the assignments to both the temp store and the shell's main store.
+ *
  */
-static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_node_t *node)
+static exec_status_t exec_apply_prefix_assignments(exec_t *executor, variable_store_t *main_store, const ast_node_t *node)
 {
     Expects_not_null(executor);
     Expects_not_null(node);
@@ -155,21 +157,19 @@ static exec_status_t exec_apply_prefix_assignments(exec_t *executor, const ast_n
     {
         token_t *tok = token_list_get(assignments, i);
         string_t *value = exec_expand_assignment_value(executor, tok);
-        if (!value)
-        {
-            exec_set_error(executor, "Failed to expand assignment value");
-            return EXEC_ERROR;
-        }
-
         var_store_error_t err = variable_store_add(executor->variables, tok->assignment_name, value,
                                                     false, false);
-        string_destroy(&value);
 
         if (err != VAR_STORE_ERROR_NONE)
         {
             exec_set_error(executor, "Cannot assign variable (error %d)", err);
+            string_destroy(&value);
             return EXEC_ERROR;
         }
+        /* If we get here, the variable name and value must have been valid, so no need
+         * for error checking */
+        variable_store_add(main_store, tok->assignment_name, value, false, false);
+        string_destroy(&value);
     }
 
     return EXEC_OK;
@@ -342,7 +342,9 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         goto out_base_exp;
     }
 
-    /* Build temporary variable store */
+    /* Build temporary variable store. The assignments at the beginning of a simple command
+    * and the positional parameters. */
+    variable_store_t *old_vars = executor->variables;
     variable_store_t *temp_vars =
         exec_build_temp_store_for_simple_command(executor, node);
     if (!temp_vars)
@@ -352,7 +354,11 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         goto out_base_exp;
     }
 
-    /* Expand command words */
+    /* Since these varible changes shouldn't survive after the command execution, we'll swap in
+     * the temporary variable store to use with the expansion step */
+    executor->variables = temp_vars;
+
+    /* Expand command words. FIXME these need the temp vars */
     string_list_t *expanded_words = exec_expand_words(executor, word_tokens);
     if (!expanded_words || string_list_size(expanded_words) == 0)
     {
@@ -403,10 +409,13 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
     int cmd_exit_status = 0;
     builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
 
-    /* Special builtins: apply prefix assignments permanently */
+    /* Special builtins: When calling special built-in, variable assignments survive the current shell. */
     if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
     {
-        exec_status_t assign_status = exec_apply_prefix_assignments(executor, node);
+        /* Right now, the executor is still using the temp variable store, but we need to
+         * apply them to the permanent variable store when they happen in the context of
+         * special built-ins. */
+        exec_status_t assign_status = exec_apply_prefix_assignments(executor, old_vars, node);
         if (assign_status != EXEC_OK)
         {
             string_list_destroy(&expanded_words);
@@ -462,7 +471,9 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
         }
         argv[argc] = NULL;
 
-        char *const *envp = variable_store_with_parent_get_envp(temp_vars, executor->variables);
+        // We already copied current shell variables into the temp store, and
+        // the executor is using that store for expansion, so we can use it here.
+        char *const *envp = variable_store_get_envp(executor->variables);
 
         pid_t pid = fork();
         if (pid == -1)
@@ -521,7 +532,8 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             goto done_execution;
         }
 
-        char *const *envp = variable_store_with_parent_get_envp(temp_vars, executor->variables);
+        char *const *envp =
+            variable_store_get_envp(executor->variables);
 
         intptr_t spawn_result =
             _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
@@ -557,7 +569,7 @@ exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *no
             string_append(cmdline, string_list_at(expanded_words, i));
         }
 
-        string_t *env_fname = variable_store_write_env_file(temp_vars, executor->variables);
+        string_t *env_fname = variable_store_write_env_file(executor->variables);
         int rc = system(string_cstr(cmdline));
         if (env_fname)
         {
@@ -592,8 +604,8 @@ done_execution:
         string_append(executor->last_argument, last_arg);
         executor->last_argument_set = true;
     }
-
     string_list_destroy(&expanded_words);
+    /* Fallthrough */
 
 out_restore_redirs:
 #if defined(POSIX_API)
@@ -615,6 +627,9 @@ out_restore_redirs:
         status = EXEC_OK;
 
 out_exp_temp:
+    /* Restore the permanent variable store */
+    temp_vars = executor->variables;
+    executor->variables = old_vars;
     variable_store_destroy(&temp_vars);
 
 out_base_exp:

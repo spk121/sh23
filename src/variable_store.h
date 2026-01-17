@@ -78,11 +78,11 @@ void variable_store_clear(variable_store_t *store);
 
 /**
  * Copies all variables from one store to another.
- * 
+ *
  * Iterates through all variables in the source store and adds them to the
  * destination store, preserving their values, export status, and read-only
  * flags. This is a deep copy operation - values are cloned, not shared.
- * 
+ *
  * This function is commonly used when creating child execution environments
  * or building temporary variable stores for command execution with prefix
  * assignments.
