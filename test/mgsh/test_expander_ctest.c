@@ -4,7 +4,7 @@
  */
 
 #include "ctest.h"
-#include "expander.h"
+#include "exec_expander.h"
 #include "token.h"
 #include "string_t.h"
 #include "ast.h"
@@ -58,7 +58,7 @@ CTEST(test_expander_pathname_expansion_callback)
     word->needs_pathname_expansion = true;
 
     // Expand the word
-    string_list_t *res = expander_expand_word(exp, word);
+    string_list_t *res = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, res, "expansion returned list");
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 2, "two matches returned");
     const string_t *s0 = string_list_at(res, 0);
@@ -96,7 +96,7 @@ CTEST(test_expander_recursive_param_assign_default)
     token_add_part(word, p);
 	word->needs_expansion = true;
 
-    string_list_t *res = expander_expand_word(exp, word);
+    string_list_t *res = exec_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
     const string_t *out = string_list_at(res, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(out), "B", "assign default uses expanded ${bar}");
@@ -134,7 +134,7 @@ CTEST(test_expander_recursive_param_use_default)
     p->word = string_create_from_cstr("${bar}");
     token_add_part(word, p);
 
-    string_list_t *res = expander_expand_word(exp, word);
+    string_list_t *res = exec_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
     const string_t *out = string_list_at(res, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(out), "X", "use default expands ${bar}");
@@ -167,7 +167,7 @@ CTEST(test_expander_recursive_param_use_alternate)
     p->word = string_create_from_cstr("${bar}");
     token_add_part(word, p);
 
-    string_list_t *res = expander_expand_word(exp, word);
+    string_list_t *res = exec_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
     const string_t *out = string_list_at(res, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(out), "Z", "use alternate expands ${bar}");
@@ -202,7 +202,7 @@ CTEST(test_expander_ifs)
     // Mark as needing field splitting (assume token_needs_expansion sets it)
     word->needs_field_splitting = true;
 
-    string_list_t *res = expander_expand_word(exp, word);
+    string_list_t *res = exec_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 3, "IFS splits on :");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(res, 0)), "a", "first field");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(res, 1)), "b", "second field");
@@ -235,7 +235,7 @@ CTEST(test_expander_expand_simple_word)
     string_destroy(&text);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back a list with one string "hello"
@@ -275,7 +275,7 @@ CTEST(test_expander_expand_concatenated_word)
     string_destroy(&text2);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back a list with one string "helloworld"
@@ -311,7 +311,7 @@ CTEST(test_expander_arithmetic_simple)
     string_destroy(&expr);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Stub returns "42"
@@ -350,7 +350,7 @@ CTEST(test_expander_arithmetic_with_variable)
     string_destroy(&expr);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Stub returns "42"
@@ -390,7 +390,7 @@ CTEST(test_expander_arithmetic_complex)
     string_destroy(&expr);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Stub returns "42"
@@ -426,7 +426,7 @@ CTEST(test_expander_arithmetic_empty)
     string_destroy(&expr);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Stub returns "42"
@@ -462,7 +462,7 @@ CTEST(test_expander_arithmetic_nested)
     string_destroy(&expr);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Stub returns "42"
@@ -499,7 +499,7 @@ CTEST(test_expander_special_param_exit_status)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back "42"
@@ -536,7 +536,7 @@ CTEST(test_expander_special_param_exit_zero)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back empty string
@@ -573,7 +573,7 @@ CTEST(test_expander_special_param_braced)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back "127"
@@ -610,7 +610,7 @@ CTEST(test_expander_special_param_pid)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back "12345"
@@ -647,7 +647,7 @@ CTEST(test_expander_special_param_pid_braced)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back "99999"
@@ -683,7 +683,7 @@ CTEST(test_expander_special_param_pid_default)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back empty string
@@ -720,7 +720,7 @@ CTEST(test_expander_special_param_background_pid)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back "54321"
@@ -757,7 +757,7 @@ CTEST(test_expander_special_param_background_pid_braced)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back "11111"
@@ -793,7 +793,7 @@ CTEST(test_expander_special_param_background_pid_default)
     string_destroy(&param);
 
     // Expand the word
-    string_list_t *result = expander_expand_word(exp, word);
+    string_list_t *result = exec_expand_word(exp, word);
     CTEST_ASSERT_NOT_NULL(ctest, result, "expansion result not NULL");
 
     // Should get back empty string
@@ -835,7 +835,7 @@ CTEST(test_expander_positionals_basic)
     string_t *ph = string_create_from_cstr("#");
     token_append_parameter(w_hash, ph);
     string_destroy(&ph);
-    string_list_t *r_hash = expander_expand_word(exp, w_hash);
+    string_list_t *r_hash = exec_expand_word(exp, w_hash);
     CTEST_ASSERT_EQ(ctest, string_list_size(r_hash), 1, "one field for $#");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r_hash,0)), "2", "$# == 2");
     string_list_destroy(&r_hash);
@@ -846,7 +846,7 @@ CTEST(test_expander_positionals_basic)
     string_t *p0 = string_create_from_cstr("0");
     token_append_parameter(w0, p0);
     string_destroy(&p0);
-    string_list_t *r0 = expander_expand_word(exp, w0);
+    string_list_t *r0 = exec_expand_word(exp, w0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r0,0)), "mgsh", "$0 == mgsh");
     string_list_destroy(&r0);
     token_destroy(&w0);
@@ -856,7 +856,7 @@ CTEST(test_expander_positionals_basic)
     string_t *p1_str = string_create_from_cstr("1");
     token_append_parameter(w1, p1_str);
     string_destroy(&p1_str);
-    string_list_t *r1 = expander_expand_word(exp, w1);
+    string_list_t *r1 = exec_expand_word(exp, w1);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r1,0)), "one", "$1 == one");
     string_list_destroy(&r1);
     token_destroy(&w1);
@@ -866,7 +866,7 @@ CTEST(test_expander_positionals_basic)
     string_t *p2_str = string_create_from_cstr("2");
     token_append_parameter(w2, p2_str);
     string_destroy(&p2_str);
-    string_list_t *r2 = expander_expand_word(exp, w2);
+    string_list_t *r2 = exec_expand_word(exp, w2);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(r2,0)), "two", "$2 == two");
     string_list_destroy(&r2);
     token_destroy(&w2);
@@ -903,7 +903,7 @@ CTEST(test_expander_positionals_at_star)
     string_t *pat = string_create_from_cstr("@");
     token_append_parameter(wat, pat);
     string_destroy(&pat);
-    string_list_t *rat = expander_expand_word(exp, wat);
+    string_list_t *rat = exec_expand_word(exp, wat);
     CTEST_ASSERT_EQ(ctest, string_list_size(rat), 3, "$@ expands to 3 fields");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rat,0)), "a", "first field");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rat,1)), "b", "second field");
@@ -916,7 +916,7 @@ CTEST(test_expander_positionals_at_star)
     string_t *pst = string_create_from_cstr("*");
     token_append_parameter(wst, pst);
     string_destroy(&pst);
-    string_list_t *rst = expander_expand_word(exp, wst);
+    string_list_t *rst = exec_expand_word(exp, wst);
     CTEST_ASSERT_EQ(ctest, string_list_size(rst), 1, "$* expands to single field");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(string_list_at(rst,0)), "a b c", "joined by space");
     string_list_destroy(&rst);
