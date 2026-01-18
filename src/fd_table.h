@@ -73,6 +73,16 @@ typedef struct fd_table_t
 fd_table_t *fd_table_create(void);
 
 /**
+ * @brief Create a deep copy of an FD table
+ *
+ * Copies all entries and their associated data.
+ *
+ * @param src Source FD table to copy
+ * @return Pointer to new fd_table_t copy, or NULL on allocation failure
+ */
+fd_table_t *fd_table_copy(const fd_table_t *src);
+
+/**
  * @brief Destroy an FD table and free all resources
  *
  * Frees all entries, their associated paths, and the table itself.

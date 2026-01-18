@@ -58,6 +58,8 @@ positional_params_t *positional_params_create(void);
  * @return New positional_params_t, or NULL if count exceeds maximum
  */
 positional_params_t *positional_params_create_from_array(const string_t *arg0, int count, const string_t **params);
+positional_params_t *positional_params_create_from_string_list(const string_t *arg0,
+                                                               const string_list_t *params);
 
 /**
  * @brief Create positional parameters from C-style argv
