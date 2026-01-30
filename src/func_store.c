@@ -41,7 +41,7 @@ func_store_t *func_store_create(void)
     return store;
 }
 
-func_store_t *func_store_copy(const func_store_t *other)
+func_store_t *func_store_clone(const func_store_t *other)
 {
     if (!other || !other->map)
         return NULL;
@@ -107,7 +107,6 @@ func_store_error_t func_store_add(func_store_t *store, const string_t *name,
     func_map_mapped_t mapped;
     mapped.name = string_create_from(name);
     mapped.func = ast_node_clone(value);
-    mapped.exported = false; // Default to not exported
 
     func_map_insert_or_assign_move(store->map, name, &mapped);
 
@@ -196,4 +195,84 @@ const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char 
     string_destroy(&name_str);
 
     return result;
+}
+
+func_store_insert_result_t func_store_add_ex(func_store_t *store, const string_t *name,
+                                             const ast_node_t *value)
+{
+    func_store_insert_result_t result;
+    result.was_new = false;
+
+    if (!store || !store->map)
+    {
+        result.error = FUNC_STORE_ERROR_STORAGE_FAILURE;
+        return result;
+    }
+
+    if (!name)
+    {
+        result.error = FUNC_STORE_ERROR_EMPTY_NAME;
+        return result;
+    }
+
+    if (string_empty(name))
+    {
+        result.error = FUNC_STORE_ERROR_EMPTY_NAME;
+        return result;
+    }
+
+    if (!is_valid_name(name))
+    {
+        result.error = FUNC_STORE_ERROR_NAME_INVALID_CHARACTER;
+        return result;
+    }
+
+    if (!value)
+    {
+        result.error = FUNC_STORE_ERROR_STORAGE_FAILURE;
+        return result;
+    }
+
+    // Check if function already exists
+    result.was_new = !func_map_contains(store->map, name);
+
+    func_map_mapped_t mapped;
+    mapped.name = string_create_from(name);
+    mapped.func = ast_node_clone(value);
+
+    func_map_insert_or_assign_move(store->map, name, &mapped);
+
+    result.error = FUNC_STORE_ERROR_NONE;
+    return result;
+}
+
+/* ============================================================================
+ * Iteration
+ * ============================================================================ */
+
+typedef struct func_store_foreach_context_t
+{
+    func_store_foreach_fn user_callback;
+    void *user_data;
+} func_store_foreach_context_t;
+
+static void func_store_foreach_wrapper(const string_t *key, const func_map_mapped_t *mapped, void *user_data)
+{
+    func_store_foreach_context_t *ctx = (func_store_foreach_context_t *)user_data;
+    if (ctx && ctx->user_callback && mapped)
+    {
+        ctx->user_callback(key, mapped->func, ctx->user_data);
+    }
+}
+
+void func_store_foreach(const func_store_t *store, func_store_foreach_fn callback, void *user_data)
+{
+    if (!store || !store->map || !callback)
+        return;
+
+    func_store_foreach_context_t ctx;
+    ctx.user_callback = callback;
+    ctx.user_data = user_data;
+
+    func_map_foreach(store->map, func_store_foreach_wrapper, &ctx);
 }

@@ -22,9 +22,15 @@ typedef enum func_store_error_t
     FUNC_STORE_ERROR_STORAGE_FAILURE,
 } func_store_error_t;
 
+typedef struct func_store_insert_result_t
+{
+    func_store_error_t error;
+    bool was_new;  // true if new function was added, false if existing one was replaced
+} func_store_insert_result_t;
+
 // Constructors
 func_store_t *func_store_create(void);
-func_store_t *func_store_copy(const func_store_t *other);
+func_store_t *func_store_clone(const func_store_t *other);
 
 // Destructor
 void func_store_destroy(func_store_t **store);
@@ -32,18 +38,52 @@ void func_store_destroy(func_store_t **store);
 // Clear all name -> function node mappings
 void func_store_clear(func_store_t *store);
 
-// Variable management
+// Function management
 
-// Note: Takes ownership of the value node pointer. Caller must not use it after this call.
+/**
+ * Add or update a function definition. Creates a deep copy (clone) of the AST node.
+ * The caller retains ownership of the value parameter and must manage its lifetime.
+ * @param store The function store
+ * @param name Function name (must be valid POSIX identifier)
+ * @param value Function definition AST node (will be cloned)
+ * @return Error code indicating success or failure
+ */
 func_store_error_t func_store_add(func_store_t *store, const string_t *name,
                                   const ast_node_t *value);
 func_store_error_t func_store_add_cstr(func_store_t *store, const char *name,
                                        const ast_node_t *value);
+
+/**
+ * Add or update a function definition with extended result information.
+ * Creates a deep copy (clone) of the AST node.
+ * @param store The function store
+ * @param name Function name (must be valid POSIX identifier)
+ * @param value Function definition AST node (will be cloned)
+ * @return Result indicating success/failure and whether function was new or replaced
+ */
+func_store_insert_result_t func_store_add_ex(func_store_t *store, const string_t *name,
+                                             const ast_node_t *value);
 func_store_error_t func_store_remove(func_store_t *store, const string_t *name);
 func_store_error_t func_store_remove_cstr(func_store_t *store, const char *name);
 bool func_store_has_name(const func_store_t *store, const string_t *name);
 bool func_store_has_name_cstr(const func_store_t *store, const char *name);
 const ast_node_t *func_store_get_def(const func_store_t *store, const string_t *name);
 const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char *name);
+
+/**
+ * Callback function for iterating over function definitions
+ * @param name Function name
+ * @param func Function definition AST node
+ * @param user_data User-provided context pointer
+ */
+typedef void (*func_store_foreach_fn)(const string_t *name, const ast_node_t *func, void *user_data);
+
+/**
+ * Iterate over all function definitions in the store
+ * @param store The function store
+ * @param callback Function to call for each entry
+ * @param user_data User-provided context pointer passed to callback
+ */
+void func_store_foreach(const func_store_t *store, func_store_foreach_fn callback, void *user_data);
 
 #endif

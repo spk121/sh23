@@ -127,7 +127,27 @@ const func_map_mapped_t *func_map_at(const func_map_t *map, const string_t *key)
 
 func_map_mapped_t *func_map_data_at(func_map_t *map, const string_t *key)
 {
-    return (func_map_mapped_t *)func_map_at(map, key);
+    if (!map || !key)
+        return NULL;
+
+    uint32_t hash = hash_key(key);
+    int32_t pos = hash % map->capacity;
+
+    // Linear probing to find the key
+    for (int32_t i = 0; i < map->capacity; i++)
+    {
+        if (!map->entries[pos].occupied)
+        {
+            return NULL; // Not found
+        }
+        if (keys_equal(map->entries[pos].key, key))
+        {
+            return &map->entries[pos].mapped;
+        }
+        pos = (pos + 1) % map->capacity;
+    }
+
+    return NULL;
 }
 
 /* ============================================================================
@@ -159,42 +179,6 @@ void func_map_clear(func_map_t *map)
         map->entries[i].occupied = false;
     }
     map->size = 0;
-}
-
-func_map_insert_result_t func_map_insert_move(func_map_t *map,
-                                               const string_t *key,
-                                               func_map_mapped_t *mapped)
-{
-    if (!map || !key || !mapped)
-        return (func_map_insert_result_t){-1, false};
-
-    // Resize if load factor exceeds 75%
-    if (map->size >= map->capacity * 3 / 4)
-    {
-        func_map_resize(map, map->capacity * 2);
-    }
-
-    uint32_t hash = hash_key(key);
-    int32_t pos = hash % map->capacity;
-
-    // Linear probing
-    while (map->entries[pos].occupied)
-    {
-        if (keys_equal(map->entries[pos].key, key))
-        {
-            // Key already exists
-            return (func_map_insert_result_t){pos, false};
-        }
-        pos = (pos + 1) % map->capacity;
-    }
-
-    // Insert new entry
-    map->entries[pos].key = string_create_from(key);
-    map->entries[pos].mapped = *mapped;
-    map->entries[pos].occupied = true;
-    map->size++;
-
-    return (func_map_insert_result_t){pos, true};
 }
 
 int32_t func_map_insert_or_assign_move(func_map_t *map,
@@ -384,4 +368,22 @@ int32_t func_map_find(const func_map_t *map, const string_t *key)
 bool func_map_contains(const func_map_t *map, const string_t *key)
 {
     return func_map_find(map, key) != -1;
+}
+
+/* ============================================================================
+ * Iteration
+ * ============================================================================ */
+
+void func_map_foreach(const func_map_t *map, func_map_foreach_fn callback, void *user_data)
+{
+    if (!map || !callback)
+        return;
+
+    for (int32_t i = 0; i < map->capacity; i++)
+    {
+        if (map->entries[i].occupied)
+        {
+            callback(map->entries[i].key, &map->entries[i].mapped, user_data);
+        }
+    }
 }
