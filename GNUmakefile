@@ -17,8 +17,8 @@ all: mgsh
 # Configuration variables (override on command line if needed)
 # --------------------------------------------------------------------------
 
-# API_TYPE: POSIX (default) or ISO_C
-API_TYPE ?= POSIX
+# API_TYPE: POSIX, UCRT or ISO_C
+API_TYPE ?= ISO_C
 
 # BUILD_TYPE: Debug or Release
 BUILD_TYPE ?= Debug
@@ -34,7 +34,9 @@ else
   CFLAGS_BASE := -O2
 endif
 
-CFLAGS_COMMON := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
+CFLAGS_COMMON := -std=c23 -Wall
+
+CFLAGS_EXTRA := -Wextra -Wpedantic -Wshadow -Wformat=2 \
 	-Wformat-signedness -Wformat-security -Wconversion \
 	-Wsign-conversion -Wnull-dereference -Wdouble-promotion \
 	-Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition \
@@ -43,11 +45,19 @@ CFLAGS_COMMON := -std=c23 -Wall -Wextra -Wpedantic -Wshadow -Wformat=2 \
 	-fanalyzer -Wlogical-op -Warith-conversion -Wduplicated-cond \
 	-Wduplicated-branches -D_POSIX_C_SOURCE=202401L
 
-# Visibility: hidden by default unless ISO_C
+# For EMACS
+# CFLAGS_COMMON += -fno-diagnostics-color -fdiagnostics-urls=never
+
+# Flags based on API type and C library
 ifeq ($(API_TYPE),ISO_C)
   VISIBILITY :=
-  API_DEFINE := -DISO_C
-else
+  API_DEFINE := -DISO_C_API
+endif
+ifeq ($(API_TYPE),UCRT)
+  VISIBILITY :=
+  API_DEFINE := -DUCRT_API
+endif
+ifeq ($(API_TYPE),POSIX)
   # FIXME: do proper visibility and declspec for share objects
   # VISIBILITY := -fvisibility=hidden
   VISIBILITY :=
@@ -56,9 +66,9 @@ endif
 
 # Debug/Release macro
 ifeq ($(BUILD_TYPE),Debug)
-  BUILD_DEFINE := -DSH23_DEBUG_BUILD
+  BUILD_DEFINE := -DMGSH_DEBUG_BUILD
 else
-  BUILD_DEFINE := -DSH23_RELEASE_BUILD
+  BUILD_DEFINE := -DMGSH_RELEASE_BUILD
 endif
 
 # Sanitizers / Coverage
@@ -108,14 +118,14 @@ $(shell $(MKDIR) $(BIN_DIR) $(LIB_DIR) $(OBJ_DIR) $(TEST_DIR))
 # Source lists (mirroring the CMake structure)
 # --------------------------------------------------------------------------
 
-SH23BASE_SOURCES := \
+MGSHBASE_SOURCES := \
 	src/getopt.c \
 	src/lib.c \
 	src/logging.c \
 	src/string_t.c \
 	src/xalloc.c
 
-SH23STORE_SOURCES := \
+MGSHSTORE_SOURCES := \
 	src/alias.c \
 	src/alias_store.c \
 	src/alias_array.c \
@@ -134,7 +144,7 @@ SH23STORE_SOURCES := \
 	src/ast.c \
 	src/pattern_removal.c
 
-SH23LOGIC_SOURCES := \
+MGSHLOGIC_SOURCES := \
 	src/arithmetic.c \
 	src/lower.c \
 	src/lexer.c \
@@ -164,7 +174,7 @@ BASE_TESTS := \
 	test/mgsh/test_string_ctest.c
 
 STORE_TESTS := \
-	test/mgsh/test_alist_ctest.c \
+	test/mgsh/test_alias_ctest.c \
 	test/mgsh/test_ast_ctest.c \
 	test/mgsh/test_sig_act_ctest.c
 
@@ -187,9 +197,9 @@ ALL_TEST_SOURCES := $(BASE_TESTS) $(STORE_TESTS) $(LOGIC_TESTS)
 # Object files
 # --------------------------------------------------------------------------
 
-BASE_OBJS := $(addprefix $(OBJ_DIR)/,$(SH23BASE_SOURCES:.c=.o))
-STORE_OBJS := $(addprefix $(OBJ_DIR)/,$(SH23STORE_SOURCES:.c=.o))
-LOGIC_OBJS := $(addprefix $(OBJ_DIR)/,$(SH23LOGIC_SOURCES:.c=.o))
+BASE_OBJS := $(addprefix $(OBJ_DIR)/,$(MGSHBASE_SOURCES:.c=.o))
+STORE_OBJS := $(addprefix $(OBJ_DIR)/,$(MGSHSTORE_SOURCES:.c=.o))
+LOGIC_OBJS := $(addprefix $(OBJ_DIR)/,$(MGSHLOGIC_SOURCES:.c=.o))
 MAIN_OBJ := $(OBJ_DIR)/src/main.o
 CTEST_OBJ := $(OBJ_DIR)/test/ctest/ctest.o
 
@@ -197,9 +207,9 @@ CTEST_OBJ := $(OBJ_DIR)/test/ctest/ctest.o
 # Library targets
 # --------------------------------------------------------------------------
 
-BASE_LIB := $(LIB_DIR)/libsh23base.$(LIB_EXT)
-STORE_LIB := $(LIB_DIR)/libsh23store.$(LIB_EXT)
-LOGIC_LIB := $(LIB_DIR)/libsh23logic.$(LIB_EXT)
+BASE_LIB := $(LIB_DIR)/libmgshbase.$(LIB_EXT)
+STORE_LIB := $(LIB_DIR)/libmgshstore.$(LIB_EXT)
+LOGIC_LIB := $(LIB_DIR)/libmgshlogic.$(LIB_EXT)
 
 ifeq ($(LIB_TYPE),shared)
 $(BASE_LIB): $(BASE_OBJS)
@@ -209,12 +219,12 @@ $(BASE_LIB): $(BASE_OBJS)
 $(STORE_LIB): $(STORE_OBJS) $(BASE_LIB)
 	$(MKDIR) $(@D)
 	$(CC) $(LIB_FLAGS) -o $@ $(STORE_OBJS) \
-	  -L$(LIB_DIR) -lsh23base $(LDFLAGS)
+	  -L$(LIB_DIR) -lmgshbase $(LDFLAGS)
 
 $(LOGIC_LIB): $(LOGIC_OBJS) $(STORE_LIB) $(BASE_LIB)
 	$(MKDIR) $(@D)
 	$(CC) $(LIB_FLAGS) -o $@ $(LOGIC_OBJS) \
-	  -L$(LIB_DIR) -lsh23store -lsh23base $(LDFLAGS)
+	  -L$(LIB_DIR) -lmgshstore -lmgshbase $(LDFLAGS)
 else
 $(BASE_LIB): $(BASE_OBJS)
 	$(MKDIR) $(@D)
@@ -236,7 +246,7 @@ endif
 $(BIN_DIR)/mgsh: $(MAIN_OBJ) $(LOGIC_LIB) $(STORE_LIB) $(BASE_LIB)
 	$(MKDIR) $(@D)
 	$(CC) -o $@ $(MAIN_OBJ) \
-	  -L$(LIB_DIR) -lsh23logic -lsh23store -lsh23base $(LDFLAGS)
+	  -L$(LIB_DIR) -lmgshlogic -lmgshstore -lmgshbase $(LDFLAGS)
 
 mgsh: $(BIN_DIR)/mgsh
 
@@ -244,14 +254,33 @@ mgsh: $(BIN_DIR)/mgsh
 # Test executables
 # --------------------------------------------------------------------------
 
-define BUILD_TEST
+# Base tests: only depend on mgshbase
+define BUILD_BASE_TEST
+$(TEST_DIR)/$(notdir $(basename $1)): $1 $(CTEST_OBJ) $(BASE_LIB)
+	@test -n "$(@D)" && $(MKDIR) $(@D) || true
+	$(CC) $(CFLAGS) $(PIC_FLAGS) -DIN_CTEST -I test/ctest -o $$@ $$< $(CTEST_OBJ) \
+	  -L$(LIB_DIR) -lmgshbase $(LDFLAGS)
+endef
+
+# Store tests: depend on mgshstore and mgshbase
+define BUILD_STORE_TEST
+$(TEST_DIR)/$(notdir $(basename $1)): $1 $(CTEST_OBJ) $(STORE_LIB) $(BASE_LIB)
+	@test -n "$(@D)" && $(MKDIR) $(@D) || true
+	$(CC) $(CFLAGS) $(PIC_FLAGS) -DIN_CTEST -I test/ctest -o $$@ $$< $(CTEST_OBJ) \
+	  -L$(LIB_DIR) -lmgshstore -lmgshbase $(LDFLAGS)
+endef
+
+# Logic tests: depend on all libraries
+define BUILD_LOGIC_TEST
 $(TEST_DIR)/$(notdir $(basename $1)): $1 $(CTEST_OBJ) $(LOGIC_LIB) $(STORE_LIB) $(BASE_LIB)
 	@test -n "$(@D)" && $(MKDIR) $(@D) || true
 	$(CC) $(CFLAGS) $(PIC_FLAGS) -DIN_CTEST -I test/ctest -o $$@ $$< $(CTEST_OBJ) \
-	  -L$(LIB_DIR) -lsh23logic -lsh23store -lsh23base $(LDFLAGS)
+	  -L$(LIB_DIR) -lmgshlogic -lmgshstore -lmgshbase $(LDFLAGS)
 endef
 
-$(foreach test,$(ALL_TEST_SOURCES),$(eval $(call BUILD_TEST,$(test))))
+$(foreach test,$(BASE_TESTS),$(eval $(call BUILD_BASE_TEST,$(test))))
+$(foreach test,$(STORE_TESTS),$(eval $(call BUILD_STORE_TEST,$(test))))
+$(foreach test,$(LOGIC_TESTS),$(eval $(call BUILD_LOGIC_TEST,$(test))))
 
 TEST_EXES := $(addprefix $(TEST_DIR)/,$(notdir $(basename $(ALL_TEST_SOURCES))))
 

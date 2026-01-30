@@ -4,6 +4,12 @@
 #include "logging.h"
 #include "string_t.h"
 
+struct alias_t
+{
+    string_t *name;
+    string_t *value;
+};
+
 typedef struct alias_t alias_t;
 
 // Constructors
