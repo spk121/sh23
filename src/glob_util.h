@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "string_t.h"
+#include "string_list.h"
 
 /* ============================================================================
  * Pattern Matching (fnmatch-like API)

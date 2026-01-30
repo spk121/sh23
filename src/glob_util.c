@@ -4,6 +4,8 @@
 
 #include "glob_util.h"
 #include "logging.h"
+#include "string_t.h"
+#include "string_list.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -46,12 +48,48 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
 #else
 
 /**
+ * Helper: Compare two characters, optionally case-insensitive.
+ * Returns true if characters match (according to flags).
+ */
+static inline int chars_match(char c1, char c2, int flags)
+{
+    if (c1 == c2)
+        return 1;
+    if (flags & GLOB_UTIL_CASEFOLD)
+    {
+        // Case-insensitive: convert to lowercase and compare
+        char lower_c1 = (c1 >= 'A' && c1 <= 'Z') ? (c1 - 'A' + 'a') : c1;
+        char lower_c2 = (c2 >= 'A' && c2 <= 'Z') ? (c2 - 'A' + 'a') : c2;
+        return lower_c1 == lower_c2;
+    }
+    return 0;
+}
+
+/**
+ * Helper: Compare two characters for range matching (case-insensitive if needed).
+ * Returns true if c is within the range [start, end].
+ */
+static inline int char_in_range(char c, char start, char end, int flags)
+{
+    if (flags & GLOB_UTIL_CASEFOLD)
+    {
+        // Normalize to lowercase for comparison
+        char lower_c = (c >= 'A' && c <= 'Z') ? (c - 'A' + 'a') : c;
+        char lower_start = (start >= 'A' && start <= 'Z') ? (start - 'A' + 'a') : start;
+        char lower_end = (end >= 'A' && end <= 'Z') ? (end - 'A' + 'a') : end;
+        return lower_c >= lower_start && lower_c <= lower_end;
+    }
+    return c >= start && c <= end;
+}
+
+/**
  * Custom fnmatch implementation for non-POSIX platforms.
  *
  * This is a comprehensive implementation that supports:
  * - Wildcards: * (zero or more), ? (exactly one)
  * - Character classes: [abc], [a-z], [!abc], [^abc]
  * - Backtracking for proper * matching
+ * - Flags: GLOB_UTIL_PATHNAME, GLOB_UTIL_PERIOD, GLOB_UTIL_NOESCAPE, GLOB_UTIL_CASEFOLD
  *
  * Based on the implementation from pattern_removal.c, enhanced for
  * full glob semantics.
@@ -65,26 +103,50 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
 
     while (*s)
     {
-        if (*p == '*')
+        // Handle escape sequences in pattern (unless GLOB_UTIL_NOESCAPE is set)
+        if (!(flags & GLOB_UTIL_NOESCAPE) && *p == '\\' && p[1])
         {
-            // Handle GLOB_UTIL_PATHNAME flag: * doesn't match /
-            if ((flags & GLOB_UTIL_PATHNAME) && *s == '/')
+            // Escaped character: treat next char as literal, not special
+            p++;
+            if (chars_match(*p, *s, flags))
             {
-                // Move past the * and continue
                 p++;
-                continue;
+                s++;
             }
-
+            else
+            {
+                goto backtrack;
+            }
+        }
+        else if (*p == '*')
+        {
             // Remember this position for backtracking
+            // Note: With GLOB_UTIL_PATHNAME, * matches zero or more non-/ characters.
+            // This is enforced in the backtracking logic, not here.
             star_pattern = p++;
             star_string = s;
         }
-        else if (*p == '?' || *p == *s)
+        else if (*p == '?' || chars_match(*p, *s, flags))
         {
             // Handle GLOB_UTIL_PATHNAME flag: ? doesn't match /
             if (*p == '?' && (flags & GLOB_UTIL_PATHNAME) && *s == '/')
             {
                 goto backtrack;
+            }
+
+            // Handle GLOB_UTIL_PERIOD flag: ? doesn't match leading .
+            if (*p == '?' && (flags & GLOB_UTIL_PERIOD) && *s == '.')
+            {
+                // Check if . is in leading position (start of string or after /)
+                int is_leading = (s == string);
+                if (!is_leading && (flags & GLOB_UTIL_PATHNAME) && s > string && s[-1] == '/')
+                {
+                    is_leading = 1;
+                }
+                if (is_leading)
+                {
+                    goto backtrack;
+                }
             }
 
             // '?' matches any character, or exact match
@@ -104,27 +166,48 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
                 p++;
             }
 
-            // Handle special case: ] as first character in class
+            // Handle special case: ] immediately after [ is literal ]
+            // This is required by POSIX: ] as first character doesn't close the class.
+            // This allows [] to match ] and requires another ] to close the class.
             if (*p == ']')
             {
-                if (*s == ']')
+                if (chars_match(*s, ']', flags))
                     matched = 1;
                 p++;
             }
 
-            while (*p && *p != ']')
+            // Parse remaining characters in the class until we find unescaped ]
+            while (*p)
             {
-                if (p[1] == '-' && p[2] != ']' && p[2] != '\0')
+                int is_escaped = 0;
+
+                // Handle escape sequences if GLOB_UTIL_NOESCAPE is not set.
+                // An escaped character loses any special meaning (-, ], etc.)
+                if (!(flags & GLOB_UTIL_NOESCAPE) && *p == '\\' && p[1])
                 {
-                    // Range: a-z
-                    if (*s >= *p && *s <= p[2])
+                    is_escaped = 1;
+                    p++;
+                }
+
+                // Check for end of class: unescaped ]
+                // This can't be the first ] (handled above), so it terminates the class
+                if (!is_escaped && *p == ']')
+                {
+                    break;
+                }
+
+                // Check for range operator: char1-char2
+                if (!is_escaped && p[1] == '-' && p[2] != ']' && p[2] != '\0')
+                {
+                    // Range found: match if string char is within [p to p[2]]
+                    if (char_in_range(*s, *p, p[2], flags))
                         matched = 1;
                     p += 3;
                 }
                 else
                 {
-                    // Single character
-                    if (*s == *p)
+                    // Single character in set (either escaped or regular)
+                    if (chars_match(*s, *p, flags))
                         matched = 1;
                     p++;
                 }
@@ -146,6 +229,28 @@ backtrack:
             {
                 p = star_pattern + 1;
                 s = ++star_string;
+
+                // Handle GLOB_UTIL_PERIOD: * doesn't match leading .
+                if ((flags & GLOB_UTIL_PERIOD) && *s == '.')
+                {
+                    // Check if . is in leading position (start of string or after /)
+                    int is_leading = (s == string);
+                    if (!is_leading && (flags & GLOB_UTIL_PATHNAME) && s > string && s[-1] == '/')
+                    {
+                        is_leading = 1;
+                    }
+                    if (is_leading)
+                    {
+                        return false;
+                    }
+                }
+
+                // With GLOB_UTIL_PATHNAME, * doesn't match / character.
+                // When backtracking, if we hit a /, the * can't match past it, so fail.
+                if ((flags & GLOB_UTIL_PATHNAME) && *s == '/')
+                {
+                    return false;
+                }
             }
             else
             {
@@ -188,7 +293,7 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
     /* WRDE_NOCMD: prevent command substitution (security)
      * WRDE_UNDEF: fail on undefined variables (like $foo)
-     * No WRDE_SHOWERR — we silence errors about ~nonexistentuser
+     * No WRDE_SHOWERR ï¿½ we silence errors about ~nonexistentuser
      */
     ret = wordexp(pattern_str, &we, WRDE_NOCMD | WRDE_UNDEF);
 
