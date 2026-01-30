@@ -8,6 +8,7 @@
 #include "logging.h"
 #include "parser.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "tokenizer.h"
 #include "variable_store.h"
 #include "xalloc.h"
@@ -79,6 +80,10 @@ static bool is_alpha_or_underscore(char c) {
     return isalpha(c) || c == '_';
 }
 
+static bool is_alnum_or_underscore(char c) {
+    return isalnum(c) || c == '_';
+}
+
 // Initialize parser
 static void parser_init(math_parser_t *parser, exec_t *exp, variable_store_t *vars, const string_t *input) {
     parser->input = string_create_from(input);
@@ -106,19 +111,67 @@ static math_token_t get_token(math_parser_t *parser) {
 
     char c = string_at(parser->input, parser->pos);
     if (isdigit(c)) {
-        // FIXME: need to handle hex, octal?
-        int endpos;
-        long value = string_atol_at(parser->input, parser->pos, &endpos);
+        // POSIX requires decimal, octal (0 prefix), and hexadecimal (0x/0X prefix)
+        long value = 0;
+        int len = string_length(parser->input);
+
+        if (c == '0' && parser->pos + 1 < len) {
+            char next = string_at(parser->input, parser->pos + 1);
+            if (next == 'x' || next == 'X') {
+                // Hexadecimal: 0x or 0X prefix
+                parser->pos += 2;
+                while (parser->pos < len) {
+                    char h = string_at(parser->input, parser->pos);
+                    if (h >= '0' && h <= '9') {
+                        value = value * 16 + (h - '0');
+                    } else if (h >= 'a' && h <= 'f') {
+                        value = value * 16 + (h - 'a' + 10);
+                    } else if (h >= 'A' && h <= 'F') {
+                        value = value * 16 + (h - 'A' + 10);
+                    } else {
+                        break;
+                    }
+                    parser->pos++;
+                }
+            } else if (next >= '0' && next <= '7') {
+                // Octal: leading 0
+                parser->pos++;
+                while (parser->pos < len) {
+                    char o = string_at(parser->input, parser->pos);
+                    if (o >= '0' && o <= '7') {
+                        value = value * 8 + (o - '0');
+                    } else {
+                        break;
+                    }
+                    parser->pos++;
+                }
+            } else {
+                // Just a single 0
+                parser->pos++;
+            }
+        } else {
+            // Decimal
+            while (parser->pos < len) {
+                char d = string_at(parser->input, parser->pos);
+                if (d >= '0' && d <= '9') {
+                    value = value * 10 + (d - '0');
+                } else {
+                    break;
+                }
+                parser->pos++;
+            }
+        }
+
         token.type = MATH_TOKEN_NUMBER;
         token.number = value;
-        parser->pos = endpos;
         return token;
     }
 
     if (isalpha(c) || c == '_') {
-        // Parse variable name
-        int endpos = string_find_first_not_of_predicate_at(parser->input, is_alpha_or_underscore, parser->pos);
+        // Parse variable name: first char is alpha/underscore, rest can include digits
+        int endpos = string_find_first_not_of_predicate_at(parser->input, is_alnum_or_underscore, parser->pos);
         string_t *var = string_substring(parser->input, parser->pos, endpos);
+        parser->pos = endpos;
         token.type = MATH_TOKEN_VARIABLE;
         token.variable = var;
         string_destroy(&var);

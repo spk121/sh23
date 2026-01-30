@@ -80,7 +80,7 @@ fd_table_t *fd_table_create(void);
  * @param src Source FD table to copy
  * @return Pointer to new fd_table_t copy, or NULL on allocation failure
  */
-fd_table_t *fd_table_copy(const fd_table_t *src);
+fd_table_t *fd_table_clone(const fd_table_t *src);
 
 /**
  * @brief Destroy an FD table and free all resources

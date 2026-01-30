@@ -176,6 +176,7 @@ BASE_TESTS := \
 STORE_TESTS := \
 	test/mgsh/test_alias_ctest.c \
 	test/mgsh/test_ast_ctest.c \
+	test/mgsh/test_fd_table_ctest.c \
 	test/mgsh/test_sig_act_ctest.c
 
 LOGIC_TESTS := \
@@ -189,6 +190,8 @@ LOGIC_TESTS := \
 	test/mgsh/test_ast_heredoc_ctest.c \
 	test/mgsh/test_tokenizer_ctest.c \
 	test/mgsh/test_expander_ctest.c \
+	test/mgsh/test_arithmetic_ctest.c
+
 	# test/mgsh/test_exec_ctest.c
 
 ALL_TEST_SOURCES := $(BASE_TESTS) $(STORE_TESTS) $(LOGIC_TESTS)
