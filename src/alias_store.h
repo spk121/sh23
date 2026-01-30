@@ -18,7 +18,6 @@ bool alias_name_is_valid(const char *name);
 
 // Constructors
 alias_store_t *alias_store_create(void);
-alias_store_t *alias_store_create_with_capacity(int capacity);
 alias_store_t *alias_store_clone(const alias_store_t *other);
 
 // Destructor
