@@ -6,7 +6,6 @@
 #include <stddef.h>
 
 // Function pointer types
-typedef void (*alias_array_free_func_t)(alias_t **element);
 typedef void (*alias_array_apply_func_t)(alias_t *element, void *user_data);
 typedef int (*alias_array_compare_func_t)(const alias_t *element, const void *user_data);
 
@@ -15,14 +14,12 @@ struct alias_array_t
     alias_t **data;
     int size;
     int capacity;
-    alias_array_free_func_t free_func;
 };
 
 typedef struct alias_array_t alias_array_t;
 
 // Create and destroy
 alias_array_t *alias_array_create(void);
-alias_array_t *alias_array_create_with_free(alias_array_free_func_t free_func);
 void alias_array_destroy(alias_array_t **array);
 
 // Accessors
