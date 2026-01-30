@@ -41,7 +41,6 @@ typedef struct process_t
 #endif
     int exit_status;        // Exit status (if done) or signal number (if terminated)
     job_state_t state;      // Current state of this process
-    int padding;
 } process_t;
 
 // ============================================================================
@@ -61,7 +60,6 @@ typedef struct job_t
     job_state_t state;      // Overall state of the job
     bool is_background;     // Whether job was started with &
     bool is_notified;       // Whether user has been notified of status change
-    char padding[2];
     struct job_t *next;     // Next job in the job list
 } job_t;
 
@@ -76,7 +74,6 @@ typedef struct job_store_t
     job_t *previous_job; // Job referenced by %-
     size_t job_count;    // Number of jobs in the list
     int next_job_id;     // Next job ID to assign
-    int padding;
 } job_store_t;
 
 // ============================================================================
@@ -155,6 +152,41 @@ job_t *job_store_get_current(const job_store_t *store);
  * @return Pointer to the previous job, or NULL if none
  */
 job_t *job_store_get_previous(const job_store_t *store);
+
+/**
+ * Find a job by command prefix (for %string syntax).
+ * POSIX requires: if "string" matches the beginning of the command line,
+ * return that job. If multiple jobs match, the most recent is returned.
+ *
+ * @param store The job store
+ * @param prefix The prefix to match
+ * @return Pointer to the matching job, or NULL if none
+ */
+job_t *job_store_find_by_prefix(job_store_t *store, const char *prefix);
+
+/**
+ * Find a job by command substring (for %?string syntax).
+ * POSIX requires: if "string" appears anywhere in the command line,
+ * return that job. If multiple jobs match, the most recent is returned.
+ *
+ * @param store The job store
+ * @param substring The substring to match
+ * @return Pointer to the matching job, or NULL if none
+ */
+job_t *job_store_find_by_substring(job_store_t *store, const char *substring);
+
+/**
+ * Find a job by process group ID.
+ *
+ * @param store The job store
+ * @param pgid The process group ID
+ * @return Pointer to the job, or NULL if not found
+ */
+#ifdef POSIX_API
+job_t *job_store_find_by_pgid(job_store_t *store, pid_t pgid);
+#else
+job_t *job_store_find_by_pgid(job_store_t *store, int pgid);
+#endif
 
 // ============================================================================
 // Job State Management
@@ -247,5 +279,23 @@ bool job_is_running(const job_t *job);
  * @return true if job is completed, false otherwise
  */
 bool job_is_completed(const job_t *job);
+
+/**
+ * Get the first job in the store (most recent).
+ * Used to iterate through jobs for 'jobs' builtin.
+ *
+ * @param store The job store
+ * @return Pointer to first job, or NULL if empty
+ */
+job_t *job_store_first(const job_store_t *store);
+
+/**
+ * Get the name of a job state as a string.
+ * Used for displaying job status.
+ *
+ * @param state The job state
+ * @return String representation ("Running", "Stopped", "Done", "Terminated")
+ */
+const char *job_state_to_string(job_state_t state);
 
 #endif // JOB_STORE_H

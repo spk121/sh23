@@ -262,6 +262,70 @@ job_t *job_store_get_previous(const job_store_t *store)
     return store ? store->previous_job : NULL;
 }
 
+job_t *job_store_find_by_prefix(job_store_t *store, const char *prefix)
+{
+    if (!store || !prefix)
+        return NULL;
+
+    size_t prefix_len = strlen(prefix);
+    if (prefix_len == 0)
+        return NULL;
+
+    // Search from most recent to oldest (front of list is most recent)
+    for (job_t *job = store->jobs; job; job = job->next)
+    {
+        if (job->command_line)
+        {
+            const char *cmd = string_cstr(job->command_line);
+            if (strncmp(cmd, prefix, prefix_len) == 0)
+                return job;
+        }
+    }
+
+    return NULL;
+}
+
+job_t *job_store_find_by_substring(job_store_t *store, const char *substring)
+{
+    if (!store || !substring)
+        return NULL;
+
+    size_t substring_len = strlen(substring);
+    if (substring_len == 0)
+        return NULL;
+
+    // Search from most recent to oldest (front of list is most recent)
+    for (job_t *job = store->jobs; job; job = job->next)
+    {
+        if (job->command_line)
+        {
+            const char *cmd = string_cstr(job->command_line);
+            if (strstr(cmd, substring) != NULL)
+                return job;
+        }
+    }
+
+    return NULL;
+}
+
+#ifdef POSIX_API
+job_t *job_store_find_by_pgid(job_store_t *store, pid_t pgid)
+#else
+job_t *job_store_find_by_pgid(job_store_t *store, int pgid)
+#endif
+{
+    if (!store)
+        return NULL;
+
+    for (job_t *job = store->jobs; job; job = job->next)
+    {
+        if (job->pgid == pgid)
+            return job;
+    }
+
+    return NULL;
+}
+
 // ============================================================================
 // Job State Management
 // ============================================================================
@@ -432,9 +496,14 @@ bool job_is_running(const job_t *job)
 
 bool job_is_completed(const job_t *job)
 {
-    if (!job || !job->processes)
+    if (!job)
         return false;
 
+    // If job has no processes, check the job's overall state
+    if (!job->processes)
+        return (job->state == JOB_DONE || job->state == JOB_TERMINATED);
+
+    // If job has processes, check each process state
     for (const process_t *proc = job->processes; proc; proc = proc->next)
     {
         if (proc->state == JOB_RUNNING || proc->state == JOB_STOPPED)
@@ -442,4 +511,26 @@ bool job_is_completed(const job_t *job)
     }
 
     return true;
+}
+
+job_t *job_store_first(const job_store_t *store)
+{
+    return store ? store->jobs : NULL;
+}
+
+const char *job_state_to_string(job_state_t state)
+{
+    switch (state)
+    {
+        case JOB_RUNNING:
+            return "Running";
+        case JOB_STOPPED:
+            return "Stopped";
+        case JOB_DONE:
+            return "Done";
+        case JOB_TERMINATED:
+            return "Terminated";
+        default:
+            return "Unknown";
+    }
 }
