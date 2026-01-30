@@ -55,7 +55,7 @@ alias_store_t *alias_store_create_with_capacity(int capacity)
     Expects_ge(capacity, 0);
 
     alias_store_t *store = xmalloc(sizeof(alias_store_t));
-    store->aliases = alias_array_create_with_free((alias_array_free_func_t)alias_destroy);
+    store->aliases = alias_array_create();
 
     if (capacity > 0)
     {
@@ -69,7 +69,7 @@ alias_store_t *alias_store_create_with_capacity(int capacity)
 }
 
 // Deep copy an alias store
-alias_store_t *alias_store_copy(const alias_store_t *other)
+alias_store_t *alias_store_clone(const alias_store_t *other)
 {
     Expects_not_null(other);
     Expects_not_null(other->aliases);
@@ -89,7 +89,7 @@ alias_store_t *alias_store_copy(const alias_store_t *other)
         alias_store_add(new_store, name, value);
     }
 
-    // log_debug("alias_store_copy: copied store %p to new store %p",
+    // log_debug("alias_store_clone: copied store %p to new store %p",
     //          other, new_store);
 
     return new_store;
