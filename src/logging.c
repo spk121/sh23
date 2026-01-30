@@ -1,5 +1,6 @@
 #include "logging.h"
 #include <stdarg.h>
+#include <stdlib.h>
 
 #ifdef POSIX_API
 #include <strings.h> // For strcasecmp
@@ -8,6 +9,9 @@
 #else
 #include "lib.h" // For ascii_strcasecmp
 #endif
+
+// Constants
+#define LOG_MESSAGE_BUFFER_SIZE 1024
 
 // Define the global threshold
 LogLevel g_log_threshold = LOG_LEVEL_ERROR; // Default to ERROR level
@@ -23,16 +27,32 @@ static void log_message(LogLevel level, const char *level_str, const char *forma
         return;
     }
 
-    char *buffer = malloc(1024); // Mutable buffer for vsnprintf
+    char *buffer = malloc(LOG_MESSAGE_BUFFER_SIZE);
     if (buffer == NULL)
     {
         fprintf(stderr, "[%s] Failed to allocate log buffer\n", level_str);
+        fflush(stderr);
+        if (level >= g_log_abort_level && level != LOG_LEVEL_NONE)
+        {
+            abort();
+        }
         return;
     }
 
-    vsnprintf(buffer, 1024, format, args);
-
-    fprintf(stderr, "[%s] %s\n", level_str, buffer);
+    int written = vsnprintf(buffer, LOG_MESSAGE_BUFFER_SIZE, format, args);
+    if (written < 0)
+    {
+        fprintf(stderr, "[%s] Failed to format log message\n", level_str);
+    }
+    else if (written >= LOG_MESSAGE_BUFFER_SIZE)
+    {
+        fprintf(stderr, "[%s] Log message truncated (needed %d bytes)\n", level_str, written + 1);
+        fprintf(stderr, "[%s] %s\n", level_str, buffer);
+    }
+    else
+    {
+        fprintf(stderr, "[%s] %s\n", level_str, buffer);
+    }
     fflush(stderr);
     free(buffer);
 

@@ -421,14 +421,12 @@ void log_fatal(const char *format, ...);
         _Analysis_assume_((ptr) != 0);                                                               \
     } while (0)
 #else
-#define Expects_not_null(ptr)                                                                  \
-        do                                                                                         \
-        {                                                                                          \
-            if ((ptr) == NULL)                                                                     \
-            {                                                                                      \
+#define Expects_not_null(ptr)                                                                      \
+        do {                                                                                       \
+            if ((ptr) == NULL) {                                                                     \
                 log_fatal("Contract violation at %s:%d - %s is NULL", __func__, __LINE__, #ptr);   \
-            }
-while (0)
+            } \
+        } while (0)
 #endif
 
 
