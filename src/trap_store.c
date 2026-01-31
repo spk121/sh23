@@ -3,8 +3,11 @@
 // ============================================================================
 
 #include "trap_store.h"
+#include "sig_act.h"
 #include "xalloc.h"
 #include <string.h>
+#include "logging.h"
+#include <errno.h>
 
 // Platform-specific signal support gates
 #ifdef TRAP_USE_POSIX_SIGNALS
@@ -80,7 +83,7 @@ static inline int get_max_signal_number(void)
     return max;
 }
 
-#elif defined(UCRT_API)
+#elifdef TRAP_USE_UCRT_SIGNALS
 // UCRT signals: ABRT, FPE, ILL, INT, SEGV, TERM
 #define TRAP_SIGNAL_COUNT 6
 
@@ -153,8 +156,8 @@ trap_store_t *trap_store_create(void)
 
 void trap_store_destroy(trap_store_t **store_ptr)
 {
-    if (!store_ptr || !*store_ptr)
-        return;
+    Expects_not_null(store_ptr);
+    Expects_not_null(*store_ptr);
 
     trap_store_t *store = *store_ptr;
 
@@ -174,10 +177,9 @@ void trap_store_destroy(trap_store_t **store_ptr)
     *store_ptr = NULL;
 }
 
-trap_store_t *trap_store_copy(const trap_store_t *store)
+trap_store_t *trap_store_clone(const trap_store_t *store)
 {
-    if (!store)
-        return NULL;
+    Expects_not_null(store);
 
     trap_store_t *copy = trap_store_create();
 
@@ -197,15 +199,140 @@ trap_store_t *trap_store_copy(const trap_store_t *store)
     return copy;
 }
 
+static trap_store_t *signal_handler_trap_store = NULL;
+static sig_act_store_t *signal_handler_sig_act_store = NULL;
+
+void trap_store_set_current(trap_store_t* store)
+{
+    Expects_not_null(store);
+    signal_handler_trap_store = store;
+}
+
+trap_store_t *trap_store_get_current(void)
+{
+    return signal_handler_trap_store;
+}
+
+void trap_store_set_sig_act_store(sig_act_store_t *store)
+{
+    signal_handler_sig_act_store = store;
+}
+
+sig_act_store_t *trap_store_get_sig_act_store(void)
+{
+    return signal_handler_sig_act_store;
+}
+
+// ============================================================================
+// Trap Execution Functions
+// ============================================================================
+
+static int execute_trap_action(const trap_action_t *trap)
+{
+    if (!trap || !trap->action)
+        return -1;
+    // Here we would normally execute the command string in the shell context.
+    // For this example, we'll just print it to indicate execution.
+    printf("Executing trap action for signal %d: %s\n",
+           trap->signal_number, string_cstr(trap->action));
+    // In a real shell, we would execute the command and return its exit status.
+    return 0; // Indicate success
+}
+
+#ifdef TRAP_USE_POSIX_SIGNALS
+    // POSIX uses a sigaction handler
+void trap_handler(int signal, siginfo_t *info, void *context)
+{
+    /* This handler initializes the execution of a shell command string
+     * based on the received signal and context information.*/
+    trap_store_t *trap_store = trap_store_get_current();
+    if (!trap_store)
+        return;
+
+    // Get the trap action for the received signal
+    const trap_action_t *trap = trap_store_get(trap_store, signal);
+    if (!trap)
+        return;
+
+    // Execute the trap action
+    execute_trap_action(trap);
+}
+#elifdef TRAP_USE_UCRT_SIGNALS
+int trap_handler(int signal, int fpe_code)
+{
+    /* This handler initializes the execution of a shell command string
+     * based on the received signal. The fpe_code parameter distinguishes
+     * different FPE exception types (FPE_INTDIV, FPE_FLTDIV, etc.) on UCRT,
+     * but since shell arithmetic is performed on 'long' integers (not
+     * floating-point), FPE exceptions should be rare or impossible.
+     * We treat all FPE exceptions the same: lookup and execute the single
+     * trap action set for SIGFPE. */
+    (void)fpe_code; // Suppress unused parameter warning
+
+    trap_store_t *trap_store = trap_store_get_current();
+    if (!trap_store)
+        return -1;
+
+    // Get the trap action for the received signal (handles all FPE types)
+    const trap_action_t *trap = trap_store_get(trap_store, signal);
+    if (!trap)
+        return -1;
+
+    // Execute the trap action
+    return execute_trap_action(trap);
+}
+#else
+    // ISO C signal support
+void trap_handler(int signal)
+{
+    /* This handler initializes the execution of a shell command string
+     * based on the received signal.*/
+    trap_store_t *trap_store = trap_store_get_current();
+    if (!trap_store)
+        return;
+
+    // Get the trap action for the received signal
+    const trap_action_t *trap = trap_store_get(trap_store, signal);
+    if (!trap)
+        return;
+    // Execute the trap action
+    execute_trap_action(trap);
+}
+#endif
+
 // ============================================================================
 // Set/Get Functions
 // ============================================================================
 
-void trap_store_set(trap_store_t *store, int signal_number, string_t *action, bool is_ignored,
+static bool is_non_catchable_signal(int signal_number)
+{
+    // SIGKILL and SIGSTOP cannot be caught or ignored
+#ifdef SIGKILL
+    if (signal_number == SIGKILL)
+        return true;
+#endif
+#ifdef SIGSTOP
+    if (signal_number == SIGSTOP)
+        return true;
+#endif
+    return false;
+}
+
+bool trap_store_set(trap_store_t *store, int signal_number, string_t *action, bool is_ignored,
                     bool is_default)
 {
-    if (!store || signal_number < 0 || (size_t)signal_number >= store->capacity)
-        return;
+    Expects_not_null(store);
+    Expects_ge(signal_number, 0);
+    Expects_lt(signal_number, (int)store->capacity);
+
+    // EXIT trap (signal 0) is not a real signal, doesn't need handler installation
+    if (signal_number == 0)
+    {
+        return trap_store_set_exit(store, action, is_ignored, is_default);
+    }
+
+    // SIGKILL and SIGSTOP cannot be caught
+    Expects_false(is_non_catchable_signal(signal_number));
 
     trap_action_t *trap = &store->traps[signal_number];
 
@@ -217,12 +344,87 @@ void trap_store_set(trap_store_t *store, int signal_number, string_t *action, bo
     trap->action = action ? string_create_from(action) : NULL;
     trap->is_ignored = is_ignored;
     trap->is_default = is_default;
+
+    // Install the signal handler or restore default/ignore disposition
+#ifdef TRAP_USE_POSIX_SIGNALS
+    {
+        struct sigaction sa;
+        memset(&sa, 0, sizeof(sa));
+
+        if (is_ignored)
+        {
+            // Ignore this signal
+            sa.sa_handler = SIG_IGN;
+            if (sigaction(signal_number, &sa, NULL) == -1)
+                return false; // sigaction failed
+        }
+        else if (is_default)
+        {
+            // Restore default handler
+            sa.sa_handler = SIG_DFL;
+            if (sigaction(signal_number, &sa, NULL) == -1)
+                return false; // sigaction failed
+        }
+        else if (trap->action)
+        {
+            // Install trap handler
+            sig_act_store_t *sig_act_store = trap_store_get_sig_act_store();
+            if (sig_act_store)
+            {
+                sa.sa_sigaction = trap_handler;
+                sa.sa_flags = SA_SIGINFO;
+                sigemptyset(&sa.sa_mask);
+                if (sig_act_store_set_and_save(sig_act_store, signal_number, &sa) == -1)
+                    return false; // sig_act_store_set_and_save failed
+            }
+            else
+            {
+                // Fallback: just use sigaction directly
+                sa.sa_sigaction = trap_handler;
+                sa.sa_flags = SA_SIGINFO;
+                sigemptyset(&sa.sa_mask);
+                if (sigaction(signal_number, &sa, NULL) == -1)
+                    return false; // sigaction failed
+            }
+        }
+    }
+#else
+    // UCRT and ISO C use signal()
+    if (is_ignored)
+    {
+        if (signal(signal_number, SIG_IGN) == SIG_ERR)
+            return false; // signal() failed
+    }
+    else if (is_default)
+    {
+        if (signal(signal_number, SIG_DFL) == SIG_ERR)
+            return false; // signal() failed
+    }
+    else if (trap->action)
+    {
+        // Install trap handler
+        sig_act_store_t *sig_act_store = trap_store_get_sig_act_store();
+        if (sig_act_store)
+        {
+            void (*result)(int) = sig_act_store_set_and_save(sig_act_store, signal_number, trap_handler);
+            if (result == SIG_ERR)
+                return false; // sig_act_store_set_and_save failed
+        }
+        else
+        {
+            // Fallback: just use signal() directly
+            if (signal(signal_number, trap_handler) == SIG_ERR)
+                return false; // signal() failed
+        }
+    }
+#endif
+
+    return true; // Success
 }
 
-void trap_store_set_exit(trap_store_t *store, string_t *action, bool is_ignored, bool is_default)
+bool trap_store_set_exit(trap_store_t *store, string_t *action, bool is_ignored, bool is_default)
 {
-    if (!store)
-        return;
+    Expects_not_null(store);
 
     if (store->exit_action)
         string_destroy(&store->exit_action);
@@ -231,15 +433,19 @@ void trap_store_set_exit(trap_store_t *store, string_t *action, bool is_ignored,
     store->exit_action = action ? string_create_from(action) : NULL;
 
     // Note: EXIT trap doesn't use is_ignored/is_default the same way
-    // as signal traps, but we could extend the struct to track this if needed
+    // as signal traps, but we could extend the struct to track this if needed.
+    // EXIT traps don't install OS signal handlers, so this always succeeds.
     (void)is_ignored;
     (void)is_default;
+
+    return true; // EXIT trap setup always succeeds (no OS calls needed)
 }
 
 const trap_action_t *trap_store_get(const trap_store_t *store, int signal_number)
 {
-    if (!store || signal_number < 0 || (size_t)signal_number >= store->capacity)
-        return NULL;
+    Expects_not_null(store);
+    Expects_ge(signal_number, 0);
+    Expects_lt(signal_number, (int)store->capacity);
 
     const trap_action_t *trap = &store->traps[signal_number];
 
@@ -252,16 +458,45 @@ const trap_action_t *trap_store_get(const trap_store_t *store, int signal_number
 
 const string_t *trap_store_get_exit(const trap_store_t *store)
 {
-    if (!store || !store->exit_trap_set)
-        return NULL;
+    Expects_not_null(store);
+    Expects_true(store->exit_trap_set);
 
     return store->exit_action;
 }
 
+#ifdef TRAP_USE_UCRT_SIGNALS
+const trap_action_t *trap_store_get_fpe(const trap_store_t *store, int fpe_code)
+{
+    Expects_not_null(store);
+
+    /* FPE trap simplification: UCRT SIGFPE handler can receive different
+     * exception type codes (FPE_INTDIV, FPE_INTOVF, FPE_FLTDIV, FPE_FLTOVF,
+     * FPE_FLTUND, FPE_FLTRES, FPE_FLTINV). However, since shell arithmetic
+     * is performed on 'long' integers and not floating-point, FPE exceptions
+     * should be rare or impossible. We store and return a single FPE trap
+     * action for all exception types.
+     *
+     * The fpe_code parameter is accepted but currently ignored, allowing for
+     * future per-exception-type handling if needed.
+     * (fpe_code examples: FPE_INTDIV, FPE_INTOVF, FPE_FLTDIV, FPE_FLTOVF, etc.)
+     */
+    (void)fpe_code; // Suppress unused parameter warning
+
+    trap_action_t *trap = &store->fpe_trap;
+
+    // Only return if FPE trap is actually set (not default)
+    if (trap->is_default && !trap->is_ignored && !trap->action)
+        return NULL;
+
+    return trap;
+}
+#endif
+
 bool trap_store_is_set(const trap_store_t *store, int signal_number)
 {
-    if (!store || signal_number < 0 || (size_t)signal_number >= store->capacity)
-        return false;
+    Expects_not_null(store);
+    Expects_ge(signal_number, 0);
+    Expects_lt(signal_number, (int)store->capacity);
 
     const trap_action_t *trap = &store->traps[signal_number];
     return !trap->is_default || trap->is_ignored || trap->action != NULL;
@@ -269,13 +504,22 @@ bool trap_store_is_set(const trap_store_t *store, int signal_number)
 
 bool trap_store_is_exit_set(const trap_store_t *store)
 {
-    return store && store->exit_trap_set;
+    Expects_not_null(store);
+    return store->exit_trap_set;
 }
 
 void trap_store_clear(trap_store_t *store, int signal_number)
 {
-    if (!store || signal_number < 0 || (size_t)signal_number >= store->capacity)
+    Expects_not_null(store);
+    Expects_ge(signal_number, 0);
+    Expects_lt(signal_number, (int)store->capacity);
+
+    // EXIT trap (signal 0) is not a real signal
+    if (signal_number == 0)
+    {
+        trap_store_clear_exit(store);
         return;
+    }
 
     trap_action_t *trap = &store->traps[signal_number];
 
@@ -285,12 +529,23 @@ void trap_store_clear(trap_store_t *store, int signal_number)
     trap->action = NULL;
     trap->is_ignored = false;
     trap->is_default = true;
+
+    // Restore the original signal disposition via sig_act_store
+    sig_act_store_t *sig_act_store = trap_store_get_sig_act_store();
+    if (sig_act_store)
+    {
+        sig_act_store_restore_one(sig_act_store, signal_number);
+    }
+    else
+    {
+        // Fallback: restore to default
+        signal(signal_number, SIG_DFL);
+    }
 }
 
 void trap_store_clear_exit(trap_store_t *store)
 {
-    if (!store)
-        return;
+    Expects_not_null(store);
 
     if (store->exit_action)
         string_destroy(&store->exit_action);
@@ -305,8 +560,7 @@ void trap_store_clear_exit(trap_store_t *store)
 
 int trap_signal_name_to_number(const char *name)
 {
-    if (!name)
-        return -1;
+    Expects_not_null(name);
 
     // Handle special case: EXIT (signal 0)
     if (strcmp(name, "EXIT") == 0)
@@ -421,4 +675,274 @@ int trap_signal_name_to_number(const char *name)
 
     // Signal name not recognized
     return -1;
+}
+
+// Helper to check if a signal name is a known signal (regardless of platform support)
+// Returns true if the name is recognized as a valid signal name
+static bool is_known_signal_name(const char *name)
+{
+    Expects_not_null(name);
+
+    // Handle special case: EXIT (signal 0)
+    if (strcmp(name, "EXIT") == 0)
+        return true;
+
+    // ISO C signals (always known)
+    if (strcmp(name, "ABRT") == 0 || strcmp(name, "FPE") == 0 ||
+        strcmp(name, "ILL") == 0 || strcmp(name, "INT") == 0 ||
+        strcmp(name, "SEGV") == 0 || strcmp(name, "TERM") == 0)
+        return true;
+
+#ifdef TRAP_USE_POSIX_SIGNALS
+    // POSIX signals (known on POSIX platforms)
+    if (strcmp(name, "ALRM") == 0 || strcmp(name, "BUS") == 0 ||
+        strcmp(name, "CHLD") == 0 || strcmp(name, "CONT") == 0 ||
+        strcmp(name, "HUP") == 0 || strcmp(name, "KILL") == 0 ||
+        strcmp(name, "PIPE") == 0 || strcmp(name, "QUIT") == 0 ||
+        strcmp(name, "STOP") == 0 || strcmp(name, "TSTP") == 0 ||
+        strcmp(name, "TTIN") == 0 || strcmp(name, "TTOU") == 0 ||
+        strcmp(name, "USR1") == 0 || strcmp(name, "USR2") == 0 ||
+        strcmp(name, "WINCH") == 0)
+        return true;
+#endif
+
+    return false;
+}
+
+bool trap_signal_name_is_invalid(const char *name)
+{
+    Expects_not_null(name);
+    return !is_known_signal_name(name);
+}
+
+bool trap_signal_name_is_unsupported(const char *name)
+{
+    Expects_not_null(name);
+
+    // If it's invalid, it's not "unsupported" - it's invalid
+    if (!is_known_signal_name(name))
+        return false;
+
+    // If it's known, check if it's actually available on this platform
+    // If trap_signal_name_to_number returns -1, it's unsupported
+    // But we need to exclude EXIT (signal 0) which always succeeds
+    if (strcmp(name, "EXIT") == 0)
+        return false; // EXIT is always supported
+
+    // For all other known signals, check if they're available on this platform
+    return trap_signal_name_to_number(name) == -1;
+}
+
+const char *trap_signal_number_to_name(int signo)
+{
+    Expects_ge(signo, 0);  // Signal numbers must be non-negative (0 for EXIT, >0 for signals)
+
+    // Handle special case: EXIT (signal 0)
+    if (signo == 0)
+        return "EXIT";
+
+    // ISO C signals (available on all platforms)
+    if (signo == SIGABRT)
+        return "ABRT";
+    if (signo == SIGFPE)
+        return "FPE";
+    if (signo == SIGILL)
+        return "ILL";
+    if (signo == SIGINT)
+        return "INT";
+    if (signo == SIGSEGV)
+        return "SEGV";
+    if (signo == SIGTERM)
+        return "TERM";
+
+#ifdef TRAP_USE_POSIX_SIGNALS
+    // POSIX-specific signals
+#ifdef SIGALRM
+    if (signo == SIGALRM)
+        return "ALRM";
+#endif
+#ifdef SIGBUS
+    if (signo == SIGBUS)
+        return "BUS";
+#endif
+#ifdef SIGCHLD
+    if (signo == SIGCHLD)
+        return "CHLD";
+#endif
+#ifdef SIGCONT
+    if (signo == SIGCONT)
+        return "CONT";
+#endif
+#ifdef SIGHUP
+    if (signo == SIGHUP)
+        return "HUP";
+#endif
+#ifdef SIGKILL
+    if (signo == SIGKILL)
+        return "KILL";
+#endif
+#ifdef SIGPIPE
+    if (signo == SIGPIPE)
+        return "PIPE";
+#endif
+#ifdef SIGQUIT
+    if (signo == SIGQUIT)
+        return "QUIT";
+#endif
+#ifdef SIGSTOP
+    if (signo == SIGSTOP)
+        return "STOP";
+#endif
+#ifdef SIGTSTP
+    if (signo == SIGTSTP)
+        return "TSTP";
+#endif
+#ifdef SIGTTIN
+    if (signo == SIGTTIN)
+        return "TTIN";
+#endif
+#ifdef SIGTTOU
+    if (signo == SIGTTOU)
+        return "TTOU";
+#endif
+#ifdef SIGUSR1
+    if (signo == SIGUSR1)
+        return "USR1";
+#endif
+#ifdef SIGUSR2
+    if (signo == SIGUSR2)
+        return "USR2";
+#endif
+#ifdef SIGWINCH
+    if (signo == SIGWINCH)
+        return "WINCH";
+#endif
+#endif
+
+    // Signal number is not recognized in the available signal set
+    // Check if it's a known signal on any platform but unsupported here
+    // We need to check if it's a known ISO C signal that we couldn't match above
+    // (This shouldn't happen as we check all ISO C signals)
+
+    // Check for known POSIX signals that might not be available on this platform
+#ifdef TRAP_USE_POSIX_SIGNALS
+    // If we're on POSIX, all POSIX signals should have been checked above
+    return "INVALID";
+#else
+    // On non-POSIX platforms, check if this is a known POSIX signal
+    // If so, it's unsupported; otherwise it's invalid
+
+    // Create a temporary name variable for the check
+    // We'll use a heuristic: known POSIX signals have specific numbers
+    // But without platform definitions, we can't reliably detect them
+    // So we return "UNSUPPORTED" for any unmatched signal to be conservative
+    // This handles the case where a POSIX system compiled on UCRT might have
+    // signal numbers that don't map to our static list
+
+    // Actually, a safer approach: if the signal number falls in a plausible range,
+    // it might be unsupported; otherwise it's invalid
+    if (signo > 0 && signo < 64)
+        return "UNSUPPORTED"; // Plausible signal number, but not recognized
+    else
+        return "INVALID"; // Out of typical signal range
+#endif
+}
+
+void trap_store_reset_non_ignored(trap_store_t* store)
+{
+    Expects_not_null(store);
+    for (size_t i = 0; i < store->capacity; i++)
+    {
+        trap_action_t* trap = &store->traps[i];
+        if (!trap->is_ignored)
+        {
+            // Reset to default
+            if (trap->action)
+                string_destroy(&trap->action);
+            trap->action = NULL;
+            trap->is_default = true;
+
+            // TODO: where to reset the actual signal handler to SIG_DFL?
+#ifdef TRAP_USE_POSIX_SIGNALS
+            sigaction(trap->signal_number, NULL, NULL);
+#elifdef TRAP_USE_UCRT_SIGNALS
+            if (trap->signal_number == SIGABRT ||
+                trap->signal_number == SIGFPE ||
+                trap->signal_number == SIGILL ||
+                trap->signal_number == SIGINT ||
+                trap->signal_number == SIGSEGV || trap->signal_number == SIGTERM)
+            {
+                signal(trap->signal_number, SIG_DFL);
+            }
+#else
+            // ISO C signal handling
+            if (trap->signal_number == SIGABRT ||
+                trap->signal_number == SIGFPE ||
+                trap->signal_number == SIGILL ||
+                trap->signal_number == SIGINT ||
+                trap->signal_number == SIGSEGV || trap->signal_number == SIGTERM)
+            {
+                signal(trap->signal_number, SIG_DFL);
+            }
+#endif
+        }
+    }
+}
+
+void trap_store_for_each_set_trap(const trap_store_t *store,
+                                   void (*callback)(int signal_number,
+                                                    const trap_action_t *trap,
+                                                    void *context),
+                                   void *context)
+{
+    Expects_not_null(store);
+    Expects_not_null(callback);
+
+    // Iterate through all signal traps in the store
+    for (size_t i = 0; i < store->capacity; i++)
+    {
+        const trap_action_t *trap = &store->traps[i];
+
+        // Only report traps that are actually set (not in default state)
+        if (trap->is_default && !trap->is_ignored && !trap->action)
+            continue; // This trap is not set, skip it
+
+        // Call the callback for this trap
+        callback((int)i, trap, context);
+    }
+
+#ifdef TRAP_USE_UCRT_SIGNALS
+    // Also report FPE trap if it's set
+    const trap_action_t *fpe_trap = &store->fpe_trap;
+    if (!fpe_trap->is_default || fpe_trap->is_ignored || fpe_trap->action)
+    {
+        // FPE is a special case with its own trap, but we need to report it
+        // Use SIGFPE as the signal number for the callback
+        callback(SIGFPE, fpe_trap, context);
+    }
+#endif
+
+    // Report EXIT trap if it's set (signal 0 represents EXIT)
+    if (store->exit_trap_set && store->exit_action)
+    {
+        // Create a temporary trap_action_t for the EXIT trap
+        trap_action_t exit_trap;
+        exit_trap.signal_number = 0;
+        exit_trap.action = store->exit_action;
+        exit_trap.is_ignored = false;
+        exit_trap.is_default = false;
+
+        callback(0, &exit_trap, context);
+    }
+}
+
+void trap_store_run_exit_trap(const trap_store_t* store, exec_frame_t* frame)
+{
+    Expects_not_null(store);
+    Expects_not_null(frame);
+    Expects_true(store->exit_trap_set);
+    Expects_not_null(store->exit_action);
+    // Execute the EXIT trap action
+    printf("Executing EXIT trap action: %s\n", string_cstr(store->exit_action));
+    // In a real shell, we would execute the command and handle its exit status.
 }
