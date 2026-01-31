@@ -63,7 +63,7 @@ typedef struct
 static void init_o_options(o_options_list *opts)
 {
     opts->o_capacity = 8;
-    opts->o_options = malloc(opts->o_capacity * sizeof(char *));
+    opts->o_options = malloc((size_t)opts->o_capacity * sizeof(char *));
     opts->o_count = 0;
 }
 
@@ -94,7 +94,8 @@ static void add_o_option(o_options_list *opts, const char *value, int is_plus)
     if (opts->o_count >= opts->o_capacity)
     {
         opts->o_capacity *= 2;
-        opts->o_options = realloc(opts->o_options, opts->o_capacity * sizeof(char *));
+        opts->o_options = realloc(opts->o_options,
+                  (size_t)opts->o_capacity * sizeof(char *));
     }
 
     size_t len = strlen(value) + 2;
@@ -459,22 +460,27 @@ int main(int argc, char **argv, char **envp)
     char *name =
         command_name ? command_name : ((argc > 0 && argv[0][0]) ? argv[0] : "shell");
 
-    shell_cfg_t cfg = {.mode = mode,
-                       .command_name = name,
-                       .command_string = command_string,
-                       .command_file = command_file,
-                       .arguments = arguments,
-                       .envp = envp,
-                       .flags = {.allexport = flag_a,
-                                 .noclobber = flag_C,
-                                 .errexit = flag_e,
-                                 .noglob = flag_f,
-                                 .monitor = flag_m,
-                                 .noexec = flag_n,
-                                 .nounset = flag_u,
-                                 .verbose = flag_v,
-                                 .vi = false,
-                                 .xtrace = flag_x}};
+
+    shell_cfg_t cfg = {0};
+    cfg.mode = mode;
+    cfg.command_name = name;
+    cfg.command_string = command_string;
+    cfg.command_file = command_file;
+    cfg.arguments = arguments;
+    cfg.envp = envp;
+    cfg.flags = (shell_flags_t){.allexport = flag_a,
+                                .noclobber = flag_C,
+                                .errexit = flag_e,
+                                .noglob = flag_f,
+                                .monitor = flag_m,
+                                .noexec = flag_n,
+                                .nounset = flag_u,
+                                .verbose = flag_v,
+                                .vi = false,
+                                .xtrace = flag_x};
+    exec_cfg_set_from_shell_options(&cfg.exec_cfg, argc, (const char *const *)argv,
+                                               (const char *const *)envp, name, NULL, NULL, NULL,
+                                               (mode == SHELL_MODE_INTERACTIVE), false, flag_m);
 
     if (flag_c && (command_string == NULL || command_string[0] == '\0'))
     {

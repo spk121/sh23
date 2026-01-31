@@ -106,6 +106,44 @@ string_list_t *string_list_create_from_cstr_array(const char **strv, int len)
     return lst;
 }
 
+string_list_t *string_list_create_from_system_env(void)
+{
+    string_list_t *lst = string_list_create();
+
+#ifdef _WIN32
+    extern char **_environ;
+    char **env = _environ;
+#else
+    extern char **environ;
+    char **env = environ;
+#endif
+
+    if (!env)
+        return lst;
+
+    for (int i = 0; env[i]; i++)
+    {
+        string_t *s = string_create_from_cstr(env[i]);
+        string_list_move_push_back(lst, &s);
+    }
+
+    return lst;
+}
+
+/* Deep copy */
+string_list_t *string_list_create_from(const string_list_t *other)
+{
+    Expects_not_null(other);
+    string_list_t *lst = string_list_create();
+    for (int i = 0; i < other->size; i++)
+    {
+        const string_t *src_str = other->strings[i];
+        string_t *new_str = string_create_from(src_str);
+        string_list_move_push_back(lst, &new_str);
+    }
+    return lst;
+}
+
 void string_list_destroy(string_list_t **list)
 {
     if (!list || !*list)

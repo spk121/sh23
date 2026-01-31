@@ -45,6 +45,16 @@ string_list_t *string_list_create(void);
 string_list_t *string_list_create_from_cstr_array(const char **strv, int len);
 
 /**
+ * Create a string list from the system environment variables.
+ * Gets the environment from the system (environ on Unix, _environ on Windows).
+ *
+ * @return New string list instance with environment variables, or NULL on allocation failure.
+ */
+string_list_t *string_list_create_from_system_env(void);
+
+string_list_t *string_list_create_from(const string_list_t *other);
+
+/**
  * Destroys the string list and frees its memory.
  * Also destroys all strings contained in the list.
  * Sets the pointer to NULL.

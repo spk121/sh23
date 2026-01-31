@@ -1,10 +1,10 @@
 #pragma once
 
 #include "exec_internal.h"
+#include "string_list.h"
 
 /* Forward declarations */
 struct ast_node_t;
-struct string_list_t;
 struct expander_t;
 
 /* ============================================================================
@@ -21,7 +21,7 @@ struct expander_t;
  * - Command lookup (special builtins, functions, regular builtins, external commands)
  * - External command execution (fork/exec, spawn, or system)
  */
-exec_status_t exec_execute_simple_command(exec_t *executor, const struct ast_node_t *node);
+exec_status_t exec_execute_simple_command(exec_frame_t *frame, const struct ast_node_t *node);
 
 /**
  * Execute a function definition.
@@ -33,4 +33,4 @@ exec_status_t exec_execute_function_def(exec_t *executor, const struct ast_node_
  * Execute a redirected command wrapper.
  * Applies redirections and executes the inner command.
  */
-exec_status_t exec_execute_redirected_command(exec_t *executor, const struct ast_node_t *node);
+exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const struct ast_node_t *node);

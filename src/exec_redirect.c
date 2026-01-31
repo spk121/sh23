@@ -126,16 +126,17 @@ static parse_fd_result_t parse_fd_number(const char *str)
 }
 
 #ifdef POSIX_API
-exec_status_t exec_apply_redirections_posix(exec_t *executor,
-                                            const ast_node_list_t *redirs, saved_fd_t **out_saved,
+exec_status_t exec_apply_redirections_posix(exec_frame_t *frame,
+                                            const exec_redirections_t *redirs, saved_fd_t **out_saved,
                                             int *out_saved_count)
 {
-    Expects_not_null(executor);
+    Expects_not_null(frame);
     Expects_not_null(redirs);
     Expects_not_null(out_saved);
     Expects_not_null(out_saved_count);
 
-    int count = ast_node_list_size(redirs);
+    exec_t *executor = frame->executor;
+    int count = (int)redirs->count;
     saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
     if (!saved)
     {
@@ -147,13 +148,12 @@ exec_status_t exec_apply_redirections_posix(exec_t *executor,
 
     for (int i = 0; i < count; i++)
     {
-        const ast_node_t *r = ast_node_list_get(redirs, i);
-        Expects_eq(r->type, AST_REDIRECTION);
+        const exec_redirection_t *r = &redirs->items[i];
 
-        int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
-                  : (r->data.redirection.redir_type == REDIR_READ ||
-                     r->data.redirection.redir_type == REDIR_FROM_BUFFER ||
-                     r->data.redirection.redir_type == REDIR_FROM_BUFFER_STRIP)
+        int fd = (r->explicit_fd >= 0 ? r->explicit_fd
+                  : (r->type == REDIR_READ ||
+                     r->type == REDIR_FROM_BUFFER ||
+                     r->type == REDIR_FROM_BUFFER_STRIP)
                       ? 0
                       : 1);
 
@@ -333,40 +333,36 @@ void exec_restore_redirections_posix(saved_fd_t *saved, int saved_count)
 }
 
 #elifdef UCRT_API
-exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
-                                                    const ast_node_list_t *redirs,
+exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
+                                                    const exec_redirections_t *redirs,
                                                     saved_fd_t **out_saved, int *out_saved_count)
 {
-    Expects_not_null(executor);
+    Expects_not_null(frame);
+    Expects_not_null(redirs);
     Expects_not_null(out_saved);
     Expects_not_null(out_saved_count);
 
-    if (!redirs || ast_node_list_size(redirs) == 0)
-    {
-        // No redirections - success
-        *out_saved = NULL;
-        *out_saved_count = 0;
-        return EXEC_OK;
-    }
-
-    int count = ast_node_list_size(redirs);
+    exec_t *executor = frame->executor;
+    int count = (int)redirs->count;
     saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
+    if (!saved)
+    {
+        exec_set_error(executor, "Out of memory");
+        return EXEC_ERROR;
+    }
 
     int saved_i = 0;
 
     for (int i = 0; i < count; i++)
     {
-        const ast_node_t *r = ast_node_list_get(redirs, i);
-        Expects_eq(r->type, AST_REDIRECTION);
+        const exec_redirection_t *r = &redirs->items[i];
 
-        // Determine which file descriptor to redirect
-        // If io_number is specified, use it; otherwise default based on redir_type
-        int fd = (r->data.redirection.io_number >= 0 ? r->data.redirection.io_number
-                  : (r->data.redirection.redir_type == REDIR_READ ||
-                     r->data.redirection.redir_type == REDIR_FROM_BUFFER ||
-                     r->data.redirection.redir_type == REDIR_FROM_BUFFER_STRIP)
-                      ? STDIN_FILENO
-                      : STDOUT_FILENO);
+        int fd = (r->explicit_fd >= 0 ? r->explicit_fd
+                  : (r->type == REDIR_READ ||
+                     r->type == REDIR_FROM_BUFFER ||
+                     r->type == REDIR_FROM_BUFFER_STRIP)
+                      ? 0
+                      : 1);
 
         // Save original FD
         int backup = _dup(fd);
@@ -381,27 +377,25 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
         saved[saved_i].backup_fd = backup;
         saved_i++;
 
-        redir_target_kind_t opk = r->data.redirection.operand;
+        redir_target_kind_t opk = r->target_kind;
 
         switch (opk)
         {
         case REDIR_TARGET_FILE: {
-            // Expand the filename
-            string_t *fname_str =
-                exec_expand_redirection_target(executor, r->data.redirection.target);
-            if (!fname_str)
+            // Use the pre-prepared filename (already extracted from AST at conversion time)
+            const char *fname = string_cstr(r->target.file.raw_filename);
+            if (!fname)
             {
-                exec_set_error(executor, "Failed to expand redirection target");
+                exec_set_error(executor, "Failed to get redirection target");
                 xfree(saved);
                 return EXEC_ERROR;
             }
-            const char *fname = string_cstr(fname_str);
 
             // Determine flags and permissions for _open
             int flags = 0;
             int pmode = _S_IREAD | _S_IWRITE;
 
-            switch (r->data.redirection.redir_type)
+            switch (r->type)
             {
             case REDIR_READ:
                 flags = _O_RDONLY;
@@ -420,7 +414,6 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
                 break;
             default:
                 exec_set_error(executor, "Invalid filename redirection type");
-                string_destroy(&fname_str);
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
                 xfree(saved);
@@ -432,7 +425,6 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
             if (newfd < 0)
             {
                 exec_set_error(executor, "Failed to open '%s': %s", fname, strerror(errno));
-                string_destroy(&fname_str);
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
                 xfree(saved);
@@ -443,7 +435,6 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
             if (_dup2(newfd, fd) < 0)
             {
                 exec_set_error(executor, "_dup2() failed: %s", strerror(errno));
-                string_destroy(&fname_str);
                 _close(newfd);
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
@@ -453,13 +444,24 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
 
             // Close the temporary file descriptor
             _close(newfd);
-            string_destroy(&fname_str);
             break;
         }
 
         case REDIR_TARGET_FD: {
-            string_t *fd_str =
-                exec_expand_redirection_target(executor, r->data.redirection.target);
+            string_t *fd_str = NULL;
+            if (r->target.fd.fd_expression)
+            {
+                /* If we have a string expression, create a temporary token for expansion */
+                fd_str = string_create_from(r->target.fd.fd_expression);
+            }
+            else if (r->target.fd.fixed_fd >= 0)
+            {
+                /* If we have a fixed FD, convert it to string */
+                char fd_buf[32];
+                snprintf(fd_buf, sizeof(fd_buf), "%d", r->target.fd.fixed_fd);
+                fd_str = string_create_from_cstr(fd_buf);
+            }
+
             if (!fd_str)
             {
                 exec_set_error(executor, "Failed to expand file descriptor target");
@@ -519,18 +521,18 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
         case REDIR_TARGET_BUFFER: {
             /* Heredoc content: expand unless delimiter was quoted */
             string_t *content_str = NULL;
-            if (r->data.redirection.buffer)
+            if (r->target.heredoc.content)
             {
-                if (r->data.redirection.buffer_needs_expansion)
+                if (r->target.heredoc.needs_expansion)
                 {
                     /* Unquoted delimiter: perform parameter, command, and arithmetic expansion */
-                    content_str = exec_expand_heredoc(executor, r->data.redirection.buffer,
+                    content_str = exec_expand_heredoc(executor, r->target.heredoc.content,
                                                           /*is_quoted=*/false);
                 }
                 else
                 {
                     /* Quoted delimiter: no expansion, preserve literal content */
-                    content_str = string_create_from(r->data.redirection.buffer);
+                    content_str = string_create_from(r->target.heredoc.content);
                 }
             }
             const char *content = content_str ? string_cstr(content_str) : "";
@@ -573,8 +575,6 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_t *executor,
             break;
         }
 
-        case REDIR_TARGET_FD_STRING:
-        case REDIR_TARGET_INVALID:
         default:
             exec_set_error(executor, "Unsupported redirection operand type in UCRT_API mode");
             for (int j = 0; j < saved_i; j++)
@@ -608,13 +608,16 @@ void exec_restore_redirections_ucrt_c(saved_fd_t *saved, int saved_count)
 }
 #endif
 
-exec_status_t exec_apply_redirections_iso_c(exec_t *executor,
-                                            const ast_node_list_t *redirs, saved_fd_t **out_saved,
+exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame,
+                                            const exec_redirections_t *redirs, saved_fd_t **out_saved,
                                             int *out_saved_count)
 {
-    (void)redirs;
+    (void)out_saved;
+    (void)out_saved_count;
 
-    exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
+    Expects_not_null(frame);
+    Expects_not_null(redirs);
+    exec_t *executor = frame->executor;
 
     return EXEC_ERROR;
 }
@@ -625,3 +628,279 @@ void exec_restore_redirections_iso_c(saved_fd_t *saved, int saved_count)
     (void)saved_count;
     // No-op in ISO_C_API mode
 }
+
+/* ============================================================================
+ * Redirection Structure Management
+ * ============================================================================ */
+
+/**
+ * Create a new empty redirection structure.
+ */
+exec_redirections_t *exec_redirections_create(void)
+{
+    exec_redirections_t *redirs = xcalloc(1, sizeof(exec_redirections_t));
+    if (!redirs)
+        return NULL;
+
+    redirs->items = NULL;
+    redirs->count = 0;
+    redirs->capacity = 0;
+    return redirs;
+}
+
+/**
+ * Destroy a redirection structure and free all associated memory.
+ */
+void exec_redirections_destroy(exec_redirections_t **redirections)
+{
+    if (!redirections || !*redirections)
+        return;
+
+    exec_redirections_t *redirs = *redirections;
+
+    if (redirs->items)
+    {
+        for (size_t i = 0; i < redirs->count; i++)
+        {
+            exec_redirection_t *redir = &redirs->items[i];
+
+            /* Free target data based on type */
+            switch (redir->target_kind)
+            {
+                case REDIR_TARGET_FILE:
+                    if (redir->target.file.raw_filename)
+                        string_destroy(&redir->target.file.raw_filename);
+                    break;
+                case REDIR_TARGET_FD:
+                    if (redir->target.fd.fd_expression)
+                        string_destroy(&redir->target.fd.fd_expression);
+                    break;
+                case REDIR_TARGET_BUFFER:
+                    if (redir->target.heredoc.content)
+                        string_destroy(&redir->target.heredoc.content);
+                    break;
+                case REDIR_TARGET_CLOSE:
+                case REDIR_TARGET_FD_STRING:
+                case REDIR_TARGET_INVALID:
+                default:
+                    break;
+            }
+
+            /* Free location variable name if present */
+            if (redir->io_location_varname)
+                string_destroy(&redir->io_location_varname);
+        }
+        xfree(redirs->items);
+    }
+
+    xfree(*redirections);
+    *redirections = NULL;
+}
+
+/**
+ * Append a redirection to the structure.
+ */
+void exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir)
+{
+    if (!redirections || !redir)
+        return;
+
+    /* Grow capacity if needed */
+    if (redirections->count >= redirections->capacity)
+    {
+        size_t new_capacity = redirections->capacity == 0 ? 4 : redirections->capacity * 2;
+        exec_redirection_t *new_items = xrealloc(redirections->items, new_capacity * sizeof(exec_redirection_t));
+        if (!new_items)
+            return;
+
+        redirections->items = new_items;
+        redirections->capacity = new_capacity;
+    }
+
+    /* Copy the redirection */
+    redirections->items[redirections->count] = *redir;
+    redirections->count++;
+}
+
+/* ============================================================================
+ * Runtime Redirection Wrapper (exec_redirections_t)
+ * ============================================================================ */
+
+/**
+ * Apply redirections from the runtime structure.
+ * Selects the appropriate platform-specific implementation.
+ *
+ * @param frame The execution frame
+
+ * @param redirections The runtime redirection structure
+ * @return 0 on success, -1 on error
+ */
+int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redirections)
+{
+    if (!frame || !redirections)
+        return 0; // No redirections or frame is NULL - this is OK
+
+    if (!redirections->items || redirections->count == 0)
+        return 0; // No redirections to apply
+
+    saved_fd_t *saved_fds = NULL;
+    int saved_count = 0;
+
+#ifdef POSIX_API
+    exec_status_t st = exec_apply_redirections_posix(frame, redirections, &saved_fds, &saved_count);
+    if (st != EXEC_OK)
+        return -1;
+#elifdef UCRT_API
+    exec_status_t st = exec_apply_redirections_ucrt_c(frame, redirections, &saved_fds, &saved_count);
+    if (st != EXEC_OK)
+        return -1;
+#else
+    exec_status_t st = exec_apply_redirections_iso_c(frame, redirections, &saved_fds, &saved_count);
+    if (st != EXEC_OK)
+        return -1;
+#endif
+
+    /* Note: Caller is responsible for calling exec_restore_redirections later
+     * and passing the saved_fds/saved_count that were returned from this function.
+     * We return them via out-params from the platform-specific functions.
+     */
+    return 0;
+}
+
+/**
+ * Restore redirections after they were applied.
+ *
+ * @param frame The execution frame
+ * @param redirections The runtime redirection structure (for context, not strictly needed)
+ */
+void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirections)
+{
+    (void)frame;
+    (void)redirections;
+
+    /* This is now a no-op since saved_fds are not stored in frame.
+     * The caller should manage saved_fds directly from the return values of
+     * exec_apply_redirections_posix/ucrt_c/iso_c.
+     */
+}
+
+/* ============================================================================
+ * AST to Runtime Conversion
+ * ============================================================================ */
+
+/**
+ * Convert AST redirection nodes to runtime exec_redirections_t structure.
+ * This happens once during command execution, converting from AST to runtime structures.
+ *
+ * @param frame The execution frame (for error reporting)
+ * @param ast_redirs The AST redirection nodes
+ * @return A new exec_redirections_t structure, or NULL on error
+ */
+exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame, const ast_node_list_t *ast_redirs)
+{
+    if (!ast_redirs || ast_node_list_size(ast_redirs) == 0)
+        return NULL;
+
+    exec_redirections_t *redirs = exec_redirections_create();
+    if (!redirs)
+    {
+        exec_set_error(frame->executor, "Failed to create redirection structure");
+        return NULL;
+    }
+
+    int count = ast_node_list_size(ast_redirs);
+    for (int i = 0; i < count; i++)
+    {
+        const ast_node_t *ast_redir = ast_node_list_get(ast_redirs, i);
+        if (ast_redir->type != AST_REDIRECTION)
+        {
+            exec_set_error(frame->executor, "Expected AST_REDIRECTION node");
+            exec_redirections_destroy(&redirs);
+            return NULL;
+        }
+
+        /* Create a runtime redirection from the AST node */
+        exec_redirection_t *runtime_redir = xcalloc(1, sizeof(exec_redirection_t));
+        if (!runtime_redir)
+        {
+            exec_set_error(frame->executor, "Failed to allocate redirection structure");
+            exec_redirections_destroy(&redirs);
+            return NULL;
+        }
+
+        /* Access AST redirection data */
+        const redirection_type_t ast_redir_type = ast_redir->data.redirection.redir_type;
+        const int ast_io_number = ast_redir->data.redirection.io_number;
+        const redir_target_kind_t ast_operand = ast_redir->data.redirection.operand;
+        const bool ast_buffer_needs_expansion = ast_redir->data.redirection.buffer_needs_expansion;
+        const token_t *ast_target = ast_redir->data.redirection.target;
+        const string_t *ast_buffer = ast_redir->data.redirection.buffer;
+        const string_t *ast_fd_string = ast_redir->data.redirection.fd_string;
+
+        runtime_redir->type = ast_redir_type;
+        runtime_redir->explicit_fd = ast_io_number;
+        runtime_redir->target_kind = ast_operand;
+
+        /* Copy target information based on target kind */
+        switch (ast_operand)
+        {
+            case REDIR_TARGET_FILE:
+                /* For file target, we store the token (which contains parts).
+                 * At expansion time, we'll process these parts.
+                 * For now, store a simple copy of the filename if it's a simple literal.
+                 */
+                if (ast_target && ast_target->parts && ast_target->parts->size > 0)
+                {
+                    /* This is a word token with parts - we'll need to expand at runtime */
+                    /* For now, just copy the first part if it's a literal */
+                    part_t *part = ast_target->parts->parts[0];
+                    if (part && part->type == PART_LITERAL && part->text)
+                    {
+                        runtime_redir->target.file.raw_filename = string_create_from(part->text);
+                    }
+                }
+                break;
+
+            case REDIR_TARGET_FD:
+                /* For FD target, we can have a fixed fd or an expression */
+                if (ast_target && ast_target->io_number >= 0)
+                {
+                    runtime_redir->target.fd.fixed_fd = ast_target->io_number;
+                }
+                else if (ast_target && ast_target->parts && ast_target->parts->size > 0)
+                {
+                    /* Store the first part's text as fd_expression */
+                    part_t *part = ast_target->parts->parts[0];
+                    if (part && part->type == PART_LITERAL && part->text)
+                    {
+                        runtime_redir->target.fd.fd_expression = string_create_from(part->text);
+                    }
+                }
+                break;
+
+            case REDIR_TARGET_CLOSE:
+                /* No target data needed */
+                break;
+
+            case REDIR_TARGET_BUFFER:
+                if (ast_buffer)
+                {
+                    runtime_redir->target.heredoc.content = string_create_from(ast_buffer);
+                }
+                runtime_redir->target.heredoc.needs_expansion = ast_buffer_needs_expansion;
+                break;
+
+            case REDIR_TARGET_INVALID:
+            default:
+                exec_set_error(frame->executor, "Invalid redirection target kind");
+                xfree(runtime_redir);
+                exec_redirections_destroy(&redirs);
+                return NULL;
+        }
+
+        exec_redirections_append(redirs, runtime_redir);
+    }
+
+    return redirs;
+}
+

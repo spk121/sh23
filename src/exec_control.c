@@ -5,6 +5,7 @@
 #include "logging.h"
 #include "positional_params.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "token.h"
 #include "variable_store.h"
 #include "glob_util.h"

@@ -81,6 +81,7 @@ typedef struct
 
     // Flags
     shell_flags_t flags;
+    exec_cfg_t exec_cfg; // derived executor config
 } shell_cfg_t;
 
 typedef struct shell_t shell_t;

@@ -8,11 +8,13 @@
 #include "exec.h"
 #include "func_store.h"
 #include "getopt.h"
+#include "getopt_string.h"
 #include "job_store.h"
 #include "lib.h"
 #include "logging.h"
 #include "positional_params.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "variable_map.h"
 #include "variable_store.h"
 #include "xalloc.h"
@@ -409,7 +411,7 @@ static int builtin_set_set_named_option(exec_t *ex, const char *name, bool unset
 
     if (handled)
     {
-        ex->opt_flags_set = true;
+        // ex->opt_flags_set = true;
         return 0;
     }
 
@@ -614,8 +616,8 @@ int builtin_set(exec_t *ex, const string_list_t *args)
 
     /* Flags not yet implemented: b (notify), h (hashall), m (monitor) */
 
-    if (options_changed)
-        ex->opt_flags_set = true;
+    //if (options_changed)
+    //    ex->opt_flags_set = true;
 
     /* Replace positional parameters if requested (includes explicit "set --") */
     if (have_positional_request)

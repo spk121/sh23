@@ -62,6 +62,10 @@ variable_store_t *variable_store_create(void);
  */
 variable_store_t *variable_store_create_from_envp(char **envp);
 
+variable_store_t *variable_store_clone(const variable_store_t *src);
+
+variable_store_t *variable_store_clone_exported(const variable_store_t *src);
+
 /**
  * Destroys a variable store and frees all associated memory.
  *
@@ -151,10 +155,6 @@ void variable_store_remove_cstr(variable_store_t *store, const char *name);
  */
 bool variable_store_has_name(const variable_store_t *store, const string_t *name);
 
-bool variable_store_with_parent_has_name(const variable_store_t *store,
-                                         const variable_store_t *parent, const string_t *name);
-
-
 /**
  * Checks whether a variable exists using a C‑string name.
  *
@@ -163,9 +163,6 @@ bool variable_store_with_parent_has_name(const variable_store_t *store,
  * @return true if the variable exists.
  */
 bool variable_store_has_name_cstr(const variable_store_t *store, const char *name);
-
-bool variable_store_with_parent_has_name_cstr(const variable_store_t *store,
-                                              const variable_store_t *parent, const char *name);
 
 
 
@@ -179,10 +176,6 @@ bool variable_store_with_parent_has_name_cstr(const variable_store_t *store,
 const variable_map_entry_t *variable_store_get_variable(const variable_store_t *store,
                                                         const string_t *name);
 
-const variable_map_entry_t *variable_store_with_parent_get_variable(const variable_store_t *store,
-                                                                    const variable_store_t *parent,
-                                                                    const string_t *name);
-
 /**
  * Retrieves a variable entry by C‑string name.
  *
@@ -193,9 +186,6 @@ const variable_map_entry_t *variable_store_with_parent_get_variable(const variab
 const variable_map_entry_t *variable_store_get_variable_cstr(const variable_store_t *store,
                                                              const char *name);
 
-const variable_map_entry_t *variable_store_with_parent_get_variable_cstr(
-    const variable_store_t *store, const variable_store_t *parent, const char *name);
-
 /**
  * Retrieves a variable's value.
  *
@@ -205,10 +195,6 @@ const variable_map_entry_t *variable_store_with_parent_get_variable_cstr(
  */
 const string_t *variable_store_get_value(const variable_store_t *store, const string_t *name);
 
-const string_t *variable_store_with_parent_get_value(const variable_store_t *store,
-                                                     const variable_store_t *parent,
-                                                     const string_t *name);
-
 /**
  * Retrieves a variable's value as a C‑string.
  *
@@ -217,10 +203,6 @@ const string_t *variable_store_with_parent_get_value(const variable_store_t *sto
  * @return Value string or NULL.
  */
 const char *variable_store_get_value_cstr(const variable_store_t *store, const char *name);
-
-const char *variable_store_with_parent_get_value_cstr(const variable_store_t *store,
-                                                      const variable_store_t *parent,
-                                                      const char *name);
 
 /**
  * Checks whether a variable is read‑only.
@@ -368,27 +350,18 @@ void variable_store_debug_print_exported(const variable_store_t *store);
 char *const *variable_store_get_envp(variable_store_t *vs);
 
 /**
- * Returns environment array, inheriting exported variables
- * from a parent store.
- * The returned pointer remains valid until the next update call.
+ * Write the environment variables from `vars` to the env file specified by the
+ * MGSH_ENV_FILE variable, if set. This is used in ISO C mode where envp cannot
+ * be passed to the child process via system() - instead, the environment is
+ * written to a file that the child process can source.
  *
- * @param vs Child variable store.
- * @param parent Parent variable store.
- * @return NULL‑terminated environment array.
- */
-char *const *variable_store_with_parent_get_envp(variable_store_t *vs,
-                                                    const variable_store_t *parent);
-
-/**
- * Write the environment variables from `vars` (with `parent_vars` as parent)
- * to the env file specified by the MGSH_ENV_FILE variable, if set.
  * Note that the `vars` parameter is mutable because we may need to update its
  * internal state when generating the envp array.
  *
- * Returns the path to the env file as a newly allocated string, or NULL on failure
- * or if MGSH_ENV_FILE is not set.
+ * @param vars Variable store to export.
+ * @return Path to the env file as a newly allocated string, or NULL on failure
+ *         or if MGSH_ENV_FILE is not set.
  */
-string_t *variable_store_write_env_file(variable_store_t *vars,
-                                        const variable_store_t *parent_vars);
+string_t *variable_store_write_env_file(variable_store_t *vars);
 
 #endif

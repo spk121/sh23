@@ -324,6 +324,15 @@ bool trap_store_set(trap_store_t *store, int signal_number, string_t *action, bo
     Expects_not_null(store);
     Expects_ge(signal_number, 0);
     Expects_lt(signal_number, (int)store->capacity);
+    // SIGKILL and SIGSTOP cannot be caught
+#ifdef SIGKILL
+    if (signal_number == SIGKILL)
+        return false;
+#endif
+#ifdef SIGSTOP
+    if (signal_number == SIGSTOP)
+        return false;
+#endif
 
     // EXIT trap (signal 0) is not a real signal, doesn't need handler installation
     if (signal_number == 0)
@@ -331,8 +340,6 @@ bool trap_store_set(trap_store_t *store, int signal_number, string_t *action, bo
         return trap_store_set_exit(store, action, is_ignored, is_default);
     }
 
-    // SIGKILL and SIGSTOP cannot be caught
-    Expects_false(is_non_catchable_signal(signal_number));
 
     trap_action_t *trap = &store->traps[signal_number];
 
@@ -459,7 +466,8 @@ const trap_action_t *trap_store_get(const trap_store_t *store, int signal_number
 const string_t *trap_store_get_exit(const trap_store_t *store)
 {
     Expects_not_null(store);
-    Expects_true(store->exit_trap_set);
+    if (!store->exit_trap_set)
+        return string_create_from_cstr("");
 
     return store->exit_action;
 }
@@ -940,7 +948,7 @@ void trap_store_run_exit_trap(const trap_store_t* store, exec_frame_t* frame)
 {
     Expects_not_null(store);
     Expects_not_null(frame);
-    Expects_true(store->exit_trap_set);
+    Expects_eq(store->exit_trap_set, true);
     Expects_not_null(store->exit_action);
     // Execute the EXIT trap action
     printf("Executing EXIT trap action: %s\n", string_cstr(store->exit_action));

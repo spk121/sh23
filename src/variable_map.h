@@ -2,6 +2,7 @@
 #define VARIABLE_MAP_H
 
 #include "string_t.h"
+#include "string_list.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -57,6 +58,14 @@ typedef struct variable_map_t
     /** Total capacity of the entries array. */
     int32_t capacity;
 } variable_map_t;
+
+typedef struct variable_map_iterator_t
+{
+    /** Current position in the map. */
+    int32_t index;
+    /** Pointer to the variable map being iterated. */
+    variable_map_t *map;
+} variable_map_iterator_t;
 
 /**
  * Represents the result of an insertion attempt into the variable map.
@@ -224,5 +233,49 @@ int32_t variable_map_find(const variable_map_t *map, const string_t *key);
  * @return true if present.
  */
 bool variable_map_contains(const variable_map_t *map, const string_t *key);
+
+/** Iterator functions */
+
+/**
+ * Returns an iterator to the beginning of the map.
+ *
+ * @param map Variable map.
+ * @return Iterator to the first entry.
+ */
+variable_map_iterator_t variable_map_begin(variable_map_t *map);
+
+/**
+ * Returns an iterator to the end of the map.
+ *
+ * @param map Variable map.
+ * @return Iterator to one past the last entry.
+ */
+variable_map_iterator_t variable_map_end(variable_map_t *map);
+
+/**
+ * Compares two iterators for equality.
+ *
+ * @param it1 First iterator.
+ * @param it2 Second iterator.
+ * @return true if equal.
+ */
+bool variable_map_iterator_equal(const variable_map_iterator_t it1,
+                                 const variable_map_iterator_t it2);
+
+/**
+ * Advances the iterator to the next occupied entry.
+ *
+ * @param it Iterator to advance.
+ */
+void variable_map_iterator_increment(variable_map_iterator_t *it);
+
+/**
+ * Dereferences the iterator to get the mapped value.
+ *
+ * @param it Iterator.
+ * @return Pointer to mapped value.
+ */
+const variable_map_entry_t *variable_map_iterator_deref(variable_map_iterator_t it);
+
 
 #endif
