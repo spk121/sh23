@@ -239,6 +239,18 @@ bool token_needs_expansion(const token_t *token)
     return token->needs_expansion;
 }
 
+bool token_needs_field_splitting(const token_t *token)
+{
+    Expects_not_null(token);
+    return token->needs_field_splitting;
+}
+
+bool token_needs_pathname_expansion(const token_t *token)
+{
+    Expects_not_null(token);
+    return token->needs_pathname_expansion;
+}
+
 string_t *token_get_all_text(const token_t *token)
 {
     Expects_not_null(token);

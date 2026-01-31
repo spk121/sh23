@@ -24,7 +24,7 @@ typedef struct {
     CTestSetupFunc setup;
     CTestSetupFunc teardown;
     bool xfail;           // expected to fail
-	char padding[7];
+    char padding[7];
 } CTestEntry;
 
 // Test context (passed to each test)

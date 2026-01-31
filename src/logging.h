@@ -1,6 +1,7 @@
 #ifndef LOGGING_H
 #define LOGGING_H
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +48,49 @@ LogLevel log_level(void);
  * Messages below this threshold are suppressed.
  */
 void log_set_level(LogLevel lv);
+
+/**
+ * @brief Disable abort on fatal messages
+ *
+ * Set the abort level to LOG_LEVEL_NONE so that log_fatal calls
+ * will not call abort(). Useful for testing.
+ */
+void log_disable_abort(void);
+
+/**
+ * @brief Set the abort level for logging
+ *
+ * Messages at or above this level will trigger abort().
+ * Use LOG_LEVEL_NONE to disable aborting entirely.
+ */
+void log_set_abort_level(LogLevel lv);
+
+/**
+ * @brief Setup for fatal "try" region (internal use).
+ *
+ * Temporarily disables abort so that LOG_LEVEL_FATAL will longjmp
+ * to the provided buffer instead of aborting. Aborting is restored
+ * by log_fatal_try_end().
+ *
+ * Do not call directly - use log_fatal_try_begin() macro instead.
+ */
+void log_fatal_try_setup(jmp_buf *env);
+
+/**
+ * @brief Begin a fatal "try" region using setjmp/longjmp.
+ *
+ * Returns 0 on initial call, non-zero after longjmp.
+ *
+ * Note: This must be a macro so that setjmp is called in the caller's
+ * stack frame, not in a function that returns before longjmp occurs.
+ */
+#define log_fatal_try_begin(env_ptr) \
+    (log_fatal_try_setup(env_ptr), setjmp(*(env_ptr)))
+
+/**
+ * @brief End a fatal "try" region.
+ */
+void log_fatal_try_end(void);
 
 /**
  * @brief Log a debug message

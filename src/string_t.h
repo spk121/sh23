@@ -44,28 +44,10 @@ typedef struct string_t
 } string_t;
 
 /*
- * A dynamic array of string_t pointers.
- */
-
-#define STRING_LIST_T_INITIAL_CAPACITY 4
-static const int STRING_LIST_INITIAL_CAPACITY = STRING_LIST_T_INITIAL_CAPACITY;
-static const int STRING_LIST_GROW_FACTOR = 2;
-typedef struct string_list_t
-{
-    int size;
-    int capacity;
-    string_t **strings;
-    string_t *inline_strings[STRING_LIST_T_INITIAL_CAPACITY]; // Small list optimization
-} string_list_t;
-
-/*
  * Internal helper functions for capacity normalization.
  * static inline bool string_is_inline(const string_t *str);
  * static inline bool string_is_heap_allocated(const string_t *str);
  * static inline void string_normalize_capacity(string_t *str, int new_capacity);
- * static inline bool string_list_is_inline(const string_list_t *list);
- * static inline bool string_list_is_heap_allocated(const string_list_t *list);
- * static inline void string_list_normalize_capacity(string_list_t* list, int new_capacity);
  */
 
 #if 0
@@ -110,52 +92,6 @@ static inline void string_normalize_capacity(string_t *str, int new_capacity)
         new_data[str->length] = '\0';
         str->data = new_data;
         str->capacity = new_capacity;
-    } // else: already inline with sufficient capacity
-}
-
-static inline bool string_list_is_inline(const string_list_t *list) {
-    return list->capacity <= STRING_LIST_INITIAL_CAPACITY;
-}
-
-static inline bool string_list_is_heap_allocated(const string_list_t *list) {
-    return list->capacity > STRING_LIST_INITIAL_CAPACITY;
-}
-
-static inline void string_list_normalize_capacity(string_list_t* list, int new_capacity)
-{
-    if (string_list_is_heap_allocated(list) && new_capacity <= STRING_LIST_INITIAL_CAPACITY)
-    {
-        // Move to inline storage
-        int old_size = list->size;
-        int new_size =
-            old_size < STRING_LIST_INITIAL_CAPACITY ? old_size : STRING_LIST_INITIAL_CAPACITY;
-        list->size = new_size;
-        list->capacity = STRING_LIST_INITIAL_CAPACITY;
-        memcpy(list->inline_strings, list->strings,
-               new_size * sizeof(string_t *));
-        xfree(list->strings);
-        list->strings = list->inline_strings;
-    }
-    else if (string_list_is_heap_allocated(list) && new_capacity > STRING_LIST_INITIAL_CAPACITY)
-    {
-        // Resize heap allocation
-        string_t **new_strings =
-            (string_t **)xmalloc(new_capacity * sizeof(string_t *));
-        memcpy(new_strings, list->strings,
-               list->size * sizeof(string_t *));
-        xfree(list->strings);
-        list->strings = new_strings;
-        list->capacity = new_capacity;
-    }
-    else if (string_list_is_inline(list) && new_capacity > STRING_LIST_INITIAL_CAPACITY)
-    {
-        // Move to heap allocation
-        string_t **new_strings =
-            (string_t **)xmalloc(new_capacity * sizeof(string_t *));
-        memcpy(new_strings, list->inline_strings,
-               list->size * sizeof(string_t *));
-        list->strings = new_strings;
-        list->capacity = new_capacity;
     } // else: already inline with sufficient capacity
 }
 #endif
@@ -809,75 +745,4 @@ string_t *string_from_double(double value);
  */
 uint32_t string_hash(const string_t *str);
 
-// String list type and functions
-
-/*
- * A dynamic array of string_t pointers.
- */
-string_list_t *string_list_create(void);
-/*
- * Destroys the string list and frees its memory.
- * Also destroys all strings contained in the list.
- * Sets the pointer to NULL.
- */
-void string_list_destroy(string_list_t **list);
-/*
- * Moves the string 'str' into the list, taking ownership of it.
- * After this operation, 'str' is set to NULL.
- * If 'str' is NULL, does nothing.
- */
-void string_list_move_push_back(string_list_t *list, string_t **str);
-/*
- * Appends a copy of the string 'str' to the end of the list.
- * If 'str' is NULL, does nothing.
- */
-void string_list_push_back(string_list_t *list, const string_t *str);
-/*
- * Returns the number of strings in the list.
- */
-int string_list_size(const string_list_t *list);
-/*
- * Returns the string at the given index in the list.
- * If index is out of bounds, returns NULL.
- */
-const string_t *string_list_at(const string_list_t *list, int index);
-/*
- * Inserts a copy of the string 'str' into the list at the given index.
- * 'index' is clamped to 0 and the current size of the list.
- * If index is equal to the current size, this is a simple append.
- * If 'str' is NULL, inserts an empty string.
- */
-void string_list_insert(string_list_t *list, int index, const string_t *str);
-/*
- * Moves the string 'str' into the list at the given index, taking ownership of it.
- * 'index' is clamped to 0 and the current size of the list.
- * If index is equal to the current size, this is a simple append.
- * After this operation, 'str' is set to NULL.
- * If 'str' is NULL, does nothing.
- */
-void string_list_move_insert(string_list_t *list, int index, string_t **str);
-/*
- * Removes the string at the given index from the list and destroys it.
- * If index is out of bounds, does nothing.
- */
-void string_list_erase(string_list_t *list, int index);
-/*
- * Clears the list, destroying all strings contained in it.
- */
-void string_list_clear(string_list_t *list);
-
-/*
- * Returns an null-terminated array of C-strings representing the strings in the list.
- * The array and the C-strings are heap-allocated.
- * The number of strings is returned in out_size.
- * After this operation, the list is destroyed and set to NULL.
- * Caller frees the array and each C-string.
- */
-char **string_list_release_cstr_array(string_list_t **list, int *out_size);
-
-/**
- * Returns a new string that is the result of joining all strings in the list with the given
- * separator character.  After this operation, the list is destroyed and set to NULL.
- */
-string_t *string_list_join_move(string_list_t **list, const char *separator);
-#endif
+#endif /* STRING_T_H */

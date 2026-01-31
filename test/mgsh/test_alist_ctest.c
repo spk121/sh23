@@ -127,7 +127,7 @@ CTEST(test_alias_create_destroy)
 // Test alias_array_t operations
 CTEST(test_alias_array_operations)
 {
-    alias_array_t *array = alias_array_create_with_free((alias_array_free_func_t)alias_destroy);
+    alias_array_t *array = alias_array_create();
 
     CTEST_ASSERT_TRUE(ctest, alias_array_is_empty(array), "initially empty");
 
@@ -146,8 +146,8 @@ CTEST(test_alias_array_operations)
 
 int main(int argc, char **argv)
 {
-	(void)argc;
-	(void)argv;
+    (void)argc;
+    (void)argv;
     arena_start();
 
     CTestEntry *suite[] = {

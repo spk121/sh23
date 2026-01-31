@@ -299,6 +299,15 @@ void token_set_quoted(token_t *token, bool was_quoted);
  */
 bool token_needs_expansion(const token_t *token);
 
+/**
+ * Check if a token needs field splitting (unquoted expansions).
+ */
+bool token_needs_field_splitting(const token_t *token);
+
+/**
+ * Check if a token needs pathname expansion (glob patterns in unquoted text).
+ */
+bool token_needs_pathname_expansion(const token_t *token);
 
 /**
  * Get text from all parts of a TOKEN_WORD token concatenated together.

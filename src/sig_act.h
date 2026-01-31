@@ -37,7 +37,6 @@ typedef struct sig_act_t
     int signal_number;
     bool is_saved;   // Whether we have a saved handler for this signal
     bool was_ignored; // Whether the original handler was SIG_IGN
-    char padding[2];
 
 #ifdef SIG_ACT_USE_SIGACTION
     struct sigaction original_action; // Original sigaction structure
@@ -90,5 +89,9 @@ bool sig_act_store_was_ignored(const sig_act_store_t *store, int signo);
 // Get the original disposition for a specific signal (read-only)
 // Returns NULL if not saved
 const sig_act_t *sig_act_store_get(const sig_act_store_t *store, int signo);
+
+// Check whether a signal is supported by this store.
+// Returns true if signo is valid for this platform or is the EXIT trap (signo == 0).
+bool sig_act_store_is_supported(const sig_act_store_t *store, int signo);
 
 #endif // SIG_ACT_H

@@ -94,7 +94,7 @@ CTEST(test_expander_recursive_param_assign_default)
     p->param_kind = PARAM_ASSIGN_DEFAULT;
     p->word = string_create_from_cstr("${bar}");
     token_add_part(word, p);
-	word->needs_expansion = true;
+    word->needs_expansion = true;
 
     string_list_t *res = exec_expand_word(exp, word);
     CTEST_ASSERT_EQ(ctest, string_list_size(res), 1, "one field produced");
@@ -890,8 +890,8 @@ CTEST(test_expander_positionals_at_star)
     string_t *pc = string_create_from_cstr("c");
     const string_t *pargs[] = { pa, pb, pc };
     positional_params_t *params = positional_params_create_from_array(p0, 3, pargs);
-	string_destroy(&p0);
-	string_destroy(&pa);
+    string_destroy(&p0);
+    string_destroy(&pa);
     string_destroy(&pb);
     string_destroy(&pc);
 

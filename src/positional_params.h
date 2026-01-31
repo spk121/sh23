@@ -12,6 +12,7 @@
 #define POSITIONAL_PARAMS_H
 
 #include "string_t.h"
+#include "string_list.h"
 #include <stdbool.h>
 #include <limits.h>
 
@@ -81,7 +82,7 @@ positional_params_t *positional_params_create_from_argv(const char *arg0, int ar
  * @param src Source parameters to copy
  * @return New positional_params_t copy, or NULL on allocation failure
  */
-positional_params_t *positional_params_copy(const positional_params_t *src);
+positional_params_t *positional_params_clone(const positional_params_t *src);
 
 /**
  * @brief Destroy positional parameters
@@ -104,6 +105,8 @@ void positional_params_destroy(positional_params_t **params);
  * @return The parameter value, or NULL if n is out of range
  */
 const string_t *positional_params_get(const positional_params_t *params, int n);
+
+const string_t *positional_params_get_arg0(const positional_params_t *params);
 
 /**
  * @brief Get the count of positional parameters (for $#)
@@ -135,6 +138,8 @@ string_t *positional_params_get_all_joined(const positional_params_t *params, ch
 // ============================================================================
 // Parameter Modification (for 'set' and 'shift' builtins)
 // ============================================================================
+
+void positional_params_set_arg0(positional_params_t *params, const string_t *arg0);
 
 /**
  * @brief Replace all positional parameters (for 'set' builtin)

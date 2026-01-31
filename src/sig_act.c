@@ -55,7 +55,7 @@ static const int shell_signals[] = {
 };
 #define NUM_SHELL_SIGNALS (sizeof(shell_signals) / sizeof(shell_signals[0]))
 
-static inline int get_max_signal_number(void)
+static inline int get_max_signal_number_fallback(void)
 {
     int max = SIGTERM;
     for (size_t i = 0; i < NUM_SHELL_SIGNALS; i++)
@@ -70,7 +70,7 @@ static inline int get_max_signal_number(void)
 // UCRT signals: ABRT, FPE, ILL, INT, SEGV, TERM
 #define NUM_SHELL_SIGNALS 3
 
-static inline int get_max_signal_number(void)
+static inline int get_max_signal_number_fallback(void)
 {
     return SIGTERM > SIGABRT ? SIGTERM : SIGABRT;
 }
@@ -79,11 +79,24 @@ static inline int get_max_signal_number(void)
 // ISO C signals: ABRT, FPE, ILL, INT, SEGV, TERM
 #define NUM_SHELL_SIGNALS 3
 
-static inline int get_max_signal_number(void)
+static inline int get_max_signal_number_fallback(void)
 {
     return SIGTERM > SIGABRT ? SIGTERM : SIGABRT;
 }
 #endif
+
+static inline int get_max_signal_number(void)
+{
+#if defined(NSIG) && (NSIG > 0)
+    return (int)(NSIG - 1);
+#elif defined(_NSIG) && (_NSIG > 0)
+    return (int)(_NSIG - 1);
+#elif defined(SIGRTMAX)
+    return (int)SIGRTMAX;
+#else
+    return get_max_signal_number_fallback();
+#endif
+}
 
 // ============================================================================
 // Create/Destroy Functions
@@ -136,6 +149,16 @@ int sig_act_store_set_and_save(sig_act_store_t *store, int signo,
     if (!store || !new_action)
         return -1;
 
+    // Special case: trap on EXIT (signal 0) is not a real signal
+    if (signo == 0)
+    {
+        sig_act_t *entry = &store->actions[0];
+        entry->signal_number = 0;
+        entry->was_ignored = false;
+        entry->is_saved = true;
+        return 0;
+    }
+
     // Validate signal number
     if (signo < 0 || (size_t)signo >= store->capacity)
         return -1;
@@ -181,6 +204,16 @@ void (*sig_act_store_set_and_save(sig_act_store_t *store, int signo,
 {
     if (!store)
         return SIG_ERR;
+
+    // Special case: trap on EXIT (signal 0) is not a real signal
+    if (signo == 0)
+    {
+        sig_act_t *entry = &store->actions[0];
+        entry->signal_number = 0;
+        entry->was_ignored = false;
+        entry->is_saved = true;
+        return SIG_DFL;
+    }
 
     // Validate signal number
     if (signo < 0 || (size_t)signo >= store->capacity)
@@ -229,13 +262,17 @@ bool sig_act_store_restore_one(const sig_act_store_t *store, int signo)
     if (!store || signo < 0 || (size_t)signo >= store->capacity)
         return false;
 
+    // EXIT trap is not a real signal; nothing to restore
+    if (signo == 0)
+        return true;
+
     const sig_act_t *entry = &store->actions[signo];
 
     // Only restore if we have a saved handler
     if (!entry->is_saved)
         return false;
 
-#if defined(POSIX_API) && !defined(_WIN32)
+#ifdef SIG_ACT_USE_SIGACTION
     // Skip SIGKILL and SIGSTOP as they cannot be caught or ignored
         if (
     #ifdef SIGKILL
@@ -283,4 +320,29 @@ const sig_act_t *sig_act_store_get(const sig_act_store_t *store, int signo)
 
     const sig_act_t *entry = &store->actions[signo];
     return entry->is_saved ? entry : NULL;
+}
+
+bool sig_act_store_is_supported(const sig_act_store_t *store, int signo)
+{
+    if (!store)
+        return false;
+
+    if (signo == 0)
+        return true; // EXIT trap
+
+    if (signo < 0 || (size_t)signo >= store->capacity)
+        return false;
+
+#ifdef SIG_ACT_USE_SIGACTION
+#ifdef SIGKILL
+    if (signo == SIGKILL)
+        return false;
+#endif
+#ifdef SIGSTOP
+    if (signo == SIGSTOP)
+        return false;
+#endif
+#endif
+
+    return true;
 }
