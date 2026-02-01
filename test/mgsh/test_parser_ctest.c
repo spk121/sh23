@@ -1,14 +1,16 @@
+#include <stdio.h>
+
 #include "ctest.h"
 #include "parser.h"
+
 #include "ast.h"
 #include "exec.h"
-#include "lexer.h"
+#include "gnode.h"
+#include "logging.h"
+#include "lower.h"
 #include "string_t.h"
 #include "token.h"
-#include "tokenizer.h"
-#include "lower.h"
 #include "xalloc.h"
-#include "logging.h"
 
 /* ============================================================================
  * Helper Functions
@@ -588,7 +590,7 @@ CTEST(test_parser_braced_io_invalid_redirection)
 CTEST(test_exec_create_destroy)
 {
     exec_cfg_t cfg = { 0 };
-    exec_t* executor = exec_create_from_cfg(&cfg);
+    exec_t *executor = exec_create(&cfg);
     CTEST_ASSERT_NOT_NULL(ctest, executor, "executor created");
     CTEST_ASSERT_EQ(ctest, exec_get_exit_status(executor), 0, "initial exit status is 0");
     exec_destroy(&executor);

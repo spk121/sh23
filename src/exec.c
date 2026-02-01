@@ -9,29 +9,28 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 
 #include "exec.h"
-#include "exec_frame.h"
-#include "exec_internal.h"
 
 #include "alias_store.h"
 #include "ast.h"
+#include "exec_expander.h"
+#include "exec_frame.h"
 #include "fd_table.h"
 #include "func_store.h"
 #include "gnode.h"
 #include "job_store.h"
 #include "lexer.h"
-#include "lib.h"
 #include "logging.h"
 #include "lower.h"
 #include "parser.h"
 #include "positional_params.h"
 #include "sig_act.h"
-#include "string_t.h"
 #include "string_list.h"
+#include "string_t.h"
 #include "token.h"
 #include "tokenizer.h"
 #include "trap_store.h"
@@ -48,7 +47,6 @@
 #endif
 
 #ifdef UCRT_API
-#include <direct.h>
 #include <io.h>
 #include <process.h>
 #endif
@@ -174,7 +172,7 @@ void exec_cfg_set_from_shell_options(exec_cfg_t *cfg, int argc, char *const *arg
  * Executor Lifecycle
  * ============================================================================ */
 
-struct exec_t *exec_create(struct exec_cfg_t *cfg)
+struct exec_t *exec_create(const struct exec_cfg_t *cfg)
 {
     struct exec_t *e = xcalloc(1, sizeof(struct exec_t));
 
@@ -237,7 +235,7 @@ struct exec_t *exec_create(struct exec_cfg_t *cfg)
     }
     else if (argc > 1 && argv)
     {
-        e->shell_args = string_list_create_from_cstr_array((const char *const *)argv + 1, argc - 1);
+        e->shell_args = string_list_create_from_cstr_array((const char **)argv + 1, argc - 1);
     }
     else
     {
@@ -250,7 +248,7 @@ struct exec_t *exec_create(struct exec_cfg_t *cfg)
     }
     else if (cfg->envp_set && cfg->envp)
     {
-        e->env_vars = string_list_create_from_cstr_array((const char *const *)cfg->envp, -1);
+        e->env_vars = string_list_create_from_cstr_array((const char **)cfg->envp, -1);
     }
     else
     {
@@ -589,7 +587,7 @@ bool exec_is_login_shell(const exec_t *executor)
  * Execution Functions
  * ============================================================================ */
 
-exec_status_t exec_setup_interactive_execute(exec_t *executor)
+void exec_setup_interactive_execute(exec_t *executor)
 {
     Expects_not_null(executor);
 
@@ -810,19 +808,41 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
  * Job Control
  * ============================================================================ */
 
-void exec_reap_background_jobs(exec_t *executor)
+void exec_reap_background_jobs(exec_t *executor, bool notify)
 {
     Expects_not_null(executor);
 
 #ifdef POSIX_API
     int status;
     pid_t pid;
+    bool any_reaped = false;
 
+    /* -1 and WNOHANG mean we return the PID of any completed child process or -1 
+     * if no child process has recently completed */
     while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
     {
+        // Determine if the job is done, or if it was terminated by a signal
+        bool terminated = WIFSIGNALED(status);
         int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
-        job_store_mark_done(executor->jobs, pid, exit_status);
+        if (terminated)
+            job_store_set_state(executor->jobs, pid, JOB_STATE_TERMINATED);
+        else
+            job_store_set_state(executor->jobs, pid, JOB_STATE_DONE);
+        job_store_set_exit_status(executor->jobs, pid, exit_status);
+        any_reaped = true;
     }
+    if (any_reaped && notify)
+    {
+        job_store_print_completed_jobs(executor->jobs, stdout);
+    }
+    if (any_reaped)
+        job_store_remove_completed_jobs(executor->jobs);
+#elifdef UCRT_API
+    /* No waitpid equivalent in UCRT, so we cannot reap background jobs here.
+     * This is a limitation on Windows.
+     * There is a _cwait function, but this is blocking and waits for specific PIDs.
+     */
+    (void)executor; // Suppress unused parameter warning
 #endif
 }
 
@@ -991,7 +1011,46 @@ exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
     // Iterate through each command in the list
     for (int i = 0; i < items->size; i++) {
         ast_node_t *cmd = items->nodes[i];
-        if (!cmd) continue;  // Skip null commands (shouldn't happen, but defensive)
+        if (!cmd)
+            continue;  // Skip null commands (shouldn't happen, but defensive)
+
+        cmd_separator_t sep = cmd_separator_list_get(separators, i);
+        if (sep == CMD_EXEC_BACKGROUND)
+        {
+            // FIXME: I don't want ast_node_to_string.
+            // In POSIX, I can handle a full AST, i think, because I can do fork/exec
+            // But in UCRT, I can only do single commands, because I'm using _spawn
+            // For ISO C, I can also only do single commands, because I'm using system(),
+            // and the background execution is fake anyway.
+#ifdef POSIX_API
+            // In POSIX, we can fork and execute the command in the background
+            exec_background_job(frame, cmd, NULL);
+            continue;
+#elifdef UCRT_API
+            // In UCRT, we can only spawn simple commands in the background
+            if (ast_node_get_type(cmd) == AST_SIMPLE_COMMAND)
+            {
+                const token_list_t *words = ast_simple_command_node_get_words(cmd);
+                string_list_t *argv_list = expand_words(frame, words);
+                exec_background_job(frame, cmd, argv_list);
+                continue;
+            }
+            else
+            {
+                exec_set_error(
+                    frame->executor,
+                    "Background execution of complex commands is not supported on this platform.");
+                result.status = EXEC_NOT_IMPL;
+                return result;
+            }
+#else
+            // Background jobs not available in ISO C
+            exec_set_error(frame->executor,
+                           "Background execution is not supported on this platform");
+            result.status = EXEC_NOT_IMPL;
+            return result;
+#endif
+        }
 
         // Execute the command based on its type
         exec_result_t cmd_result;
@@ -1008,10 +1067,16 @@ exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
             case AST_SIMPLE_COMMAND:
                 cmd_result = exec_simple_command(frame, cmd);
                 break;
+            case AST_BRACE_GROUP:
+                cmd_result = exec_brace_group(frame, cmd->data.compound.body, NULL);
+                break;
+            case AST_SUBSHELL:
+                cmd_result = exec_subshell(frame, cmd->data.compound.body);
+                break;
             // Add other command types as implemented (e.g., AST_SIMPLE_COMMAND)
             default:
                 // For now, treat as unsupported; in full impl, add more cases
-                exec_set_error(frame->executor, "Unsupported command type in compound list: %d", cmd->type);
+                exec_set_error(frame->executor, "Unsupported command type in compound list: %d (%s)", cmd->type, ast_node_type_to_string(cmd->type));
                 result.status = EXEC_NOT_IMPL;
                 return result;
         }
@@ -1034,7 +1099,7 @@ exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
         }
 
         // Handle the separator after this command
-        cmd_separator_t sep = ast_node_command_list_get_separator(list, i);
+        // cmd_separator_t sep = ast_node_command_list_get_separator(list, i);
         if (sep == CMD_EXEC_BACKGROUND) {
             // Run in background: Add to job store and continue without waiting
             // Note: This assumes the command spawned processes; integrate with job control

@@ -53,6 +53,7 @@ CTEST(test_job_store_add_basic)
     CTEST_ASSERT_EQ(ctest, job->state, JOB_RUNNING, "initial state is RUNNING");
     CTEST_ASSERT_FALSE(ctest, job->is_notified, "is_notified is false");
 
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 
@@ -71,7 +72,7 @@ CTEST(test_job_store_add_foreground)
 
     // Foreground jobs should not update current/previous pointers
     CTEST_ASSERT_NULL(ctest, job_store_get_current(store), "current job is null for foreground");
-
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 
@@ -91,6 +92,9 @@ CTEST(test_job_store_add_multiple)
     CTEST_ASSERT_TRUE(ctest, job1 < job2, "job IDs are sequential");
     CTEST_ASSERT_TRUE(ctest, job2 < job3, "job IDs are sequential");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
     job_store_destroy(&store);
 }
 
@@ -122,6 +126,9 @@ CTEST(test_job_store_current_previous)
     CTEST_ASSERT_EQ(ctest, current->job_id, job3, "current is job3");
     CTEST_ASSERT_EQ(ctest, previous->job_id, job2, "previous is job2");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
     job_store_destroy(&store);
 }
 
@@ -158,6 +165,7 @@ CTEST(test_job_store_add_process)
         count++;
     CTEST_ASSERT_EQ(ctest, count, 3, "three processes in job");
 
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 
@@ -169,8 +177,7 @@ CTEST(test_job_store_add_process_invalid_job)
     bool result = job_store_add_process(store, 999, 1001, proc_cmd);
 
     CTEST_ASSERT_FALSE(ctest, result, "add to non-existent job fails");
-    string_destroy(&proc_cmd); // Clean up since not taken
-
+    string_destroy(&proc_cmd);
     job_store_destroy(&store);
 }
 
@@ -196,6 +203,8 @@ CTEST(test_job_store_find)
     CTEST_ASSERT_NOT_NULL(ctest, found2, "job2 found");
     CTEST_ASSERT_NULL(ctest, not_found, "non-existent job not found");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
     job_store_destroy(&store);
 }
 
@@ -216,6 +225,7 @@ CTEST(test_job_store_find_by_pgid)
     job_t *not_found = job_store_find_by_pgid(store, 9999);
     CTEST_ASSERT_NULL(ctest, not_found, "non-existent pgid not found");
 
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 
@@ -246,6 +256,9 @@ CTEST(test_job_store_find_by_prefix)
     job_t *not_found = job_store_find_by_prefix(store, "zzz");
     CTEST_ASSERT_NULL(ctest, not_found, "non-matching prefix not found");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
     job_store_destroy(&store);
 }
 
@@ -274,6 +287,8 @@ CTEST(test_job_store_find_by_substring)
     job_t *not_found = job_store_find_by_substring(store, "notfound");
     CTEST_ASSERT_NULL(ctest, not_found, "non-matching substring not found");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
     job_store_destroy(&store);
 }
 
@@ -295,6 +310,9 @@ CTEST(test_job_store_find_by_prefix_most_recent)
     CTEST_ASSERT_NOT_NULL(ctest, found, "found by prefix");
     CTEST_ASSERT_EQ(ctest, found->job_id, job3, "most recent job returned");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
     job_store_destroy(&store);
 }
 
@@ -323,6 +341,7 @@ CTEST(test_job_store_set_state)
     bool r3 = job_store_set_state(store, 999, JOB_DONE);
     CTEST_ASSERT_FALSE(ctest, r3, "set_state fails for non-existent job");
 
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 
@@ -355,6 +374,10 @@ CTEST(test_job_store_set_process_state)
     job_store_set_process_state(store, 1003, JOB_DONE, 0);
     CTEST_ASSERT_EQ(ctest, job->state, JOB_DONE, "job is done when all processes done");
 
+	string_destroy(&cmd);
+	string_destroy(&p1);
+	string_destroy(&p2);
+	string_destroy(&p3);
     job_store_destroy(&store);
 }
 
@@ -372,6 +395,7 @@ CTEST(test_job_store_mark_notified)
     CTEST_ASSERT_TRUE(ctest, result, "mark_notified succeeded");
     CTEST_ASSERT_TRUE(ctest, job->is_notified, "is_notified is true");
 
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 
@@ -403,6 +427,9 @@ CTEST(test_job_store_remove)
     bool r2 = job_store_remove(store, 999);
     CTEST_ASSERT_FALSE(ctest, r2, "remove non-existent job fails");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
     job_store_destroy(&store);
 }
 
@@ -426,6 +453,8 @@ CTEST(test_job_store_remove_current_previous)
     current = job_store_get_current(store);
     CTEST_ASSERT_EQ(ctest, current->job_id, job1, "current becomes previous");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
     job_store_destroy(&store);
 }
 
@@ -462,6 +491,10 @@ CTEST(test_job_store_remove_completed)
     CTEST_ASSERT_NULL(ctest, job_store_find(store, job3), "job3 removed");
     CTEST_ASSERT_NOT_NULL(ctest, job_store_find(store, job4), "job4 still exists (running)");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
+	string_destroy(&cmd4);
     job_store_destroy(&store);
 }
 
@@ -492,6 +525,9 @@ CTEST(test_job_is_running)
     job_store_set_process_state(store, 1002, JOB_DONE, 0);
     CTEST_ASSERT_FALSE(ctest, job_is_running(job), "job not running when all done");
 
+    string_destroy(&cmd);
+	string_destroy(&p1);
+	string_destroy(&p2);
     job_store_destroy(&store);
 }
 
@@ -517,6 +553,9 @@ CTEST(test_job_is_completed)
     job_store_set_process_state(store, 1002, JOB_DONE, 0);
     CTEST_ASSERT_TRUE(ctest, job_is_completed(job), "job completed when all done");
 
+	string_destroy(&cmd);
+	string_destroy(&p1);
+	string_destroy(&p2);
     job_store_destroy(&store);
 }
 
@@ -553,6 +592,9 @@ CTEST(test_job_store_first_iteration)
     CTEST_ASSERT_EQ(ctest, ids[1], job2, "second is job2");
     CTEST_ASSERT_EQ(ctest, ids[2], job1, "third is job1 (oldest)");
 
+	string_destroy(&cmd1);
+	string_destroy(&cmd2);
+	string_destroy(&cmd3);
     job_store_destroy(&store);
 }
 
@@ -586,6 +628,7 @@ CTEST(test_job_store_empty_string_lookup)
     job_t *found2 = job_store_find_by_substring(store, "");
     CTEST_ASSERT_NULL(ctest, found2, "empty substring returns null");
 
+	string_destroy(&cmd);
     job_store_destroy(&store);
 }
 

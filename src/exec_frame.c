@@ -9,12 +9,31 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <ctype.h>
+#include <stdio.h>
+#include <string.h>
+
 #include "exec_frame.h"
+
+#include "alias_store.h"
+#include "ast.h"
+#include "exec.h"
+#include "exec_frame_policy.h"
 #include "exec_internal.h"
+#include "fd_table.h"
+#include "func_store.h"
+#include "job_store.h"
+#include "logging.h"
+#include "positional_params.h"
+#include "string_list.h"
+#include "string_t.h"
+#include "trap_store.h"
+#include "variable_store.h"
 #include "xalloc.h"
 #ifdef UCRT_API
 #include <direct.h>
 #include <io.h>
+#include <process.h>
 #endif
 
 /* ============================================================================
@@ -594,7 +613,8 @@ exec_frame_t *exec_frame_pop(exec_frame_t **frame_ptr)
     /* Run EXIT trap if applicable */
     if (policy->traps.exit_trap_runs)
     {
-        trap_store_run_exit_trap(frame->traps, frame);
+        if (frame->traps->exit_trap_set)
+            trap_store_run_exit_trap(frame->traps, frame);
     }
 
     /* Propagate exit status to parent if applicable */
@@ -764,7 +784,20 @@ static exec_result_t execute_frame_body(exec_frame_t *frame, exec_params_t *para
     /* Execute body based on what's provided */
     if (params->body)
     {
-        result = exec_compound_list(frame, params->body);
+        if (params->body->type == AST_COMMAND_LIST)
+            result = exec_compound_list(frame, params->body);
+        else if (params->body->type == AST_SIMPLE_COMMAND)
+            result = exec_simple_command(frame, params->body);
+        else
+        {
+            abort();
+            exec_result_t abort_result = {
+                .exit_status = 1,
+                .has_exit_status = true,
+                .flow = EXEC_FLOW_NORMAL,
+                 .flow_depth = 0};
+            return abort_result;
+        }
     }
     else if (params->condition)
     {
@@ -789,6 +822,102 @@ static exec_result_t execute_frame_body(exec_frame_t *frame, exec_params_t *para
 
     return result;
 }
+
+#ifdef UCRT_API
+
+// Returns number of arguments parsed, or -1 on error
+// Allocates *argvp with malloc(); caller must free(*argvp) and each (*argvp)[i]
+int split_command_line(const char *cmdline, char ***argvp)
+{
+    if (!cmdline || !argvp)
+        return -1;
+
+    int argc = 0;
+    char **argv = NULL;
+    const char *p = cmdline;
+
+    while (*p)
+    {
+        while (isspace((unsigned char)*p))
+            p++; // skip leading whitespace
+
+        if (!*p)
+            break;
+
+        char *arg = xmalloc(strlen(p) + 1); // worst-case
+        if (!arg)
+            goto fail;
+        char *q = arg;
+
+        int in_quote = 0;
+        int backslash_count = 0;
+
+        while (*p)
+        {
+            if (*p == '\\')
+            {
+                backslash_count++;
+                p++;
+                continue;
+            }
+
+            if (*p == '"')
+            {
+                // Even backslashes → literal ", odd → escape "
+                if (backslash_count % 2 == 1)
+                {
+                    backslash_count--; // consume the escaping backslash
+                    *q++ = '"';
+                }
+                else
+                {
+                    in_quote = !in_quote;
+                }
+                backslash_count = 0;
+                p++;
+                continue;
+            }
+
+            if (!in_quote && isspace((unsigned char)*p))
+            {
+                break; // end of arg
+            }
+
+            // Dump accumulated backslashes
+            while (backslash_count--)
+                *q++ = '\\';
+            *q++ = *p++;
+            backslash_count = 0;
+        }
+
+        // Trailing backslashes outside quotes are literal
+        while (backslash_count--)
+            *q++ = '\\';
+
+        *q = '\0';
+
+        // realloc logic omitted for brevity — use a dynamic array in real code
+        char **new_argv = xrealloc(argv, (argc + 2) * sizeof(char *));
+        if (!new_argv)
+        {
+            xfree(arg);
+            goto fail;
+        }
+        argv = new_argv;
+        argv[argc++] = arg;
+        argv[argc] = NULL;
+    }
+
+    *argvp = argv;
+    return argc;
+
+fail:
+    // cleanup omitted for brevity
+    return -1;
+}
+
+#endif
+
 
 /**
  * Main entry point for frame execution.
@@ -820,7 +949,10 @@ exec_result_t exec_in_frame(exec_frame_t *parent, exec_frame_type_t type, exec_p
             {
                 /* Background job: record and return immediately */
                 parent->last_bg_pid = pid;
-                job_store_add(exec->jobs, pid, params ? params->command_text : NULL);
+                string_t *cmdline =
+                    params ? string_list_join(params->command_args) : string_create_from_cstr("");
+                job_store_add(exec->jobs, pid, cmdline);
+                string_destroy(&cmdline);
                 return (exec_result_t){.exit_status = 0,
                                        .has_exit_status = true,
                                        .flow = EXEC_FLOW_NORMAL,
@@ -839,6 +971,72 @@ exec_result_t exec_in_frame(exec_frame_t *parent, exec_frame_type_t type, exec_p
             }
         }
         /* Child process continues below */
+#elifdef UCRT_API
+        /* Windows (UCRT): no fork(). Approximate background exec by spawning a new mgsh
+         * process that evaluates the provided body via "-c".
+         */
+        if (policy->classification.is_background)
+        {
+            if (!params || !params->command_args)
+            {
+                // Unreachable?
+                fprintf(stderr,
+                        "Warning: background execution on Windows requires command arguments; running in foreground\n");
+            }
+            else
+            {
+                // Do I really want to spawn a full shell here? Probably not.
+                // Change this to just run the executable directly!
+
+                //const char *mgsh_path = (exec && exec->argv && exec->argv[0]) ? exec->argv[0] : "mgsh";
+                //const char *cmd_cstr = string_cstr(params->command_text);
+                //const char *argv_spawn[] = {mgsh_path, "-c", cmd_cstr, NULL};
+
+                /* Spawn asynchronously. Return value is a process handle cast to intptr_t. */
+                int argc_spawn = 0;
+                char **argv_spawn = string_list_to_cstr_array(params->command_args, &argc_spawn);
+
+                intptr_t h =
+                    _spawnvpe(_P_NOWAIT,
+                        argv_spawn[0],
+                        argv_spawn, /* Need to repeat arg0 here */
+                        (const char *const *)exec->envp);
+                for (int i = 0; i < argc_spawn; i++)
+                {
+                    xfree(argv_spawn[i]);
+                }
+                xfree(argv_spawn);
+                if (h == -1)
+                {
+                    return (exec_result_t){.exit_status = 1,
+                                           .has_exit_status = true,
+                                           .flow = EXEC_FLOW_NORMAL,
+                                           .flow_depth = 0};
+                }
+
+                parent->last_bg_pid = (int)h;
+
+                if (exec && exec->jobs)
+                {
+                    string_t *cmdline = string_list_join(params->command_args, " ");
+                    int job_id = job_store_add(exec->jobs, cmdline, true);
+                    if (job_id >= 0)
+                    {
+                        job_store_add_process(exec->jobs, job_id, (int)h, cmdline);
+                    }
+                    string_destroy(&cmdline);
+                }
+
+                return (exec_result_t){.exit_status = 0,
+                                       .has_exit_status = true,
+                                       .flow = EXEC_FLOW_NORMAL,
+                                       .flow_depth = 0};
+            }
+        }
+        else
+        {
+            /* Foreground: execute in-process (no fork semantics available). */
+        }
 #else
         /* ISO C: no fork support, run in foreground with warning */
         if (policy->classification.is_background)
@@ -951,11 +1149,11 @@ exec_result_t exec_trap_handler(exec_frame_t *parent, ast_node_t *body)
 }
 
 exec_result_t exec_background_job(exec_frame_t *parent, ast_node_t *body,
-                                  string_t *command_text)
+                                  string_list_t *command_args)
 {
     exec_params_t params = {
         .body = body,
-        .command_text = command_text,
+        .command_args = command_args,
     };
     return exec_in_frame(parent, EXEC_FRAME_BACKGROUND_JOB, &params);
 }
@@ -987,6 +1185,37 @@ exec_result_t exec_eval(exec_frame_t *parent, ast_node_t *body)
  * Variable and File Descriptor Access
  * ============================================================================ */
 
+exec_frame_t *exec_frame_find_return_target(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    exec_frame_t *current = frame;
+    while (current)
+    {
+        if (current->policy->flow.return_behavior == EXEC_RETURN_TARGET)
+        {
+            return current;
+        }
+        current = current->parent;
+    }
+    return NULL;
+}
+
+exec_frame_t* exec_frame_find_loop(exec_frame_t* frame)
+{
+    Expects_not_null(frame);
+    exec_frame_t *current = frame;
+    while (current)
+    {
+        if (current->policy->flow.is_loop)
+        {
+            return current;
+        }
+        current = current->parent;
+    }
+    return NULL;
+}
+
 variable_store_t* exec_frame_get_variables(exec_frame_t* frame)
 {
     if (!frame)
@@ -1001,6 +1230,12 @@ fd_table_t* exec_frame_get_fds(exec_frame_t* frame)
         return NULL;
 
     return frame->open_fds;
+}
+
+trap_store_t *exec_frame_get_traps(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+    return frame->traps;
 }
 
 string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name)

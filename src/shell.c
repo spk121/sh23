@@ -1,11 +1,13 @@
-#include "shell.h"
-#include "logging.h"
-#include "xalloc.h"
-#include "exec.h"
-#include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
+
+#include "shell.h"
+
+#include "exec.h"
+#include "exec_frame.h"
+#include "logging.h"
+#include "string_t.h"
+#include "xalloc.h"
 
 struct shell_t
 {
@@ -14,6 +16,11 @@ struct shell_t
     string_t *command_string; // Command string (if any)
     exec_t *executor; // Points to the currently executing exec_t
 };
+
+static sh_status_t shell_execute_script_file(shell_t *sh);
+static sh_status_t shell_execute_interactive(shell_t *sh);
+static sh_status_t shell_execute_command_string(shell_t *sh);
+static sh_status_t shell_execute_stdin(shell_t *sh);
 
 shell_t *shell_create(const shell_cfg_t *cfg)
 {
@@ -178,7 +185,7 @@ sh_status_t shell_execute_command_string(shell_t *sh)
     }
 }
 
-extern void exec_reap_background_jobs(exec_t *executor);
+extern void exec_reap_background_jobs(exec_t *executor, bool notify);
 
 static sh_status_t shell_execute_interactive(shell_t *sh)
 {
@@ -193,7 +200,7 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
     fprintf(stdout, "%s", ps1);
     fflush(stdout);
 
-    exec_reap_background_jobs(sh->executor);
+    exec_reap_background_jobs(sh->executor, true);
     while (fgets(line_buffer, sizeof(line_buffer), stdin) != NULL)
     {
         // Check for exit command
@@ -237,6 +244,9 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
                 fprintf(stderr, "%s\n", error);
             }
         }
+
+        // Check to see of any background jobs have terminated
+        exec_reap_background_jobs(sh->executor, true);
 
         // Print next prompt
         fprintf(stdout, "%s", ps1);

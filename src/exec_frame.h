@@ -130,7 +130,7 @@ typedef struct exec_params_t {
 #endif
 
     /* For background jobs / debugging */
-    string_t* command_text;          /* Original command text for job display */
+    string_list_t* command_args;          /* Original command text for job display */
 
     /* Source location */
     int source_line;
@@ -237,7 +237,7 @@ exec_result_t exec_trap_handler(exec_frame_t* parent,
 
 exec_result_t exec_background_job(exec_frame_t* parent,
     ast_node_t* body,
-    string_t* command_text);
+    string_list_t* command_args);
 
 #ifdef POSIX_API
 exec_result_t exec_pipeline_cmd(exec_frame_t* parent,

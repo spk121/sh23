@@ -1,10 +1,12 @@
 #ifndef AST_H
 #define AST_H
 
-#include "string_t.h"
-#include "token.h"
 #include <stdbool.h>
 #include <stddef.h>
+
+#include "string_list.h"
+#include "string_t.h"
+#include "token.h"
 
 /* ============================================================================
  * AST Node Type Enumeration
@@ -346,7 +348,10 @@ void ast_redirection_node_set_buffer_content(ast_node_t *node, const string_t *c
 redirection_type_t ast_redirection_node_get_redir_type(const ast_node_t *node);
 
 const char *redirection_type_to_string(redirection_type_t type);
-/* ============================================================================
+
+const token_list_t *ast_simple_command_node_get_words(const ast_node_t *node);
+string_list_t *ast_simple_command_node_get_word_strings(const ast_node_t *node);
+    /* ============================================================================
  * AST Node Creation Helpers
  * ============================================================================ */
 

@@ -1,8 +1,9 @@
 #include <string.h>
 #include "ctest.h"
 #include "exec.h"
-#include "string_t.h"
+#include "exec_frame.h"
 #include "logging.h"
+#include "string_t.h"
 
 /* ============================================================================
  * Test: Executor Creation and Destruction

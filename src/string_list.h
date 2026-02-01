@@ -150,6 +150,18 @@ void string_list_clear(string_list_t *list);
  * ============================================================================ */
 
 /**
+ *  Returns a null-terminated array of C-strings representing the strings in the list.
+ * The array and the C-strings are heap-allocated.
+ * The number of strings is returned in out_size.
+ * Caller must free the array and each C-string.
+ *
+ * @param list The string list
+ * @param out_size Pointer to receive the number of strings (optional, can be NULL)
+ * @return Null-terminated array of C-strings, or NULL on error
+ */
+char **string_list_to_cstr_array(const string_list_t *list, int *out_size);
+
+/**
  * Returns a null-terminated array of C-strings representing the strings in the list.
  * The array and the C-strings are heap-allocated.
  * The number of strings is returned in out_size.
@@ -161,6 +173,8 @@ void string_list_clear(string_list_t *list);
  * @return Null-terminated array of C-strings, or NULL on error
  */
 char **string_list_release_cstr_array(string_list_t **list, int *out_size);
+
+string_t *string_list_join(const string_list_t *list, const char *separator);
 
 /**
  * Returns a new string that is the result of joining all strings in the list

@@ -6,9 +6,10 @@
 #ifndef JOB_STORE_H
 #define JOB_STORE_H
 
-#include "string_t.h"
 #include <stdbool.h>
 #include <stddef.h>
+
+#include "string_t.h"
 
 #ifdef POSIX_API
 #include <sys/types.h>  // For pid_t
@@ -103,11 +104,11 @@ void job_store_destroy(job_store_t **store);
  * Create a new job and add it to the store.
  *
  * @param store The job store
- * @param command_line The full command line as typed by user (takes ownership)
+ * @param command_line The full command line as typed by user
  * @param is_background Whether this is a background job
  * @return The newly created job ID, or -1 on failure
  */
-int job_store_add(job_store_t *store, string_t *command_line, bool is_background);
+int job_store_add(job_store_t *store, const string_t *command_line, bool is_background);
 
 /**
  * Add a process to a job.
@@ -115,13 +116,13 @@ int job_store_add(job_store_t *store, string_t *command_line, bool is_background
  * @param store The job store
  * @param job_id The job ID to add the process to
  * @param pid The process ID
- * @param command The command string for this process (takes ownership)
+ * @param command The command string for this process
  * @return true on success, false on failure
  */
 #ifdef POSIX_API
-bool job_store_add_process(job_store_t *store, int job_id, pid_t pid, string_t *command);
+bool job_store_add_process(job_store_t *store, int job_id, pid_t pid, const string_t *command);
 #else
-bool job_store_add_process(job_store_t *store, int job_id, int pid, string_t *command);
+bool job_store_add_process(job_store_t *store, int job_id, int pid, const string_t *command);
 #endif
 
 // ============================================================================
@@ -227,6 +228,15 @@ bool job_store_set_process_state(job_store_t *store, int pid,
  * @return true on success, false if job not found
  */
 bool job_store_mark_notified(job_store_t *store, int job_id);
+
+/**
+ * Print all completed jobs to the given output stream.
+ * Marks printed jobs as notified.
+ *
+ * @param store The job store
+ * @param output The output stream (e.g., stdout)
+ */
+void job_store_print_completed_jobs(job_store_t *store, FILE *output);
 
 // ============================================================================
 // Job Removal

@@ -2,11 +2,13 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "string_list.h"
-#include "string_t.h"
-#include "logging.h"
-#include "xalloc.h"
 #include <string.h>
+
+#include "string_list.h"
+
+#include "logging.h"
+#include "string_t.h"
+#include "xalloc.h"
 
 /* ============================================================================
  * Internal Constants
@@ -351,6 +353,30 @@ void string_list_clear(string_list_t *list)
  * Conversion and Utility
  * ============================================================================ */
 
+char **string_list_to_cstr_array(const string_list_t *list, int *out_size)
+{
+    Expects_not_null(list);
+    int size = list->size;
+    // Allocate null-terminated array
+    char **array = (char **)xcalloc((size + 1), sizeof(char *));
+    // Convert each string to C-string
+    for (int i = 0; i < size; i++)
+    {
+        if (list->strings[i])
+        {
+            array[i] = xstrdup(string_cstr(list->strings[i]));
+        }
+        else
+        {
+            array[i] = xstrdup("");
+        }
+    }
+    array[size] = NULL;
+    if (out_size)
+        *out_size = size;
+    return array;
+}
+
 char **string_list_release_cstr_array(string_list_t **list, int *out_size)
 {
     Expects_not_null(list);
@@ -360,7 +386,7 @@ char **string_list_release_cstr_array(string_list_t **list, int *out_size)
     int size = l->size;
 
     // Allocate null-terminated array
-    char **array = (char **)xmalloc((size + 1) * sizeof(char *));
+    char **array = (char **)xcalloc((size + 1), sizeof(char *));
 
     // Convert each string to C-string
     for (int i = 0; i < size; i++)
@@ -383,6 +409,26 @@ char **string_list_release_cstr_array(string_list_t **list, int *out_size)
     string_list_destroy(list);
 
     return array;
+}
+
+string_t* string_list_join(const string_list_t* list, const char* separator)
+{
+    Expects_not_null(list);
+    string_t* result = string_create();
+    if (!separator)
+        separator = "";
+    for (int i = 0; i < list->size; i++)
+    {
+        if (i > 0)
+        {
+            string_append_cstr(result, separator);
+        }
+        if (list->strings[i])
+        {
+            string_append(result, list->strings[i]);
+        }
+    }
+    return result;
 }
 
 string_t *string_list_join_move(string_list_t **list, const char *separator)

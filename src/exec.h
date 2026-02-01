@@ -313,15 +313,7 @@ void exec_cfg_set_from_shell_options(exec_cfg_t *cfg,
 /**
  * Create a new executor.
  */
-exec_t *exec_create(struct exec_cfg_t *cfg);
-
-/**
- * Create a new executor from config - alias for exec_create for convenience.
- */
-static inline exec_t *exec_create_from_cfg(struct exec_cfg_t *cfg)
-{
-    return exec_create(cfg);
-}
+exec_t *exec_create(const struct exec_cfg_t *cfg);
 
 /**
  * Destroy an executor and free all associated memory.
@@ -336,7 +328,7 @@ void exec_destroy(exec_t **executor);
 /**
  * Setup the executor for interactive execution, including sourcing rc files.
  */
-exec_status_t exec_setup_interactive_execute(exec_t *executor);
+void exec_setup_interactive_execute(exec_t *executor);
 
 /**
  * Execute an AST.
@@ -423,7 +415,14 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
  */
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 
-void exec_reap_background_jobs(exec_t *executor);
+/**
+ * Check if any background jobs have completed, and if so mark them done
+ * in the job store.
+ * Only properly functions in POSIX_API mode.
+ * In other modes, this is a no-op.
+ * If notify is true, print completed jobs to the output.
+ */
+void exec_reap_background_jobs(exec_t *executor, bool notify);
 
 /* ============================================================================
  * Visitor Pattern Support
@@ -496,6 +495,12 @@ const char *exec_get_ps1(const exec_t *executor);
  */
 const char *exec_get_ps2(const exec_t *executor);
 
+positional_params_t *exec_get_positional_params(const exec_t *executor);
+variable_store_t *exec_get_variables(const exec_t *executor);
+alias_store_t *exec_get_aliases(const exec_t *executor);
+bool exec_is_interactive(const exec_t *executor);
+bool exec_is_login_shell(const exec_t *executor);
+
 /* ============================================================================
  * Expander Callbacks
  * ============================================================================ */
@@ -511,22 +516,6 @@ const char *exec_get_ps2(const exec_t *executor);
  *         or NULL on error
  */
 string_t *exec_command_subst_callback(void *userdata, const string_t *command);
-
-/**
- * Pathname expansion (glob) callback for the expander.
- * Platform behavior:
- * - POSIX_API: uses POSIX glob() for pathname expansion.
- * - UCRT_API: uses _findfirst/_findnext from <io.h> for wildcard matching.
- * - ISO_C: no implementation; returns NULL so the expander preserves the literal.
- *
- * @param pattern The glob pattern to expand
- * @param user_data Pointer to the shell_t context (opaque to this function)
- * @param pattern The glob pattern to expand
- * @return On success with matches: a newly allocated list of filenames
- *         (caller must free with string_list_destroy). On no matches or error:
- *         returns NULL, signaling the expander to leave the pattern unexpanded.
- */
-string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t *pattern);
 
 /**
  * Get positional parameters from executor (for expander).

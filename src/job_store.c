@@ -3,9 +3,14 @@
 // Job control store implementation
 // ============================================================================
 
-#include "job_store.h"
-#include "xalloc.h"
+#include <stdio.h>
 #include <string.h>
+
+#include "job_store.h"
+
+#include "logging.h"
+#include "string_t.h"
+#include "xalloc.h"
 
 // ============================================================================
 // Internal Helper Functions
@@ -15,14 +20,14 @@
  * Create a new process node.
  */
 #ifdef POSIX_API
-static process_t *process_create(pid_t pid, string_t *command)
+static process_t *process_create(pid_t pid, const string_t *command)
 #else
-static process_t *process_create(int pid, string_t *command)
+static process_t *process_create(int pid, const string_t *command)
 #endif
 {
     process_t *proc = xcalloc(1, sizeof(process_t));
     proc->pid = pid;
-    proc->command = command;  // Takes ownership
+    proc->command = string_create_from(command);
     proc->state = JOB_RUNNING;
     proc->exit_status = 0;
     proc->next = NULL;
@@ -59,13 +64,13 @@ static void process_list_destroy(process_t *head)
 /**
  * Create a new job node.
  */
-static job_t *job_create(int job_id, string_t *command_line, bool is_background)
+static job_t *job_create(int job_id, const string_t *command_line, bool is_background)
 {
     job_t *job = xcalloc(1, sizeof(job_t));
     job->job_id = job_id;
     job->pgid = 0;
     job->processes = NULL;
-    job->command_line = command_line;  // Takes ownership
+    job->command_line = string_create_from(command_line);
     job->state = JOB_RUNNING;
     job->is_background = is_background;
     job->is_notified = false;
@@ -179,7 +184,7 @@ void job_store_destroy(job_store_t **store)
 // Job Creation
 // ============================================================================
 
-int job_store_add(job_store_t *store, string_t *command_line, bool is_background)
+int job_store_add(job_store_t *store, const string_t *command_line, bool is_background)
 {
     if (!store)
         return -1;
@@ -203,9 +208,9 @@ int job_store_add(job_store_t *store, string_t *command_line, bool is_background
 }
 
 #ifdef POSIX_API
-bool job_store_add_process(job_store_t *store, int job_id, pid_t pid, string_t *command)
+bool job_store_add_process(job_store_t *store, int job_id, pid_t pid, const string_t *command)
 #else
-bool job_store_add_process(job_store_t *store, int job_id, int pid, string_t *command)
+bool job_store_add_process(job_store_t *store, int job_id, int pid, const string_t *command)
 #endif
 {
     if (!store)
@@ -385,6 +390,24 @@ bool job_store_mark_notified(job_store_t *store, int job_id)
 
     job->is_notified = true;
     return true;
+}
+
+void job_store_print_completed_jobs(job_store_t* store, FILE* output)
+{
+    Expects_not_null(store);
+    Expects_not_null(output);
+    for (job_t* job = store->jobs; job; job = job->next)
+    {
+        if (job_is_completed(job) && !job->is_notified)
+        {
+            const char* state_str = job_state_to_string(job->state);
+            fprintf(output, "[%d] %s\t%s\n",
+                    job->job_id,
+                    state_str,
+                    job->command_line ? string_cstr(job->command_line) : "(no command)");
+            job->is_notified = true;
+        }
+    }
 }
 
 // ============================================================================

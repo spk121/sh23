@@ -1,8 +1,14 @@
-#include "ast.h"
-#include "logging.h"
-#include "xalloc.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "ast.h"
+#include "logging.h"
+#include "string_list.h"
+#include "string_t.h"
+#include "token.h"
+#include "xalloc.h"
+
+
 
 /* ============================================================================
  * Constants
@@ -683,6 +689,30 @@ const char *redirection_type_to_string(redirection_type_t type)
     default:
         return "UNKNOWN";
     }
+}
+
+const token_list_t* ast_simple_command_node_get_words(const ast_node_t* node)
+{
+    Expects_not_null(node);
+    Expects_eq(ast_node_get_type(node), AST_SIMPLE_COMMAND);
+
+    return (const token_list_t *) node->data.simple_command.words;
+}
+
+string_list_t* ast_simple_command_node_get_word_strings(const ast_node_t* node)
+{
+    Expects_not_null(node);
+    Expects_eq(ast_node_get_type(node), AST_SIMPLE_COMMAND);
+
+    token_list_t *words = node->data.simple_command.words;
+    int len = token_list_size(words);
+    string_list_t *sl = string_list_create();
+    for (int i = 0; i < len; i ++)
+    {
+        string_t *txt = token_get_all_text(token_list_get(words, i));
+        string_list_move_push_back(sl, &txt);
+    }
+    return sl;
 }
 
 static void indent_str(string_t *str, int i)
