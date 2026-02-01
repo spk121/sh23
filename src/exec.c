@@ -782,6 +782,12 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             continue;
 
         exec_status_t exec_status = exec_execute(executor, ast);
+        const char *error = exec_get_error(executor);
+        if (error)
+        {
+            fprintf(stderr, "%s\n", error);
+            final_status = EXEC_ERROR;
+        }
         ast_node_destroy(&ast);
 
         if (exec_status != EXEC_OK)
@@ -1053,12 +1059,198 @@ exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
 
 exec_result_t exec_and_or_list(exec_frame_t *frame, ast_node_t *list)
 {
-    abort();
+    Expects_not_null(frame);
+    Expects_not_null(list);
+    Expects(list->type == AST_AND_OR_LIST);
+
+    exec_result_t result = { .status = EXEC_OK, .has_exit_status = false, .exit_status = 0 };
+
+    ast_node_t *left = list->data.andor_list.left;
+    ast_node_t *right = list->data.andor_list.right;
+    andor_operator_t op = list->data.andor_list.op;
+
+    // Execute left command
+    exec_result_t left_result;
+    switch (left->type) {
+        case AST_COMMAND_LIST:
+            left_result = exec_compound_list(frame, left);
+            break;
+        case AST_AND_OR_LIST:
+            left_result = exec_and_or_list(frame, left);
+            break;
+        case AST_PIPELINE:
+            left_result = exec_pipeline(frame, left);
+            break;
+        case AST_SIMPLE_COMMAND:
+            left_result = exec_simple_command(frame, left);
+            break;
+        default:
+            exec_set_error(frame->executor, "Unsupported AST node type in and_or_list: %d", left->type);
+            result.status = EXEC_NOT_IMPL;
+            return result;
+    }
+
+    if (left_result.status != EXEC_OK) {
+        result = left_result;
+        return result;
+    }
+
+    // Determine if right command should be executed
+    bool execute_right = false;
+    if (op == ANDOR_OP_AND) {
+        if (left_result.exit_status == 0) {
+            execute_right = true;
+        }
+    } else if (op == ANDOR_OP_OR) {
+        if (left_result.exit_status != 0) {
+            execute_right = true;
+        }
+    }
+
+    if (execute_right) {
+        // Execute right command
+        exec_result_t right_result;
+        switch (right->type) {
+            case AST_COMMAND_LIST:
+                right_result = exec_compound_list(frame, right);
+                break;
+            case AST_AND_OR_LIST:
+                right_result = exec_and_or_list(frame, right);
+                break;
+            case AST_PIPELINE:
+                right_result = exec_pipeline(frame, right);
+                break;
+            case AST_SIMPLE_COMMAND:
+                right_result = exec_simple_command(frame, right);
+                break;
+            default:
+                exec_set_error(frame->executor, "Unsupported AST node type in and_or_list: %d", right->type);
+                result.status = EXEC_NOT_IMPL;
+                return result;
+        }
+
+        if (right_result.status != EXEC_OK) {
+            result = right_result;
+            return result;
+        }
+
+        result = right_result;
+    } else {
+        result = left_result;
+    }
+
+    // Update frame's last exit status
+    frame->last_exit_status = result.exit_status;
+
+    return result;
 }
 
 exec_result_t exec_pipeline(exec_frame_t *frame, ast_node_t *list)
 {
-    abort();
+    Expects_not_null(frame);
+    Expects_not_null(list);
+    Expects(list->type == AST_PIPELINE);
+
+    exec_result_t result = { .status = EXEC_OK, .has_exit_status = false, .exit_status = 0 };
+
+    ast_node_list_t *commands = list->data.pipeline.commands;
+    bool is_negated = list->data.pipeline.is_negated;
+
+    if (!commands || commands->size == 0) {
+        result.has_exit_status = true;
+        result.exit_status = 0;
+        if (is_negated) result.exit_status = 1;
+        return result;
+    }
+
+    int ncmds = commands->size;
+    if (ncmds == 1) {
+        // Single command, just execute it
+        ast_node_t *cmd = commands->nodes[0];
+        exec_result_t cmd_result = exec_simple_command(frame, cmd);
+        result = cmd_result;
+        if (is_negated) {
+            result.exit_status = result.exit_status == 0 ? 1 : 0;
+        }
+        return result;
+    }
+
+    // Multiple commands, need pipes
+#ifdef POSIX_API
+    int pipes[2 * (ncmds - 1)]; // pipes between commands
+    for (int i = 0; i < ncmds - 1; i++) {
+        if (pipe(pipes + 2 * i) == -1) {
+            exec_set_error(frame->executor, "pipe failed");
+            result.status = EXEC_ERROR;
+            return result;
+        }
+    }
+
+    pid_t pids[ncmds];
+    for (int i = 0; i < ncmds; i++) {
+        pids[i] = fork();
+        if (pids[i] == -1) {
+            exec_set_error(frame->executor, "fork failed");
+            result.status = EXEC_ERROR;
+            // Close pipes
+            for (int j = 0; j < 2 * (ncmds - 1); j++) close(pipes[j]);
+            return result;
+        } else if (pids[i] == 0) {
+            // Child
+            // Set up pipes
+            if (i > 0) {
+                dup2(pipes[2 * (i - 1)], STDIN_FILENO);
+                close(pipes[2 * (i - 1) + 1]); // Close write end
+            }
+            if (i < ncmds - 1) {
+                dup2(pipes[2 * i + 1], STDOUT_FILENO);
+                close(pipes[2 * i]); // Close read end
+            }
+            // Close all pipes in child
+            for (int j = 0; j < 2 * (ncmds - 1); j++) close(pipes[j]);
+
+            // Execute command
+            ast_node_t *cmd = commands->nodes[i];
+            exec_execute(frame->executor, cmd);
+            _exit(frame->last_exit_status);
+        }
+    }
+
+    // Parent: close all pipes
+    for (int j = 0; j < 2 * (ncmds - 1); j++) close(pipes[j]);
+
+    // Wait for all children
+    int last_status = 0;
+    for (int i = 0; i < ncmds; i++) {
+        int status;
+        if (waitpid(pids[i], &status, 0) < 0) {
+            exec_set_error(frame->executor, "waitpid failed");
+            result.status = EXEC_ERROR;
+            return result;
+        }
+        if (i == ncmds - 1) {
+            if (WIFEXITED(status)) {
+                last_status = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                last_status = 128 + WTERMSIG(status);
+            } else {
+                last_status = 127;
+            }
+        }
+    }
+
+    result.has_exit_status = true;
+    result.exit_status = is_negated ? (last_status == 0 ? 1 : 0) : last_status;
+    frame->last_exit_status = result.exit_status;
+
+    return result;
+
+#else
+    // For UCRT or ISO_C, pipelines are not supported
+    exec_set_error(frame->executor, "Pipelines not supported in this API");
+    result.status = EXEC_NOT_IMPL;
+    return result;
+#endif
 }
 
 exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *node)
@@ -1085,14 +1277,6 @@ exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *node)
 
 /* Stub implementations for unimplemented functions */
 
-exec_t *exec_create_subshell(exec_t *executor)
-{
-    /* For now, return the same executor.
-     * In a full implementation, this would create a new child executor
-     * with appropriate state copying for a true subshell.
-     */
-    return executor;
-}
 
 exec_result_t exec_condition_loop(exec_frame_t *frame, exec_params_t *params)
 {

@@ -264,6 +264,13 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
     }
 
     const string_t *cmd_name_str = string_list_at(expanded_words, 0);
+    int cmd_exit_status = 0;
+
+    if (!cmd_name_str) {
+        exec_set_error(executor, "empty command name");
+        cmd_exit_status = 127;
+        goto done_execution;
+    }
     const char *cmd_name = string_cstr(cmd_name_str);
 
     /* Convert AST redirections to runtime structure */
@@ -315,7 +322,6 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 #endif
 
     /* Classify and execute command */
-    int cmd_exit_status = 0;
     builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
 
     /* Special builtins: When calling special built-in, variable assignments survive the current shell. */
@@ -376,6 +382,12 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
     /* Execute: external command */
     {
 #ifdef POSIX_API
+        if (!cmd_name || strlen(cmd_name) == 0)
+        {
+            exec_set_error(executor, "empty command name");
+            cmd_exit_status = 127;
+            goto done_execution;
+        }
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++)
@@ -462,7 +474,6 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                 exec_set_error(executor, "%s: execution failed (errno=%d)", cmd_name, err);
 
             cmd_exit_status = 127;
-            status = EXEC_ERROR;
         }
         else
         {
@@ -474,6 +485,13 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         xfree(argv);
 
 #else
+        if (!cmd_name || strlen(cmd_name) == 0)
+        {
+            exec_set_error(executor, "empty command name");
+            cmd_exit_status = 127;
+            goto done_execution;
+        }
+
         string_t *cmdline = string_create();
         for (int i = 0; i < string_list_size(expanded_words); i++)
         {
@@ -501,6 +519,10 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             cmd_exit_status = rc;
         }
 #endif
+    }
+    if (cmd_exit_status == 127 && !exec_get_error(executor))
+    {
+        exec_set_error(executor, "%s: command not found", cmd_name);
     }
 
 done_execution:
