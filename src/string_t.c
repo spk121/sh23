@@ -178,6 +178,23 @@ string_t *string_create_from_cstr_len(const char *data, int len)
     return str;
 }
 
+string_t* string_create_from_cstr_list(const char** strv, const char *separator)
+{
+    Expects_not_null(strv);
+    string_t* result = string_create();
+    for (int i = 0; strv[i] != NULL; i++)
+    {
+        if (i > 0 && separator)
+        {
+            string_append_cstr(result, separator);
+        }
+        if (strv[i] == NULL)
+            continue;
+        string_append_cstr(result, strv[i]);
+    }
+    return result;
+}
+
 string_t *string_create_from(const string_t *other)
 {
     Expects_not_null(other);

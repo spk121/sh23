@@ -122,6 +122,9 @@ string_t *string_create_from_cstr_len(const char *data, int len);
 /*
  * Clones the string 'other'.
  */
+
+string_t *string_create_from_cstr_list(const char **strv, const char *separator);
+
 string_t *string_create_from(const string_t *other);
 /*
  * Creates a string from the substring of 'str' from 'start' (inclusive) to 'end' (exclusive).

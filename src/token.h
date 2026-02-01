@@ -435,6 +435,12 @@ const char *token_type_to_cstr(token_type_t type);
 string_t *token_to_string(const token_t *token);
 
 /**
+ * Create a string that approximates the input form representation of a token.
+ * Caller is responsible for freeing the returned string.
+ */
+string_t *token_to_cmd_string(const token_t *token);
+
+/**
  * Check if a string is a POSIX reserved word.
  */
 bool token_is_reserved_word(const char *word);

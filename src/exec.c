@@ -17,7 +17,6 @@
 
 #include "alias_store.h"
 #include "ast.h"
-#include "exec_expander.h"
 #include "exec_frame.h"
 #include "fd_table.h"
 #include "func_store.h"
@@ -1017,39 +1016,19 @@ exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
         cmd_separator_t sep = cmd_separator_list_get(separators, i);
         if (sep == CMD_EXEC_BACKGROUND)
         {
-            // FIXME: I don't want ast_node_to_string.
-            // In POSIX, I can handle a full AST, i think, because I can do fork/exec
-            // But in UCRT, I can only do single commands, because I'm using _spawn
-            // For ISO C, I can also only do single commands, because I'm using system(),
-            // and the background execution is fake anyway.
-#ifdef POSIX_API
-            // In POSIX, we can fork and execute the command in the background
-            exec_background_job(frame, cmd, NULL);
+            /* For POSIX, UCRT, and ISO_C, we'll just call exec_background_job,
+             * but that doesn't mean this will actually run in the background.
+             * We'll handle platform-specific limitations inside exec_background_job.
+             *
+             * In POSIX, though, exec_background_job will return quickly.
+             * For the others, it depends.
+             */
+            string_t *command_line = ast_node_to_command_line_full(cmd);
+            // Since we're not sending this to spawn, we can keep this as a single string_t
+            string_list_t *argv_list = string_list_create();
+            string_list_move_push_back(argv_list, &command_line);
+            exec_background_job(frame, cmd, argv_list);
             continue;
-#elifdef UCRT_API
-            // In UCRT, we can only spawn simple commands in the background
-            if (ast_node_get_type(cmd) == AST_SIMPLE_COMMAND)
-            {
-                const token_list_t *words = ast_simple_command_node_get_words(cmd);
-                string_list_t *argv_list = expand_words(frame, words);
-                exec_background_job(frame, cmd, argv_list);
-                continue;
-            }
-            else
-            {
-                exec_set_error(
-                    frame->executor,
-                    "Background execution of complex commands is not supported on this platform.");
-                result.status = EXEC_NOT_IMPL;
-                return result;
-            }
-#else
-            // Background jobs not available in ISO C
-            exec_set_error(frame->executor,
-                           "Background execution is not supported on this platform");
-            result.status = EXEC_NOT_IMPL;
-            return result;
-#endif
         }
 
         // Execute the command based on its type

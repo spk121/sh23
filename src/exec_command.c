@@ -460,9 +460,20 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         char *const *envp =
             variable_store_get_envp(executor->variables);
 
-        intptr_t spawn_result =
-            _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
-
+        /* Unlike POSIX, where the fork that created a background process happens way back at
+         * the exec_in_frame() call, UCRT background process creation happens from _spawnvpe. In
+         * UCRT we can only run simple commands in the background. */
+        intptr_t spawn_result = 0;
+        if (frame->policy->classification.is_background)
+        {
+            spawn_result = _spawnvpe(_P_NOWAIT, cmd_name, (const char *const *)argv,
+                                     (const char *const *)envp);
+        }
+        else
+        {
+            spawn_result =
+                _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
+        }
         if (spawn_result == -1)
         {
             int err = errno;
@@ -477,6 +488,22 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
         else
         {
+            if (frame->policy->classification.is_background)
+            {
+                /* In background execution, spawn_result is the PID of the started process */
+                frame->last_bg_pid = (int)spawn_result;
+                // frame->last_bg_pid_set = true;
+                if (frame->executor->jobs)
+                {
+                    string_t *cmdline = string_create_from_cstr_list(argv, " ");
+                    int job_id = job_store_add(frame->executor->jobs, cmdline, true);
+                    if (job_id >= 0)
+                    {
+                        job_store_add_process(frame->executor->jobs, job_id, (int)spawn_result, cmdline);
+                    }
+                    string_destroy(&cmdline);
+                }
+            }
             cmd_exit_status = (int)spawn_result;
         }
 

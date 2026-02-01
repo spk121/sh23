@@ -972,71 +972,17 @@ exec_result_t exec_in_frame(exec_frame_t *parent, exec_frame_type_t type, exec_p
         }
         /* Child process continues below */
 #elifdef UCRT_API
-        /* Windows (UCRT): no fork(). Approximate background exec by spawning a new mgsh
-         * process that evaluates the provided body via "-c".
+        /* While POSIX can fork and get a PID before executing a command,
+         * in UCRT, we can't get a handle until when the command is spawned.
+         * In POSIX, because of fork, you handle both background and foreground
+         * here based on PID, but, in UCRT, this block is all forground execution, and the
+         * background task is handled in the spawn call in exec_simple_command.
+         * 
+         * So, basically, we do nothing here. But when we create and initialize the frame,
+         * below, it will have the background policy flag set, which will be used later.
          */
-        if (policy->classification.is_background)
-        {
-            if (!params || !params->command_args)
-            {
-                // Unreachable?
-                fprintf(stderr,
-                        "Warning: background execution on Windows requires command arguments; running in foreground\n");
-            }
-            else
-            {
-                // Do I really want to spawn a full shell here? Probably not.
-                // Change this to just run the executable directly!
 
-                //const char *mgsh_path = (exec && exec->argv && exec->argv[0]) ? exec->argv[0] : "mgsh";
-                //const char *cmd_cstr = string_cstr(params->command_text);
-                //const char *argv_spawn[] = {mgsh_path, "-c", cmd_cstr, NULL};
-
-                /* Spawn asynchronously. Return value is a process handle cast to intptr_t. */
-                int argc_spawn = 0;
-                char **argv_spawn = string_list_to_cstr_array(params->command_args, &argc_spawn);
-
-                intptr_t h =
-                    _spawnvpe(_P_NOWAIT,
-                        argv_spawn[0],
-                        argv_spawn, /* Need to repeat arg0 here */
-                        (const char *const *)exec->envp);
-                for (int i = 0; i < argc_spawn; i++)
-                {
-                    xfree(argv_spawn[i]);
-                }
-                xfree(argv_spawn);
-                if (h == -1)
-                {
-                    return (exec_result_t){.exit_status = 1,
-                                           .has_exit_status = true,
-                                           .flow = EXEC_FLOW_NORMAL,
-                                           .flow_depth = 0};
-                }
-
-                parent->last_bg_pid = (int)h;
-
-                if (exec && exec->jobs)
-                {
-                    string_t *cmdline = string_list_join(params->command_args, " ");
-                    int job_id = job_store_add(exec->jobs, cmdline, true);
-                    if (job_id >= 0)
-                    {
-                        job_store_add_process(exec->jobs, job_id, (int)h, cmdline);
-                    }
-                    string_destroy(&cmdline);
-                }
-
-                return (exec_result_t){.exit_status = 0,
-                                       .has_exit_status = true,
-                                       .flow = EXEC_FLOW_NORMAL,
-                                       .flow_depth = 0};
-            }
-        }
-        else
-        {
-            /* Foreground: execute in-process (no fork semantics available). */
-        }
+        /* Parent process continues. */
 #else
         /* ISO C: no fork support, run in foreground with warning */
         if (policy->classification.is_background)
