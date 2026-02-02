@@ -123,6 +123,7 @@ MGSHBASE_SOURCES := \
 	src/lib.c \
 	src/logging.c \
 	src/string_t.c \
+	src/string_list.c \
 	src/xalloc.c
 
 MGSHSTORE_SOURCES := \
@@ -132,6 +133,7 @@ MGSHSTORE_SOURCES := \
 	src/fd_table.c \
 	src/func_map.c \
 	src/func_store.c \
+	src/glob_util.c \
 	src/gnode.c \
 	src/gprint.c \
 	src/job_store.c \
@@ -146,6 +148,7 @@ MGSHSTORE_SOURCES := \
 
 MGSHLOGIC_SOURCES := \
 	src/arithmetic.c \
+	src/getopt_string.c \
 	src/lower.c \
 	src/lexer.c \
 	src/lexer_arith_exp.c \
@@ -157,11 +160,11 @@ MGSHLOGIC_SOURCES := \
 	src/lexer_param_exp.c \
 	src/tokenizer.c \
 	src/parser.c \
-	src/exec.c \
-	src/expander.c \
 	src/shell.c \
-	src/builtins.c \
 	src/positional_params.c
+#	src/builtins.c \
+#	src/expander.c \
+#	src/exec.c \
 
 MAIN_SOURCE := src/main.c
 
@@ -171,26 +174,34 @@ CTEST_OBJ_SOURCE := test/ctest/ctest.c
 BASE_TESTS := \
 	test/mgsh/test_xalloc_ctest.c \
 	test/mgsh/test_getopt_ctest.c \
-	test/mgsh/test_string_ctest.c
+	test/mgsh/test_string_ctest.c \
+	test/mgsh/test_string_list_ctest.c
 
 STORE_TESTS := \
 	test/mgsh/test_alias_ctest.c \
 	test/mgsh/test_ast_ctest.c \
 	test/mgsh/test_fd_table_ctest.c \
-	test/mgsh/test_sig_act_ctest.c
+	test/mgsh/test_func_store_ctest.c \
+	test/mgsh/test_sig_act_ctest.c \
+	test/mgsh/test_token_ctest.c \
+	test/mgsh/test_token_array_ctest.c \
+	test/mgsh/test_pattern_removal_ctest.c \
+	test/mgsh/test_variable_store_ctest.c
 
 LOGIC_TESTS := \
-	test/mgsh/test_lexer_quotes_ctest.c \
-	test/mgsh/test_lexer_param_exp_ctest.c \
-	test/mgsh/test_lexer_cmd_subst_ctest.c \
-	test/mgsh/test_lexer_arith_exp_ctest.c \
-	test/mgsh/test_lexer_heredoc_ctest.c \
-	test/mgsh/test_parser_gnode_ctest.c \
-	test/mgsh/test_parser_ctest.c \
+	test/mgsh/test_arithmetic_ctest.c \
 	test/mgsh/test_ast_heredoc_ctest.c \
-	test/mgsh/test_tokenizer_ctest.c \
 	test/mgsh/test_expander_ctest.c \
-	test/mgsh/test_arithmetic_ctest.c
+	test/mgsh/test_job_store_ctest.c \
+	test/mgsh/test_lexer_arith_exp_ctest.c \
+	test/mgsh/test_lexer_cmd_subst_ctest.c \
+	test/mgsh/test_lexer_heredoc_ctest.c \
+	test/mgsh/test_lexer_param_exp_ctest.c \
+	test/mgsh/test_lexer_quotes_ctest.c \
+	test/mgsh/test_parser_ctest.c \
+	test/mgsh/test_parser_gnode_ctest.c \
+	test/mgsh/test_positional_params_ctest.c \
+	test/mgsh/test_tokenizer_ctest.c
 
 	# test/mgsh/test_exec_ctest.c
 
