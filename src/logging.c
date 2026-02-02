@@ -1,7 +1,8 @@
-#include "logging.h"
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdlib.h>
+
+#include "logging.h"
 
 #ifdef POSIX_API
 #include <strings.h> // For strcasecmp
