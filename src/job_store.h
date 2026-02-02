@@ -12,7 +12,7 @@
 #include "string_t.h"
 
 #ifdef POSIX_API
-#include <sys/types.h>  // For pid_t
+#include <sys/types.h> // For pid_t
 #endif
 
 // ============================================================================
@@ -21,10 +21,10 @@
 
 typedef enum job_state_t
 {
-    JOB_RUNNING,     // Job is currently running
-    JOB_STOPPED,     // Job is stopped (suspended)
-    JOB_DONE,        // Job completed successfully
-    JOB_TERMINATED   // Job was terminated by signal
+    JOB_RUNNING,   // Job is currently running
+    JOB_STOPPED,   // Job is stopped (suspended)
+    JOB_DONE,      // Job completed successfully
+    JOB_TERMINATED // Job was terminated by signal
 } job_state_t;
 
 // ============================================================================
@@ -36,12 +36,15 @@ typedef struct process_t
     struct process_t *next; // Next process in pipeline
     string_t *command;      // Command string for this process
 #ifdef POSIX_API
-    pid_t pid;              // Process ID
+    pid_t pid; // Process ID
+#elifdef UCRT_API
+    int pid; // Process ID (or 0 if not available)
+    unsigned long handle; // Process handle (or 0 if not available)
 #else
-    int pid;                // Process ID (or 0 if not available)
+    int pid;           // Process ID (or 0 if not available)
 #endif
-    int exit_status;        // Exit status (if done) or signal number (if terminated)
-    job_state_t state;      // Current state of this process
+    int exit_status;   // Exit status (if done) or signal number (if terminated)
+    job_state_t state; // Current state of this process
 } process_t;
 
 // ============================================================================
@@ -50,11 +53,11 @@ typedef struct process_t
 
 typedef struct job_t
 {
-    int job_id;             // Job number (for %1, %2, etc.)
+    int job_id; // Job number (for %1, %2, etc.)
 #ifdef POSIX_API
-    pid_t pgid;             // Process group ID
+    pid_t pgid; // Process group ID
 #else
-    int pgid;               // Process group ID (or 0 if not available)
+    int pgid; // Process group ID (or 0 if not available)
 #endif
     process_t *processes;   // Linked list of processes in this job
     string_t *command_line; // Full command line as typed by user
@@ -70,12 +73,23 @@ typedef struct job_t
 
 typedef struct job_store_t
 {
-    job_t *jobs;            // Linked list of jobs
+    job_t *jobs;         // Linked list of jobs
     job_t *current_job;  // Job referenced by %% or %+
     job_t *previous_job; // Job referenced by %-
     size_t job_count;    // Number of jobs in the list
     int next_job_id;     // Next job ID to assign
 } job_store_t;
+
+// ============================================================================
+// Process Iterator - For polling active processes (Win32/UCRT)
+// ============================================================================
+
+typedef struct job_process_iterator_t
+{
+    job_store_t *store;
+    job_t *current_job;
+    process_t *current_process;
+} job_process_iterator_t;
 
 // ============================================================================
 // Lifecycle Functions
@@ -121,6 +135,9 @@ int job_store_add(job_store_t *store, const string_t *command_line, bool is_back
  */
 #ifdef POSIX_API
 bool job_store_add_process(job_store_t *store, int job_id, pid_t pid, const string_t *command);
+#elifdef UCRT_API
+bool job_store_add_process(job_store_t *store, int job_id, int pid, uintptr_t handle,
+                            const string_t *command);
 #else
 bool job_store_add_process(job_store_t *store, int job_id, int pid, const string_t *command);
 #endif
@@ -136,7 +153,7 @@ bool job_store_add_process(job_store_t *store, int job_id, int pid, const string
  * @param job_id The job ID to find
  * @return Pointer to the job, or NULL if not found
  */
-job_t *job_store_find(job_store_t *store, int job_id);
+job_t *job_store_find(const job_store_t *store, int job_id);
 
 /**
  * Get the current job (referenced by %% or %+).
@@ -163,7 +180,7 @@ job_t *job_store_get_previous(const job_store_t *store);
  * @param prefix The prefix to match
  * @return Pointer to the matching job, or NULL if none
  */
-job_t *job_store_find_by_prefix(job_store_t *store, const char *prefix);
+job_t *job_store_find_by_prefix(const job_store_t *store, const char *prefix);
 
 /**
  * Find a job by command substring (for %?string syntax).
@@ -174,7 +191,7 @@ job_t *job_store_find_by_prefix(job_store_t *store, const char *prefix);
  * @param substring The substring to match
  * @return Pointer to the matching job, or NULL if none
  */
-job_t *job_store_find_by_substring(job_store_t *store, const char *substring);
+job_t *job_store_find_by_substring(const job_store_t *store, const char *substring);
 
 /**
  * Find a job by process group ID.
@@ -184,9 +201,9 @@ job_t *job_store_find_by_substring(job_store_t *store, const char *substring);
  * @return Pointer to the job, or NULL if not found
  */
 #ifdef POSIX_API
-job_t *job_store_find_by_pgid(job_store_t *store, pid_t pgid);
+job_t *job_store_find_by_pgid(const job_store_t *store, pid_t pgid);
 #else
-job_t *job_store_find_by_pgid(job_store_t *store, int pgid);
+job_t *job_store_find_by_pgid(const job_store_t *store, int pgid);
 #endif
 
 // ============================================================================
@@ -213,11 +230,11 @@ bool job_store_set_state(job_store_t *store, int job_id, job_state_t new_state);
  * @return true on success, false if process not found
  */
 #ifdef POSIX_API
-bool job_store_set_process_state(job_store_t *store, pid_t pid,
-                                   job_state_t new_state, int exit_status);
+bool job_store_set_process_state(job_store_t *store, pid_t pid, job_state_t new_state,
+                                 int exit_status);
 #else
-bool job_store_set_process_state(job_store_t *store, int pid,
-                                   job_state_t new_state, int exit_status);
+bool job_store_set_process_state(job_store_t *store, int pid, job_state_t new_state,
+                                 int exit_status);
 #endif
 
 /**
@@ -261,6 +278,65 @@ bool job_store_remove(job_store_t *store, int job_id);
 size_t job_store_remove_completed(job_store_t *store);
 
 // ============================================================================
+// Polling API (for Win32/UCRT)
+// ============================================================================
+
+/**
+ * Begin iterating over all active (non-terminated) processes.
+ * Use with job_store_active_processes_next() to iterate.
+ *
+ * @param store The job store
+ * @return Iterator positioned before the first active process
+ */
+job_process_iterator_t job_store_active_processes_begin(job_store_t *store);
+
+/**
+ * Advance to the next active process.
+ * Active processes are those in RUNNING or STOPPED state.
+ *
+ * @param iter The iterator
+ * @return true if there is a next process, false if iteration complete
+ */
+bool job_store_active_processes_next(job_process_iterator_t *iter);
+
+/**
+ * Get the PID of the current process in iteration.
+ *
+ * @param iter The iterator
+ * @return The process ID, or -1 if iterator is invalid
+ */
+intptr_t job_store_iter_get_pid(const job_process_iterator_t *iter);
+
+intptr_t job_store_iter_get_handle(const job_process_iterator_t *iter);
+
+/**
+ * Get the job ID containing the current process.
+ *
+ * @param iter The iterator
+ * @return The job ID, or -1 if iterator is invalid
+ */
+int job_store_iter_get_job_id(const job_process_iterator_t *iter);
+
+/**
+ * Get the state of the job containing the current process.
+ *
+ * @param iter The iterator
+ * @return The job state, or JOB_DONE if iterator is invalid
+ */
+job_state_t job_store_iter_get_job_state(const job_process_iterator_t *iter);
+
+/**
+ * Update the state of the current process via iterator.
+ * Automatically updates the parent job's overall state.
+ *
+ * @param iter The iterator
+ * @param new_state The new state
+ * @param exit_status The exit status (if applicable)
+ * @return true on success
+ */
+bool job_store_iter_set_state(job_process_iterator_t *iter, job_state_t new_state, int exit_status);
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 
@@ -271,6 +347,19 @@ size_t job_store_remove_completed(job_store_t *store);
  * @return Number of jobs
  */
 size_t job_store_count(const job_store_t *store);
+
+/**
+ * @brief Retrieves job IDs from a job store.
+ * @param store Pointer to the job store to query.
+ * @param job_ids Output array to store the retrieved job IDs.
+ * @param max_jobs Maximum number of job IDs to retrieve.
+ * @return The number of job IDs retrieved, or a negative value on error.
+ */
+int job_store_get_job_ids(const job_store_t *store, int *job_ids, size_t max_jobs);
+
+size_t job_process_count(const job_t *job);
+
+intptr_t job_get_process_pid(const job_t *job, size_t index);
 
 /**
  * Check if a job is still running.

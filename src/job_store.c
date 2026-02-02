@@ -12,6 +12,14 @@
 #include "string_t.h"
 #include "xalloc.h"
 
+#ifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
+#include <handleapi.h>
+#endif
 // ============================================================================
 // Internal Helper Functions
 // ============================================================================
@@ -44,6 +52,14 @@ static void process_destroy(process_t *proc)
 
     if (proc->command)
         string_destroy(&proc->command);
+
+#ifdef UCRT_API
+    if (proc->handle)
+    {
+        CloseHandle(proc->handle);
+        proc->handle = 0;
+    }
+#endif
 
     xfree(proc);
 }
@@ -116,21 +132,21 @@ static void job_update_state(job_t *job)
     {
         switch (proc->state)
         {
-            case JOB_RUNNING:
-                has_running = true;
-                all_done = false;
-                break;
-            case JOB_STOPPED:
-                has_stopped = true;
-                all_done = false;
-                break;
-            case JOB_TERMINATED:
-                has_terminated = true;
-                all_done = false;
-                break;
-            case JOB_DONE:
-                // Continue checking
-                break;
+        case JOB_RUNNING:
+            has_running = true;
+            all_done = false;
+            break;
+        case JOB_STOPPED:
+            has_stopped = true;
+            all_done = false;
+            break;
+        case JOB_TERMINATED:
+            has_terminated = true;
+            all_done = false;
+            break;
+        case JOB_DONE:
+            // Continue checking
+            break;
         }
     }
 
@@ -209,6 +225,8 @@ int job_store_add(job_store_t *store, const string_t *command_line, bool is_back
 
 #ifdef POSIX_API
 bool job_store_add_process(job_store_t *store, int job_id, pid_t pid, const string_t *command)
+#elifdef UCRT_API
+bool job_store_add_process(job_store_t *store, int job_id, int pid, uintptr_t handle, const string_t *command)
 #else
 bool job_store_add_process(job_store_t *store, int job_id, int pid, const string_t *command)
 #endif
@@ -221,12 +239,15 @@ bool job_store_add_process(job_store_t *store, int job_id, int pid, const string
         return false;
 
     process_t *new_proc = process_create(pid, command);
+#ifdef UCRT_API
+    new_proc->handle = handle;
+#endif
 
     // Add to end of process list
     if (!job->processes)
     {
         job->processes = new_proc;
-        job->pgid = pid;  // First process sets the process group
+        job->pgid = pid; // First process sets the process group
     }
     else
     {
@@ -243,7 +264,7 @@ bool job_store_add_process(job_store_t *store, int job_id, int pid, const string
 // Job Lookup
 // ============================================================================
 
-job_t *job_store_find(job_store_t *store, int job_id)
+job_t *job_store_find(const job_store_t *store, int job_id)
 {
     if (!store)
         return NULL;
@@ -267,7 +288,7 @@ job_t *job_store_get_previous(const job_store_t *store)
     return store ? store->previous_job : NULL;
 }
 
-job_t *job_store_find_by_prefix(job_store_t *store, const char *prefix)
+job_t *job_store_find_by_prefix(const job_store_t *store, const char *prefix)
 {
     if (!store || !prefix)
         return NULL;
@@ -290,7 +311,7 @@ job_t *job_store_find_by_prefix(job_store_t *store, const char *prefix)
     return NULL;
 }
 
-job_t *job_store_find_by_substring(job_store_t *store, const char *substring)
+job_t *job_store_find_by_substring(const job_store_t *store, const char *substring)
 {
     if (!store || !substring)
         return NULL;
@@ -314,9 +335,9 @@ job_t *job_store_find_by_substring(job_store_t *store, const char *substring)
 }
 
 #ifdef POSIX_API
-job_t *job_store_find_by_pgid(job_store_t *store, pid_t pgid)
+job_t *job_store_find_by_pgid(const job_store_t *store, pid_t pgid)
 #else
-job_t *job_store_find_by_pgid(job_store_t *store, int pgid)
+job_t *job_store_find_by_pgid(const job_store_t *store, int pgid)
 #endif
 {
     if (!store)
@@ -349,11 +370,11 @@ bool job_store_set_state(job_store_t *store, int job_id, job_state_t new_state)
 }
 
 #ifdef POSIX_API
-bool job_store_set_process_state(job_store_t *store, pid_t pid,
-                                   job_state_t new_state, int exit_status)
+bool job_store_set_process_state(job_store_t *store, pid_t pid, job_state_t new_state,
+                                 int exit_status)
 #else
-bool job_store_set_process_state(job_store_t *store, int pid,
-                                   job_state_t new_state, int exit_status)
+bool job_store_set_process_state(job_store_t *store, int pid, job_state_t new_state,
+                                 int exit_status)
 #endif
 {
     if (!store)
@@ -392,18 +413,16 @@ bool job_store_mark_notified(job_store_t *store, int job_id)
     return true;
 }
 
-void job_store_print_completed_jobs(job_store_t* store, FILE* output)
+void job_store_print_completed_jobs(job_store_t *store, FILE *output)
 {
     Expects_not_null(store);
     Expects_not_null(output);
-    for (job_t* job = store->jobs; job; job = job->next)
+    for (job_t *job = store->jobs; job; job = job->next)
     {
         if (job_is_completed(job) && !job->is_notified)
         {
-            const char* state_str = job_state_to_string(job->state);
-            fprintf(output, "[%d] %s\t%s\n",
-                    job->job_id,
-                    state_str,
+            const char *state_str = job_state_to_string(job->state);
+            fprintf(output, "[%d] %s\t%s\n", job->job_id, state_str,
                     job->command_line ? string_cstr(job->command_line) : "(no command)");
             job->is_notified = true;
         }
@@ -428,7 +447,7 @@ bool job_store_remove(job_store_t *store, int job_id)
         {
             // Update current/previous pointers if needed
             if (store->current_job == curr)
-                store->current_job = store->previous_job;
+                store->current_job = (store->previous_job == curr) ? NULL : store->previous_job;
             if (store->previous_job == curr)
                 store->previous_job = NULL;
 
@@ -467,7 +486,7 @@ size_t job_store_remove_completed(job_store_t *store)
         {
             // Update current/previous pointers if needed
             if (store->current_job == curr)
-                store->current_job = store->previous_job;
+                store->current_job = (store->previous_job == curr) ? NULL : store->previous_job;
             if (store->previous_job == curr)
                 store->previous_job = NULL;
 
@@ -495,12 +514,152 @@ size_t job_store_remove_completed(job_store_t *store)
 }
 
 // ============================================================================
+// Polling API (for Win32/UCRT)
+// ============================================================================
+
+job_process_iterator_t job_store_active_processes_begin(job_store_t *store)
+{
+    job_process_iterator_t iter = {
+        .store = store, .current_job = store ? store->jobs : NULL, .current_process = NULL};
+    return iter;
+}
+
+bool job_store_active_processes_next(job_process_iterator_t *iter)
+{
+    if (!iter || !iter->store)
+        return false;
+
+    // If we have a current process, move to the next one in this job
+    if (iter->current_process)
+    {
+        iter->current_process = iter->current_process->next;
+
+        // Scan for next active process in this job
+        while (iter->current_process)
+        {
+            if (iter->current_process->state == JOB_RUNNING ||
+                iter->current_process->state == JOB_STOPPED)
+            {
+                return true;
+            }
+            iter->current_process = iter->current_process->next;
+        }
+
+        // Exhausted this job, move to next
+        iter->current_job = iter->current_job->next;
+    }
+
+    // Search remaining jobs for an active process
+    while (iter->current_job)
+    {
+        iter->current_process = iter->current_job->processes;
+
+        while (iter->current_process)
+        {
+            if (iter->current_process->state == JOB_RUNNING ||
+                iter->current_process->state == JOB_STOPPED)
+            {
+                return true;
+            }
+            iter->current_process = iter->current_process->next;
+        }
+
+        iter->current_job = iter->current_job->next;
+    }
+
+    return false;
+}
+
+intptr_t job_store_iter_get_pid(const job_process_iterator_t *iter)
+{
+    if (!iter || !iter->current_process)
+        return -1;
+    return (intptr_t)iter->current_process->pid;
+}
+
+intptr_t job_store_iter_get_handle(const job_process_iterator_t *iter)
+{
+    if (!iter || !iter->current_process)
+        return -1;
+#ifdef UCRT_API
+    return (intptr_t)iter->current_process->handle;
+#else
+    return -1;
+#endif
+}
+
+int job_store_iter_get_job_id(const job_process_iterator_t *iter)
+{
+    if (!iter || !iter->current_job)
+        return -1;
+    return iter->current_job->job_id;
+}
+
+job_state_t job_store_iter_get_job_state(const job_process_iterator_t *iter)
+{
+    if (!iter || !iter->current_job)
+        return JOB_DONE; // Safe default for invalid iterator
+    return iter->current_job->state;
+}
+
+bool job_store_iter_set_state(job_process_iterator_t *iter, job_state_t new_state, int exit_status)
+{
+    if (!iter || !iter->current_process || !iter->current_job)
+        return false;
+
+    iter->current_process->state = new_state;
+    iter->current_process->exit_status = exit_status;
+    job_update_state(iter->current_job);
+    return true;
+}
+
+// ============================================================================
 // Utility Functions
 // ============================================================================
 
 size_t job_store_count(const job_store_t *store)
 {
     return store ? store->job_count : 0;
+}
+
+size_t job_process_count(const job_t *job)
+{
+    if (!job)
+        return 0;
+
+    size_t count = 0;
+    for (const process_t *proc = job->processes; proc; proc = proc->next)
+        count++;
+
+    return count;
+}
+
+intptr_t job_get_process_pid(const job_t *job, size_t index)
+{
+    if (!job)
+        return -1;
+
+    size_t i = 0;
+    for (const process_t *proc = job->processes; proc; proc = proc->next)
+    {
+        if (i == index)
+            return (intptr_t)proc->pid;
+        i++;
+    }
+
+    return -1;
+}
+
+int job_store_get_job_ids(const job_store_t *store, int *job_ids, size_t max_jobs)
+{
+    if (!store || !job_ids || max_jobs == 0)
+        return -1;
+    size_t count = 0;
+    for (job_t *job = store->jobs; job && count < max_jobs; job = job->next)
+    {
+        job_ids[count++] = job->job_id;
+    }
+    return (int)count;
 }
 
 bool job_is_running(const job_t *job)
@@ -545,15 +704,15 @@ const char *job_state_to_string(job_state_t state)
 {
     switch (state)
     {
-        case JOB_RUNNING:
-            return "Running";
-        case JOB_STOPPED:
-            return "Stopped";
-        case JOB_DONE:
-            return "Done";
-        case JOB_TERMINATED:
-            return "Terminated";
-        default:
-            return "Unknown";
+    case JOB_RUNNING:
+        return "Running";
+    case JOB_STOPPED:
+        return "Stopped";
+    case JOB_DONE:
+        return "Done";
+    case JOB_TERMINATED:
+        return "Terminated";
+    default:
+        return "Unknown";
     }
 }

@@ -46,8 +46,16 @@
 #endif
 
 #ifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
 #include <io.h>
 #include <process.h>
+#include <processthreadsapi.h>   // GetProcessId, OpenProcess, GetExitCodeProcess, etc.
+#include <synchapi.h>            // WaitForSingleObject
+#include <handleapi.h>           // CloseHandle
 #endif
 
 /* ============================================================================
@@ -835,13 +843,41 @@ void exec_reap_background_jobs(exec_t *executor, bool notify)
         job_store_print_completed_jobs(executor->jobs, stdout);
     }
     if (any_reaped)
-        job_store_remove_completed_jobs(executor->jobs);
+        job_store_remove_completed(executor->jobs);
 #elifdef UCRT_API
-    /* No waitpid equivalent in UCRT, so we cannot reap background jobs here.
-     * This is a limitation on Windows.
-     * There is a _cwait function, but this is blocking and waits for specific PIDs.
-     */
-    (void)executor; // Suppress unused parameter warning
+    bool any_completed = false;
+    job_store_t *store = executor->jobs;
+    job_process_iterator_t iter = job_store_active_processes_begin(store);
+
+    while (job_store_active_processes_next(&iter))
+    {
+        uintptr_t h = job_store_iter_get_handle(&iter);
+        if (!h)
+        {
+            // Unreachable?
+            job_store_iter_set_state(&iter, JOB_DONE, 0); // Return 0 as exit code?
+
+            // Check if job is now complete
+            job_state_t state = job_store_iter_get_job_state(&iter);
+            if (state == JOB_DONE || state == JOB_TERMINATED)
+                any_completed = true;
+        }
+        else if (!WaitForSingleObject(h, 0))
+        {
+            DWORD exit_code;
+            GetExitCodeProcess(h, &exit_code);
+            job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
+
+            // Check if job is now complete
+            job_state_t state = job_store_iter_get_job_state(&iter);
+            if (state == JOB_DONE || state == JOB_TERMINATED)
+                any_completed = true;
+        }
+    }
+    if (any_completed && notify)
+        job_store_print_completed_jobs(executor->jobs, stdout);
+    if (any_completed)
+        job_store_remove_completed(executor->jobs);
 #endif
 }
 

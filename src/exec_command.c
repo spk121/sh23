@@ -7,19 +7,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "exec_command.h"
+
 #include "ast.h"
 #include "builtins.h"
 #include "exec.h"
-#include "exec_command.h"
 #include "exec_expander.h"
+#include "exec_frame_policy.h"
 #include "exec_internal.h"
 #include "exec_redirect.h"
 #include "func_store.h"
+#include "job_store.h"
 #include "logging.h"
-#include "positional_params.h"
-#include "string_t.h"
 #include "string_list.h"
+#include "string_t.h"
 #include "token.h"
+#include "trap_store.h"
 #include "variable_store.h"
 #include "xalloc.h"
 
@@ -29,6 +33,13 @@
 #endif
 
 #ifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
+#include <handleapi.h>
+#include <processthreadsapi.h>
 #include <process.h>
 #endif
 
@@ -490,16 +501,18 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             if (frame->policy->classification.is_background)
             {
-                /* In background execution, spawn_result is the PID of the started process */
-                frame->last_bg_pid = (int)spawn_result;
-                // frame->last_bg_pid_set = true;
+                /* In background execution, spawn_result is the Win32 process handle of the started process */
+                int pid = GetProcessId((HANDLE)spawn_result);
+
+                /* Store the PID. A PID of zero is an error, but, we'll still record it. */
+                frame->last_bg_pid = pid;
                 if (frame->executor->jobs)
                 {
                     string_t *cmdline = string_create_from_cstr_list(argv, " ");
                     int job_id = job_store_add(frame->executor->jobs, cmdline, true);
-                    if (job_id >= 0)
+                    if (job_id >= 0 && pid > 0)
                     {
-                        job_store_add_process(frame->executor->jobs, job_id, (int)spawn_result, cmdline);
+                        job_store_add_process(frame->executor->jobs, job_id, pid, (unsigned long)spawn_result, cmdline);
                     }
                     string_destroy(&cmdline);
                 }
