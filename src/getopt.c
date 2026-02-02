@@ -9,7 +9,6 @@
 */
 
 #include "getopt.h"
-#include "string_t.h"
 #include "xalloc.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,10 +19,9 @@ char *optarg = NULL;
 int optind = 1;
 int opterr = 1;
 int optopt = '?';
-char **__getopt_external_argv = NULL;
 
 static struct getopt_state _getopt_global_state = {
-    .optind = 1, .opterr = 1, .optopt = '?', .initialized = 0};
+    .optind = 1, .opterr = 1, .optopt = '?', .initialized = 0, .__getopt_external_argv = NULL};
 
 /* ============================================================================
  * Helper predicates and utilities
@@ -65,16 +63,16 @@ static inline int is_long_plus_option(const char *arg)
 
 static void exchange(char **argv, struct getopt_state *st)
 {
-    if (__getopt_external_argv == NULL)
+    if (st->__getopt_external_argv == NULL)
     {
         int argc = 0;
         while (argv[argc] != NULL)
             argc++;
-        __getopt_external_argv = xcalloc((size_t)argc + 1, sizeof(char *));
+        st->__getopt_external_argv = xcalloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++)
-            __getopt_external_argv[i] = argv[i];
-        __getopt_external_argv[argc] = NULL;
-        argv = __getopt_external_argv;
+            st->__getopt_external_argv[i] = argv[i];
+        st->__getopt_external_argv[argc] = NULL;
+        argv = st->__getopt_external_argv;
     }
     int bottom = st->first_nonopt;
     int middle = st->last_nonopt;
@@ -669,8 +667,7 @@ int getopt(int argc, char *const argv[], const char *optstring)
         reset_global_state();
     }
     _getopt_global_state.opterr = opterr;
-
-    int rc = _getopt_internal_r(argc, argv, optstring, NULL, NULL, 0, 0, &_getopt_global_state, 0);
+    int rc = getopt_r(argc, argv, optstring, &_getopt_global_state);
     sync_globals(&_getopt_global_state);
     return rc;
 }
@@ -684,8 +681,7 @@ int getopt_long(int argc, char *const argv[], const char *optstring, const struc
         reset_global_state();
     }
     _getopt_global_state.opterr = opterr;
-    int rc = _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0,
-                                &_getopt_global_state, 0);
+    int rc = getopt_long_r(argc, argv, optstring, longopts, longind, &_getopt_global_state);
     sync_globals(&_getopt_global_state);
     return rc;
 }
@@ -699,8 +695,7 @@ int getopt_long_only(int argc, char *const argv[], const char *optstring,
         reset_global_state();
     }
     _getopt_global_state.opterr = opterr;
-    int rc = _getopt_internal_r(argc, argv, optstring, longopts, longind, 1, 0,
-                                &_getopt_global_state, 0);
+    int rc = getopt_long_only_r(argc, argv, optstring, longopts, longind, &_getopt_global_state);
     sync_globals(&_getopt_global_state);
     return rc;
 }
@@ -716,7 +711,7 @@ int getopt_long_plus(int argc, char *const argv[], const char *optstring,
         state.optind = 1;
     }
     state.opterr = opterr;
-    int rc = _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0, &state, 1);
+    int rc = getopt_long_plus_r(argc, argv, optstring, longopts, longind, &state);
     optind = state.optind;
     optarg = state.optarg;
     optopt = state.optopt;
@@ -734,7 +729,7 @@ int getopt_long_only_plus(int argc, char *const argv[], const char *optstring,
         state.optind = 1;
     }
     state.opterr = opterr;
-    int rc = _getopt_internal_r(argc, argv, optstring, longopts, longind, 1, 0, &state, 1);
+    int rc = getopt_long_only_plus_r(argc, argv, optstring, longopts, longind, &state);
     optind = state.optind;
     optarg = state.optarg;
     optopt = state.optopt;
@@ -771,7 +766,17 @@ int getopt_long_only_r(int argc, char *const argv[], const char *optstring,
 int getopt_long_plus_r(int argc, char *const argv[], const char *optstring,
                        const struct option_ex *longopts, int *longind, struct getopt_state *state)
 {
+    if (!state)
+        return -1;
     return _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0, state, 1);
+}
+
+int getopt_long_only_plus_r(int argc, char *const argv[], const char *optstring,
+                            const struct option_ex *longopts, int *longind, struct getopt_state *state)
+{
+    if (!state)
+        return -1;
+    return _getopt_internal_r(argc, argv, optstring, longopts, longind, 1, 0, state, 1);
 }
 
 /* ============================================================================
@@ -795,67 +800,7 @@ void getopt_reset_plus(void)
     /* Note: This is a bit hacky - we're resetting by triggering reinitialization */
 }
 
-/* ============================================================================
- * String-based wrappers for shell builtins
- * ============================================================================ */
 
-static char **string_list_to_argv(const string_list_t *list, int *argc)
-{
-    if (!list)
-    {
-        *argc = 0;
-        return NULL;
-    }
-
-    int count = string_list_size(list);
-    *argc = count;
-
-    if (count == 0)
-        return NULL;
-
-    char **argv = malloc(count * sizeof(char *));
-    if (!argv)
-        return NULL;
-
-    for (int i = 0; i < count; i++)
-    {
-        const string_t *str = string_list_at(list, i);
-        argv[i] = (char *)string_cstr(str);
-    }
-
-    return argv;
-}
-
-int getopt_string(const string_list_t *argv, const string_t *optstring)
-{
-    int argc;
-    char **argv_array = string_list_to_argv(argv, &argc);
-    if (!argv_array)
-        return -1;
-
-    const char *optstr = string_cstr(optstring);
-    
-    int result = getopt(argc, argv_array, optstr);
-
-    free(argv_array);
-    return result;
-}
-
-int getopt_long_plus_string(const string_list_t *argv, const string_t *optstring,
-                            const struct option_ex *longopts, int *longind)
-{
-    int argc;
-    char **argv_array = string_list_to_argv(argv, &argc);
-    if (!argv_array)
-        return -1;
-
-    const char *optstr = string_cstr(optstring);
-    
-    int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
-
-    free(argv_array);
-    return result;
-}
 
 #ifdef GETOPT_TEST
 #include <stdio.h>

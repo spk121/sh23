@@ -55,43 +55,6 @@ static inline void string_normalize_capacity(string_t *str, int new_capacity)
     }
 }
 
-static inline bool string_list_is_inline(const string_list_t *list)
-{
-    return list->capacity <= STRING_LIST_INITIAL_CAPACITY;
-}
-
-static inline bool string_list_is_heap_allocated(const string_list_t *list)
-{
-    return list->capacity > STRING_LIST_INITIAL_CAPACITY;
-}
-
-static inline void string_list_normalize_capacity(string_list_t *list, int new_capacity)
-{
-    if (string_list_is_heap_allocated(list) && new_capacity <= STRING_LIST_INITIAL_CAPACITY)
-    {
-        int old_size = list->size;
-        int new_size =
-            old_size < STRING_LIST_INITIAL_CAPACITY ? old_size : STRING_LIST_INITIAL_CAPACITY;
-        memcpy(list->inline_strings, list->strings, new_size * sizeof(string_t *));
-        xfree(list->strings);
-        list->strings = list->inline_strings;
-        list->size = new_size;
-        list->capacity = STRING_LIST_INITIAL_CAPACITY;
-    }
-    else if (string_list_is_heap_allocated(list) && new_capacity > STRING_LIST_INITIAL_CAPACITY)
-    {
-        string_t **new_strings = (string_t **)xrealloc(list->strings, new_capacity * sizeof(string_t *));
-        list->strings = new_strings;
-        list->capacity = new_capacity;
-    }
-    else if (string_list_is_inline(list) && new_capacity > STRING_LIST_INITIAL_CAPACITY)
-    {
-        string_t **new_strings = (string_t **)xmalloc(new_capacity * sizeof(string_t *));
-        memcpy(new_strings, list->inline_strings, list->size * sizeof(string_t *));
-        list->strings = new_strings;
-        list->capacity = new_capacity;
-    }
-}
 
 // ============================================================================
 // Range clamping helper
@@ -213,6 +176,23 @@ string_t *string_create_from_cstr_len(const char *data, int len)
     str->length = len;
 
     return str;
+}
+
+string_t* string_create_from_cstr_list(const char** strv, const char *separator)
+{
+    Expects_not_null(strv);
+    string_t* result = string_create();
+    for (int i = 0; strv[i] != NULL; i++)
+    {
+        if (i > 0 && separator)
+        {
+            string_append_cstr(result, separator);
+        }
+        if (strv[i] == NULL)
+            continue;
+        string_append_cstr(result, strv[i]);
+    }
+    return result;
 }
 
 string_t *string_create_from(const string_t *other)
@@ -1998,204 +1978,4 @@ uint32_t string_hash(const string_t *str)
         h *= 0x01000193;
     }
     return h ? h : 1;
-}
-
-// ============================================================================
-// String list functions
-// ============================================================================
-
-string_list_t *string_list_create(void)
-{
-    string_list_t *list = xcalloc(1, sizeof(string_list_t));
-    list->capacity = STRING_LIST_INITIAL_CAPACITY;
-    list->strings = list->inline_strings;
-    list->size = 0;
-    return list;
-}
-
-void string_list_destroy(string_list_t **list)
-{
-    if (list == NULL || *list == NULL)
-        return;
-
-    for (int i = 0; i < (*list)->size; i++)
-        string_destroy(&(*list)->strings[i]);
-
-    if (string_list_is_heap_allocated(*list))
-        xfree((*list)->strings);
-
-    xfree(*list);
-    *list = NULL;
-}
-
-void string_list_move_push_back(string_list_t *list, string_t **str)
-{
-    Expects_not_null(list);
-
-    if (str == NULL || *str == NULL)
-        return;
-
-    if (list->size >= list->capacity)
-    {
-        int new_capacity = list->capacity * STRING_LIST_GROW_FACTOR;
-        if (new_capacity <= list->size)
-            new_capacity = list->size + 1;
-        string_list_normalize_capacity(list, new_capacity);
-    }
-
-    list->strings[list->size++] = *str;
-    *str = NULL;
-}
-
-void string_list_push_back(string_list_t *list, const string_t *str)
-{
-    Expects_not_null(list);
-
-    if (str == NULL)
-        return;
-
-    string_t *cloned = string_create_from(str);
-    string_list_move_push_back(list, &cloned);
-}
-
-int string_list_size(const string_list_t *list)
-{
-    Expects_not_null(list);
-    return list->size;
-}
-
-const string_t *string_list_at(const string_list_t *list, int index)
-{
-    Expects_not_null(list);
-
-    if (index < 0 || index >= list->size)
-        return NULL;
-
-    return list->strings[index];
-}
-
-void string_list_insert(string_list_t *list, int index, const string_t *str)
-{
-    Expects_not_null(list);
-
-    if (index < 0)
-        index = 0;
-    if (index > list->size)
-        index = list->size;
-
-    string_t *to_insert = (str == NULL) ? string_create() : string_create_from(str);
-    string_list_move_insert(list, index, &to_insert);
-}
-
-void string_list_move_insert(string_list_t *list, int index, string_t **str)
-{
-    Expects_not_null(list);
-
-    if (str == NULL || *str == NULL)
-        return;
-
-    if (index < 0)
-        index = 0;
-    if (index > list->size)
-        index = list->size;
-
-    if (list->size >= list->capacity)
-    {
-        int new_capacity = list->capacity * STRING_LIST_GROW_FACTOR;
-        if (new_capacity <= list->size)
-            new_capacity = list->size + 1;
-        string_list_normalize_capacity(list, new_capacity);
-    }
-
-    if (index < list->size)
-    {
-        memmove(&list->strings[index + 1], &list->strings[index],
-                (list->size - index) * sizeof(string_t *));
-    }
-
-    list->strings[index] = *str;
-    list->size++;
-    *str = NULL;
-}
-
-void string_list_erase(string_list_t *list, int index)
-{
-    Expects_not_null(list);
-
-    if (index < 0 || index >= list->size)
-        return;
-
-    string_destroy(&list->strings[index]);
-
-    if (index < list->size - 1)
-    {
-        memmove(&list->strings[index], &list->strings[index + 1],
-                (list->size - index - 1) * sizeof(string_t *));
-    }
-
-    list->size--;
-}
-
-void string_list_clear(string_list_t *list)
-{
-    Expects_not_null(list);
-
-    for (int i = 0; i < list->size; i++)
-        string_destroy(&list->strings[i]);
-
-    list->size = 0;
-}
-
-char **string_list_release_cstr_array(string_list_t **list, int *out_size)
-{
-    Expects_not_null(list);
-    Expects_not_null(*list);
-    Expects_not_null(out_size);
-    string_list_t *slist = *list;
-
-    if (slist->size == 0)
-    {
-        *list = NULL;
-        *out_size = 0;
-        if (string_list_is_heap_allocated(slist))
-            xfree(slist->strings);
-        xfree(slist);
-        return NULL;
-    }
-
-    char **cstr_array = xcalloc(slist->size + 1, sizeof(char *));
-    *out_size = slist->size;
-    for (int i = 0; i < slist->size; i++)
-        cstr_array[i] = string_release(&slist->strings[i]);
-    if (string_list_is_heap_allocated(slist))
-        xfree(slist->strings);
-    xfree(slist);
-    *list = NULL;
-    *out_size = slist->size;
-    return cstr_array;
-}
-
-string_t* string_list_join_move(string_list_t** list, const char* separator)
-{
-    Expects_not_null(list);
-    Expects_not_null(*list);
-    string_list_t* slist = *list;
-    string_t* result = string_create();
-    if (slist->size == 0)
-    {
-        string_list_destroy(list);
-        return result;
-    }
-    for (int i = 0; i < slist->size; i++)
-    {
-        string_t* current_str = slist->strings[i];
-        string_append(result, current_str);
-        if (i < slist->size - 1 && separator != NULL)
-        {
-            string_append_cstr(result, separator);
-        }
-        string_destroy(&current_str);
-    }
-    string_list_destroy(list);
-    return result;
 }

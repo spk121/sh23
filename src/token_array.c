@@ -10,8 +10,8 @@
 // Helper: Ensure capacity
 static int token_array_ensure_capacity(token_array_t *array, int needed)
 {
-    return_val_if_null(array, -1);
-    return_val_if_lt(needed, 0, -1);
+    Expects_not_null(array);
+    Expects_ge(needed, 0);
 
     if (needed <= array->capacity)
         return 0;
@@ -89,33 +89,34 @@ void token_array_destroy(token_array_t **array)
 // Accessors
 int32_t token_array_size(const token_array_t *array)
 {
-    return_val_if_null(array, 0);
+    Expects_not_null(array);
     return array->size;
 }
 
 int32_t token_array_capacity(const token_array_t *array)
 {
-    return_val_if_null(array, 0);
+    Expects_not_null(array);
     return array->capacity;
 }
 
 token_t *token_array_get(const token_array_t *array, int32_t index)
 {
-    return_val_if_null(array, NULL);
-    return_val_if_ge(index, array->size, NULL);
+    Expects_not_null(array);
+    Expects_ge(index, 0);
+    Expects_lt(index, array->size);
     return array->data[index];
 }
 
 int token_array_is_empty(const token_array_t *array)
 {
-    return_val_if_null(array, 1);
+    Expects_not_null(array);
     return array->size == 0;
 }
 
 // Modification
 int token_array_append(token_array_t *array, token_t *element)
 {
-    return_val_if_null(array, -1);
+    Expects_not_null(array);
     if (token_array_ensure_capacity(array, array->size + 1) != 0)
     {
         log_fatal("token_array_append: out of memory");
@@ -129,8 +130,8 @@ int token_array_append(token_array_t *array, token_t *element)
 
 int token_array_set(token_array_t *array, int32_t index, token_t *element)
 {
-    return_val_if_null(array, -1);
-    return_val_if_ge(index, array->size, -1);
+    Expects_not_null(array);
+    Expects_lt(index, array->size);
 
     if (array->free_func && array->data[index])
     {
@@ -142,8 +143,8 @@ int token_array_set(token_array_t *array, int32_t index, token_t *element)
 
 int token_array_remove(token_array_t *array, int32_t index)
 {
-    return_val_if_null(array, -1);
-    return_val_if_ge(index, array->size, -1);
+    Expects_not_null(array);
+    Expects_lt(index, array->size);
 
     if (array->free_func && array->data[index])
     {
@@ -162,7 +163,7 @@ int token_array_remove(token_array_t *array, int32_t index)
 
 int token_array_clear(token_array_t *array)
 {
-    return_val_if_null(array, -1);
+    Expects_not_null(array);
 
     if (array->free_func)
     {
@@ -185,8 +186,8 @@ int token_array_clear(token_array_t *array)
 
 int token_array_resize(token_array_t *array, int32_t new_capacity)
 {
-    return_val_if_null(array, -1);
-    return_val_if_lt(new_capacity, 0, -1);
+    Expects_not_null(array);
+    Expects_ge(new_capacity, 0);
 
     if (new_capacity < array->size)
     {
@@ -222,11 +223,8 @@ int token_array_resize(token_array_t *array, int32_t new_capacity)
 // Operations
 void token_array_foreach(token_array_t *array, TokenArrayApplyFunc apply_func, void *user_data)
 {
-    if (!array || !apply_func)
-    {
-        log_fatal("token_array_foreach: argument 'array' or 'apply_func' is null");
-        return;
-    }
+    Expects_not_null(array);
+    Expects_not_null(apply_func);
 
     for (int32_t i = 0; i < array->size; i++)
     {
@@ -236,8 +234,8 @@ void token_array_foreach(token_array_t *array, TokenArrayApplyFunc apply_func, v
 
 int token_array_find(token_array_t *array, token_t *element, int32_t *index)
 {
-    return_val_if_null(array, -1);
-    return_val_if_null(index, -1);
+    Expects_not_null(array);
+    Expects_not_null(index);
 
     for (int32_t i = 0; i < array->size; i++)
     {
@@ -253,10 +251,10 @@ int token_array_find(token_array_t *array, token_t *element, int32_t *index)
 int token_array_find_with_compare(token_array_t *array, const void *data,
                                   TokenArrayCompareFunc compare_func, int32_t *index)
 {
-    return_val_if_null(array, -1);
-    return_val_if_null(data, -1);
-    return_val_if_null(compare_func, -1);
-    return_val_if_null(index, -1);
+    Expects_not_null(array);
+    Expects_not_null(data);
+    Expects_not_null(compare_func);
+    Expects_not_null(index);
 
     for (int32_t i = 0; i < array->size; i++)
     {

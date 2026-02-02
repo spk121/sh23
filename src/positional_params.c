@@ -6,6 +6,7 @@
 #include "positional_params.h"
 #include "xalloc.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "logging.h"
 #include <string.h>
 #include <assert.h>
@@ -43,6 +44,23 @@ positional_params_t *positional_params_create_from_array(const string_t *arg0, i
     return p;
 }
 
+positional_params_t* positional_params_create_from_string_list(const string_t* arg0, const string_list_t* params)
+{
+    Expects_not_null(params);
+    int count = string_list_size(params);
+    if (count > POSITIONAL_PARAMS_MAX)
+        return NULL;
+    positional_params_t *p = xcalloc(1, sizeof(positional_params_t));
+    p->count = count;
+    p->arg0 = string_create_from(arg0);
+    p->params = xcalloc((size_t)count + 1, sizeof(string_t *));
+    for (int i = 0; i < count; i++)
+        p->params[i] = string_create_from(string_list_at(params, i));
+    p->params[count] = NULL;
+    p->max_params = POSITIONAL_PARAMS_MAX;
+    return p;
+}
+
 positional_params_t *positional_params_create_from_argv(const char *arg0, int argc, const char **argv)
 {
     Expects(argc >= 0);
@@ -71,7 +89,7 @@ positional_params_t *positional_params_create_from_argv(const char *arg0, int ar
     return p;
 }
 
-positional_params_t *positional_params_copy(const positional_params_t *src)
+positional_params_t *positional_params_clone(const positional_params_t *src)
 {
     Expects_not_null(src);
 
@@ -133,6 +151,12 @@ const string_t *positional_params_get(const positional_params_t *params, int n)
     return params->params[n - 1];
 }
 
+const string_t *positional_params_get_arg0(const positional_params_t *params)
+{
+    Expects_not_null(params);
+    return params->arg0;
+}
+
 int positional_params_count(const positional_params_t *params)
 {
     Expects_not_null(params);
@@ -179,6 +203,16 @@ string_t *positional_params_get_all_joined(const positional_params_t *params, ch
 // ============================================================================
 // Parameter Modification
 // ============================================================================
+
+void positional_params_set_arg0(positional_params_t* params, const string_t* arg0)
+{
+    Expects_not_null(params);
+    Expects_not_null(arg0);
+
+    if (params->arg0 != NULL)
+        string_destroy(&params->arg0);
+    params->arg0 = string_create_from(arg0);
+}
 
 bool positional_params_replace(positional_params_t *params,
                                string_t **new_params, int count)

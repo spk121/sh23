@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "logging.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "variable_map.h"
 #include "xalloc.h"
 
@@ -374,7 +375,7 @@ void variable_map_erase_multiple(variable_map_t *map, const string_list_t *keys)
     // Threshold: if deleting more than 1/8 of entries, rebuild is likely cheaper
     // than repeated backward shifts. This is a heuristic that balances:
     // - Rebuild cost: O(capacity)
-    // - Batch single-delete cost: O(count × avg_probe_length)
+    // - Batch single-delete cost: O(count ï¿½ avg_probe_length)
     // At 75% load factor with count > size/8, rebuild wins.
     bool should_rebuild = (count > map->size / 8) || (count > 16 && count > map->capacity / 16);
 
@@ -510,3 +511,66 @@ bool variable_map_contains(const variable_map_t *map, const string_t *key)
 
     return variable_map_find(map, key) != -1;
 }
+
+
+/**
+ * Returns an iterator to the beginning of the map.
+ *
+ * @param map Variable map.
+ * @return Iterator to the first entry.
+ */
+variable_map_iterator_t variable_map_begin(variable_map_t* map)
+{
+    Expects_not_null(map);
+    variable_map_iterator_t it;
+    it.map = map;
+    it.index = 0;
+    // Advance to the first occupied entry
+    while (it.index < map->capacity && !map->entries[it.index].occupied)
+    {
+        it.index++;
+    }
+    return it;
+}
+
+/**
+ * Returns an iterator to the end of the map.
+ *
+ * @param map Variable map.
+ * @return Iterator to one past the last entry.
+ */
+variable_map_iterator_t variable_map_end(variable_map_t *map)
+{
+    Expects_not_null(map);
+    variable_map_iterator_t it;
+    it.map = map;
+    it.index = map->capacity;
+    return it;
+}
+
+bool variable_map_iterator_equal(variable_map_iterator_t a, variable_map_iterator_t b)
+{
+    Expects_not_null(a.map);
+    Expects_not_null(b.map);
+    return a.map == b.map && a.index == b.index;
+}
+
+const variable_map_entry_t* variable_map_iterator_deref(variable_map_iterator_t it)
+{
+    Expects_not_null(it.map);
+    Expects_lt(it.index, it.map->capacity);
+    Expects(it.map->entries[it.index].occupied);
+    return &it.map->entries[it.index];
+}
+
+void variable_map_iterator_increment(variable_map_iterator_t *it)
+{
+    Expects_not_null(it);
+    Expects_not_null(it->map);
+    it->index++;
+    while (it->index < it->map->capacity && !it->map->entries[it->index].occupied)
+    {
+        it->index++;
+    }
+}
+

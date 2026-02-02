@@ -535,11 +535,10 @@ parse_status_t gparse_and_or(parser_t *parser, gnode_t **out_node)
     /* Handle singleton pipelines and_or nodes. */
     if (left->type == G_PIPELINE)
     {
-        gnode_t *node = g_node_create(G_AND_OR);
-        node->data.multi.a = left;
-        node->data.multi.b = NULL;
-        node->data.multi.c = NULL;
-        left = node;
+        /* While the standard requires wrapping even singleton pipelines,
+         * we'll make this small optimization of returning it directly. */
+        *out_node = left;
+        return PARSE_OK;
     }
     *out_node = left;
     return PARSE_OK;
@@ -908,7 +907,7 @@ parse_status_t gparse_term(parser_t *parser, gnode_t **out_node)
     /* Loop: separator and_or */
     while (true)
     {
-        /* Need both the separator and the and_or. A 
+        /* Need both the separator and the and_or. A
          * single separator without a following and_or is handled elsewhere . */
         int position_cur = parser_get_current_position(parser);
         gnode_t *sep = NULL;

@@ -239,6 +239,18 @@ bool token_needs_expansion(const token_t *token)
     return token->needs_expansion;
 }
 
+bool token_needs_field_splitting(const token_t *token)
+{
+    Expects_not_null(token);
+    return token->needs_field_splitting;
+}
+
+bool token_needs_pathname_expansion(const token_t *token)
+{
+    Expects_not_null(token);
+    return token->needs_pathname_expansion;
+}
+
 string_t *token_get_all_text(const token_t *token)
 {
     Expects_not_null(token);
@@ -681,6 +693,7 @@ const char *token_type_to_cstr(token_type_t type)
     }
 }
 
+/* This returns a newly allocated DEBUG TREE representation of the token */
 string_t *token_to_string(const token_t *token)
 {
     Expects_not_null(token);
@@ -724,6 +737,49 @@ string_t *token_to_string(const token_t *token)
     }
 
     string_append_cstr(result, ")");
+    return result;
+}
+
+/* This returns a representation of how the token might have looked like in its
+ * input form */
+string_t* token_to_cmd_string(const token_t* token)
+{
+    Expects_not_null(token);
+    string_t* result = string_create();
+    if (token->type == TOKEN_WORD && token->parts != NULL)
+    {
+        string_t *words_str = token_get_all_text(token);
+        string_append(result, words_str);
+        string_destroy(&words_str);
+    }
+    else if (token->type == TOKEN_ASSIGNMENT_WORD)
+    {
+        string_append(result, token->assignment_name);
+        string_append_cstr(result, "=");
+        for (int i = 0; i < token->assignment_value->size; i++)
+        {
+            part_t* part = token->assignment_value->parts[i];
+            string_t* part_str = string_create_from(part->text);
+            string_append(result, part_str);
+            string_destroy(&part_str);
+        }
+    }
+    else if (token->type == TOKEN_IO_NUMBER)
+    {
+        char buffer[32];
+        snprintf(buffer, sizeof(buffer), "%d", token->io_number);
+        string_append_cstr(result, buffer);
+    }
+    else if (token->type == TOKEN_IO_LOCATION && token->io_location != NULL)
+    {
+        string_append_cstr(result, "{");
+        string_append(result, token->io_location);
+        string_append_cstr(result, "}");
+    }
+    else
+    {
+        string_append_cstr(result, token_type_to_cstr(token->type));
+    }
     return result;
 }
 

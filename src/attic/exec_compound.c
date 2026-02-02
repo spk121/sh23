@@ -108,7 +108,7 @@ static exec_status_t exec_run_background(exec_t *executor, ast_node_t *node)
 
     /* Try to background simple commands via _spawnvpe
      * For complex commands, fall back to synchronous execution with warning */
-    
+
     if (node->type != AST_SIMPLE_COMMAND)
     {
         if (executor->is_interactive)
@@ -119,9 +119,9 @@ static exec_status_t exec_run_background(exec_t *executor, ast_node_t *node)
         return exec_execute(executor, node);
     }
 
-    /* For simple commands, try _spawnvpe with _P_NOWAIT 
+    /* For simple commands, try _spawnvpe with _P_NOWAIT
      * (Copy the exec_run_background_simple_command_ucrt logic from exec.c) */
-    
+
     // TODO: Extract and implement UCRT simple command backgrounding
     // For now, fallback to synchronous
     if (executor->is_interactive)

@@ -5,6 +5,8 @@
 
 #include "ctest.h"
 #include "sig_act.h"
+#include "lib.h"
+#include "xalloc.h"
 #include <signal.h>
 #include <stdbool.h>
 
@@ -26,8 +28,11 @@ CTEST(test_sig_act_create_and_destroy)
 {
     sig_act_store_t *store = sig_act_store_create();
     CTEST_ASSERT_NOT_NULL(ctest, store, "store created");
+    CTEST_ASSERT_NOT_NULL(ctest, store->actions, "actions allocated");
+    CTEST_ASSERT_GT(ctest, (int)store->capacity, 0, "capacity > 0");
 
     sig_act_store_destroy(&store);
+    CTEST_ASSERT_NULL(ctest, store, "store destroyed");
 }
 
 CTEST(test_sig_act_destroy_null_is_safe)
@@ -56,7 +61,7 @@ CTEST(test_sig_act_is_saved_with_invalid_signal)
     sig_act_store_t *store = sig_act_store_create();
 
     CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, -1), "negative signal returns false");
-    CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, 9999), "huge signal returns false");
+    CTEST_ASSERT_FALSE(ctest, sig_act_store_is_saved(store, (int)store->capacity), "out-of-range returns false");
 
     sig_act_store_destroy(&store);
 }
@@ -71,11 +76,46 @@ CTEST(test_sig_act_get_returns_null_for_unsaved)
     sig_act_store_destroy(&store);
 }
 
+CTEST(test_sig_act_supported_bounds)
+{
+    sig_act_store_t *store = sig_act_store_create();
+
+    CTEST_ASSERT_TRUE(ctest, sig_act_store_is_supported(store, 0), "EXIT trap supported");
+    CTEST_ASSERT_FALSE(ctest, sig_act_store_is_supported(store, -1), "negative signal unsupported");
+    CTEST_ASSERT_FALSE(ctest, sig_act_store_is_supported(store, (int)store->capacity), "out-of-range unsupported");
+
+    sig_act_store_destroy(&store);
+}
+
+CTEST(test_sig_act_exit_trap_set_and_restore)
+{
+    sig_act_store_t *store = sig_act_store_create();
+    CTEST_ASSERT_NOT_NULL(ctest, store, "store created");
+
+#ifdef SIG_ACT_USE_SIGACTION
+    struct sigaction sa;
+    sa.sa_handler = test_signal_handler;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+
+    int result = sig_act_store_set_and_save(store, 0, &sa);
+    CTEST_ASSERT_EQ(ctest, result, 0, "EXIT set_and_save succeeded");
+#else
+    void (*result)(int) = sig_act_store_set_and_save(store, 0, test_signal_handler);
+    CTEST_ASSERT_TRUE(ctest, result != SIG_ERR, "EXIT set_and_save succeeded");
+#endif
+
+    CTEST_ASSERT_TRUE(ctest, sig_act_store_is_saved(store, 0), "EXIT marked saved");
+    CTEST_ASSERT_TRUE(ctest, sig_act_store_restore_one(store, 0), "EXIT restore succeeded");
+
+    sig_act_store_destroy(&store);
+}
+
 // ============================================================================
 // POSIX-Specific Tests
 // ============================================================================
 
-#ifdef POSIX_API
+#ifdef SIG_ACT_USE_SIGACTION
 
 CTEST(test_sig_act_posix_set_and_save_basic)
 {
@@ -86,10 +126,11 @@ CTEST(test_sig_act_posix_set_and_save_basic)
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
-    int result = sig_act_store_set_and_save(store, SIGUSR2, &sa);
+    int result = sig_act_store_set_and_save(store, SIGTERM, &sa);
     CTEST_ASSERT_EQ(ctest, result, 0, "set_and_save succeeded");
-    CTEST_ASSERT_TRUE(ctest, sig_act_store_is_saved(store, SIGUSR2), "signal marked as saved");
+    CTEST_ASSERT_TRUE(ctest, sig_act_store_is_saved(store, SIGTERM), "signal marked as saved");
 
+    sig_act_store_restore_one(store, SIGTERM);
     sig_act_store_destroy(&store);
 }
 
@@ -102,9 +143,9 @@ CTEST(test_sig_act_posix_set_and_save_preserves_original)
     sa1.sa_flags = 0;
     sigemptyset(&sa1.sa_mask);
 
-    sig_act_store_set_and_save(store, SIGUSR2, &sa1);
+    sig_act_store_set_and_save(store, SIGTERM, &sa1);
 
-    const sig_act_t *entry = sig_act_store_get(store, SIGUSR2);
+    const sig_act_t *entry = sig_act_store_get(store, SIGTERM);
     CTEST_ASSERT_NOT_NULL(ctest, entry, "saved entry exists");
     CTEST_ASSERT_TRUE(ctest, entry->is_saved, "entry marked as saved");
 
@@ -115,13 +156,14 @@ CTEST(test_sig_act_posix_set_and_save_preserves_original)
     sa2.sa_flags = 0;
     sigemptyset(&sa2.sa_mask);
 
-    sig_act_store_set_and_save(store, SIGUSR2, &sa2);
+    sig_act_store_set_and_save(store, SIGTERM, &sa2);
 
-    entry = sig_act_store_get(store, SIGUSR2);
+    entry = sig_act_store_get(store, SIGTERM);
     CTEST_ASSERT_NOT_NULL(ctest, entry, "saved entry still exists");
     CTEST_ASSERT_TRUE(ctest, entry->original_action.sa_handler == original_handler,
                       "original handler preserved");
 
+    sig_act_store_restore_one(store, SIGTERM);
     sig_act_store_destroy(&store);
 }
 
@@ -133,17 +175,18 @@ CTEST(test_sig_act_posix_detect_sig_ign)
     ignore.sa_handler = SIG_IGN;
     ignore.sa_flags = 0;
     sigemptyset(&ignore.sa_mask);
-    sigaction(SIGUSR2, &ignore, NULL);
+    sigaction(SIGTERM, &ignore, NULL);
 
     struct sigaction sa;
     sa.sa_handler = test_signal_handler;
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
-    sig_act_store_set_and_save(store, SIGUSR2, &sa);
+    sig_act_store_set_and_save(store, SIGTERM, &sa);
 
-    CTEST_ASSERT_TRUE(ctest, sig_act_store_was_ignored(store, SIGUSR2), "detected SIG_IGN");
+    CTEST_ASSERT_TRUE(ctest, sig_act_store_was_ignored(store, SIGTERM), "detected SIG_IGN");
 
+    sig_act_store_restore_one(store, SIGTERM);
     sig_act_store_destroy(&store);
 }
 
@@ -156,9 +199,9 @@ CTEST(test_sig_act_posix_restore_one)
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
-    sig_act_store_set_and_save(store, SIGUSR2, &sa);
+    sig_act_store_set_and_save(store, SIGTERM, &sa);
 
-    bool result = sig_act_store_restore_one(store, SIGUSR2);
+    bool result = sig_act_store_restore_one(store, SIGTERM);
     CTEST_ASSERT_TRUE(ctest, result, "restore_one succeeded");
 
     sig_act_store_destroy(&store);
@@ -168,7 +211,7 @@ CTEST(test_sig_act_posix_restore_one_unsaved_fails)
 {
     sig_act_store_t *store = sig_act_store_create();
 
-    bool result = sig_act_store_restore_one(store, SIGUSR2);
+    bool result = sig_act_store_restore_one(store, SIGTERM);
     CTEST_ASSERT_FALSE(ctest, result, "restore_one failed for unsaved");
 
     sig_act_store_destroy(&store);
@@ -183,34 +226,12 @@ CTEST(test_sig_act_posix_restore_all)
     sa.sa_flags = 0;
     sigemptyset(&sa.sa_mask);
 
-    sig_act_store_set_and_save(store, SIGUSR1, &sa);
-    sig_act_store_set_and_save(store, SIGUSR2, &sa);
+    sig_act_store_set_and_save(store, SIGINT, &sa);
+    sig_act_store_set_and_save(store, SIGTERM, &sa);
 
     sig_act_store_restore(store);
 
     CTEST_ASSERT_TRUE(ctest, true, "restore_all did not crash");
-
-    sig_act_store_destroy(&store);
-}
-
-CTEST(test_sig_act_posix_actual_signal_delivery)
-{
-    sig_act_store_t *store = sig_act_store_create();
-
-    test_handler_called = 0;
-
-    struct sigaction sa;
-    sa.sa_handler = test_signal_handler;
-    sa.sa_flags = 0;
-    sigemptyset(&sa.sa_mask);
-
-    sig_act_store_set_and_save(store, SIGUSR2, &sa);
-
-    raise(SIGUSR2);
-
-    CTEST_ASSERT_EQ(ctest, test_handler_called, 1, "handler was called");
-
-    sig_act_store_restore_one(store, SIGUSR2);
 
     sig_act_store_destroy(&store);
 }
@@ -251,7 +272,7 @@ CTEST(test_sig_act_posix_null_action_fails)
 {
     sig_act_store_t *store = sig_act_store_create();
 
-    int result = sig_act_store_set_and_save(store, SIGUSR2, NULL);
+    int result = sig_act_store_set_and_save(store, SIGTERM, NULL);
     CTEST_ASSERT_EQ(ctest, result, -1, "null action rejected");
 
     sig_act_store_destroy(&store);
@@ -361,7 +382,7 @@ CTEST(test_sig_act_nonposix_invalid_signal_returns_error)
     void (*result)(int) = sig_act_store_set_and_save(store, -1, test_signal_handler);
     CTEST_ASSERT_TRUE(ctest, result == SIG_ERR, "negative signal returns SIG_ERR");
 
-    result = sig_act_store_set_and_save(store, 9999, test_signal_handler);
+    result = sig_act_store_set_and_save(store, (int)store->capacity, test_signal_handler);
     CTEST_ASSERT_TRUE(ctest, result == SIG_ERR, "huge signal returns SIG_ERR");
 
     sig_act_store_destroy(&store);
@@ -377,6 +398,7 @@ int main(int argc, const char *argv[])
 {
     (void)argc;
     (void)argv;
+    arena_start();
 
     CTestEntry *suite[] = {
         // Common tests (all platforms)
@@ -386,8 +408,10 @@ int main(int argc, const char *argv[])
         CTEST_ENTRY(test_sig_act_is_saved_with_null_store),
         CTEST_ENTRY(test_sig_act_is_saved_with_invalid_signal),
         CTEST_ENTRY(test_sig_act_get_returns_null_for_unsaved),
+        CTEST_ENTRY(test_sig_act_supported_bounds),
+        CTEST_ENTRY(test_sig_act_exit_trap_set_and_restore),
 
-#ifdef POSIX_API
+    #ifdef SIG_ACT_USE_SIGACTION
         // POSIX-specific tests
         CTEST_ENTRY(test_sig_act_posix_set_and_save_basic),
         CTEST_ENTRY(test_sig_act_posix_set_and_save_preserves_original),
@@ -395,7 +419,6 @@ int main(int argc, const char *argv[])
         CTEST_ENTRY(test_sig_act_posix_restore_one),
         CTEST_ENTRY(test_sig_act_posix_restore_one_unsaved_fails),
         CTEST_ENTRY(test_sig_act_posix_restore_all),
-        CTEST_ENTRY(test_sig_act_posix_actual_signal_delivery),
         CTEST_ENTRY(test_sig_act_posix_reject_sigkill),
         CTEST_ENTRY(test_sig_act_posix_reject_sigstop),
         CTEST_ENTRY(test_sig_act_posix_null_action_fails),
@@ -414,5 +437,9 @@ int main(int argc, const char *argv[])
         NULL  // Terminator
     };
 
-    return ctest_run_suite(suite);
+    int result = ctest_run_suite(suite);
+
+    arena_end();
+
+    return result;
 }

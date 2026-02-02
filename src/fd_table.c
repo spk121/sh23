@@ -4,6 +4,7 @@
  */
 
 #include "fd_table.h"
+#include "logging.h"
 #include "xalloc.h"
 #include <string.h>
 
@@ -102,6 +103,28 @@ fd_table_t *fd_table_create(void)
     table->count = 0;
     table->highest_fd = -1;
 
+    return table;
+}
+
+fd_table_t* fd_table_clone(const fd_table_t* src)
+{
+    Expects_not_null(src);
+    fd_table_t *table = xmalloc(sizeof(fd_table_t));  // Don't use fd_table_create()
+
+    table->capacity = src->capacity;
+    table->count = src->count;
+    table->highest_fd = src->highest_fd;
+    table->entries = xcalloc(table->capacity, sizeof(fd_entry_t));
+
+    for (size_t i = 0; i < src->count; i++) {
+        table->entries[i].fd = src->entries[i].fd;
+        table->entries[i].original_fd = src->entries[i].original_fd;
+        table->entries[i].flags = src->entries[i].flags;
+        table->entries[i].is_open = src->entries[i].is_open;
+        table->entries[i].path = src->entries[i].path
+            ? string_create_from(src->entries[i].path)
+            : NULL;
+    }
     return table;
 }
 

@@ -297,7 +297,7 @@ static heredoc_process_result_t try_process_heredoc(lexer_t *lx)
     // FIXME: this may attempt to promote, which is incorrect.
     lexer_append_literal_cstr_to_word(lx, string_cstr(delimiter));
     lexer_finalize_word(lx);
- 
+
     lexer_queue_heredoc(lx, delimiter, strip_tabs, delimiter_quoted);
     string_destroy(&delimiter);
     return HEREDOC_PROCESS_RESULT_SUCCESS;

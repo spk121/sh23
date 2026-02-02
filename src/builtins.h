@@ -3,6 +3,7 @@
 
 #include "exec.h"
 #include "string_t.h"
+#include "string_list.h"
 
 /**
  * Builtin command classification

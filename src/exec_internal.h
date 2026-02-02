@@ -1,207 +1,207 @@
 #ifndef EXEC_INTERNAL_H
 #define EXEC_INTERNAL_H
 
+/**
+ * exec_internal.h - Executor internals
+ *
+ * This header defines:
+ * - exec_t: The executor singleton state (full definition)
+ * - Redirection structures
+ * - Internal execution functions
+ *
+ * For public API, see exec.h
+ * For frame-specific definitions, see exec_frame.h
+ * For policy definitions, see exec_frame_policy.h
+ */
+
 #include <stdbool.h>
 #ifdef POSIX_API
-#include <sys/types.h>
 #include <sys/resource.h>
+#include <sys/types.h>
 #endif
-#include "ast.h"
-#include "string_t.h"
-#include "trap_store.h"
-#include "sig_act.h"
-#include "variable_store.h"
-#include "positional_params.h"
-#include "fd_table.h"
+
 #include "alias_store.h"
+#include "ast.h"
+#include "fd_table.h"
 #include "func_store.h"
 #include "job_store.h"
+#include "positional_params.h"
+#include "sig_act.h"
+#include "string_list.h"
+#include "string_t.h"
+#include "trap_store.h"
+#include "variable_store.h"
+
+/* Include public API for exec_opt_flags_t and exec_status_t */
+#include "exec.h"
+
+/* Include frame definitions */
+#include "exec_frame.h"
+
+/* ============================================================================
+ * Redirection Structures
+ * ============================================================================ */
+
+/**
+ * Types of redirection operations.
+ */
+
+ /* redirection_type_t is recycled from the one in ast.h */
+
+/**
+ * How the target of a redirection is specified.
+ */
+
+/* redir_target_kind_t is recycled from the one in ast.h */
+
+/**
+ * Runtime representation of a single redirection.
+ */
+typedef struct exec_redirection_t
+{
+    redirection_type_t type;
+    int explicit_fd;     /* [n] prefix, or -1 for default */
+    bool is_io_location; /* POSIX 2024 {varname} syntax */
+    string_t *io_location_varname;
+    redir_target_kind_t target_kind;
+
+    union {
+        /* REDIR_TARGET_FILE */
+        struct
+        {
+            string_t *raw_filename; /* Unexpanded - expand at runtime */
+        } file;
+
+        /* REDIR_TARGET_FD */
+        struct
+        {
+            int fixed_fd;            /* Literal fd number, or -1 */
+            string_t *fd_expression; /* If fd comes from expansion */
+        } fd;
+
+        /* REDIR_TARGET_HEREDOC */
+        struct
+        {
+            string_t *content;    /* The heredoc content */
+            bool needs_expansion; /* false if delimiter was quoted */
+        } heredoc;
+
+        /* REDIR_TARGET_IO_LOCATION */
+        struct
+        {
+            string_t *raw_filename; /* For {var}>file */
+            int fixed_fd;           /* For {var}>&N */
+        } io_location;
+    } target;
+
+    int source_line; /* For error messages */
+} exec_redirection_t;
+
+/**
+ * Dynamic array of runtime redirections.
+ */
+typedef struct exec_redirections_t
+{
+    exec_redirection_t *items;
+    size_t count;
+    size_t capacity;
+} exec_redirections_t;
+
+exec_redirections_t *exec_redirections_create(void);
+void exec_redirections_destroy(exec_redirections_t **redirections);
+void exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
 
 
 /* ============================================================================
- * Executor Status (return codes)
+ * Redirection Handling
  * ============================================================================ */
 
-typedef enum
-{
-    EXEC_OK = 0,                      // successful execution
-    EXEC_ERROR,                       // error during execution
-    EXEC_NOT_IMPL,                    // feature not yet implemented
-    EXEC_OK_INTERNAL_FUNCTION_STORED, // internal: function node moved to store, don't free
-    EXEC_RETURN,                      // internal: 'return' executed
-    EXEC_BREAK,                       // internal: 'break' executed
-    EXEC_CONTINUE,                    // internal: 'continue' executed
-    EXEC_EXIT                         // internal: 'exit' executed
-} exec_status_t;
+/**
+ * Apply redirections to the current frame.
+ * Saves original fd state for later restoration.
+ * (Implemented in exec_redirect.c)
+ *
+ * @return 0 on success, -1 on error
+ */
+int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redirections);
+
+/**
+ * Restore file descriptors to their state before redirections were applied.
+ */
+void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirections);
 
 /* ============================================================================
- * 
+ * Command Execution
  * ============================================================================ */
 
-typedef struct
-{
-    bool allexport; // -a
-    bool errexit;   // -e
-    bool ignoreeof; // no flag
-    bool noclobber; // -C
-    bool noglob;    // -f
-    bool noexec;    // -n
-    bool nounset;   // -u
-    bool pipefail;  // no flag
-    bool verbose;   // -v
-    bool vi;
-    bool xtrace; // -x
-} exec_opt_flags_t;
+/**
+ * Execute a compound list (sequence of and-or lists).
+ */
+exec_result_t exec_compound_list(exec_frame_t *frame, ast_node_t *list);
 
 /**
- * The exec_t structure maintains the execution state for a shell session,
- * including exit status tracking, error reporting, variables, and special
- * POSIX shell variables.
+ * Execute an and-or list (cmd1 && cmd2 || cmd3).
  */
-typedef struct exec_t
-{
-    struct exec_t *parent; // NULL if top-level, else points to parent environment
-    bool is_subshell;      // True if this is a subshell environment
-    bool is_interactive;   // Whether shell is interactive
-    bool is_login_shell;   // Whether this is a login shell
+exec_result_t exec_and_or_list(exec_frame_t *frame, ast_node_t *list);
 
-    // Working directory as set by cd
-    string_t *working_directory; // POSIX getcwd(), UCRT _getcwd(), ISO_C no standard way
+/**
+ * Execute a pipeline (cmd1 | cmd2 | cmd3).
+ */
+exec_result_t exec_pipeline(exec_frame_t *frame, ast_node_t *pipeline);
 
-    // File creation mask set by umask.
-    // These are the permissions that should be masked off when creating new files.
-#ifdef POSIX_API
-    mode_t umask; // return value of umask()
-#elifdef UCRT_API
-    int umask; // return value of _umask()
-#else
-    // ISO_C does not have a meaningful umask
-    int umask; // dummy placeholder
-#endif
+/**
+ * Execute a simple command (assignments, redirections, command word).
+ */
+exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *cmd);
 
-    // File size limit as set by ulimit
-#ifdef POSIX_API
-    rlim_t file_size_limit; // getrlimit(RLIMIT_FSIZE)
-#else
-    // UCRT_API and ISO_C_API do  not define file size limits
-#endif
+/**
+ * Execute an external command (fork/exec).
+ */
+exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,
+                                    exec_redirections_t *redirections);
 
-    // Current traps set by trap
-    trap_store_t *traps;
-    // Original signal dispositions (to restore after traps)
-    sig_act_store_t *original_signals;
-
-    // Shell parameters that are set by variable assignment and shell
-    // parameters that are set from the environment inherited by the shell
-    // when it begins.
-    variable_store_t *variables;
-    positional_params_t *positional_params; // Derive $@, $*, $1, $2, ...
-
-    // Command-line arguments passed to the shell at startup
-    // $? - Exit status of last command
-    int last_exit_status;
-    bool last_exit_status_set;
-
-    // $! - PID of last background command
-#ifdef POSIX_API
-    pid_t last_background_pid;
-#else // UCRT_API and ISO_C
-    int last_background_pid;
-#endif
-    bool last_background_pid_set;
-
-    // $$ - PID of the shell process
-#ifdef POSIX_API
-    pid_t shell_pid;
-#else // UCRT_API and ISO_C
-    int shell_pid;
-#endif
-    bool shell_pid_set;
-
-    // $_ - Last argument of previous command
-    string_t *last_argument;
-    bool last_argument_set;
-
-    // $0 - Name of the shell or shell script
-    string_t *shell_name;
-
-    // Shell functions
-    func_store_t *functions;
-
-    // $- - Current shell option flags (e.g., "ix" for interactive, xtrace)
-    exec_opt_flags_t opt;
-    bool opt_flags_set;
-
-#if !defined(POSIX_API) && !defined(UCRT_API)
-    // ISO C can't pass environment variables via envp, so before
-    // calling system() to execute external commands, we write this
-    // environment to a temporary file and set ENV_FILE to its path.
-    string_t *env_file_path;
-#endif
-
-    // Background jobs and their associated process IDs, and process IDs of
-    // child processes created to execute asynchronous AND-OR lists while job
-    // control is disabled; together these process IDs constitute the process
-    // IDs "known to this shell environment".
-    // Job control
-    job_store_t *jobs; // Background jobs
-#ifdef POSIX_API
-    pid_t pgid; // Process group ID for job control
-#else
-    int dummy_pgid; // Placeholder, no job control in UCRT/ISO C
-#endif
-    bool job_control_enabled; // Whether job control is active
-
-#if defined(POSIX_API) || defined(UCRT_API)
-    // Open file descriptors (for managing redirections)
-    fd_table_t *open_fds; // Track which FDs are open and their state
-    int next_fd;          // For allocating new FDs in redirections
-#else
-    // There are no file descriptors in ISO C
-    void *dummy_open_fds;
-    int dummy_next_fd;
-#endif
-
-    // Shell aliases
-    alias_store_t *aliases;
-
-    // Error reporting
-    string_t *error_msg;
-
-    // For multi-frame returns
-    int return_count; // Number of frames to break/continue/return through
-} exec_t;
-
-typedef struct saved_fd_t
-{
-    int fd;        // the FD being redirected
-    int backup_fd; // duplicate of original FD
-} saved_fd_t;
-
+/**
+ * Execute a builtin command.
+ */
+exec_result_t exec_builtin_command(exec_frame_t *frame, const string_t *name, string_list_t *argv);
 
 /* ============================================================================
- * Internal Cross-Module Function Declarations
+ * Subshell Management
  * ============================================================================ */
 
-/* Forward declaration of ast_node_t */
-struct ast_node_t;
+/**
+ * Create a subshell executor from a parent executor.
+ * This sets up appropriate state copying for a true subshell context.
+ */
+exec_t *exec_create_subshell(exec_t *executor);
+
+/* ============================================================================
+ * Loop Execution
+ * ============================================================================ */
 
 /**
- * Execute an AST node (internal recursion function).
- * Used by exec_control.c and exec_redirect.c to execute child nodes.
+ * Execute a while/until loop.
  */
-exec_status_t exec_execute(exec_t *executor, const struct ast_node_t *node);
+exec_result_t exec_condition_loop(exec_frame_t *frame, exec_params_t *params);
 
 /**
- * Set an error message (internal utility).
- * Used by various exec modules to report errors.
+ * Execute a for loop.
  */
-void exec_set_error(exec_t *executor, const char *format, ...);
+exec_result_t exec_iteration_loop(exec_frame_t *frame, exec_params_t *params);
+
+/* ============================================================================
+ * Special Parameter Access
+ * ============================================================================ */
 
 /**
- * Set the exit status (internal utility).
+ * Get the value of a special parameter ($?, $$, $!, $#, $@, $*, $0, $1, ...).
+ * Returns NULL if not a special parameter.
  */
-void exec_set_exit_status(exec_t *executor, int status);
+string_t *exec_get_special_param(exec_frame_t *frame, const string_t *name);
+
+/**
+ * Check if a name is a special parameter.
+ */
+bool exec_is_special_param(const string_t *name);
 
 #endif /* EXEC_INTERNAL_H */
-

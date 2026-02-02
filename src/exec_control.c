@@ -5,6 +5,7 @@
 #include "logging.h"
 #include "positional_params.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "token.h"
 #include "variable_store.h"
 #include "glob_util.h"
@@ -110,7 +111,7 @@ exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node
 
         // Execute body
         status = exec_execute(executor, node->data.loop_clause.body);
-        
+
         if (status == EXEC_BREAK)
         {
             // Break out of loop
@@ -169,7 +170,7 @@ exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node
 
         // Execute body
         status = exec_execute(executor, node->data.loop_clause.body);
-        
+
         if (status == EXEC_BREAK)
         {
             status = EXEC_OK;
@@ -321,21 +322,21 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
         for (int i = 0; i < case_items->size && !matched; i++)
         {
             const ast_node_t *case_item = case_items->nodes[i];
-            
+
             if (case_item->type != AST_CASE_ITEM)
             {
                 continue;
             }
 
             const token_list_t *patterns = case_item->data.case_item.patterns;
-            
+
             // Check each pattern in this case item
             if (patterns)
             {
                 for (int j = 0; j < token_list_size(patterns); j++)
                 {
                     token_t *pattern_token = token_list_get(patterns, j);
-                    
+
                     // Expand the pattern (patterns can contain variables, etc.)
                     string_list_t *pattern_list =
                         exec_expand_word(executor, pattern_token);
@@ -360,7 +361,7 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
                     if (pattern_matches)
                     {
                         matched = true;
-                        
+
                         // Execute the case item body
                         const ast_node_t *body = case_item->data.case_item.body;
                         if (body)

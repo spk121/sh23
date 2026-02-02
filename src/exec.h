@@ -4,11 +4,11 @@
 #include <stdio.h>
 #include "alias_store.h"
 #include "ast.h"
-#include "exec_command.h"
-#include "exec_internal.h"
+// #include "exec_command.h"
 #include "exec_expander.h"
 #include "positional_params.h"
 #include "string_t.h"
+#include "string_list.h"
 #include "variable_store.h"
 
 #ifdef POSIX_API
@@ -25,25 +25,286 @@
 #include <stdbool.h>
 
 
+#ifdef POSIX_API
+#define EXEC_SYSTEM_RC_PATH "/etc/mgshrc"
+#define EXEC_USER_RC_NAME ".mgshrc"
+#define EXEC_RC_IN_XDG_CONFIG_HOME
+#elifdef UCRT_API
+#define EXEC_USER_RC_NAME "mgshrc"
+#define EXEC_RC_IN_LOCAL_APP_DATA
+#else
+// ISO C cannot rely on any paths existing, or on any filename conventions.
+// So fallback to presuming FAT-12 style names being valid (a practical worst case)
+// and no directory structure.
+#define EXEC_USER_RC_NAME "MGSH.RC"
+#define EXEC_RC_IN_CURRENT_DIRECTORY
+#endif
+
+/* ============================================================================
+ * Executor State (Singleton)
+ * ============================================================================ */
+
+struct exec_opt_flags_t
+{
+    bool allexport; // set -a
+    bool errexit;   // set -e
+    bool ignoreeof; // set -I
+    bool noclobber; // set -C
+    bool noglob;    // set -f
+    bool noexec;    // set -n
+    bool nounset;   // set -u
+    bool pipefail;  // set -o pipefail
+    bool verbose;   // set -v
+    bool vi;        // set -o vi
+    bool xtrace;    // set -x
+};
+
+
+#define EXEC_CFG_FALLBACK_ARGV0 "mgsh"
+#define EXEC_CFG_FALLBACK_OPT_FLAGS_INIT \
+    {                                      \
+        .allexport = false,                \
+        .errexit = false,                  \
+        .ignoreeof = false,                \
+        .noclobber = false,                \
+        .noglob = false,                   \
+        .noexec = false,                   \
+        .nounset = false,                  \
+        .pipefail = false,                 \
+        .verbose = false,                  \
+        .vi = false,                       \
+        .xtrace = false,                   \
+    }
+
+/**
+ * Holds override info for initializing an executor.
+ * For information not provided,
+ * info from POSIX, UCRT, or ISO C API calls will be used,
+ * or as a last resort, hardcoded FALLBACK values.
+ */
+struct exec_cfg_t
+{
+    /* Start-up Environment */
+    bool argv_set;
+    int argc; /* May be zero. */
+    char *const *argv; /* NULL iff argc is zero. Fallback will be used for argv[0]. */
+
+    bool envp_set;
+    char *const *envp; /* If !envp_set, this is NULL and envp will come from getopt(). */
+
+    /* Shell identity overrides */
+    bool shell_name_set;
+    const char *shell_name; /* Overrides argv[0]-derived shell name */
+
+    bool shell_args_set;
+    string_list_t *shell_args; /* Overrides argv[1..] derived args */
+
+    bool env_vars_set;
+    string_list_t *env_vars; /* Overrides envp-derived environment list */
+
+    /* Flags */
+    bool opt_flags_set;
+    struct exec_opt_flags_t opt; /* If !opt_flags_set, fallback is used. */
+
+    bool is_interactive_set;
+    bool is_interactive;
+    bool is_login_shell_set;
+    bool is_login_shell;
+
+    bool job_control_enabled_set;
+    bool job_control_enabled;
+
+    /* Working directory override */
+    bool working_directory_set;
+    const char *working_directory;
+
+    /* File permissions */
+    bool umask_set;
+#ifdef POSIX_API
+    mode_t umask;
+    bool file_size_limit_set;
+    rlim_t file_size_limit;
+#else
+    int umask;
+#endif
+
+    /* Special parameters */
+    bool last_exit_status_set;
+    int last_exit_status;
+    bool last_background_pid_set;
+    int last_background_pid;
+    bool last_argument_set;
+    const char *last_argument;
+
+    /* Process group / PID overrides */
+    bool pgid_set;
+#ifdef POSIX_API
+    pid_t pgid;
+#else
+    int pgid;
+#endif
+    bool pgid_valid_set;
+    bool pgid_valid;
+
+    bool shell_pid_set;
+#ifdef POSIX_API
+    pid_t shell_pid;
+#else
+    int shell_pid;
+#endif
+    bool shell_pid_valid_set;
+    bool shell_pid_valid;
+
+    bool shell_ppid_set;
+#ifdef POSIX_API
+    pid_t shell_ppid;
+#else
+    int shell_ppid;
+#endif
+    bool shell_ppid_valid_set;
+    bool shell_ppid_valid;
+
+    /* RC file state overrides */
+    bool rc_loaded_set;
+    bool rc_loaded;
+    bool rc_files_sourced_set;
+    bool rc_files_sourced;
+};
+
+/**
+ * The exec_t holds global shell state that persists across all frames.
+ */
+struct exec_t
+{
+    /* -------------------------------------------------------------------------
+     * 1) Singleton executor state (not per-frame)
+     * -------------------------------------------------------------------------
+     */
+    bool shell_pid_valid;
+    bool shell_ppid_valid;
+#ifdef POSIX_API
+    pid_t shell_pid;  /* $$ - PID of the main shell process */
+    pid_t shell_ppid; /* $PPID at startup */
+#else
+    int shell_pid;
+    int shell_ppid;
+#endif
+
+    bool is_interactive;
+    bool is_login_shell;
+
+    bool signals_installed;
+    sig_act_store_t *original_signals;
+    volatile sig_atomic_t sigint_received;
+    volatile sig_atomic_t sigchld_received;
+    volatile sig_atomic_t trap_pending[NSIG];
+
+    job_store_t *jobs;
+    bool job_control_enabled;
+
+    bool pgid_valid;
+#ifdef POSIX_API
+    pid_t pgid; /* Shell's process group ID */
+#else
+    int pgid;
+#endif
+
+    /* Pipeline status (pipefail / PIPESTATUS) */
+    int *pipe_statuses;
+    size_t pipe_status_count;
+    size_t pipe_status_capacity;
+
+    /* Error state */
+    string_t *error_msg;
+
+    /* -------------------------------------------------------------------------
+     * 2) Top-frame initialization data
+     * -------------------------------------------------------------------------
+     * This data is used to initialize the top frame when it is created lazily.
+     * The top frame and current frame remain NULL until first execution.
+     */
+    int argc;
+    char **argv;
+    char **envp;
+
+    string_t *shell_name;      /* $0 for top-level (argv[0] or script name) */
+    string_list_t *shell_args; /* $@ for top-level (argv[1..argc-1]) */
+    string_list_t *env_vars;   /* Environment variables */
+
+    struct exec_opt_flags_t opt;
+
+    bool rc_loaded;
+    bool rc_files_sourced;
+
+    /* Top-frame stores (owned until top frame is created) */
+    variable_store_t *variables;
+    variable_store_t *local_variables; /* Unused for top frame; reserved for parity */
+    positional_params_t *positional_params;
+    func_store_t *functions;
+    alias_store_t *aliases;
+    trap_store_t *traps;
+#if defined(POSIX_API) || defined(UCRT_API)
+    fd_table_t *open_fds;
+    int next_fd;
+#endif
+
+    string_t *working_directory;
+#ifdef POSIX_API
+    mode_t umask;
+    rlim_t file_size_limit;
+#else
+    int umask;
+#endif
+
+    int last_exit_status;
+    bool last_exit_status_set;
+    int last_background_pid;
+    bool last_background_pid_set;
+    string_t *last_argument;
+    bool last_argument_set;
+
+    /* -------------------------------------------------------------------------
+     * 3) Frame stack pointers
+     * -------------------------------------------------------------------------
+     */
+    bool top_frame_initialized;
+    exec_frame_t *top_frame;
+    exec_frame_t *current_frame;
+};
+
+typedef struct exec_opt_flags_t exec_opt_flags_t;
+typedef struct exec_cfg_t exec_cfg_t;
+typedef struct exec_t exec_t;
 
 /* ============================================================================
  * Executor Context
  * ============================================================================ */
 
-
-
-
-
-typedef struct
+typedef enum exec_status_t
 {
-    // Start-up environment
-    int argc;
-    char *const *argv;
-    char *const *envp;
+    EXEC_OK = 0,
+    EXEC_ERROR = 1,
+    EXEC_NOT_IMPL = 2,
+    EXEC_OK_INTERNAL_FUNCTION_STORED,
+    EXEC_BREAK,           ///< break statement executed
+    EXEC_CONTINUE,        ///< continue statement executed
+    EXEC_RETURN,          ///< return statement executed
+    EXEC_EXIT,            ///< exit statement executed
+} exec_status_t;
 
-    // Flags
-    exec_opt_flags_t opt;
-} exec_cfg_t;
+/* ============================================================================
+ * Executor Configuration Functions
+ * ============================================================================ */
+
+void exec_cfg_set_from_shell_options(exec_cfg_t *cfg,
+    int argc, char *const *argv, char *const *envp,
+    const char *shell_name,
+    string_list_t *shell_args,
+    string_list_t *env_vars,
+    const exec_opt_flags_t *opt_flags,
+    bool is_interactive,
+    bool is_login_shell,
+                                       bool job_control_enabled);
 
 /* ============================================================================
  * Executor Lifecycle Functions
@@ -52,8 +313,7 @@ typedef struct
 /**
  * Create a new executor.
  */
-exec_t *exec_create_from_cfg(exec_cfg_t *cfg);
-exec_t *exec_create_subshell(exec_t *parent);
+exec_t *exec_create(const struct exec_cfg_t *cfg);
 
 /**
  * Destroy an executor and free all associated memory.
@@ -64,6 +324,11 @@ void exec_destroy(exec_t **executor);
 /* ============================================================================
  * Execution Functions
  * ============================================================================ */
+
+/**
+ * Setup the executor for interactive execution, including sourcing rc files.
+ */
+void exec_setup_interactive_execute(exec_t *executor);
 
 /**
  * Execute an AST.
@@ -103,12 +368,12 @@ exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node);
 /**
  * Execute a simple command.
  */
-exec_status_t exec_execute_simple_command(exec_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t *node);
 
 /**
  * Execute a redirected command wrapper.
  */
-exec_status_t exec_execute_redirected_command(exec_t *executor, const ast_node_t *node);
+exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const ast_node_t *node);
 
 /**
  * Execute an if clause.
@@ -150,7 +415,14 @@ exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node)
  */
 exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 
-void exec_reap_background_jobs(exec_t *executor);
+/**
+ * Check if any background jobs have completed, and if so mark them done
+ * in the job store.
+ * Only properly functions in POSIX_API mode.
+ * In other modes, this is a no-op.
+ * If notify is true, print completed jobs to the output.
+ */
+void exec_reap_background_jobs(exec_t *executor, bool notify);
 
 /* ============================================================================
  * Visitor Pattern Support
@@ -223,6 +495,12 @@ const char *exec_get_ps1(const exec_t *executor);
  */
 const char *exec_get_ps2(const exec_t *executor);
 
+positional_params_t *exec_get_positional_params(const exec_t *executor);
+variable_store_t *exec_get_variables(const exec_t *executor);
+alias_store_t *exec_get_aliases(const exec_t *executor);
+bool exec_is_interactive(const exec_t *executor);
+bool exec_is_login_shell(const exec_t *executor);
+
 /* ============================================================================
  * Expander Callbacks
  * ============================================================================ */
@@ -238,22 +516,6 @@ const char *exec_get_ps2(const exec_t *executor);
  *         or NULL on error
  */
 string_t *exec_command_subst_callback(void *userdata, const string_t *command);
-
-/**
- * Pathname expansion (glob) callback for the expander.
- * Platform behavior:
- * - POSIX_API: uses POSIX glob() for pathname expansion.
- * - UCRT_API: uses _findfirst/_findnext from <io.h> for wildcard matching.
- * - ISO_C: no implementation; returns NULL so the expander preserves the literal.
- *
- * @param pattern The glob pattern to expand
- * @param user_data Pointer to the shell_t context (opaque to this function)
- * @param pattern The glob pattern to expand
- * @return On success with matches: a newly allocated list of filenames
- *         (caller must free with string_list_destroy). On no matches or error:
- *         returns NULL, signaling the expander to leave the pattern unexpanded.
- */
-string_list_t *exec_pathname_expansion_callback(void *user_data, const string_t *pattern);
 
 /**
  * Get positional parameters from executor (for expander).

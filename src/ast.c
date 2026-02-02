@@ -1,8 +1,14 @@
-#include "ast.h"
-#include "logging.h"
-#include "xalloc.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "ast.h"
+#include "logging.h"
+#include "string_list.h"
+#include "string_t.h"
+#include "token.h"
+#include "xalloc.h"
+
+
 
 /* ============================================================================
  * Constants
@@ -123,7 +129,7 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
     case AST_FUNCTION_STORED:
         // No owned data to clone.
         break;
-    case AST_NODE_TYPE_COUNT:   
+    case AST_NODE_TYPE_COUNT:
     default:
         // Other node types do not own any heap data; shallow copy is sufficient.
         break;
@@ -685,6 +691,47 @@ const char *redirection_type_to_string(redirection_type_t type)
     }
 }
 
+const token_list_t* ast_simple_command_node_get_words(const ast_node_t* node)
+{
+    Expects_not_null(node);
+    Expects_eq(ast_node_get_type(node), AST_SIMPLE_COMMAND);
+
+    return (const token_list_t *) node->data.simple_command.words;
+}
+
+string_list_t* ast_simple_command_node_get_word_strings(const ast_node_t* node)
+{
+    Expects_not_null(node);
+    Expects_eq(ast_node_get_type(node), AST_SIMPLE_COMMAND);
+
+    token_list_t *words = node->data.simple_command.words;
+    int len = token_list_size(words);
+    string_list_t *sl = string_list_create();
+    for (int i = 0; i < len; i ++)
+    {
+        string_t *txt = token_get_all_text(token_list_get(words, i));
+        string_list_move_push_back(sl, &txt);
+    }
+    return sl;
+}
+
+bool ast_simple_command_node_has_redirections(const ast_node_t* node)
+{
+    Expects_not_null(node);
+    Expects_eq(ast_node_get_type(node), AST_SIMPLE_COMMAND);
+    ast_node_list_t *redirs = node->data.simple_command.redirections;
+    if (redirs && ast_node_list_size(redirs) > 0)
+        return true;
+    return false;
+}
+
+const ast_node_list_t* ast_simple_command_node_get_redirections(const ast_node_t* node)
+{
+    Expects_not_null(node);
+    Expects_eq(ast_node_get_type(node), AST_SIMPLE_COMMAND);
+    return node->data.simple_command.redirections;
+}
+
 static void indent_str(string_t *str, int i)
 {
     for (int j = 0; j < i; j++)
@@ -823,6 +870,20 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
         indent_str(result, indent_level + 1);
         string_append_cstr(result, "then:\n");
         ast_node_to_string_helper(node->data.if_clause.then_body, result, indent_level + 2);
+        if (node->data.if_clause.elif_list != NULL)
+        {
+            for (int i = 0; i < ast_node_list_size(node->data.if_clause.elif_list); i++)
+            {
+                ast_node_t *elif_node = ast_node_list_get(node->data.if_clause.elif_list, i);
+                string_append_cstr(result, " ; elif ");
+                ast_node_to_string_helper(elif_node->data.if_clause.condition, result,
+                                          indent_level + 1);
+                string_append_cstr(result, " ; then ");
+                ast_node_to_string_helper(elif_node->data.if_clause.then_body, result,
+                                          indent_level + 1);
+            }
+        }
+
         if (node->data.if_clause.else_body != NULL)
         {
             indent_str(result, indent_level + 1);
@@ -865,15 +926,13 @@ static void ast_node_to_string_helper(const ast_node_t *node, string_t *result, 
         {
             for (int i = 0; i < ast_node_list_size(node->data.case_clause.case_items); i++)
             {
-                ast_node_t *case_item =
-                    ast_node_list_get(node->data.case_clause.case_items, i);
+                ast_node_t *case_item = ast_node_list_get(node->data.case_clause.case_items, i);
                 ast_node_to_string_helper(case_item, result, indent_level + 1);
             }
         }
         break;
     case AST_CASE_ITEM:
-        if (node->data.case_item.patterns != NULL &&
-            node->data.case_item.patterns->size > 0)
+        if (node->data.case_item.patterns != NULL && node->data.case_item.patterns->size > 0)
         {
             indent_str(result, indent_level + 1);
             string_append_cstr(result, "patterns: ");
@@ -1021,10 +1080,333 @@ void ast_print(const ast_node_t *root)
     string_destroy(&str);
 }
 
+static void ast_node_to_command_line_full_helper(const ast_node_t *node, string_t *result,
+                                                 int level)
+{
+    if (node == NULL)
+    {
+        return;
+    }
+
+    // Recursively build command-line representation based on node type
+    switch (node->type)
+    {
+    case AST_SIMPLE_COMMAND:
+        // Handle assignments first
+        if (node->data.simple_command.assignments != NULL &&
+            node->data.simple_command.assignments->size > 0)
+        {
+            for (int i = 0; i < node->data.simple_command.assignments->size; i++)
+            {
+                if (i > 0) string_append_cstr(result, " ");
+                token_t *assign = token_list_get(node->data.simple_command.assignments, i);
+                string_t *assign_str = token_to_cmd_string(assign);
+                string_append(result, assign_str);
+                string_destroy(&assign_str);
+            }
+            if (node->data.simple_command.words != NULL &&
+                node->data.simple_command.words->size > 0)
+            {
+                string_append_cstr(result, " ");
+            }
+        }
+        
+        // Handle words (command and arguments)
+        if (node->data.simple_command.words != NULL &&
+            node->data.simple_command.words->size > 0)
+        {
+            for (int i = 0; i < node->data.simple_command.words->size; i++)
+            {
+                if (i > 0) string_append_cstr(result, " ");
+                token_t *word = token_list_get(node->data.simple_command.words, i);
+                string_t *word_str = token_to_cmd_string(word);
+                string_append(result, word_str);
+                string_destroy(&word_str);
+            }
+        }
+        
+        // Handle redirections
+        if (node->data.simple_command.redirections != NULL &&
+            ast_node_list_size(node->data.simple_command.redirections) > 0)
+        {
+            for (int i = 0; i < ast_node_list_size(node->data.simple_command.redirections); i++)
+            {
+                string_append_cstr(result, " ");
+                ast_node_t *redir = ast_node_list_get(node->data.simple_command.redirections, i);
+                ast_node_to_command_line_full_helper(redir, result, level + 1);
+            }
+        }
+        break;
+
+    case AST_PIPELINE:
+        if (node->data.pipeline.commands != NULL)
+        {
+            for (int i = 0; i < node->data.pipeline.commands->size; i++)
+            {
+                if (i > 0) string_append_cstr(result, " | ");
+                ast_node_to_command_line_full_helper(node->data.pipeline.commands->nodes[i], result, level + 1);
+            }
+            if (node->data.pipeline.is_negated)
+            {
+                string_append_cstr(result, " !");
+            }
+        }
+        break;
+
+    case AST_AND_OR_LIST:
+        ast_node_to_command_line_full_helper(node->data.andor_list.left, result, level + 1);
+        string_append_cstr(result, node->data.andor_list.op == ANDOR_OP_AND ? " && " : " || ");
+        ast_node_to_command_line_full_helper(node->data.andor_list.right, result, level + 1);
+        break;
+
+    case AST_COMMAND_LIST:
+        if (node->data.command_list.items != NULL)
+        {
+            for (int i = 0; i < node->data.command_list.items->size; i++)
+            {
+                if (i > 0)
+                {
+                    if (node->data.command_list.separators != NULL &&
+                        i - 1 < node->data.command_list.separators->len)
+                    {
+                        cmd_separator_t sep = cmd_separator_list_get(node->data.command_list.separators, i - 1);
+                        switch (sep)
+                        {
+                        case CMD_EXEC_SEQUENTIAL:
+                            string_append_cstr(result, " ; ");
+                            break;
+                        case CMD_EXEC_BACKGROUND:
+                            string_append_cstr(result, " & ");
+                            break;
+                        case CMD_EXEC_END:
+                            string_append_cstr(result, "\n");
+                            break;
+                        }
+                    }
+                    else
+                    {
+                        string_append_cstr(result, " ; ");
+                    }
+                }
+                ast_node_to_command_line_full_helper(node->data.command_list.items->nodes[i], result, level + 1);
+            }
+        }
+        break;
+
+    case AST_SUBSHELL:
+        string_append_cstr(result, "( ");
+        ast_node_to_command_line_full_helper(node->data.compound.body, result, level + 1);
+        string_append_cstr(result, " )");
+        break;
+
+    case AST_BRACE_GROUP:
+        string_append_cstr(result, "{ ");
+        ast_node_to_command_line_full_helper(node->data.compound.body, result, level + 1);
+        string_append_cstr(result, " }");
+        break;
+
+    case AST_IF_CLAUSE:
+        string_append_cstr(result, "if ");
+        ast_node_to_command_line_full_helper(node->data.if_clause.condition, result, level + 1);
+        string_append_cstr(result, " ; then ");
+        ast_node_to_command_line_full_helper(node->data.if_clause.then_body, result, level + 1);
+        
+        if (node->data.if_clause.elif_list != NULL)
+        {
+            for (int i = 0; i < ast_node_list_size(node->data.if_clause.elif_list); i++)
+            {
+                ast_node_t *elif_node = ast_node_list_get(node->data.if_clause.elif_list, i);
+                string_append_cstr(result, " ; elif ");
+                ast_node_to_command_line_full_helper(elif_node->data.if_clause.condition, result, level + 1);
+                string_append_cstr(result, " ; then ");
+                ast_node_to_command_line_full_helper(elif_node->data.if_clause.then_body, result, level + 1);
+            }
+        }
+        
+        if (node->data.if_clause.else_body != NULL)
+        {
+            string_append_cstr(result, " ; else ");
+            ast_node_to_command_line_full_helper(node->data.if_clause.else_body, result, level + 1);
+        }
+        
+        string_append_cstr(result, " ; fi");
+        break;
+
+    case AST_WHILE_CLAUSE:
+        string_append_cstr(result, "while ");
+        ast_node_to_command_line_full_helper(node->data.loop_clause.condition, result, level + 1);
+        string_append_cstr(result, " ; do ");
+        ast_node_to_command_line_full_helper(node->data.loop_clause.body, result, level + 1);
+        string_append_cstr(result, " ; done");
+        break;
+
+    case AST_UNTIL_CLAUSE:
+        string_append_cstr(result, "until ");
+        ast_node_to_command_line_full_helper(node->data.loop_clause.condition, result, level + 1);
+        string_append_cstr(result, " ; do ");
+        ast_node_to_command_line_full_helper(node->data.loop_clause.body, result, level + 1);
+        string_append_cstr(result, " ; done");
+        break;
+
+    case AST_FOR_CLAUSE:
+        string_append_cstr(result, "for ");
+        if (node->data.for_clause.variable != NULL)
+        {
+            string_append(result, node->data.for_clause.variable);
+        }
+        string_append_cstr(result, " in ");
+        
+        if (node->data.for_clause.words != NULL && node->data.for_clause.words->size > 0)
+        {
+            for (int i = 0; i < node->data.for_clause.words->size; i++)
+            {
+                if (i > 0) string_append_cstr(result, " ");
+                token_t *word = token_list_get(node->data.for_clause.words, i);
+                string_t *word_str = token_to_cmd_string(word);
+                string_append(result, word_str);
+                string_destroy(&word_str);
+            }
+        }
+        
+        string_append_cstr(result, " ; do ");
+        ast_node_to_command_line_full_helper(node->data.for_clause.body, result, level + 1);
+        string_append_cstr(result, " ; done");
+        break;
+
+    case AST_CASE_CLAUSE:
+        string_append_cstr(result, "case ");
+        if (node->data.case_clause.word != NULL)
+        {
+            string_t *word_str = token_to_cmd_string(node->data.case_clause.word);
+            string_append(result, word_str);
+            string_destroy(&word_str);
+        }
+        string_append_cstr(result, " in ");
+        
+        if (node->data.case_clause.case_items != NULL)
+        {
+            for (int i = 0; i < ast_node_list_size(node->data.case_clause.case_items); i++)
+            {
+                if (i > 0) string_append_cstr(result, " ");
+                ast_node_t *case_item = ast_node_list_get(node->data.case_clause.case_items, i);
+                ast_node_to_command_line_full_helper(case_item, result, level + 1);
+            }
+        }
+        
+        string_append_cstr(result, " esac");
+        break;
+
+    case AST_CASE_ITEM:
+        if (node->data.case_item.patterns != NULL && node->data.case_item.patterns->size > 0)
+        {
+            for (int i = 0; i < node->data.case_item.patterns->size; i++)
+            {
+                if (i > 0) string_append_cstr(result, " | ");
+                token_t *pattern = token_list_get(node->data.case_item.patterns, i);
+                string_t *pattern_str = token_to_cmd_string(pattern);
+                string_append(result, pattern_str);
+                string_destroy(&pattern_str);
+            }
+        }
+        string_append_cstr(result, ") ");
+        ast_node_to_command_line_full_helper(node->data.case_item.body, result, level + 1);
+        string_append_cstr(result, " ;;");
+        break;
+
+    case AST_FUNCTION_DEF:
+        if (node->data.function_def.name != NULL)
+        {
+            string_append(result, node->data.function_def.name);
+        }
+        string_append_cstr(result, "() { ");
+        ast_node_to_command_line_full_helper(node->data.function_def.body, result, level + 1);
+        string_append_cstr(result, " }");
+        break;
+
+    case AST_REDIRECTED_COMMAND:
+        ast_node_to_command_line_full_helper(node->data.redirected_command.command, result, level + 1);
+        if (node->data.redirected_command.redirections != NULL &&
+            ast_node_list_size(node->data.redirected_command.redirections) > 0)
+        {
+            for (int i = 0; i < ast_node_list_size(node->data.redirected_command.redirections); i++)
+            {
+                string_append_cstr(result, " ");
+                ast_node_t *redir = ast_node_list_get(node->data.redirected_command.redirections, i);
+                ast_node_to_command_line_full_helper(redir, result, level + 1);
+            }
+        }
+        break;
+
+    case AST_REDIRECTION:
+        if (node->data.redirection.io_number >= 0)
+        {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "%d", node->data.redirection.io_number);
+            string_append_cstr(result, buf);
+        }
+        
+        string_append_cstr(result, redirection_type_to_string(node->data.redirection.redir_type));
+        
+        switch (node->data.redirection.operand)
+        {
+        case REDIR_TARGET_FILE:
+        case REDIR_TARGET_FD:
+            if (node->data.redirection.target != NULL)
+            {
+                string_t *target_str = token_to_cmd_string(node->data.redirection.target);
+                string_append(result, target_str);
+                string_destroy(&target_str);
+            }
+            break;
+        case REDIR_TARGET_FD_STRING:
+            if (node->data.redirection.fd_string != NULL)
+            {
+                string_append(result, node->data.redirection.fd_string);
+            }
+            break;
+        case REDIR_TARGET_BUFFER:
+            if (node->data.redirection.target != NULL)
+            {
+                string_t *target_str = token_to_cmd_string(node->data.redirection.target);
+                string_append(result, target_str);
+                string_destroy(&target_str);
+            }
+            if (node->data.redirection.buffer != NULL)
+            {
+                string_append_cstr(result, "\n");
+                string_append(result, node->data.redirection.buffer);
+            }
+            break;
+        case REDIR_TARGET_CLOSE:
+        case REDIR_TARGET_INVALID:
+        default:
+            break;
+        }
+        break;
+
+    case AST_FUNCTION_STORED:
+        // No representation for stored functions
+        break;
+
+    case AST_NODE_TYPE_COUNT:
+    default:
+        // Unknown node type
+        string_append_cstr(result, "<unknown>");
+        break;
+    }
+}
+
+string_t* ast_node_to_command_line_full(const ast_node_t* node)
+{
+    string_t *str = string_create();
+    ast_node_to_command_line_full_helper(node, str, 0);
+    return str;
+}
+
 cmd_separator_list_t *cmd_separator_list_create(void)
 {
     cmd_separator_list_t *list = (cmd_separator_list_t *)xmalloc(sizeof(cmd_separator_list_t));
-    list->separators = (cmd_separator_t *)xmalloc(INITIAL_LIST_CAPACITY * sizeof(cmd_separator_t ));
+    list->separators = (cmd_separator_t *)xmalloc(INITIAL_LIST_CAPACITY * sizeof(cmd_separator_t));
     list->len = 0;
     list->capacity = INITIAL_LIST_CAPACITY;
     return list;
@@ -1048,7 +1430,8 @@ cmd_separator_list_t *cmd_separator_list_clone(const cmd_separator_list_t *other
 
 void cmd_separator_list_destroy(cmd_separator_list_t **lst)
 {
-    if (!lst || !*lst) return;
+    if (!lst || !*lst)
+        return;
     cmd_separator_list_t *l = *lst;
     xfree(l->separators);
     xfree(l);
@@ -1058,9 +1441,11 @@ void cmd_separator_list_destroy(cmd_separator_list_t **lst)
 void cmd_separator_list_add(cmd_separator_list_t *list, cmd_separator_t sep)
 {
     Expects_not_null(list);
-    if (list->len >= list->capacity) {
+    if (list->len >= list->capacity)
+    {
         int new_capacity = list->capacity * 2;
-        list->separators = (cmd_separator_t *)xrealloc(list->separators, new_capacity * sizeof(cmd_separator_t));
+        list->separators =
+            (cmd_separator_t *)xrealloc(list->separators, new_capacity * sizeof(cmd_separator_t));
         list->capacity = new_capacity;
     }
     list->separators[list->len++] = sep;

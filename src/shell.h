@@ -5,9 +5,8 @@
 #define _POSIX_C_SOURCE 202401L
 #endif
 
-//#include "executor.h"
-#include "string_t.h"
 #include "exec.h"
+#include "exec_frame.h"
 
 // Status/result conventions applied everywhere
 typedef enum {
@@ -81,6 +80,7 @@ typedef struct
 
     // Flags
     shell_flags_t flags;
+    exec_cfg_t exec_cfg; // derived executor config
 } shell_cfg_t;
 
 typedef struct shell_t shell_t;
@@ -118,12 +118,8 @@ const char *shell_get_ps1(const shell_t *sh);
 const char *shell_get_ps2(const shell_t *sh);
 
 // Get the current execution environment
-// This is used by builtins to access the current variable store
-exec_t *shell_get_current_exec(shell_t *sh);
+exec_t *shell_get_exec(shell_t *sh);
 
-// Set the current execution environment
-// This should be updated whenever entering a new execution context
-void shell_set_current_exec(shell_t *sh, exec_t *ex);
 
 #ifdef FUTURE
 /*

@@ -1,5 +1,8 @@
-#include "logging.h"
+#include <setjmp.h>
 #include <stdarg.h>
+#include <stdlib.h>
+
+#include "logging.h"
 
 #ifdef POSIX_API
 #include <strings.h> // For strcasecmp
@@ -9,37 +12,91 @@
 #include "lib.h" // For ascii_strcasecmp
 #endif
 
+// Constants
+#define LOG_MESSAGE_BUFFER_SIZE 1024
+
 // Define the global threshold
 LogLevel g_log_threshold = LOG_LEVEL_ERROR; // Default to ERROR level
 
 // Define the abort level
 static LogLevel g_log_abort_level = LOG_LEVEL_FATAL; // Default to no aborting, except for FATAL
 
+// Fatal try/catch support
+static jmp_buf *g_fatal_jmp = NULL;
+static int g_fatal_jmp_enabled = 0;
+static LogLevel g_prev_abort_level = LOG_LEVEL_FATAL;
+static int g_prev_abort_level_valid = 0;
+
 // Internal logging function
 static void log_message(LogLevel level, const char *level_str, const char *format, va_list args)
 {
     if (level < g_log_threshold)
     {
+        if (level >= g_log_abort_level && level != LOG_LEVEL_NONE)
+        {
+            abort();
+        }
+        if (level == LOG_LEVEL_FATAL && g_log_abort_level == LOG_LEVEL_NONE)
+        {
+            if (g_fatal_jmp_enabled && g_fatal_jmp != NULL)
+            {
+                longjmp(*g_fatal_jmp, 1);
+            }
+        }
         return;
     }
 
-    char *buffer = malloc(1024); // Mutable buffer for vsnprintf
+    char *buffer = malloc(LOG_MESSAGE_BUFFER_SIZE);
     if (buffer == NULL)
     {
         fprintf(stderr, "[%s] Failed to allocate log buffer\n", level_str);
+        fflush(stderr);
+        if (level >= g_log_abort_level && level != LOG_LEVEL_NONE)
+        {
+            abort();
+        }
+        if (level == LOG_LEVEL_FATAL && g_log_abort_level == LOG_LEVEL_NONE)
+        {
+            if (g_fatal_jmp_enabled && g_fatal_jmp != NULL)
+            {
+                longjmp(*g_fatal_jmp, 1);
+            }
+        }
         return;
     }
 
-    vsnprintf(buffer, 1024, format, args);
-
-    fprintf(stderr, "[%s] %s\n", level_str, buffer);
-    fflush(stderr);
+    if (!(level == LOG_LEVEL_FATAL && g_fatal_jmp_enabled))
+    {
+        int written = vsnprintf(buffer, LOG_MESSAGE_BUFFER_SIZE, format, args);
+        if (written < 0)
+        {
+            fprintf(stderr, "[%s] Failed to format log message\n", level_str);
+        }
+        else if (written >= LOG_MESSAGE_BUFFER_SIZE)
+        {
+            fprintf(stderr, "[%s] Log message truncated (needed %d bytes)\n", level_str, written + 1);
+            fprintf(stderr, "[%s] %s\n", level_str, buffer);
+        }
+        else
+        {
+            fprintf(stderr, "[%s] %s\n", level_str, buffer);
+        }
+        fflush(stderr);
+    }
     free(buffer);
 
     // Check if this level should trigger abort
     if (level >= g_log_abort_level && level != LOG_LEVEL_NONE)
     {
         abort();
+    }
+
+    if (level == LOG_LEVEL_FATAL && g_log_abort_level == LOG_LEVEL_NONE)
+    {
+        if (g_fatal_jmp_enabled && g_fatal_jmp != NULL)
+        {
+            longjmp(*g_fatal_jmp, 1);
+        }
     }
 }
 
@@ -128,6 +185,40 @@ void log_set_level(LogLevel lv)
     Expects_le(lv, LOG_LEVEL_NONE);
 
     g_log_threshold = lv;
+}
+
+void log_disable_abort(void)
+{
+    g_log_abort_level = LOG_LEVEL_NONE;
+}
+
+void log_set_abort_level(LogLevel lv)
+{
+    Expects_ge(lv, LOG_LEVEL_DEBUG);
+    Expects_le(lv, LOG_LEVEL_NONE);
+
+    g_log_abort_level = lv;
+}
+
+void log_fatal_try_setup(jmp_buf *env)
+{
+    Expects_not_null(env);
+    g_prev_abort_level = g_log_abort_level;
+    g_prev_abort_level_valid = 1;
+    g_log_abort_level = LOG_LEVEL_NONE;
+    g_fatal_jmp = env;
+    g_fatal_jmp_enabled = 1;
+}
+
+void log_fatal_try_end(void)
+{
+    g_fatal_jmp = NULL;
+    g_fatal_jmp_enabled = 0;
+    if (g_prev_abort_level_valid)
+    {
+        g_log_abort_level = g_prev_abort_level;
+        g_prev_abort_level_valid = 0;
+    }
 }
 
 // Public logging functions

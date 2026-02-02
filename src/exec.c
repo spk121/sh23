@@ -1,429 +1,483 @@
+/**
+ * exec.c - Shell executor implementation
+ *
+ * This file implements the public executor API and high-level execution.
+ * Frame management and policy-driven execution is in exec_frame.c.
+ */
+
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
+
+#include "exec.h"
+
 #include "alias_store.h"
 #include "ast.h"
-#include "exec.h"
-#include "exec_command.h"
-#include "exec_internal.h"
+#include "exec_frame.h"
 #include "fd_table.h"
 #include "func_store.h"
 #include "gnode.h"
 #include "job_store.h"
 #include "lexer.h"
-#include "lib.h"
 #include "logging.h"
 #include "lower.h"
 #include "parser.h"
 #include "positional_params.h"
 #include "sig_act.h"
+#include "string_list.h"
 #include "string_t.h"
 #include "token.h"
 #include "tokenizer.h"
 #include "trap_store.h"
 #include "variable_store.h"
 #include "xalloc.h"
+
 #ifdef POSIX_API
 #include <fcntl.h>
 #include <limits.h>
-#include <stdio.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include <wordexp.h>
 #endif
+
 #ifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
 #include <io.h>
 #include <process.h>
-#include <direct.h>
+#include <processthreadsapi.h>   // GetProcessId, OpenProcess, GetExitCodeProcess, etc.
+#include <synchapi.h>            // WaitForSingleObject
+#include <handleapi.h>           // CloseHandle
 #endif
 
 /* ============================================================================
- * Constants and types
+ * Constants
  * ============================================================================ */
 
 #define EXECUTOR_ERROR_BUFFER_SIZE 512
 
 /* ============================================================================
- * Helper functions
+ * Helper Functions
  * ============================================================================ */
 
-/* ============================================================================
- * Executor Lifecycle Functions
- * ============================================================================ */
-
-exec_t *exec_create_from_cfg(exec_cfg_t *cfg)
+static void source_rc_files(struct exec_t *e)
 {
-    exec_t *e = xcalloc(1, sizeof(exec_t));
-
-    // ========================================================================
-    // Subshell Tracking
-    // ========================================================================
-    e->parent = NULL;
-    e->is_subshell = false;
-
-    // Check if interactive: stdin is a tty
-#ifdef POSIX_API
-    e->is_interactive = isatty(STDIN_FILENO);
-#elifdef UCRT_API
-    e->is_interactive = _isatty(_fileno(stdin));
-#else
-    e->is_interactive = false; // Conservative default for ISO C
+    // FIXME
+#if 0
+#ifdef EXEC_SYSTEM_RC_PATH
+    exec_load_config_file(e, EXEC_SYSTEM_RC_PATH, func_store, alias_store);
 #endif
-
-#ifdef POSIX_API
-    // Check if login shell: argv[0] starts with '-'
-    e->is_login_shell = (cfg->argc > 0 && cfg->argv[0] && cfg->argv[0][0] == '-');
-#else
-    e->is_login_shell = false; // No standard way in UCRT/ISO C
-#endif
-
-    // ========================================================================
-    // Working Directory
-    // ========================================================================
-#ifdef POSIX_API
-    char cwd_buffer[PATH_MAX];
-    char *cwd = getcwd(cwd_buffer, sizeof(cwd_buffer));
-    e->working_directory = cwd ? string_create_from_cstr(cwd) : string_create_from_cstr("/");
-#elifdef UCRT_API
-    char cwd_buffer[_MAX_PATH];
-    char *cwd = _getcwd(cwd_buffer, sizeof(cwd_buffer));
-    e->working_directory = cwd ? string_create_from_cstr(cwd) : string_create_from_cstr("C:\\");
-#else
-    // ISO C has no standard way to get cwd
-    e->working_directory = string_create_from_cstr(".");
-#endif
-
-    // ========================================================================
-    // File Permissions
-    // ========================================================================
-#ifdef POSIX_API
-    // Read current umask by setting and restoring
-    mode_t current_mask = umask(0);
-    umask(current_mask);
-    e->umask = current_mask;
-
-    // Get file size limit
-    struct rlimit rlim;
-    if (getrlimit(RLIMIT_FSIZE, &rlim) == 0)
-    {
-        e->file_size_limit = rlim.rlim_cur;
-    }
-    else
-    {
-        e->file_size_limit = RLIM_INFINITY;
-    }
-#elifdef UCRT_API
-    int current_mask = _umask(0);
-    _umask(current_mask);
-    e->umask = current_mask;
-    // No file_size_limit on UCRT
-#else
-    // No umask or file size limits in ISO C
-#endif
-
-    // ========================================================================
-    // Signal Handling
-    // ========================================================================
-    e->traps = trap_store_create();
-    e->original_signals = sig_act_store_create();
-
-    // ========================================================================
-    // Variables & Parameters
-    // ========================================================================
-    e->variables = variable_store_create();
-
-    // Import environment variables
-    if (cfg->envp)
-    {
-        for (int i = 0; cfg->envp[i] != NULL; i++)
-        {
-            variable_store_add_env(e->variables, cfg->envp[i]);
-        }
-    }
-
-    // Set standard shell variables
-    variable_store_add_cstr(e->variables, "PWD", string_cstr(e->working_directory), /*exported*/ true, /*read_only*/ false);
-    if (cfg->argc && cfg->argv[0])
-        variable_store_add_cstr(e->variables, "SHELL", cfg->argv[0], /*exported*/ true, /*read_only*/ false);
-    else
-        variable_store_add_cstr(e->variables, "SHELL", "/bin/mgsh", /*exported*/ true, /*read_only*/ false);
-
-    // Initialize positional parameters from command line
-    if (cfg->argc > 1)
-    {
-        e->positional_params = positional_params_create_from_argv(cfg->argv[0], cfg->argc - 1, (const char **)&(cfg->argv[1]));
-    }
-    else
-    {
-        e->positional_params = positional_params_create();
-    }
-
-    // ========================================================================
-    // Special Parameters
-    // ========================================================================
-    e->last_exit_status_set = true;
-    e->last_exit_status = 0;
-
-    e->last_background_pid_set = false;
-    e->last_background_pid = 0;
-
-#ifdef POSIX_API
-    e->shell_pid_set = true;
-    e->shell_pid = getpid();
-#elifdef UCRT_API
-    e->shell_pid_set = true;
-    e->shell_pid = _getpid();
-#else
-    e->shell_pid_set = false;
-    e->shell_pid = 0; // ISO C has no getpid
-#endif
-
-    e->last_argument_set = false;
-    e->last_argument = NULL;
-
-    if (cfg->argc > 0 && cfg->argv[0])
-        e->shell_name = string_create_from_cstr(cfg->argv[0]);
-    else
-        e->shell_name = string_create_from_cstr("mgsh");
-
-    // ========================================================================
-    // Functions
-    // ========================================================================
-    e->functions = func_store_create();
-
-    // ========================================================================
-    // Shell Options
-    // ========================================================================
-    e->opt_flags_set = true;
-    e->opt = cfg->opt;  // structure value copy
-
-    // ========================================================================
-    // Job Control
-    // ========================================================================
-    e->jobs = job_store_create();
-    e->job_control_enabled = e->is_interactive;
-
-#ifdef POSIX_API
-    e->pgid = getpgrp();
-
-    // If interactive, set up job control
+#ifdef EXEC_USER_RC_PATH
     if (e->is_interactive)
     {
-        // Make sure we're in our own process group
-        e->pgid = getpid();
-        if (setpgid(0, e->pgid) < 0)
+        /* Check $ENV for a filename. It is subject to pathname expansion.*/
+        const char *env_raw_rc_path = variable_store_get_value_cstr(e->variables, "ENV");
+        if (env_raw_rc_path && *env_raw_rc_path)
         {
-            // Ignore errors - might already be in correct group
+            char *env_rc_path = exec_expand_pathname(e, env_raw_rc_path);
+#ifdef POSIX_API
+            if (getuid() == geteuid() && getgid() == getegid() && getuid())
+            {
+                exec_load_config_file(e, env_rc_path, func_store, alias_store);
+            }
+#endif
+            exec_load_config_file(e, env_rc_path, func_store, alias_store);
         }
-
-        // Take control of the terminal
-        tcsetpgrp(STDIN_FILENO, e->pgid);
-
-        // Save terminal settings
-        // tcgetattr(STDIN_FILENO, &e->terminal_settings);
+        else
+        {
+            exec_load_config_file_from_config_directory(e, EXEC_USER_RC_NAME, func_store,
+                                                        alias_store);
+        }
     }
 #endif
 
-    // ========================================================================
-    // File Descriptors
-    // ========================================================================
-#if defined(POSIX_API) || defined(UCRT_API)
-    e->open_fds = fd_table_create();
+#endif
+}
 
-    // Track standard file descriptors
-    fd_table_add(e->open_fds, STDIN_FILENO, FD_NONE, NULL);
-    fd_table_add(e->open_fds, STDOUT_FILENO, FD_NONE, NULL);
-    fd_table_add(e->open_fds, STDERR_FILENO, FD_NONE, NULL);
 
-    e->next_fd = 3; // First available FD after standard FDs
+void exec_cfg_set_from_shell_options(exec_cfg_t *cfg, int argc, char *const *argv, char *const *envp,
+                                       const char *shell_name, string_list_t *shell_args,
+                                       string_list_t *env_vars, const exec_opt_flags_t *opt_flags,
+                                       bool is_interactive, bool is_login_shell,
+                                       bool job_control_enabled)
+{
+    Expects_not_null(cfg);
+
+    if (argc >= 0 && argv)
+    {
+        cfg->argv_set = true;
+        cfg->argc = argc;
+        cfg->argv = argv;
+    }
+    else
+    {
+        cfg->argv_set = false;
+    }
+    if (envp)
+    {
+        cfg->envp_set = true;
+        cfg->envp = envp;
+    }
+    else
+    {
+        cfg->envp_set = false;
+    }
+    if (shell_name)
+    {
+        cfg->shell_name_set = true;
+        cfg->shell_name = shell_name;
+    }
+    else
+    {
+        cfg->shell_name_set = false;
+    }
+    if (shell_args)
+    {
+        cfg->shell_args_set = true;
+        cfg->shell_args = string_list_create_from(shell_args);
+    }
+    else
+    {
+        cfg->shell_args_set = false;
+    }
+    if (env_vars)
+    {
+        cfg->env_vars_set = true;
+        cfg->env_vars = string_list_create_from(env_vars);
+    }
+    else
+    {
+        cfg->env_vars_set = false;
+    }
+    if (opt_flags)
+    {
+        cfg->opt_flags_set = true;
+        cfg->opt = *opt_flags;
+    }
+    else
+    {
+        cfg->opt_flags_set = false;
+    }
+    cfg->is_interactive_set = true;
+    cfg->is_interactive = is_interactive;
+    cfg->is_login_shell_set = true;
+    cfg->is_login_shell = is_login_shell;
+    cfg->job_control_enabled_set = true;
+    cfg->job_control_enabled = job_control_enabled;
+}
+
+
+/* ============================================================================
+ * Executor Lifecycle
+ * ============================================================================ */
+
+struct exec_t *exec_create(const struct exec_cfg_t *cfg)
+{
+    struct exec_t *e = xcalloc(1, sizeof(struct exec_t));
+
+    /* The singleton exec stores
+     * 1. Singleton values
+     * 2. Info required to initialize the top-level frame. The top-level
+     *    frame is lazily initialized on the first call to the execution.
+     */
+
+    /* -------------------------------------------------------------------------
+     * Shell Identity
+     * -------------------------------------------------------------------------
+     */
+#ifdef POSIX_API
+    pid_t default_pid = getpid();
+    pid_t default_ppid = getppid();
+    bool default_pid_valid = true;
+    bool default_ppid_valid = true;
+#elifdef UCRT_API
+    int default_pid = _getpid();
+    int default_ppid = 0; /* No getppid in UCRT */
+    bool default_pid_valid = true;
+    bool default_ppid_valid = false;
+#else
+    int default_pid = 0;
+    int default_ppid = 0;
+    bool default_pid_valid = false;
+    bool default_ppid_valid = false;
 #endif
 
-    // ========================================================================
-    // Aliases
-    // ========================================================================
+    e->shell_pid = cfg->shell_pid_set ? cfg->shell_pid : default_pid;
+    e->shell_ppid = cfg->shell_ppid_set ? cfg->shell_ppid : default_ppid;
+    e->shell_pid_valid = cfg->shell_pid_valid_set ? cfg->shell_pid_valid
+                                                   : (cfg->shell_pid_set ? true : default_pid_valid);
+    e->shell_ppid_valid = cfg->shell_ppid_valid_set ? cfg->shell_ppid_valid
+                                                     : (cfg->shell_ppid_set ? true : default_ppid_valid);
+
+    int argc = cfg->argv_set ? cfg->argc : 0;
+    char *const *argv = cfg->argv_set ? cfg->argv : NULL;
+    e->argc = argc;
+    e->argv = (char **)argv;
+    e->envp = cfg->envp_set ? (char **)cfg->envp : NULL;
+
+    if (cfg->shell_name_set && cfg->shell_name)
+    {
+        e->shell_name = string_create_from_cstr(cfg->shell_name);
+    }
+    else if (argc > 0 && argv && argv[0])
+    {
+        e->shell_name = string_create_from_cstr(argv[0]);
+    }
+    else
+    {
+        e->shell_name = string_create_from_cstr(EXEC_CFG_FALLBACK_ARGV0);
+    }
+
+    if (cfg->shell_args_set && cfg->shell_args)
+    {
+        e->shell_args = cfg->shell_args;
+    }
+    else if (argc > 1 && argv)
+    {
+        e->shell_args = string_list_create_from_cstr_array((const char **)argv + 1, argc - 1);
+    }
+    else
+    {
+        e->shell_args = string_list_create();
+    }
+
+    if (cfg->env_vars_set && cfg->env_vars)
+    {
+        e->env_vars = cfg->env_vars;
+    }
+    else if (cfg->envp_set && cfg->envp)
+    {
+        e->env_vars = string_list_create_from_cstr_array((const char **)cfg->envp, -1);
+    }
+    else
+    {
+        e->env_vars = string_list_create_from_system_env();
+    }
+
+    if (cfg->opt_flags_set)
+    {
+        e->opt = cfg->opt;
+    }
+    else
+    {
+        exec_opt_flags_t opt_fallback = EXEC_CFG_FALLBACK_OPT_FLAGS_INIT;
+        e->opt = opt_fallback;
+    }
+
+
+#ifdef POSIX_API
+    bool default_is_interactive = isatty(STDIN_FILENO);
+#elifdef UCRT_API
+    bool default_is_interactive = _isatty(_fileno(stdin));
+#else
+    bool default_is_interactive = false;
+#endif
+
+    bool default_is_login_shell = (e->argc > 0 && e->argv && e->argv[0] && e->argv[0][0] == '-');
+
+    e->is_interactive = cfg->is_interactive_set ? cfg->is_interactive : default_is_interactive;
+    e->is_login_shell = cfg->is_login_shell_set ? cfg->is_login_shell : default_is_login_shell;
+
+    /* RC File handling happens when creating the top frame, aliases is empty for now*/
     e->aliases = alias_store_create();
 
-    // TODO: Load aliases from init files (.bashrc, .profile, etc.)
+    e->jobs = job_store_create();
+    e->job_control_enabled = cfg->job_control_enabled_set ? cfg->job_control_enabled
+                                                          : e->is_interactive;
 
-    // ========================================================================
-    // Error Reporting
-    // ========================================================================
+#ifdef POSIX_API
+    if (cfg->pgid_set)
+    {
+        e->pgid = cfg->pgid;
+        e->pgid_valid = cfg->pgid_valid_set ? cfg->pgid_valid : true;
+    }
+    else
+    {
+        e->pgid = getpgrp();
+
+        if (e->is_interactive)
+        {
+            e->pgid = getpid();
+            setpgid(0, e->pgid); /* Ignore errors */
+            tcsetpgrp(STDIN_FILENO, e->pgid);
+        }
+        e->pgid_valid = cfg->pgid_valid_set ? cfg->pgid_valid : true;
+    }
+#else
+    e->pgid = cfg->pgid_set ? cfg->pgid : 0;
+    e->pgid_valid = cfg->pgid_valid_set ? cfg->pgid_valid : false;
+#endif
+
+    e->top_frame_initialized = false;
+    e->current_frame = NULL;
+    e->top_frame = NULL;
+#if defined(EXEC_SYSTEM_RC_PATH) || defined(EXEC_USER_RC_PATH)
+    e->rc_loaded = cfg->rc_loaded_set ? cfg->rc_loaded : false;
+#else
+    e->rc_loaded = cfg->rc_loaded_set ? cfg->rc_loaded : true;
+#endif
+
+    e->signals_installed = false;
+    e->sigint_received = 0;
+    e->sigchld_received = 0;
+    for (int i = 0; i < NSIG; i++)
+        e->trap_pending[i] = 0;
+
+    /* -------------------------------------------------------------------------
+     * Command Line
+     * -------------------------------------------------------------------------
+     */
+    e->argc = cfg->argc;
+    e->argv = (char **)cfg->argv;
+    e->envp = (char **)cfg->envp;
+
+    /* -------------------------------------------------------------------------
+     * Top-Frame Initialization Data (lazy frame creation)
+     * -------------------------------------------------------------------------
+     */
+    e->variables = NULL;
+    e->local_variables = NULL;
+    e->positional_params = NULL;
+    e->functions = NULL;
+    e->traps = NULL;
+#if defined(POSIX_API) || defined(UCRT_API)
+    e->open_fds = NULL;
+    e->next_fd = 0;
+#endif
+
+    if (cfg->working_directory_set && cfg->working_directory)
+    {
+        e->working_directory = string_create_from_cstr(cfg->working_directory);
+    }
+    else
+    {
+        e->working_directory = NULL;
+    }
+#ifdef POSIX_API
+    e->umask = cfg->umask_set ? cfg->umask : 0;
+    e->file_size_limit = cfg->file_size_limit_set ? cfg->file_size_limit : 0;
+#else
+    e->umask = cfg->umask_set ? cfg->umask : 0;
+#endif
+
+    if (cfg->last_exit_status_set)
+    {
+        e->last_exit_status = cfg->last_exit_status;
+        e->last_exit_status_set = true;
+    }
+    else
+    {
+        e->last_exit_status = 0;
+        e->last_exit_status_set = true;
+    }
+
+    if (cfg->last_background_pid_set)
+    {
+        e->last_background_pid = cfg->last_background_pid;
+        e->last_background_pid_set = true;
+    }
+    else
+    {
+        e->last_background_pid = 0;
+        e->last_background_pid_set = false;
+    }
+
+    if (cfg->last_argument_set && cfg->last_argument)
+    {
+        e->last_argument = string_create_from_cstr(cfg->last_argument);
+        e->last_argument_set = true;
+    }
+    else
+    {
+        e->last_argument = NULL;
+        e->last_argument_set = false;
+    }
+
+    /* Traps and signal state (singleton) */
+    e->original_signals = sig_act_store_create();
+
+    /* Pipeline status */
+    e->pipe_statuses = NULL;
+    e->pipe_status_count = 0;
+    e->pipe_status_capacity = 0;
+
+    /* Frame pointers are lazily initialized */
+    e->top_frame_initialized = false;
+    e->top_frame = NULL;
+    e->current_frame = NULL;
+
+#if defined(EXEC_SYSTEM_RC_PATH) || defined(EXEC_USER_RC_PATH)
+    e->rc_files_sourced = cfg->rc_files_sourced_set ? cfg->rc_files_sourced : false;
+#else
+    e->rc_files_sourced = cfg->rc_files_sourced_set ? cfg->rc_files_sourced : true;
+#endif
+
+
+    /* -------------------------------------------------------------------------
+     * Error State
+     * -------------------------------------------------------------------------
+     */
     e->error_msg = string_create_from_cstr("");
 
     return e;
 }
-
-// ============================================================================
-// EXECUTOR FORK SUBSHELL (Create Subshell Environment)
-// ============================================================================
-
-exec_t *exec_create_subshell(exec_t *parent)
-{
-    Expects_not_null(parent);
-
-    exec_t *e = xcalloc(1, sizeof(exec_t));
-
-    // ========================================================================
-    // Subshell Tracking
-    // ========================================================================
-    e->parent = parent;
-    e->is_subshell = true;
-    e->is_interactive = parent->is_interactive;
-    e->is_login_shell = false; // Subshells are never login shells
-
-    // ========================================================================
-    // Working Directory
-    // ========================================================================
-    e->working_directory = string_create_from(parent->working_directory);
-
-    // ========================================================================
-    // File Permissions
-    // ========================================================================
-#ifdef POSIX_API
-    e->umask = parent->umask;
-    e->file_size_limit = parent->file_size_limit;
-#elifdef UCRT_API
-    e->umask = parent->umask;
-#endif
-
-    // ========================================================================
-    // Signal Handling
-    // ========================================================================
-    e->traps = trap_store_copy(parent->traps);
-
-    // Subshells create their own signal disposition tracking
-    // (they inherit parent's handlers but track their own changes)
-    e->original_signals = sig_act_store_create();
-
-    // ========================================================================
-    // Variables & Parameters
-    // ========================================================================
-    // TODO: Implement variable_store_copy or use alternative approach
-    e->variables = variable_store_create();
-    // For now, subshells start with empty variable store
-    // In future, this should copy or reference parent variables
-    e->positional_params = positional_params_copy(parent->positional_params);
-
-    // ========================================================================
-    // Special Parameters
-    // ========================================================================
-    e->last_exit_status_set = parent->last_exit_status_set;
-    e->last_exit_status = parent->last_exit_status;
-
-    e->last_background_pid_set = parent->last_background_pid_set;
-    e->last_background_pid = parent->last_background_pid;
-
-    // CRITICAL: Shell PID must be queried fresh in subshell!
-    e->shell_pid_set = true;
-#ifdef POSIX_API
-    e->shell_pid = getpid();
-#elifdef UCRT_API
-    e->shell_pid = _getpid();
-#else
-    e->shell_pid = parent->shell_pid; // Fallback for ISO C
-#endif
-
-    e->last_argument_set = parent->last_argument_set;
-    e->last_argument = parent->last_argument ? string_create_from(parent->last_argument) : NULL;
-
-    e->shell_name = string_create_from(parent->shell_name);
-
-    // ========================================================================
-    // Functions
-    // ========================================================================
-    e->functions = func_store_copy(parent->functions);
-
-    // ========================================================================
-    // Shell Options
-    // ========================================================================
-    e->opt_flags_set = true;
-    e->opt = parent->opt;  // structure value copy
-
-    // ========================================================================
-    // Job Control
-    // ========================================================================
-    // POSIX: Subshells start with empty job table and job control disabled
-    e->jobs = job_store_create();
-    e->job_control_enabled = false;
-
-#ifdef POSIX_API
-    // Subshell gets its own process group
-    e->pgid = getpid();
-
-    // Don't call setpgid here - it will be done after fork in parent
-    // if job control is needed
-#endif
-
-    // ========================================================================
-    // File Descriptors
-    // ========================================================================
-#if defined(POSIX_API) || defined (UCRT_API)
-    // Inherit parent's FDs but create new tracker
-    // The actual FDs are inherited at the OS level through fork()
-    // TODO: Implement proper FD table copying if needed
-    e->open_fds = fd_table_create();
-
-    // Copy parent's next_fd
-    e->next_fd = parent->next_fd;
-#endif
-
-    // ========================================================================
-    // Aliases
-    // ========================================================================
-
-    e->aliases = alias_store_copy(parent->aliases);
-
-    // ========================================================================
-    // Error Reporting
-    // ========================================================================
-    e->error_msg = string_create_from_cstr(""); // Fresh error state
-
-    return e;
-}
-
-// ============================================================================
-// EXECUTOR CLEANUP
-// ============================================================================
 
 void exec_destroy(exec_t **executor_ptr)
 {
     if (!executor_ptr || !*executor_ptr)
         return;
 
-    exec_t *executor = *executor_ptr;
+    exec_t *e = *executor_ptr;
 
-    string_destroy(&executor->working_directory);
+    /* Pop all frames */
+    while (e->current_frame)
+    {
+        exec_frame_pop(&e->current_frame);
+    }
 
-    trap_store_destroy(&executor->traps);
-    sig_act_store_destroy(&executor->original_signals);
+    /* Clean up executor-owned resources */
+    string_destroy(&e->working_directory);
+    string_destroy(&e->shell_name);
+    string_destroy(&e->error_msg);
 
-    variable_store_destroy(&executor->variables);
-    positional_params_destroy(&executor->positional_params);
+    if (e->last_argument)
+        string_destroy(&e->last_argument);
 
-    if (executor->last_argument)
-        string_destroy(&executor->last_argument);
-    string_destroy(&executor->shell_name);
+    /* If no frames were created, these may still be owned by the executor. */
+    if (e->variables)
+        variable_store_destroy(&e->variables);
+    if (e->local_variables)
+        variable_store_destroy(&e->local_variables);
+    if (e->positional_params)
+        positional_params_destroy(&e->positional_params);
+    if (e->functions)
+        func_store_destroy(&e->functions);
+    if (e->aliases)
+        alias_store_destroy(&e->aliases);
+    if (e->traps)
+        trap_store_destroy(&e->traps);
+    if (e->original_signals)
+        sig_act_store_destroy(&e->original_signals);
 
-    func_store_destroy(&executor->functions);
-
-    job_store_destroy(&executor->jobs);
+    job_store_destroy(&e->jobs);
 
 #if defined(POSIX_API) || defined(UCRT_API)
-    fd_table_destroy(&executor->open_fds);
+    if (e->open_fds)
+        fd_table_destroy(&e->open_fds);
 #endif
 
-    alias_store_destroy(&executor->aliases);
+    if (e->pipe_statuses)
+        xfree(e->pipe_statuses);
 
-    if (executor->error_msg)
-        string_destroy(&executor->error_msg);
-
-    xfree(executor);
+    xfree(e);
     *executor_ptr = NULL;
 }
 
@@ -441,16 +495,14 @@ void exec_set_exit_status(exec_t *executor, int status)
 {
     Expects_not_null(executor);
     executor->last_exit_status = status;
+    executor->last_exit_status_set = true;
 }
 
 const char *exec_get_error(const exec_t *executor)
 {
     Expects_not_null(executor);
-
     if (string_length(executor->error_msg) == 0)
-    {
         return NULL;
-    }
     return string_data(executor->error_msg);
 }
 
@@ -480,27 +532,32 @@ void exec_clear_error(exec_t *executor)
 const char *exec_get_ps1(const exec_t *executor)
 {
     Expects_not_null(executor);
-    Expects_not_null(executor->variables);
+    /* We expect to use the current frame's variable store, but
+     * if called too early, there may only be a variable store
+     * at top-level, or perhaps not at all */
+    if (executor->current_frame && executor->current_frame->variables)
+        {
+        const char *ps1 =
+            variable_store_get_value_cstr(executor->current_frame->variables, "PS1");
+        if (ps1 && *ps1)
+            return ps1;
+    }
+    else if (executor->variables)
+    {
+        const char *ps1 =
+            variable_store_get_value_cstr(executor->variables, "PS1");
+        if (ps1 && *ps1)
+            return ps1;
+    }
 
-    const char *ps1 = variable_store_get_value_cstr(executor->variables, "PS1");
-    if (ps1 && *ps1)
-        return ps1;
-
-    // Return default prompt
     return "$ ";
 }
 
 const char *exec_get_ps2(const exec_t *executor)
 {
     Expects_not_null(executor);
-    Expects_not_null(executor->variables);
-
     const char *ps2 = variable_store_get_value_cstr(executor->variables, "PS2");
-    if (ps2 && *ps2)
-        return ps2;
-
-    // Return default prompt
-    return "> ";
+    return (ps2 && *ps2) ? ps2 : "> ";
 }
 
 positional_params_t *exec_get_positional_params(const exec_t *executor)
@@ -515,58 +572,119 @@ variable_store_t *exec_get_variables(const exec_t *executor)
     return executor->variables;
 }
 
+alias_store_t *exec_get_aliases(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->aliases;
+}
+
+bool exec_is_interactive(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->is_interactive;
+}
+
+bool exec_is_login_shell(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->is_login_shell;
+}
+
 /* ============================================================================
  * Execution Functions
  * ============================================================================ */
 
+void exec_setup_interactive_execute(exec_t *executor)
+{
+    Expects_not_null(executor);
+
+    /* Ensure we have a top-level frame */
+    if (!executor->current_frame)
+    {
+        /* Create top-level frame from exec_t init data */
+        executor->top_frame = exec_frame_create_top_level(executor);
+        executor->current_frame = executor->top_frame;
+    }
+
+    /* FIXME handle rcfile here */
+}
 
 exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
 {
     Expects_not_null(executor);
 
     if (root == NULL)
-    {
         return EXEC_OK;
-    }
 
     exec_clear_error(executor);
 
+    /* Ensure we have a top-level frame */
+    if (!executor->current_frame)
+    {
+        /* Create top-level frame from exec_t init data */
+        executor->top_frame = exec_frame_create_top_level(executor);
+        executor->current_frame = executor->top_frame;
+    }
+
+    /* Execute based on AST node type */
+    exec_result_t result;
+
     switch (root->type)
     {
-    case AST_SIMPLE_COMMAND:
-        return exec_execute_simple_command(executor, root);
-    case AST_PIPELINE:
-        return exec_execute_pipeline(executor, root);
-    case AST_AND_OR_LIST:
-        return exec_execute_andor_list(executor, root);
     case AST_COMMAND_LIST:
-        return exec_execute_command_list(executor, root);
-    case AST_IF_CLAUSE:
-        return exec_execute_if_clause(executor, root);
-    case AST_WHILE_CLAUSE:
-        return exec_execute_while_clause(executor, root);
-    case AST_UNTIL_CLAUSE:
-        return exec_execute_until_clause(executor, root);
-    case AST_FOR_CLAUSE:
-        return exec_execute_for_clause(executor, root);
-    case AST_CASE_CLAUSE:
-        return exec_execute_case_clause(executor, root);
+        result = exec_compound_list(executor->current_frame, (ast_node_t *)root);
+        break;
+
+    case AST_AND_OR_LIST:
+        result = exec_and_or_list(executor->current_frame, (ast_node_t *)root);
+        break;
+
+    case AST_PIPELINE:
+        result = exec_pipeline(executor->current_frame, (ast_node_t *)root);
+        break;
+
+    case AST_SIMPLE_COMMAND:
+        result = exec_simple_command(executor->current_frame, (ast_node_t *)root);
+        break;
+
     case AST_SUBSHELL:
-        return exec_execute_subshell(executor, root);
+        result = exec_subshell(executor->current_frame, root->data.compound.body);
+        break;
+
     case AST_BRACE_GROUP:
-        return exec_execute_brace_group(executor, root);
+        result =
+            exec_brace_group(executor->current_frame, root->data.compound.body, NULL);
+        break;
+
+    case AST_IF_CLAUSE:
+    case AST_WHILE_CLAUSE:
+    case AST_UNTIL_CLAUSE:
+    case AST_FOR_CLAUSE:
+    case AST_CASE_CLAUSE:
     case AST_FUNCTION_DEF:
-        return exec_execute_function_def(executor, root);
     case AST_REDIRECTED_COMMAND:
-        return exec_execute_redirected_command(executor, root);
-    case AST_REDIRECTION:
-    case AST_CASE_ITEM:
-    case AST_FUNCTION_STORED:
-    case AST_NODE_TYPE_COUNT:
+        /* These need their own handlers - for now return not implemented */
+        exec_set_error(executor, "AST node type %d not yet implemented in new executor",
+                       root->type);
+        return EXEC_NOT_IMPL;
+
     default:
         exec_set_error(executor, "Unsupported AST node type: %d", root->type);
         return EXEC_NOT_IMPL;
     }
+
+    /* Update executor's exit status */
+    if (result.has_exit_status)
+    {
+        executor->last_exit_status = result.exit_status;
+        executor->last_exit_status_set = true;
+        if (executor->current_frame)
+        {
+            executor->current_frame->last_exit_status = result.exit_status;
+        }
+    }
+
+    return result.status;
 }
 
 exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
@@ -591,46 +709,31 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
     exec_status_t final_status = EXEC_OK;
 
-    // Buffer for reading lines - use a reasonably large static buffer
-    // If lines are longer, fgets will read in chunks which is fine
-    #define LINE_BUFFER_SIZE 4096
+#define LINE_BUFFER_SIZE 4096
     char line_buffer[LINE_BUFFER_SIZE];
 
-    // Read lines from the stream
     while (fgets(line_buffer, sizeof(line_buffer), fp) != NULL)
     {
-        // Append the line to the lexer
         lexer_append_input_cstr(lx, line_buffer);
 
-        // Tokenize the input
         token_list_t *raw_tokens = token_list_create();
         lex_status_t lex_status = lexer_tokenize(lx, raw_tokens, NULL);
 
         if (lex_status == LEX_ERROR)
         {
             exec_set_error(executor, "Lexer error: %s",
-                          lx->error_msg ? string_cstr(lx->error_msg) : "unknown");
+                           lx->error_msg ? string_cstr(lx->error_msg) : "unknown");
             token_list_destroy(&raw_tokens);
             final_status = EXEC_ERROR;
             break;
         }
 
-        if (lex_status == LEX_INCOMPLETE)
+        if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
         {
-            // Need more input - continue reading (e.g., unclosed quotes, multi-line constructs)
             token_list_destroy(&raw_tokens);
             continue;
         }
 
-        if (lex_status == LEX_NEED_HEREDOC)
-        {
-            // Lexer has parsed heredoc operator, needs body on next lines
-            // Continue reading - lexer will process heredoc body
-            token_list_destroy(&raw_tokens);
-            continue;
-        }
-
-        // Process tokens through tokenizer (for alias expansion)
         token_list_t *processed_tokens = token_list_create();
         tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
         token_list_destroy(&raw_tokens);
@@ -643,14 +746,12 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             break;
         }
 
-        // If we have no tokens, continue
         if (processed_tokens->size == 0)
         {
             token_list_destroy(&processed_tokens);
             continue;
         }
 
-        // Parse the tokens into a grammar tree
         parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
         gnode_t *gnode = NULL;
         parse_status_t parse_status = parser_parse_program(parser, &gnode);
@@ -666,8 +767,6 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         if (parse_status == PARSE_INCOMPLETE)
         {
-            // Need more input - continue reading (e.g., incomplete if/while/for)
-            // Note: This should not happen often since lexer handles most multi-line cases
             if (gnode)
                 g_node_destroy(&gnode);
             parser_destroy(&parser);
@@ -676,79 +775,127 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         if (parse_status == PARSE_EMPTY || !gnode)
         {
-            // Empty input (comments only, blank lines), continue
             parser_destroy(&parser);
             continue;
         }
 
-        // Debug: Print the gnode AST before lowering (disabled)
-        #if 0
-        log_debug("=== GNODE AST ===");
-        gprint(gnode);
-        log_debug("=================");
-        #endif
-
-        // Lower the grammar tree to AST
         ast_node_t *ast = ast_lower(gnode);
         g_node_destroy(&gnode);
-
-        // Clean up parser and tokens
-        // Note: parser doesn't own tokens, gnode took ownership of individual tokens
         parser_destroy(&parser);
 
         if (!ast)
-        {
-            // Empty program after lowering - this is valid (e.g., blank lines, 
-            // comments only, or G_PROGRAM with no commands). Continue reading.
             continue;
-        }
 
-        // Execute the AST
         exec_status_t exec_status = exec_execute(executor, ast);
+        const char *error = exec_get_error(executor);
+        if (error)
+        {
+            fprintf(stderr, "%s\n", error);
+            final_status = EXEC_ERROR;
+        }
         ast_node_destroy(&ast);
 
         if (exec_status != EXEC_OK)
         {
             final_status = exec_status;
-            // Stop on first error as per spec
             if (exec_status == EXEC_ERROR)
                 break;
         }
 
-        // Reset lexer for next command
         lexer_reset(lx);
     }
 
-    // Clean up
     tokenizer_destroy(&tokenizer);
     lexer_destroy(&lx);
 
     return final_status;
 }
 
+/* ============================================================================
+ * Job Control
+ * ============================================================================ */
+
+void exec_reap_background_jobs(exec_t *executor, bool notify)
+{
+    Expects_not_null(executor);
+
+#ifdef POSIX_API
+    int status;
+    pid_t pid;
+    bool any_reaped = false;
+
+    /* -1 and WNOHANG mean we return the PID of any completed child process or -1 
+     * if no child process has recently completed */
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        // Determine if the job is done, or if it was terminated by a signal
+        bool terminated = WIFSIGNALED(status);
+        int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
+        if (terminated)
+            job_store_set_state(executor->jobs, pid, JOB_STATE_TERMINATED);
+        else
+            job_store_set_state(executor->jobs, pid, JOB_STATE_DONE);
+        job_store_set_exit_status(executor->jobs, pid, exit_status);
+        any_reaped = true;
+    }
+    if (any_reaped && notify)
+    {
+        job_store_print_completed_jobs(executor->jobs, stdout);
+    }
+    if (any_reaped)
+        job_store_remove_completed(executor->jobs);
+#elifdef UCRT_API
+    bool any_completed = false;
+    job_store_t *store = executor->jobs;
+    job_process_iterator_t iter = job_store_active_processes_begin(store);
+
+    while (job_store_active_processes_next(&iter))
+    {
+        uintptr_t h = job_store_iter_get_handle(&iter);
+        if (!h)
+        {
+            // Unreachable?
+            job_store_iter_set_state(&iter, JOB_DONE, 0); // Return 0 as exit code?
+
+            // Check if job is now complete
+            job_state_t state = job_store_iter_get_job_state(&iter);
+            if (state == JOB_DONE || state == JOB_TERMINATED)
+                any_completed = true;
+        }
+        else if (!WaitForSingleObject(h, 0))
+        {
+            DWORD exit_code;
+            GetExitCodeProcess(h, &exit_code);
+            job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
+
+            // Check if job is now complete
+            job_state_t state = job_store_iter_get_job_state(&iter);
+            if (state == JOB_DONE || state == JOB_TERMINATED)
+                any_completed = true;
+        }
+    }
+    if (any_completed && notify)
+        job_store_print_completed_jobs(executor->jobs, stdout);
+    if (any_completed)
+        job_store_remove_completed(executor->jobs);
+#endif
+}
 
 /* ============================================================================
- * Visitor Pattern Support
+ * AST Visitor Pattern Support
  * ============================================================================ */
 
 static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, void *user_data)
 {
     if (node == NULL)
-    {
         return true;
-    }
 
-    // Call visitor for this node
     if (!visitor(node, user_data))
-    {
         return false;
-    }
 
-    // Recursively traverse children
     switch (node->type)
     {
     case AST_SIMPLE_COMMAND:
-        // No child nodes to traverse (tokens are leaves)
         break;
 
     case AST_PIPELINE:
@@ -756,23 +903,18 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.pipeline.commands->size; i++)
             {
-                if (!ast_traverse_helper(node->data.pipeline.commands->nodes[i], visitor, user_data))
-                {
+                if (!ast_traverse_helper(node->data.pipeline.commands->nodes[i], visitor,
+                                         user_data))
                     return false;
-                }
             }
         }
         break;
 
     case AST_AND_OR_LIST:
         if (!ast_traverse_helper(node->data.andor_list.left, visitor, user_data))
-        {
             return false;
-        }
         if (!ast_traverse_helper(node->data.andor_list.right, visitor, user_data))
-        {
             return false;
-        }
         break;
 
     case AST_COMMAND_LIST:
@@ -780,10 +922,9 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.command_list.items->size; i++)
             {
-                if (!ast_traverse_helper(node->data.command_list.items->nodes[i], visitor, user_data))
-                {
+                if (!ast_traverse_helper(node->data.command_list.items->nodes[i], visitor,
+                                         user_data))
                     return false;
-                }
             }
         }
         break;
@@ -791,53 +932,38 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
     case AST_SUBSHELL:
     case AST_BRACE_GROUP:
         if (!ast_traverse_helper(node->data.compound.body, visitor, user_data))
-        {
             return false;
-        }
         break;
 
     case AST_IF_CLAUSE:
         if (!ast_traverse_helper(node->data.if_clause.condition, visitor, user_data))
-        {
             return false;
-        }
         if (!ast_traverse_helper(node->data.if_clause.then_body, visitor, user_data))
-        {
             return false;
-        }
         if (node->data.if_clause.elif_list != NULL)
         {
             for (int i = 0; i < node->data.if_clause.elif_list->size; i++)
             {
-                if (!ast_traverse_helper(node->data.if_clause.elif_list->nodes[i], visitor, user_data))
-                {
+                if (!ast_traverse_helper(node->data.if_clause.elif_list->nodes[i], visitor,
+                                         user_data))
                     return false;
-                }
             }
         }
         if (!ast_traverse_helper(node->data.if_clause.else_body, visitor, user_data))
-        {
             return false;
-        }
         break;
 
     case AST_WHILE_CLAUSE:
     case AST_UNTIL_CLAUSE:
         if (!ast_traverse_helper(node->data.loop_clause.condition, visitor, user_data))
-        {
             return false;
-        }
         if (!ast_traverse_helper(node->data.loop_clause.body, visitor, user_data))
-        {
             return false;
-        }
         break;
 
     case AST_FOR_CLAUSE:
         if (!ast_traverse_helper(node->data.for_clause.body, visitor, user_data))
-        {
             return false;
-        }
         break;
 
     case AST_CASE_CLAUSE:
@@ -845,51 +971,42 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
         {
             for (int i = 0; i < node->data.case_clause.case_items->size; i++)
             {
-                if (!ast_traverse_helper(node->data.case_clause.case_items->nodes[i], visitor, user_data))
-                {
+                if (!ast_traverse_helper(node->data.case_clause.case_items->nodes[i], visitor,
+                                         user_data))
                     return false;
-                }
             }
         }
         break;
 
     case AST_CASE_ITEM:
         if (!ast_traverse_helper(node->data.case_item.body, visitor, user_data))
-        {
             return false;
-        }
         break;
 
     case AST_FUNCTION_DEF:
         if (!ast_traverse_helper(node->data.function_def.body, visitor, user_data))
-        {
             return false;
-        }
         if (node->data.function_def.redirections != NULL)
         {
             for (int i = 0; i < node->data.function_def.redirections->size; i++)
             {
-                if (!ast_traverse_helper(node->data.function_def.redirections->nodes[i], visitor, user_data))
-                {
+                if (!ast_traverse_helper(node->data.function_def.redirections->nodes[i], visitor,
+                                         user_data))
                     return false;
-                }
             }
         }
         break;
 
     case AST_REDIRECTED_COMMAND:
         if (!ast_traverse_helper(node->data.redirected_command.command, visitor, user_data))
-        {
             return false;
-        }
         if (node->data.redirected_command.redirections != NULL)
         {
             for (int i = 0; i < node->data.redirected_command.redirections->size; i++)
             {
-                if (!ast_traverse_helper(node->data.redirected_command.redirections->nodes[i], visitor, user_data))
-                {
+                if (!ast_traverse_helper(node->data.redirected_command.redirections->nodes[i],
+                                         visitor, user_data))
                     return false;
-                }
             }
         }
         break;
@@ -904,6 +1021,353 @@ static bool ast_traverse_helper(const ast_node_t *node, ast_visitor_fn visitor, 
 bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_data)
 {
     Expects_not_null(visitor);
-
     return ast_traverse_helper(root, visitor, user_data);
+}
+
+exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
+{
+    Expects_not_null(frame);
+    Expects_not_null(list);
+    Expects(list->type == AST_COMMAND_LIST);
+
+    exec_result_t result = { .status = EXEC_OK, .has_exit_status = false, .exit_status = 0 };
+
+    // Access the command list data
+    ast_node_list_t *items = list->data.command_list.items;
+    cmd_separator_list_t *separators = list->data.command_list.separators;
+
+    if (!items || items->size == 0) {
+        // Empty list: no commands to execute, exit status 0
+        result.has_exit_status = true;
+        result.exit_status = 0;
+        return result;
+    }
+
+    // Iterate through each command in the list
+    for (int i = 0; i < items->size; i++) {
+        ast_node_t *cmd = items->nodes[i];
+        if (!cmd)
+            continue;  // Skip null commands (shouldn't happen, but defensive)
+
+        cmd_separator_t sep = cmd_separator_list_get(separators, i);
+        if (sep == CMD_EXEC_BACKGROUND)
+        {
+            /* For POSIX, UCRT, and ISO_C, we'll just call exec_background_job,
+             * but that doesn't mean this will actually run in the background.
+             * We'll handle platform-specific limitations inside exec_background_job.
+             *
+             * In POSIX, though, exec_background_job will return quickly.
+             * For the others, it depends.
+             */
+            string_t *command_line = ast_node_to_command_line_full(cmd);
+            // Since we're not sending this to spawn, we can keep this as a single string_t
+            string_list_t *argv_list = string_list_create();
+            string_list_move_push_back(argv_list, &command_line);
+            exec_background_job(frame, cmd, argv_list);
+            continue;
+        }
+
+        // Execute the command based on its type
+        exec_result_t cmd_result;
+        switch (cmd->type) {
+            case AST_PIPELINE:
+                cmd_result = exec_pipeline(frame, cmd);
+                break;
+            case AST_AND_OR_LIST:
+                cmd_result = exec_and_or_list(frame, cmd);
+                break;
+            case AST_COMMAND_LIST:
+                cmd_result = exec_compound_list(frame, cmd);
+                break;
+            case AST_SIMPLE_COMMAND:
+                cmd_result = exec_simple_command(frame, cmd);
+                break;
+            case AST_BRACE_GROUP:
+                cmd_result = exec_brace_group(frame, cmd->data.compound.body, NULL);
+                break;
+            case AST_SUBSHELL:
+                cmd_result = exec_subshell(frame, cmd->data.compound.body);
+                break;
+            // Add other command types as implemented (e.g., AST_SIMPLE_COMMAND)
+            default:
+                // For now, treat as unsupported; in full impl, add more cases
+                exec_set_error(frame->executor, "Unsupported command type in compound list: %d (%s)", cmd->type, ast_node_type_to_string(cmd->type));
+                result.status = EXEC_NOT_IMPL;
+                return result;
+        }
+
+        // Propagate errors from command execution
+        if (cmd_result.status != EXEC_OK) {
+            result.status = cmd_result.status;
+            if (cmd_result.has_exit_status) {
+                result.has_exit_status = true;
+                result.exit_status = cmd_result.exit_status;
+            }
+            return result;  // Stop on error (unless background)
+        }
+
+        // Update the frame's exit status from the command
+        if (cmd_result.has_exit_status) {
+            frame->last_exit_status = cmd_result.exit_status;
+            result.has_exit_status = true;
+            result.exit_status = cmd_result.exit_status;
+        }
+
+        // Handle the separator after this command
+        // cmd_separator_t sep = ast_node_command_list_get_separator(list, i);
+        if (sep == CMD_EXEC_BACKGROUND) {
+            // Run in background: Add to job store and continue without waiting
+            // Note: This assumes the command spawned processes; integrate with job control
+            // For simplicity, assume exec_pipeline/exec_and_or_list handle process creation
+            // In a full impl, extract PIDs from cmd_result and add to job_store
+            // Example: job_store_add(frame->executor->jobs, command_line, true);
+            // For now, just log or skip detailed job management
+            // TODO: Implement full background job tracking
+        } else if (sep == CMD_EXEC_SEQUENTIAL) {
+            // Wait for completion (already done above), then proceed to next
+        }
+        else if (sep == CMD_EXEC_END)
+        {
+            // End of list: No more commands
+            break;
+        }
+        // Invalid separators are handled by the parser, so no need to check
+    }
+
+    return result;
+}
+
+exec_result_t exec_and_or_list(exec_frame_t *frame, ast_node_t *list)
+{
+    Expects_not_null(frame);
+    Expects_not_null(list);
+    Expects(list->type == AST_AND_OR_LIST);
+
+    exec_result_t result = { .status = EXEC_OK, .has_exit_status = false, .exit_status = 0 };
+
+    ast_node_t *left = list->data.andor_list.left;
+    ast_node_t *right = list->data.andor_list.right;
+    andor_operator_t op = list->data.andor_list.op;
+
+    // Execute left command
+    exec_result_t left_result;
+    switch (left->type) {
+        case AST_COMMAND_LIST:
+            left_result = exec_compound_list(frame, left);
+            break;
+        case AST_AND_OR_LIST:
+            left_result = exec_and_or_list(frame, left);
+            break;
+        case AST_PIPELINE:
+            left_result = exec_pipeline(frame, left);
+            break;
+        case AST_SIMPLE_COMMAND:
+            left_result = exec_simple_command(frame, left);
+            break;
+        default:
+            exec_set_error(frame->executor, "Unsupported AST node type in and_or_list: %d", left->type);
+            result.status = EXEC_NOT_IMPL;
+            return result;
+    }
+
+    if (left_result.status != EXEC_OK) {
+        result = left_result;
+        return result;
+    }
+
+    // Determine if right command should be executed
+    bool execute_right = false;
+    if (op == ANDOR_OP_AND) {
+        if (left_result.exit_status == 0) {
+            execute_right = true;
+        }
+    } else if (op == ANDOR_OP_OR) {
+        if (left_result.exit_status != 0) {
+            execute_right = true;
+        }
+    }
+
+    if (execute_right) {
+        // Execute right command
+        exec_result_t right_result;
+        switch (right->type) {
+            case AST_COMMAND_LIST:
+                right_result = exec_compound_list(frame, right);
+                break;
+            case AST_AND_OR_LIST:
+                right_result = exec_and_or_list(frame, right);
+                break;
+            case AST_PIPELINE:
+                right_result = exec_pipeline(frame, right);
+                break;
+            case AST_SIMPLE_COMMAND:
+                right_result = exec_simple_command(frame, right);
+                break;
+            default:
+                exec_set_error(frame->executor, "Unsupported AST node type in and_or_list: %d", right->type);
+                result.status = EXEC_NOT_IMPL;
+                return result;
+        }
+
+        if (right_result.status != EXEC_OK) {
+            result = right_result;
+            return result;
+        }
+
+        result = right_result;
+    } else {
+        result = left_result;
+    }
+
+    // Update frame's last exit status
+    frame->last_exit_status = result.exit_status;
+
+    return result;
+}
+
+exec_result_t exec_pipeline(exec_frame_t *frame, ast_node_t *list)
+{
+    Expects_not_null(frame);
+    Expects_not_null(list);
+    Expects(list->type == AST_PIPELINE);
+
+    exec_result_t result = { .status = EXEC_OK, .has_exit_status = false, .exit_status = 0 };
+
+    ast_node_list_t *commands = list->data.pipeline.commands;
+    bool is_negated = list->data.pipeline.is_negated;
+
+    if (!commands || commands->size == 0) {
+        result.has_exit_status = true;
+        result.exit_status = 0;
+        if (is_negated) result.exit_status = 1;
+        return result;
+    }
+
+    int ncmds = commands->size;
+    if (ncmds == 1) {
+        // Single command, just execute it
+        ast_node_t *cmd = commands->nodes[0];
+        exec_result_t cmd_result = exec_simple_command(frame, cmd);
+        result = cmd_result;
+        if (is_negated) {
+            result.exit_status = result.exit_status == 0 ? 1 : 0;
+        }
+        return result;
+    }
+
+    // Multiple commands, need pipes
+#ifdef POSIX_API
+    int pipes[2 * (ncmds - 1)]; // pipes between commands
+    for (int i = 0; i < ncmds - 1; i++) {
+        if (pipe(pipes + 2 * i) == -1) {
+            exec_set_error(frame->executor, "pipe failed");
+            result.status = EXEC_ERROR;
+            return result;
+        }
+    }
+
+    pid_t pids[ncmds];
+    for (int i = 0; i < ncmds; i++) {
+        pids[i] = fork();
+        if (pids[i] == -1) {
+            exec_set_error(frame->executor, "fork failed");
+            result.status = EXEC_ERROR;
+            // Close pipes
+            for (int j = 0; j < 2 * (ncmds - 1); j++) close(pipes[j]);
+            return result;
+        } else if (pids[i] == 0) {
+            // Child
+            // Set up pipes
+            if (i > 0) {
+                dup2(pipes[2 * (i - 1)], STDIN_FILENO);
+                close(pipes[2 * (i - 1) + 1]); // Close write end
+            }
+            if (i < ncmds - 1) {
+                dup2(pipes[2 * i + 1], STDOUT_FILENO);
+                close(pipes[2 * i]); // Close read end
+            }
+            // Close all pipes in child
+            for (int j = 0; j < 2 * (ncmds - 1); j++) close(pipes[j]);
+
+            // Execute command
+            ast_node_t *cmd = commands->nodes[i];
+            exec_execute(frame->executor, cmd);
+            _exit(frame->last_exit_status);
+        }
+    }
+
+    // Parent: close all pipes
+    for (int j = 0; j < 2 * (ncmds - 1); j++) close(pipes[j]);
+
+    // Wait for all children
+    int last_status = 0;
+    for (int i = 0; i < ncmds; i++) {
+        int status;
+        if (waitpid(pids[i], &status, 0) < 0) {
+            exec_set_error(frame->executor, "waitpid failed");
+            result.status = EXEC_ERROR;
+            return result;
+        }
+        if (i == ncmds - 1) {
+            if (WIFEXITED(status)) {
+                last_status = WEXITSTATUS(status);
+            } else if (WIFSIGNALED(status)) {
+                last_status = 128 + WTERMSIG(status);
+            } else {
+                last_status = 127;
+            }
+        }
+    }
+
+    result.has_exit_status = true;
+    result.exit_status = is_negated ? (last_status == 0 ? 1 : 0) : last_status;
+    frame->last_exit_status = result.exit_status;
+
+    return result;
+
+#else
+    // For UCRT or ISO_C, pipelines are not supported
+    exec_set_error(frame->executor, "Pipelines not supported in this API");
+    result.status = EXEC_NOT_IMPL;
+    return result;
+#endif
+}
+
+exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *node)
+{
+    /* Executing a simple command is so complicated, it gets
+     * its own module, lol. Simple, my butt. */
+    exec_status_t status = exec_execute_simple_command(frame, node);
+    exec_result_t result;
+    if (status == EXEC_OK)
+    {
+        result.status = EXEC_OK;
+        result.has_exit_status = true;
+        result.exit_status = frame->last_exit_status;
+    }
+    else
+    {
+        result.status = status;
+        result.has_exit_status = false;
+        result.exit_status = 0;
+    }
+
+    return result;
+}
+
+/* Stub implementations for unimplemented functions */
+
+
+exec_result_t exec_condition_loop(exec_frame_t *frame, exec_params_t *params)
+{
+    (void)frame;
+    (void)params;
+    return (exec_result_t){.status = EXEC_ERROR};
+}
+
+exec_result_t exec_iteration_loop(exec_frame_t *frame, exec_params_t *params)
+{
+    (void)frame;
+    (void)params;
+    return (exec_result_t){.status = EXEC_ERROR};
 }

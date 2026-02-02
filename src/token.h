@@ -1,10 +1,9 @@
 #ifndef TOKEN_H
 #define TOKEN_H
 
+#include <stddef.h>
 #include "logging.h"
 #include "string_t.h"
-#include <stdbool.h>
-#include <stddef.h>
 
 /* ============================================================================
  * Token Type Enumeration
@@ -299,6 +298,15 @@ void token_set_quoted(token_t *token, bool was_quoted);
  */
 bool token_needs_expansion(const token_t *token);
 
+/**
+ * Check if a token needs field splitting (unquoted expansions).
+ */
+bool token_needs_field_splitting(const token_t *token);
+
+/**
+ * Check if a token needs pathname expansion (glob patterns in unquoted text).
+ */
+bool token_needs_pathname_expansion(const token_t *token);
 
 /**
  * Get text from all parts of a TOKEN_WORD token concatenated together.
@@ -425,6 +433,12 @@ const char *token_type_to_cstr(token_type_t type);
  * Caller is responsible for freeing the returned string.
  */
 string_t *token_to_string(const token_t *token);
+
+/**
+ * Create a string that approximates the input form representation of a token.
+ * Caller is responsible for freeing the returned string.
+ */
+string_t *token_to_cmd_string(const token_t *token);
 
 /**
  * Check if a string is a POSIX reserved word.

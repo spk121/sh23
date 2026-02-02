@@ -258,6 +258,8 @@ endfunction()
 set(SH23BASE_SOURCES
     src/getopt.c
     src/getopt.h
+    src/getopt_string.c
+    src/getopt_string.h
     src/glob_util.c
     src/glob_util.h
     src/lib.c
@@ -266,6 +268,8 @@ set(SH23BASE_SOURCES
     src/logging.h
     src/string_t.c
     src/string_t.h
+    src/string_list.c
+    src/string_list.h
     src/xalloc.c
     src/xalloc.h
 )
@@ -353,10 +357,12 @@ set(SH23LOGIC_SOURCES
     src/exec.h
     src/exec_command.c
     src/exec_command.h
-    src/exec_compound.c
-    src/exec_compound.h
+    #src/exec_compound.c
+    #src/exec_compound.h
     src/exec_expander.c
     src/exec_expander.h
+    src/exec_frame.c
+    src/exec_frame.h
     src/exec_control.c
     src/exec_control.h
     src/exec_internal.h

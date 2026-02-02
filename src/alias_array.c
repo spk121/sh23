@@ -28,17 +28,11 @@ static void alias_array_ensure_capacity(alias_array_t *array, int needed)
 // Create and destroy
 alias_array_t *alias_array_create(void)
 {
-    return alias_array_create_with_free(NULL);
-}
-
-alias_array_t *alias_array_create_with_free(alias_array_free_func_t free_func)
-{
     alias_array_t *array = xmalloc(sizeof(alias_array_t));
 
     array->data = xcalloc(INITIAL_CAPACITY, sizeof(alias_t *));
     array->size = 0;
     array->capacity = INITIAL_CAPACITY;
-    array->free_func = free_func;
 
     return array;
 }
@@ -50,14 +44,11 @@ void alias_array_destroy(alias_array_t **array)
     alias_array_t *a = *array;
 
     log_debug("alias_array_destroy: freeing array %p, size %zu", a, a->size);
-    if (a->free_func)
+    for (int i = (int)a->size - 1; i >= 0; i--)
     {
-        for (int i = (int)a->size - 1; i >= 0; i--)
+        if (a->data[i])
         {
-            if (a->data[i])
-            {
-                a->free_func(&(a->data[i]));
-            }
+            alias_destroy(&(a->data[i]));
         }
     }
     xfree(a->data);
@@ -112,10 +103,7 @@ void alias_array_set(alias_array_t *array, int index, alias_t *element)
     Expects_not_null(array->data);
     Expects_not_null(element);
 
-    if (array->free_func)
-    {
-        array->free_func(&array->data[index]);
-    }
+    alias_destroy(&array->data[index]);
     array->data[index] = element;
 }
 
@@ -126,10 +114,7 @@ void alias_array_remove(alias_array_t *array, int index)
     Expects_lt(index, array->size);
     Expects_not_null(array->data);
 
-    if (array->free_func)
-    {
-        array->free_func(&array->data[index]);
-    }
+    alias_destroy(&array->data[index]);
 
     // Shift elements to fill the gap
     for (int i = index; i < array->size - 1; i++)
@@ -145,14 +130,11 @@ void alias_array_clear(alias_array_t *array)
     Expects_not_null(array);
     Expects_not_null(array->data);
 
-    if (array->free_func)
+    for (int i = 0; i < array->size; i++)
     {
-        for (int i = 0; i < array->size; i++)
+        if (array->data[i])
         {
-            if (array->data[i])
-            {
-                array->free_func(&array->data[i]);
-            }
+            alias_destroy(&array->data[i]);
         }
     }
     array->size = 0;
@@ -172,14 +154,11 @@ void alias_array_resize(alias_array_t *array, int new_capacity)
     if (new_capacity < array->size)
     {
         // Free elements that won't fit in the new capacity
-        if (array->free_func)
+        for (int i = new_capacity; i < array->size; i++)
         {
-            for (int i = new_capacity; i < array->size; i++)
+            if (array->data[i])
             {
-                if (array->data[i])
-                {
-                    array->free_func(&array->data[i]);
-                }
+                alias_destroy(&array->data[i]);
             }
         }
         array->size = new_capacity;

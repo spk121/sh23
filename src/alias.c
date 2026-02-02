@@ -1,12 +1,6 @@
 #include "alias.h"
 #include "xalloc.h"
 
-struct alias_t
-{
-    string_t *name;
-    string_t *value;
-};
-
 // Constructors
 alias_t *alias_create(const string_t *name, const string_t *value)
 {

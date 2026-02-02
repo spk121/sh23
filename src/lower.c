@@ -754,7 +754,11 @@ static ast_node_t *lower_compound_list(const gnode_t *g)
     return list_node;
 }
 
-/* term: and_or (separator and_or)* → COMMAND_LIST */
+/* term: and_or (separator and_or)* → COMMAND_LIST
+ *
+ * Note: The parser may return G_PIPELINE directly (not wrapped in G_AND_OR)
+ * when there are no && or || operators, so we handle both cases.
+ */
 static ast_node_t *lower_term_as_command_list(const gnode_t *g)
 {
     Expects_eq(g->type, G_TERM);
@@ -765,15 +769,26 @@ static ast_node_t *lower_term_as_command_list(const gnode_t *g)
     for (int i = 0; i < lst->size;)
     {
         const gnode_t *elem = lst->nodes[i];
+        ast_node_t *node = NULL;
 
-        if (elem->type != G_AND_OR)
+        /* The parser returns G_PIPELINE when there are no && or || operators */
+        if (elem->type == G_AND_OR)
         {
-            log_error("lower_term: expected G_AND_OR, got %s (%d)", g_node_type_to_cstr(elem->type), (int)elem->type);
+            node = lower_and_or(elem);
+        }
+        else if (elem->type == G_PIPELINE)
+        {
+            /* Singleton pipeline without operators - lower it directly */
+            node = lower_pipeline(elem);
+        }
+        else
+        {
+            log_error("lower_term: expected G_AND_OR or G_PIPELINE at index %d, got %s (%d)",
+                      i, g_node_type_to_cstr(elem->type), (int)elem->type);
             ast_node_destroy(&cl);
             return NULL;
         }
 
-        ast_node_t *node = lower_and_or(elem);
         if (!node)
         {
             ast_node_destroy(&cl);
@@ -985,7 +1000,7 @@ static ast_node_t *lower_for_clause(const gnode_t *g)
 
 /* ============================================================================
  * case_clause
- * 
+ *
  * case_clause: word in case_item* esac
  * ============================================================================
  */
@@ -1035,7 +1050,7 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
 
 /* ============================================================================
  * case_item
- * 
+ *
  * case_item: pattern_list ')' [compound_list] (DSEMI|SEMI_AND)
  * ============================================================================
  */
