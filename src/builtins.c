@@ -46,7 +46,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "readonly", BUILTIN_SPECIAL, builtin_readonly}, */
     { "return", BUILTIN_SPECIAL, builtin_return},
     {"set", BUILTIN_SPECIAL, builtin_set},
-    /* { "shift", BUILTIN_SPECIAL, builtin_shift}, */
+    { "shift", BUILTIN_SPECIAL, builtin_shift},
     /* { "times", BUILTIN_SPECIAL, builtin_times}, */
     /* { "trap", BUILTIN_SPECIAL, builtin_trap}, */
     { "unset", BUILTIN_SPECIAL, builtin_unset},
@@ -60,7 +60,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "echo", BUILTIN_REGULAR, builtin_echo},
     /* { "printf", BUILTIN_REGULAR, builtin_printf}, */
     /* { "test", BUILTIN_REGULAR, builtin_test}, */
-    /* { "[", BUILTIN_REGULAR, builtin_bracket}, */
+    { "[", BUILTIN_REGULAR, builtin_bracket},
     /* { "read", BUILTIN_REGULAR, builtin_read}, */
     /* { "alias", BUILTIN_REGULAR, builtin_alias}, */
     /* { "unalias", BUILTIN_REGULAR, builtin_unalias}, */
@@ -182,6 +182,68 @@ int builtin_continue(exec_frame_t *frame, const string_list_t *args)
 
     frame->pending_control_flow = EXEC_FLOW_CONTINUE;
     frame->pending_flow_depth = loop_count - 1;
+
+    return 0;
+}
+
+/* ============================================================================
+ * shift - remove positional parameters from the beginning
+ * ============================================================================
+ */
+
+int builtin_shift(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    if (!frame->positional_params)
+    {
+        /* No positional parameters to shift */
+        return 0;
+    }
+
+    /* Parse optional shift count argument (default 1) */
+    int shift_count = 1;
+
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str) || val < 0)
+        {
+            exec_set_error(ex, "shift: numeric argument required");
+            return 2;
+        }
+
+        shift_count = (int)val;
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "shift: too many arguments");
+        return 1;
+    }
+
+    /* Verify shift count doesn't exceed parameter count */
+    int param_count = positional_params_count(frame->positional_params);
+    if (shift_count > param_count)
+    {
+        exec_set_error(ex, "shift: shift count (%d) exceeds number of positional parameters (%d)",
+                       shift_count, param_count);
+        return 1;
+    }
+
+    /* Perform the shift */
+    if (!positional_params_shift(frame->positional_params, shift_count))
+    {
+        exec_set_error(ex, "shift: failed to shift positional parameters");
+        return 1;
+    }
 
     return 0;
 }
@@ -1866,49 +1928,56 @@ int builtin_echo(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    int argc = string_list_size(args);
-    bool suppress_newline = false;
-    bool interpret_escapes = false;
-    int first_arg = 1;
+    getopt_reset();
 
-    /* Parse options (non-standard but common: -n and -e) */
-    for (int i = 1; i < argc; i++)
+    int flag_n = 0;  /* suppress newline */
+    int flag_e = 0;  /* interpret escapes */
+    int flag_err = 0;
+    int c;
+
+    string_t *opts = string_create_from_cstr("neE");
+
+    while ((c = getopt_string(args, opts)) != -1)
     {
-        const char *arg = string_cstr(string_list_at(args, i));
-        
-        if (strcmp(arg, "-n") == 0)
+        switch (c)
         {
-            suppress_newline = true;
-            first_arg = i + 1;
-        }
-        else if (strcmp(arg, "-e") == 0)
-        {
-            interpret_escapes = true;
-            first_arg = i + 1;
-        }
-        else if (strcmp(arg, "-E") == 0)
-        {
-            interpret_escapes = false;
-            first_arg = i + 1;
-        }
-        else
-        {
-            /* Stop processing options at first non-option */
+        case 'n':
+            flag_n = 1;
+            break;
+        case 'e':
+            flag_e = 1;
+            flag_err = 0;  /* -e overrides -E */
+            break;
+        case 'E':
+            if (!flag_e)
+                flag_e = 0;
+            break;
+        case '?':
+            fprintf(stderr, "echo: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
             break;
         }
     }
+    string_destroy(&opts);
 
-    /* Print arguments separated by spaces */
-    for (int i = first_arg; i < argc; i++)
+    if (flag_err)
     {
-        if (i > first_arg)
+        fprintf(stderr, "usage: echo [-neE] [string ...]\n");
+        return 2;
+    }
+
+    /* Print arguments starting from optind, separated by spaces */
+    int argc = string_list_size(args);
+    for (int i = optind; i < argc; i++)
+    {
+        if (i > optind)
         {
             putchar(' ');
         }
 
         const char *arg = string_cstr(string_list_at(args, i));
 
-        if (interpret_escapes)
+        if (flag_e)
         {
             /* Interpret escape sequences */
             for (const char *p = arg; *p; p++)
@@ -1959,13 +2028,145 @@ int builtin_echo(exec_frame_t *frame, const string_list_t *args)
         }
     }
 
-    if (!suppress_newline)
+    if (!flag_n)
     {
         putchar('\n');
     }
 
     fflush(stdout);
     return 0;
+}
+
+/* ============================================================================
+ * bracket (test) - Conditional expression evaluation
+ * Implements: [ expression ]
+ * Focuses on ISO C compatible tests
+ * ============================================================================
+ */
+
+int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+    
+    /* Last argument must be "]" */
+    if (argc < 2)
+    {
+        exec_set_error(frame->executor, "[: missing ']'");
+        return 2;
+    }
+    
+    const string_t *last_str = string_list_at(args, argc - 1);
+    if (string_length(last_str) != 1 || string_cstr(last_str)[0] != ']')
+    {
+        exec_set_error(frame->executor, "[: missing ']'");
+        return 2;
+    }
+
+    /* [ ] is false */
+    if (argc == 2)
+    {
+        return 1;
+    }
+
+    /* Single argument - test if non-empty string */
+    if (argc == 3)
+    {
+        const string_t *arg = string_list_at(args, 1);
+        return (string_length(arg) > 0) ? 0 : 1;
+    }
+
+    /* Binary operators */
+    if (argc == 4)
+    {
+        const string_t *arg1_str = string_list_at(args, 1);
+        const string_t *op_str = string_list_at(args, 2);
+        const string_t *arg2_str = string_list_at(args, 3);
+        const char *op = string_cstr(op_str);
+
+        /* String comparisons */
+        if (strcmp(op, "=") == 0)
+            return (string_eq(arg1_str, arg2_str)) ? 0 : 1;
+        
+        if (strcmp(op, "!=") == 0)
+            return (string_ne(arg1_str, arg2_str)) ? 0 : 1;
+
+        /* Integer comparisons */
+        int endpos1 = 0, endpos2 = 0;
+        long val1 = string_atol_at(arg1_str, 0, &endpos1);
+        long val2 = string_atol_at(arg2_str, 0, &endpos2);
+        
+        /* Check if both arguments are valid integers */
+        int arg1_is_int = (endpos1 == (int)string_length(arg1_str));
+        int arg2_is_int = (endpos2 == (int)string_length(arg2_str));
+
+        if (arg1_is_int && arg2_is_int)
+        {
+            if (strcmp(op, "-eq") == 0)
+                return (val1 == val2) ? 0 : 1;
+            
+            if (strcmp(op, "-ne") == 0)
+                return (val1 != val2) ? 0 : 1;
+            
+            if (strcmp(op, "-lt") == 0)
+                return (val1 < val2) ? 0 : 1;
+            
+            if (strcmp(op, "-le") == 0)
+                return (val1 <= val2) ? 0 : 1;
+            
+            if (strcmp(op, "-gt") == 0)
+                return (val1 > val2) ? 0 : 1;
+            
+            if (strcmp(op, "-ge") == 0)
+                return (val1 >= val2) ? 0 : 1;
+        }
+
+        exec_set_error(frame->executor, "[: unknown operator '%s'", op);
+        return 2;
+    }
+
+    /* Unary operators */
+    if (argc == 3)
+    {
+        const string_t *op_str = string_list_at(args, 1);
+        const string_t *arg_str = string_list_at(args, 2);
+        const char *op = string_cstr(op_str);
+
+        /* File descriptor tests */
+        if (strcmp(op, "-t") == 0)
+        {
+            int endpos = 0;
+            long fd = string_atol_at(arg_str, 0, &endpos);
+            
+            /* Check if valid file descriptor number */
+            if (endpos != (int)string_length(arg_str) || fd < 0)
+            {
+                exec_set_error(frame->executor, "[: -t: invalid file descriptor");
+                return 2;
+            }
+
+#ifdef POSIX_API
+            return isatty((int)fd) ? 0 : 1;
+#elif defined UCRT_API
+            return _isatty((int)fd) ? 0 : 1;
+#endif
+        }
+
+        /* String tests */
+        if (strcmp(op, "-z") == 0)
+            return (string_length(arg_str) == 0) ? 0 : 1;
+        
+        if (strcmp(op, "-n") == 0)
+            return (string_length(arg_str) > 0) ? 0 : 1;
+
+        exec_set_error(frame->executor, "[: unknown operator '%s'", op);
+        return 2;
+    }
+
+    exec_set_error(frame->executor, "[: too many arguments");
+    return 2;
 }
 
 /* ============================================================================
