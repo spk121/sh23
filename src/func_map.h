@@ -6,6 +6,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* Forward declaration */
+typedef struct exec_redirections_t exec_redirections_t;
+
+/* Forward declaration */
+typedef struct exec_redirections_t exec_redirections_t;
+
 /**
  * func_map - A hash map for shell function definitions
  *
@@ -18,8 +24,9 @@
  */
 typedef struct func_map_mapped_t
 {
-    ast_node_t *func;   // Function body (AST node, typically AST_FUNCTION_DEF)
-    string_t *name;     // Function name (copy stored here for convenience)
+    ast_node_t *func;                    // Function body (AST node, typically AST_FUNCTION_DEF)
+    string_t *name;                      // Function name (copy stored here for convenience)
+    exec_redirections_t *redirections;   // Redirections to apply when function is invoked (may be NULL)
 } func_map_mapped_t;
 
 /**

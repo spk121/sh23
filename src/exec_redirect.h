@@ -43,4 +43,11 @@ void exec_restore_redirections_iso_c(saved_fd_t *saved, int saved_count);
  */
 exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame, const ast_node_list_t *ast_redirs);
 
+/**
+ * Clone a redirection structure (deep copy).
+ * @param redirs Source redirection structure (may be NULL)
+ * @return New cloned structure, or NULL if source was NULL or allocation failed
+ */
+exec_redirections_t *exec_redirections_clone(const exec_redirections_t *redirs);
+
 #endif

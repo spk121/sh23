@@ -370,10 +370,16 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
     {
         Expects_eq(func_def->type, AST_FUNCTION_DEF);
 
+        /* Get redirections associated with the function definition */
+        string_t *func_name_str = string_create_from_cstr(cmd_name);
+        const exec_redirections_t *func_redirs = func_store_get_redirections(frame->functions, func_name_str);
+        string_destroy(&func_name_str);
+
         /* Execute function in a new function frame with argument scope isolation */
         exec_result_t func_result = exec_function(frame,
                                                    func_def->data.function_def.body,
-                                                   expanded_words);
+                                                   expanded_words,
+                                                   (exec_redirections_t *)func_redirs);
 
         cmd_exit_status = func_result.exit_status;
         goto done_execution;

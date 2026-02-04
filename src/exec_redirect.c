@@ -722,6 +722,102 @@ void exec_redirections_append(exec_redirections_t *redirections, exec_redirectio
     redirections->count++;
 }
 
+
+exec_redirections_t* exec_redirections_clone(const exec_redirections_t* redirs)
+{
+    if (!redirs)
+        return NULL;
+
+    exec_redirections_t *clone = exec_redirections_create();
+    if (!clone)
+        return NULL;
+
+    /* Pre-allocate capacity to match source */
+    if (redirs->capacity > 0)
+    {
+        clone->items = xcalloc(redirs->capacity, sizeof(exec_redirection_t));
+        if (!clone->items)
+        {
+            exec_redirections_destroy(&clone);
+            return NULL;
+        }
+        clone->capacity = redirs->capacity;
+    }
+
+    /* Deep copy each redirection */
+    for (size_t i = 0; i < redirs->count; i++)
+    {
+        const exec_redirection_t *src = &redirs->items[i];
+        exec_redirection_t *dst = &clone->items[clone->count];
+
+        /* Copy scalar fields */
+        dst->type = src->type;
+        dst->explicit_fd = src->explicit_fd;
+        dst->target_kind = src->target_kind;
+        dst->source_line = src->source_line;
+
+        /* Deep copy io_location_varname if present */
+        if (src->io_location_varname)
+        {
+            dst->io_location_varname = string_create_from(src->io_location_varname);
+        }
+        else
+        {
+            dst->io_location_varname = NULL;
+        }
+
+        /* Deep copy target data based on target_kind */
+        switch (src->target_kind)
+        {
+            case REDIR_TARGET_FILE:
+                if (src->target.file.raw_filename)
+                {
+                    dst->target.file.raw_filename = string_create_from(src->target.file.raw_filename);
+                }
+                else
+                {
+                    dst->target.file.raw_filename = NULL;
+                }
+                break;
+
+            case REDIR_TARGET_FD:
+                dst->target.fd.fixed_fd = src->target.fd.fixed_fd;
+                if (src->target.fd.fd_expression)
+                {
+                    dst->target.fd.fd_expression = string_create_from(src->target.fd.fd_expression);
+                }
+                else
+                {
+                    dst->target.fd.fd_expression = NULL;
+                }
+                break;
+
+            case REDIR_TARGET_BUFFER:
+                if (src->target.heredoc.content)
+                {
+                    dst->target.heredoc.content = string_create_from(src->target.heredoc.content);
+                }
+                else
+                {
+                    dst->target.heredoc.content = NULL;
+                }
+                dst->target.heredoc.needs_expansion = src->target.heredoc.needs_expansion;
+                break;
+
+            case REDIR_TARGET_CLOSE:
+            case REDIR_TARGET_FD_STRING:
+            case REDIR_TARGET_INVALID:
+            default:
+                /* No additional data to copy */
+                break;
+        }
+
+        clone->count++;
+    }
+
+    return clone;
+}
+
 /* ============================================================================
  * Runtime Redirection Wrapper (exec_redirections_t)
  * ============================================================================ */

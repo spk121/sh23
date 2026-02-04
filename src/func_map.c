@@ -1,5 +1,6 @@
 #include "func_map.h"
 #include "ast.h"
+#include "exec_redirect.h"
 #include "string_t.h"
 #include "xalloc.h"
 #include <stdint.h>
@@ -36,6 +37,10 @@ static void destroy_entry(func_map_entry_t *entry)
         if (entry->mapped.func)
         {
             ast_node_destroy(&entry->mapped.func);
+        }
+        if (entry->mapped.redirections)
+        {
+            exec_redirections_destroy(&entry->mapped.redirections);
         }
     }
 }
@@ -210,6 +215,10 @@ int32_t func_map_insert_or_assign_move(func_map_t *map,
             if (map->entries[pos].mapped.func)
             {
                 ast_node_destroy(&map->entries[pos].mapped.func);
+            }
+            if (map->entries[pos].mapped.redirections)
+            {
+                exec_redirections_destroy(&map->entries[pos].mapped.redirections);
             }
             map->entries[pos].mapped = *mapped;
             return pos;

@@ -20,7 +20,8 @@ typedef enum exec_frame_type_t
     EXEC_FRAME_LOOP,
     EXEC_FRAME_TRAP,
     EXEC_FRAME_BACKGROUND_JOB,
-    EXEC_FRAME_PIPELINE_CMD,
+    EXEC_FRAME_PIPELINE,     // Pipeline orchestrator (cmd1 | cmd2 | cmd3)
+    EXEC_FRAME_PIPELINE_CMD, // Individual command within a pipeline
     EXEC_FRAME_DOT_SCRIPT,
     EXEC_FRAME_EVAL,
     EXEC_FRAME_TYPE_COUNT
@@ -911,7 +912,96 @@ static const exec_frame_policy_t EXEC_FRAME_POLICIES[EXEC_FRAME_TYPE_COUNT] = {
                     .is_background = true,
                 },
         },
+    /* =========================================================================
+     * EXEC_FRAME_PIPELINE
+     * =========================================================================
+     * Pipeline orchestrator: cmd1 | cmd2 | cmd3
+     * Coordinates execution of multiple commands connected by pipes.
+     * Does not fork itself; orchestrates child processes for each command.
+     * Shares everything with parent (transparent wrapper).
+     */
+    [EXEC_FRAME_PIPELINE] =
+        {
+            .process =
+                {
+                    .forks = false,
+                    .pgroup = EXEC_PGROUP_NONE,
+                    .is_pipeline_member = false,
+                },
+            .variables =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .init_from_envp = false,
+                    .copy_exports_only = false,
+                    .has_locals = false,
+                },
+            .positional =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .arg0 = EXEC_ARG0_INHERIT,
+                    .argn = EXEC_POSITIONAL_INIT_NA,
+                    .can_override = false,
+                },
+            .fds =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                },
+            .traps =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .resets_non_ignored = false,
+                    .exit_trap_runs = false,
+                },
+            .options =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .errexit_enabled = true,
+                },
+            .cwd =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .init_from_system = false,
+                },
+            .umask =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .init_from_system = false,
+                    .init_to_0022 = false,
+                },
+            .functions =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                },
+            .aliases =
+                {
+                    .scope = EXEC_SCOPE_SHARE,
+                    .expands = true,
+                },
+            .flow =
+                {
+                    .return_behavior = EXEC_RETURN_TRANSPARENT,
+                    .loop_control = EXEC_LOOP_TRANSPARENT,
+                    .is_loop = false,
+                },
+            .exit =
+                {
+                    .terminates_process = false,
+                    .affects_parent_status = true,
+                },
+            .source =
+                {
+                    .tracks_location = false,
+                },
+            .classification =
+                {
+                    .is_subshell = false,
+                    .is_background = false,
+                },
+        },
 
+    /* =========================================================================
+     * EXEC_FRAME_PIPELINE_CMD
+     * =========================================================================
     /* =========================================================================
      * EXEC_FRAME_PIPELINE_CMD
      * =========================================================================

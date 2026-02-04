@@ -781,6 +781,28 @@ static exec_result_t execute_frame_body(exec_frame_t *frame, exec_params_t *para
         }
     }
 
+    /* Handle pipe FD setup for EXEC_FRAME_PIPELINE_CMD */
+#ifdef POSIX_API
+    if (params->stdin_pipe_fd >= 0)
+    {
+        dup2(params->stdin_pipe_fd, STDIN_FILENO);
+        close(params->stdin_pipe_fd);
+    }
+    if (params->stdout_pipe_fd >= 0)
+    {
+        dup2(params->stdout_pipe_fd, STDOUT_FILENO);
+        close(params->stdout_pipe_fd);
+    }
+    /* Close all other pipe FDs in this child process */
+    if (params->pipe_fds_to_close)
+    {
+        for (int i = 0; i < params->pipe_fds_count; i++)
+        {
+            close(params->pipe_fds_to_close[i]);
+        }
+    }
+#endif
+
     /* Execute body based on what's provided */
     if (params->body)
     {
@@ -807,8 +829,12 @@ static exec_result_t execute_frame_body(exec_frame_t *frame, exec_params_t *para
     else if (params->iteration_words)
     {
         /* For loop */
-        // result = exec_for_loop(frame, params);
-        abort();
+        result = exec_iteration_loop(frame, params);
+    }
+    else if (params->pipeline_commands)
+    {
+        /* Pipeline orchestration */
+        result = exec_pipeline_orchestrate(frame, params);
     }
 
     /* Handle control flow */
@@ -1043,12 +1069,13 @@ exec_result_t exec_brace_group(exec_frame_t *parent, ast_node_t *body,
     return exec_in_frame(parent, EXEC_FRAME_BRACE_GROUP, &params);
 }
 
-exec_result_t exec_function(exec_frame_t *parent, ast_node_t *body,
-                            string_list_t *arguments)
+exec_result_t exec_function(exec_frame_t *parent, ast_node_t *body, string_list_t *arguments,
+                            exec_redirections_t *redirections)
 {
     exec_params_t params = {
         .body = body,
         .arguments = arguments,
+        .redirections = redirections,
     };
     return exec_in_frame(parent, EXEC_FRAME_FUNCTION, &params);
 }
@@ -1102,6 +1129,15 @@ exec_result_t exec_background_job(exec_frame_t *parent, ast_node_t *body,
         .command_args = command_args,
     };
     return exec_in_frame(parent, EXEC_FRAME_BACKGROUND_JOB, &params);
+}
+
+exec_result_t exec_pipeline_group(exec_frame_t *parent, ast_node_list_t *commands, bool negated)
+{
+    exec_params_t params = {
+        .pipeline_commands = commands,
+        .pipeline_negated = negated,
+    };
+    return exec_in_frame(parent, EXEC_FRAME_PIPELINE, &params);
 }
 
 #ifdef POSIX_API

@@ -4,8 +4,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #include "builtins.h"
+
 #include "exec.h"
+#include "exec_frame.h"
 #include "func_store.h"
 #include "getopt.h"
 #include "getopt_string.h"
@@ -13,15 +16,15 @@
 #include "lib.h"
 #include "logging.h"
 #include "positional_params.h"
-#include "string_t.h"
 #include "string_list.h"
+#include "string_t.h"
 #include "variable_map.h"
 #include "variable_store.h"
 #include "xalloc.h"
 #ifdef UCRT_API
+#include <direct.h>
 #include <io.h>
 #include <time.h>
-#include <direct.h>
 #endif
 
 typedef struct builtin_implemented_function_map_t
@@ -85,10 +88,10 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
  * ============================================================================
  */
 
-int builtin_colon(exec_t *ex, const string_list_t *args)
+int builtin_colon(exec_frame_t *frame, const string_list_t *args)
 {
     /* Suppress unused parameter warnings */
-    (void)ex;
+    (void)frame;
     (void)args;
 
     getopt_reset();
@@ -102,11 +105,12 @@ int builtin_colon(exec_t *ex, const string_list_t *args)
  * ============================================================================
  */
 
-int builtin_dot(exec_t *ex, const string_list_t *args)
+int builtin_dot(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
+    exec_t *ex = frame->executor;
     getopt_reset();
 
     if (string_list_size(args) != 1)
@@ -166,14 +170,15 @@ static void builtin_export_variable_store_print_exported(const variable_store_t 
     variable_store_for_each(var_store, builtin_export_variable_store_print, stdout);
 }
 
-int builtin_export(exec_t *ex, const string_list_t *args)
+int builtin_export(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
+    exec_t *ex = frame->executor;
     getopt_reset();
 
-    variable_store_t *var_store = ex->variables;
+    variable_store_t *var_store = frame->variables;
     if (!var_store)
     {
         exec_set_error(ex, "export: no variable store available");
@@ -277,7 +282,7 @@ int builtin_export(exec_t *ex, const string_list_t *args)
  * ============================================================================
  */
 
-static void builtin_set_print_options(exec_t *ex, bool reusable_format);
+static void builtin_set_print_options(exec_frame_t *frame, bool reusable_format);
 
 
 /* Helper structure for sorting variables */
@@ -296,16 +301,16 @@ static int builtin_set_compare_vars(const void *a, const void *b)
 }
 
 /* Print all variables in collation sequence (set with no arguments) */
-static int builtin_set_print_variables(exec_t *ex)
+static int builtin_set_print_variables(exec_frame_t *frame)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
 
-    if (!ex->variables || !ex->variables->map)
+    if (!frame->variables || !frame->variables->map)
     {
         return 0; /* No variables to print */
     }
 
-    variable_map_t *map = ex->variables->map;
+    variable_map_t *map = frame->variables->map;
 
     /* Count occupied entries */
     int count = 0;
@@ -369,36 +374,37 @@ static bool builtin_set_is_valid_o_arg(const char *arg)
 }
 
 /* Set or unset a named option via -o/+o */
-static int builtin_set_set_named_option(exec_t *ex, const char *name, bool unset)
+static int builtin_set_set_named_option(exec_frame_t *frame, const char *name, bool unset)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(name);
 
+    exec_opt_flags_t *opt = frame->opt_flags;
     bool value = !unset;
     bool handled = true;
 
     if (strcmp(name, "allexport") == 0)
-        ex->opt.allexport = value;
+        opt->allexport = value;
     else if (strcmp(name, "errexit") == 0)
-        ex->opt.errexit = value;
+        opt->errexit = value;
     else if (strcmp(name, "ignoreeof") == 0)
-        ex->opt.ignoreeof = value;
+        opt->ignoreeof = value;
     else if (strcmp(name, "noclobber") == 0)
-        ex->opt.noclobber = value;
+        opt->noclobber = value;
     else if (strcmp(name, "noglob") == 0)
-        ex->opt.noglob = value;
+        opt->noglob = value;
     else if (strcmp(name, "noexec") == 0)
-        ex->opt.noexec = value;
+        opt->noexec = value;
     else if (strcmp(name, "nounset") == 0)
-        ex->opt.nounset = value;
+        opt->nounset = value;
     else if (strcmp(name, "pipefail") == 0)
-        ex->opt.pipefail = value;
+        opt->pipefail = value;
     else if (strcmp(name, "verbose") == 0)
-        ex->opt.verbose = value;
+        opt->verbose = value;
     else if (strcmp(name, "vi") == 0)
-        ex->opt.vi = value;
+        opt->vi = value;
     else if (strcmp(name, "xtrace") == 0)
-        ex->opt.xtrace = value;
+        opt->xtrace = value;
     else if (strcmp(name, "monitor") == 0 || strcmp(name, "notify") == 0)
     {
         // Not implemented yet
@@ -420,9 +426,9 @@ static int builtin_set_set_named_option(exec_t *ex, const char *name, bool unset
 }
 
 /* Print all shell options (set -o) */
-static void builtin_set_print_options(exec_t *ex, bool reusable_format)
+static void builtin_set_print_options(exec_frame_t *frame, bool reusable_format)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
 
     // TODO: Print actual option values from shell
     // For now, just print the option names
@@ -441,11 +447,13 @@ static void builtin_set_print_options(exec_t *ex, bool reusable_format)
     }
 }
 
-int builtin_set(exec_t *ex, const string_list_t *args)
+int builtin_set(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
+    exec_t *ex = frame->executor;
+    exec_opt_flags_t *opt = frame->opt_flags;
     getopt_reset();
 
     // Shell option flags - initialized to -1 so we can detect "not mentioned"
