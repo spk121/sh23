@@ -37,7 +37,7 @@ typedef struct builtin_implemented_function_map_t
 builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "break", BUILTIN_SPECIAL, builtin_break},
     { ":", BUILTIN_SPECIAL, builtin_colon},
-    /* { "continue", BUILTIN_SPECIAL, builtin_continue}, */
+    { "continue", BUILTIN_SPECIAL, builtin_continue},
     { ".", BUILTIN_SPECIAL, builtin_dot},
     /* { "eval", BUILTIN_SPECIAL, builtin_eval}, */
     /* { "exec", BUILTIN_SPECIAL, builtin_exec}, */
@@ -138,6 +138,49 @@ int builtin_break(exec_frame_t *frame, const string_list_t *args)
     }
 
     frame->pending_control_flow = EXEC_FLOW_BREAK;
+    frame->pending_flow_depth = loop_count - 1;
+
+    return 0;
+}
+
+/* ============================================================================
+ * continue - skip to next iteration of a loop
+ * ============================================================================
+ */
+
+int builtin_continue(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    /* Parse optional loop count argument (default 1) */
+    int loop_count = 1;
+
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str) || val <= 0)
+        {
+            exec_set_error(ex, "continue: numeric argument required");
+            return 2;
+        }
+
+        loop_count = (int)val;
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "continue: too many arguments");
+        return 1;
+    }
+
+    frame->pending_control_flow = EXEC_FLOW_CONTINUE;
     frame->pending_flow_depth = loop_count - 1;
 
     return 0;

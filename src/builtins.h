@@ -66,6 +66,8 @@ int builtin_return(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_break(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_continue(exec_frame_t *frame, const string_list_t *args);
+
 /**
  * set - Set or unset shell options and positional parameters
  *
