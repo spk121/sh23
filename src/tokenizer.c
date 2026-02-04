@@ -461,6 +461,25 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     // redirection operator should be an IO_NUMBER
     if (token_get_type(token) == TOKEN_WORD)
     {
+        // First, check if this word is a reserved word at command position
+        if (tok->at_command_position)
+        {
+            char *word_text = tokenizer_extract_word_text(token);
+            if (word_text != NULL)
+            {
+                token_type_t reserved_type = token_string_to_reserved_word(word_text);
+                if (reserved_type != TOKEN_WORD)
+                {
+                    // Convert TOKEN_WORD to reserved word token
+                    token->type = reserved_type;
+                    xfree(word_text);
+                    // Add token to output and update position
+                    goto add_token;
+                }
+                xfree(word_text);
+            }
+        }
+
         // Check if next token is a redirection operator
         if (tok->input_pos + 1 < token_list_size(tok->input_tokens))
         {
@@ -507,6 +526,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
         }
     }
 
+add_token:
     // Add token to output and move to next
     tok->input_pos++;
     token_list_append(tok->output_tokens, token);

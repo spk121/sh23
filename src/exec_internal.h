@@ -155,10 +155,17 @@ exec_result_t exec_pipeline(exec_frame_t *frame, ast_node_t *pipeline);
 exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *cmd);
 
 /**
+ * Dispatch execution based on AST node type.
+ */
+exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
+
+/**
  * Execute an external command (fork/exec).
  */
 exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,
                                     exec_redirections_t *redirections);
+
+exec_result_t exec_if_clause(exec_frame_t *frame, ast_node_t *node);
 
 /**
  * Execute a builtin command.
@@ -188,6 +195,11 @@ exec_result_t exec_condition_loop(exec_frame_t *frame, exec_params_t *params);
  * Execute a for loop.
  */
 exec_result_t exec_iteration_loop(exec_frame_t *frame, exec_params_t *params);
+
+/**
+ * Orchestrate pipeline execution (called from EXEC_FRAME_PIPELINE).
+ */
+exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *params);
 
 /* ============================================================================
  * Special Parameter Access

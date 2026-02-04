@@ -36,6 +36,20 @@ typedef struct trap_store_t trap_store_t;
 typedef enum exec_status_t exec_status_t;
 
 /* ============================================================================
+ * Control Flow State
+ * ============================================================================ */
+
+/**
+ * Control flow state after executing a frame or command.
+ */
+typedef enum exec_control_flow_t {
+    EXEC_FLOW_NORMAL,   /* Normal execution */
+    EXEC_FLOW_RETURN,   /* 'return' executed */
+    EXEC_FLOW_BREAK,    /* 'break' executed */
+    EXEC_FLOW_CONTINUE  /* 'continue' executed */
+} exec_control_flow_t;
+
+/* ============================================================================
  * Execution Frame Structure
  * ============================================================================ */
 
@@ -87,6 +101,10 @@ typedef struct exec_frame_t {
     int last_exit_status;   /* $? */
     int last_bg_pid;        /* $! */
 
+    /* Control flow state (set by builtins like return, break, continue) */
+    exec_control_flow_t pending_control_flow;
+    int pending_flow_depth;  /* For 'break N' / 'continue N' */
+
     /* Source tracking */
     string_t* source_name;  /* $BASH_SOURCE / script name */
     int source_line;        /* $LINENO */
@@ -103,34 +121,43 @@ typedef struct exec_frame_t {
   * Parameters passed when creating/executing a frame.
   * Different fields are used depending on the frame type.
   */
-typedef struct exec_params_t {
+typedef struct exec_params_t
+{
     /* Body to execute */
-    ast_node_t* body;
+    ast_node_t *body;
 
     /* Redirections to apply */
-    exec_redirections_t* redirections;
+    exec_redirections_t *redirections;
 
     /* For functions and dot scripts: arguments to set $1, $2, ... */
-    string_list_t* arguments;
+    string_list_t *arguments;
 
     /* For dot scripts: the script path (for $0 and source tracking) */
-    string_t* script_path;
+    string_t *script_path;
 
     /* For loops */
-    ast_node_t* condition;           /* while/until condition */
-    bool until_mode;                 /* true for until, false for while */
-    string_list_t* iteration_words;  /* for loop word list */
-    string_t* loop_var_name;         /* for loop variable */
+    ast_node_t *condition;          /* while/until condition */
+    bool until_mode;                /* true for until, false for while */
+    string_list_t *iteration_words; /* for loop word list */
+    string_t *loop_var_name;        /* for loop variable */
 
-    /* For pipeline commands */
+    /* For pipelines (EXEC_FRAME_PIPELINE) */
+    ast_node_list_t *pipeline_commands; /* List of commands in pipeline */
+    bool pipeline_negated;              /* true for ! pipeline */
+
+    /* For pipeline commands (EXEC_FRAME_PIPELINE_CMD) */
 #ifdef POSIX_API
-    pid_t pipeline_pgid;             /* Process group to join (0 = create new) */
+    pid_t pipeline_pgid; /* Process group to join (0 = create new) */
 #else
     int pipeline_pgid;
 #endif
+    int stdin_pipe_fd;      /* -1 if not piped, else fd to dup2 to stdin */
+    int stdout_pipe_fd;     /* -1 if not piped, else fd to dup2 to stdout */
+    int *pipe_fds_to_close; /* Array of all pipe FDs to close */
+    int pipe_fds_count;     /* Count of pipe FDs to close */
 
     /* For background jobs / debugging */
-    string_list_t* command_args;          /* Original command text for job display */
+    string_list_t *command_args; /* Original command text for job display */
 
     /* Source location */
     int source_line;
@@ -139,16 +166,6 @@ typedef struct exec_params_t {
 /* ============================================================================
  * Execution Result
  * ============================================================================ */
-
- /**
-  * Control flow state after executing a frame or command.
-  */
-typedef enum exec_control_flow_t {
-    EXEC_FLOW_NORMAL,   /* Normal execution */
-    EXEC_FLOW_RETURN,   /* 'return' executed */
-    EXEC_FLOW_BREAK,    /* 'break' executed */
-    EXEC_FLOW_CONTINUE  /* 'continue' executed */
-} exec_control_flow_t;
 
 /**
  * Result of executing a frame or command.
@@ -217,8 +234,9 @@ exec_result_t exec_brace_group(exec_frame_t* parent,
     exec_redirections_t* redirections);
 
 exec_result_t exec_function(exec_frame_t* parent,
-    ast_node_t* body,
-    string_list_t* arguments);
+ast_node_t* body,
+string_list_t* arguments,
+exec_redirections_t* redirections);
 
 exec_result_t exec_for_loop(exec_frame_t* parent,
     string_t* var_name, string_list_t* words,
@@ -238,6 +256,8 @@ exec_result_t exec_trap_handler(exec_frame_t* parent,
 exec_result_t exec_background_job(exec_frame_t* parent,
     ast_node_t* body,
     string_list_t* command_args);
+
+exec_result_t exec_pipeline_group(exec_frame_t *parent, ast_node_list_t *commands, bool negated);
 
 #ifdef POSIX_API
 exec_result_t exec_pipeline_cmd(exec_frame_t* parent,

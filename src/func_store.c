@@ -4,6 +4,7 @@
 
 #include "func_store.h"
 #include "func_map.h"
+#include "exec_redirect.h"
 #include "string_t.h"
 #include "xalloc.h"
 #include "logging.h"
@@ -61,8 +62,18 @@ func_store_t *func_store_clone(const func_store_t *other)
         // Clone the AST node (deep copy because by policy no AST node can have more than 1 owner)
         ast_node_t *func_clone = ast_node_clone(mapped->func);
 
+        // Clone redirections if present
+        exec_redirections_t *redir_clone = mapped->redirections 
+            ? exec_redirections_clone(mapped->redirections) 
+            : NULL;
+
         // Add to new store
-        func_store_add(new_store, name, func_clone);
+        func_store_add_ex(new_store, name, func_clone, redir_clone);
+
+        // Clean up temporary clones (func_store_add_ex makes its own copies)
+        ast_node_destroy(&func_clone);
+        if (redir_clone)
+            exec_redirections_destroy(&redir_clone);
     }
 
     return new_store;
@@ -107,6 +118,7 @@ func_store_error_t func_store_add(func_store_t *store, const string_t *name,
     func_map_mapped_t mapped;
     mapped.name = string_create_from(name);
     mapped.func = ast_node_clone(value);
+    mapped.redirections = NULL;
 
     func_map_insert_or_assign_move(store->map, name, &mapped);
 
@@ -197,12 +209,22 @@ const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char 
     return result;
 }
 
+const exec_redirections_t* func_store_get_redirections(const func_store_t* store, const string_t* name)
+{
+    Expects_not_null(store);
+    Expects_not_null(name);
+    const func_map_mapped_t *mapped = func_map_at(store->map, name);
+    if (!mapped)
+        return NULL;
+    return mapped->redirections;
+}
+
 func_store_insert_result_t func_store_add_ex(func_store_t *store, const string_t *name,
-                                             const ast_node_t *value)
+    const ast_node_t *value, const exec_redirections_t *redirections)
 {
     func_store_insert_result_t result;
     result.was_new = false;
-
+    
     if (!store || !store->map)
     {
         result.error = FUNC_STORE_ERROR_STORAGE_FAILURE;
@@ -239,6 +261,7 @@ func_store_insert_result_t func_store_add_ex(func_store_t *store, const string_t
     func_map_mapped_t mapped;
     mapped.name = string_create_from(name);
     mapped.func = ast_node_clone(value);
+    mapped.redirections = exec_redirections_clone(redirections);
 
     func_map_insert_or_assign_move(store->map, name, &mapped);
 

@@ -365,6 +365,8 @@ exec_status_t exec_execute_andor_list(exec_t *executor, const ast_node_t *node);
  */
 exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node);
 
+// exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *params);
+
 /**
  * Execute a simple command.
  */
