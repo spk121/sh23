@@ -810,48 +810,7 @@ static exec_result_t execute_frame_body(exec_frame_t *frame, exec_params_t *para
     /* Execute body based on what's provided */
     if (params->body)
     {
-        switch (params->body->type)
-        {
-        case AST_COMMAND_LIST:
-            result = exec_compound_list(frame, params->body);
-            break;
-        case AST_SIMPLE_COMMAND:
-            result = exec_simple_command(frame, params->body);
-            break;
-        case AST_BRACE_GROUP:
-            result = exec_brace_group(frame, params->body->data.compound.body, NULL);
-            break;
-        case AST_SUBSHELL:
-            result = exec_subshell(frame, params->body->data.compound.body);
-            break;
-        case AST_IF_CLAUSE:
-            result = exec_if_clause(frame, params->body);
-            break;
-        case AST_WHILE_CLAUSE:
-        case AST_UNTIL_CLAUSE:
-            result = exec_while_clause(frame, params->body);
-            break;
-        case AST_FOR_CLAUSE:
-            result = exec_for_clause(frame, params->body);
-            break;
-        case AST_CASE_CLAUSE:
-            result = exec_case_clause(frame, params->body);
-            break;
-        case AST_PIPELINE:
-            result = exec_pipeline(frame, params->body);
-            break;
-        case AST_AND_OR_LIST:
-            result = exec_and_or_list(frame, params->body);
-            break;
-        default:
-            log_error("execute_frame_body: unsupported body type %d (%s)", 
-                     params->body->type, ast_node_type_to_string(params->body->type));
-            result.exit_status = 1;
-            result.has_exit_status = true;
-            result.flow = EXEC_FLOW_NORMAL;
-            result.flow_depth = 0;
-            break;
-        }
+        result = exec_execute_dispatch(frame, params->body);
     }
     else if (params->condition)
     {

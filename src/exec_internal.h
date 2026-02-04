@@ -155,6 +155,11 @@ exec_result_t exec_pipeline(exec_frame_t *frame, ast_node_t *pipeline);
 exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *cmd);
 
 /**
+ * Dispatch execution based on AST node type.
+ */
+exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
+
+/**
  * Execute an external command (fork/exec).
  */
 exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,

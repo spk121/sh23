@@ -70,7 +70,7 @@
  * Forward Declarations
  * ============================================================================ */
 
-static exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
+exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
 exec_result_t exec_while_clause(exec_frame_t *frame, ast_node_t *node);
 exec_result_t exec_for_clause(exec_frame_t *frame, ast_node_t *node);
 exec_result_t exec_function_def_clause(exec_frame_t *frame, ast_node_t *node);
@@ -622,7 +622,7 @@ void exec_setup_interactive_execute(exec_t *executor)
     /* FIXME handle rcfile here */
 }
 
-static exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
+exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
