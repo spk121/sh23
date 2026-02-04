@@ -76,6 +76,7 @@ static exec_status_t exec_run_background(exec_t *executor, ast_node_t *node)
     /* Parent process - create job entry */
     string_t *job_cmd = string_create_from(cmd_str);
     int job_id = job_store_add(executor->jobs, job_cmd, true);
+    string_destroy(&job_cmd);
 
     if (job_id < 0)
     {

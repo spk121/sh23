@@ -35,7 +35,7 @@ typedef struct builtin_implemented_function_map_t
 } builtin_implemented_function_map_t;
 
 builtin_implemented_function_map_t builtin_implemented_functions[] = {
-    /* { "break", BUILTIN_SPECIAL, builtin_break}, */
+    { "break", BUILTIN_SPECIAL, builtin_break},
     { ":", BUILTIN_SPECIAL, builtin_colon},
     /* { "continue", BUILTIN_SPECIAL, builtin_continue}, */
     { ".", BUILTIN_SPECIAL, builtin_dot},
@@ -97,6 +97,49 @@ int builtin_colon(exec_frame_t *frame, const string_list_t *args)
     getopt_reset();
 
     /* Do nothing, return success */
+    return 0;
+}
+
+/* ============================================================================
+ * break - exit from a loop
+ * ============================================================================
+ */
+
+int builtin_break(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    /* Parse optional loop count argument (default 1) */
+    int loop_count = 1;
+
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str) || val <= 0)
+        {
+            exec_set_error(ex, "break: numeric argument required");
+            return 2;
+        }
+
+        loop_count = (int)val;
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "break: too many arguments");
+        return 1;
+    }
+
+    frame->pending_control_flow = EXEC_FLOW_BREAK;
+    frame->pending_flow_depth = loop_count - 1;
+
     return 0;
 }
 
@@ -1111,10 +1154,12 @@ static char builtin_jobs_job_indicator(const job_store_t *store, const job_t *jo
  * Returns job_id on success, -1 on error
  * ---------------------------------------------------------------------------- */
 
-static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
+static int builtin_jobs_parse_job_id(const job_store_t *store, const string_t *arg_str)
 {
-    if (!arg || !*arg)
+    if (!arg_str || string_length(arg_str) == 0)
         return -1;
+
+    const char *arg = string_cstr(arg_str);
 
     if (arg[0] == '%')
     {
@@ -1135,9 +1180,9 @@ static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
         }
 
         /* %n -> job number n */
-        char *endptr;
-        long val = strtol(arg, &endptr, 10);
-        if (*endptr == '\0' && val > 0)
+        int endpos = 0;
+        long val = strtol(arg, (char **)&arg, 10);
+        if (*arg == '\0' && val > 0)
         {
             return (int)val;
         }
@@ -1147,9 +1192,9 @@ static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
     }
 
     /* Plain number */
-    char *endptr;
-    long val = strtol(arg, &endptr, 10);
-    if (*endptr == '\0' && val > 0)
+    int endpos = 0;
+    long val = string_atol_at(arg_str, 0, &endpos);
+    if (endpos == string_length(arg_str) && val > 0)
     {
         return (int)val;
     }
@@ -1268,12 +1313,12 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
     {
         for (int i = first_operand; i < argc; i++)
         {
-            const char *arg = string_cstr(string_list_at(args, i));
-            int job_id = builtin_jobs_parse_job_id(store, arg);
+            const string_t *arg_str = string_list_at(args, i);
+            int job_id = builtin_jobs_parse_job_id(store, arg_str);
 
             if (job_id < 0)
             {
-                fprintf(stderr, "jobs: %s: no such job\n", arg);
+                fprintf(stderr, "jobs: %s: no such job\n", string_cstr(arg_str));
                 exit_status = 1;
                 continue;
             }
@@ -1281,7 +1326,7 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
             job_t *job = job_store_find(store, job_id);
             if (!job)
             {
-                fprintf(stderr, "jobs: %s: no such job\n", arg);
+                fprintf(stderr, "jobs: %s: no such job\n", string_cstr(arg_str));
                 exit_status = 1;
                 continue;
             }
@@ -1906,11 +1951,11 @@ int builtin_return(exec_frame_t *frame, const string_list_t *args)
 
     if (string_list_size(args) > 1)
     {
-        const char *arg = string_cstr(string_list_at(args, 1));
-        char *endptr;
-        long val = strtol(arg, &endptr, 10);
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
 
-        if (*endptr != '\0')
+        if (endpos != string_length(arg_str))
         {
             exec_set_error(ex, "return: numeric argument required");
             return 2;
