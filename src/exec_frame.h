@@ -36,6 +36,20 @@ typedef struct trap_store_t trap_store_t;
 typedef enum exec_status_t exec_status_t;
 
 /* ============================================================================
+ * Control Flow State
+ * ============================================================================ */
+
+/**
+ * Control flow state after executing a frame or command.
+ */
+typedef enum exec_control_flow_t {
+    EXEC_FLOW_NORMAL,   /* Normal execution */
+    EXEC_FLOW_RETURN,   /* 'return' executed */
+    EXEC_FLOW_BREAK,    /* 'break' executed */
+    EXEC_FLOW_CONTINUE  /* 'continue' executed */
+} exec_control_flow_t;
+
+/* ============================================================================
  * Execution Frame Structure
  * ============================================================================ */
 
@@ -86,6 +100,10 @@ typedef struct exec_frame_t {
     int loop_depth;         /* 0 if not in loop, else depth of nested loops */
     int last_exit_status;   /* $? */
     int last_bg_pid;        /* $! */
+
+    /* Control flow state (set by builtins like return, break, continue) */
+    exec_control_flow_t pending_control_flow;
+    int pending_flow_depth;  /* For 'break N' / 'continue N' */
 
     /* Source tracking */
     string_t* source_name;  /* $BASH_SOURCE / script name */
@@ -148,16 +166,6 @@ typedef struct exec_params_t
 /* ============================================================================
  * Execution Result
  * ============================================================================ */
-
- /**
-  * Control flow state after executing a frame or command.
-  */
-typedef enum exec_control_flow_t {
-    EXEC_FLOW_NORMAL,   /* Normal execution */
-    EXEC_FLOW_RETURN,   /* 'return' executed */
-    EXEC_FLOW_BREAK,    /* 'break' executed */
-    EXEC_FLOW_CONTINUE  /* 'continue' executed */
-} exec_control_flow_t;
 
 /**
  * Result of executing a frame or command.

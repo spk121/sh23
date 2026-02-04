@@ -826,9 +826,19 @@ static ast_node_t *lower_if_clause(const gnode_t *g)
 {
     Expects_eq(g->type, G_IF_CLAUSE);
 
-    const gnode_t *gcond = g->data.multi.a;
-    const gnode_t *gthen = g->data.multi.b;
-    const gnode_t *gelse = g->data.multi.c; /* may be NULL */
+    /* The parser creates a wrapper structure - unwrap it first */
+    const gnode_t *inner = g->data.multi.a;
+    const gnode_t *gelse_part = g->data.multi.b;
+
+    /* The inner G_IF_CLAUSE has: .b = cond, .d = then_body */
+    if (!inner || inner->type != G_IF_CLAUSE)
+    {
+        log_error("lower_if_clause: expected inner G_IF_CLAUSE wrapper");
+        return NULL;
+    }
+
+    const gnode_t *gcond = inner->data.multi.b;
+    const gnode_t *gthen = inner->data.multi.d;
 
     ast_node_t *cond = lower_compound_list(gcond);
     if (!cond)
@@ -843,9 +853,9 @@ static ast_node_t *lower_if_clause(const gnode_t *g)
 
     ast_node_t *if_ast = ast_create_if_clause(cond, then_body);
 
-    if (gelse)
+    if (gelse_part)
     {
-        ast_node_t *else_node = lower_else_part(gelse);
+        ast_node_t *else_node = lower_else_part(gelse_part);
         if (!else_node)
         {
             ast_node_destroy(&if_ast);

@@ -335,6 +335,16 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
     /* Classify and execute command */
     builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
 
+    /* Check if this is a reserved word that shouldn't be executed as a command */
+    if (token_is_reserved_word(cmd_name))
+    {
+        exec_set_error(executor, "%s: syntax error - reserved word in command position", cmd_name);
+        string_list_destroy(&expanded_words);
+        status = EXEC_ERROR;
+        cmd_exit_status = 2;
+        goto out_restore_redirs;
+    }
+
     /* Special builtins: When calling special built-in, variable assignments survive the current shell. */
     if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
     {
@@ -356,7 +366,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
         if (builtin_fn != NULL)
         {
-            cmd_exit_status = (*builtin_fn)(executor, expanded_words);
+            cmd_exit_status = (*builtin_fn)(frame, expanded_words);
             goto done_execution;
         }
         exec_set_error(executor, "%s: special builtin not implemented", cmd_name);
@@ -365,10 +375,10 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
     }
 
     /* Execute: shell functions */
-    const ast_node_t *func_def = func_store_get_def_cstr(frame->functions, cmd_name);
-    if (func_def != NULL)
+    const ast_node_t *func_body = func_store_get_def_cstr(frame->functions, cmd_name);
+    if (func_body != NULL)
     {
-        Expects_eq(func_def->type, AST_FUNCTION_DEF);
+        /* func_store returns the function body, not the full AST_FUNCTION_DEF node */
 
         /* Get redirections associated with the function definition */
         string_t *func_name_str = string_create_from_cstr(cmd_name);
@@ -377,7 +387,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
         /* Execute function in a new function frame with argument scope isolation */
         exec_result_t func_result = exec_function(frame,
-                                                   func_def->data.function_def.body,
+                                                   func_body,
                                                    expanded_words,
                                                    (exec_redirections_t *)func_redirs);
 
@@ -391,7 +401,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
         if (builtin_fn != NULL)
         {
-            cmd_exit_status = (*builtin_fn)(executor, expanded_words);
+            cmd_exit_status = (*builtin_fn)(frame, expanded_words);
             goto done_execution;
         }
     }

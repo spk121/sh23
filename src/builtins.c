@@ -44,7 +44,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "exit", BUILTIN_SPECIAL, builtin_exit}, */
     { "export", BUILTIN_SPECIAL, builtin_export},
     /* { "readonly", BUILTIN_SPECIAL, builtin_readonly}, */
-    /* { "return", BUILTIN_SPECIAL, builtin_return}, */
+    { "return", BUILTIN_SPECIAL, builtin_return},
     {"set", BUILTIN_SPECIAL, builtin_set},
     /* { "shift", BUILTIN_SPECIAL, builtin_shift}, */
     /* { "times", BUILTIN_SPECIAL, builtin_times}, */
@@ -57,7 +57,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
 #endif
     /* { "cd", BUILTIN_REGULAR, builtin_cd}, */
     /* { "pwd", BUILTIN_REGULAR, builtin_pwd}, */
-    /* { "echo", BUILTIN_REGULAR, builtin_echo}, */
+    { "echo", BUILTIN_REGULAR, builtin_echo},
     /* { "printf", BUILTIN_REGULAR, builtin_printf}, */
     /* { "test", BUILTIN_REGULAR, builtin_test}, */
     /* { "[", BUILTIN_REGULAR, builtin_bracket}, */
@@ -78,8 +78,8 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "bg", BUILTIN_REGULAR, builtin_bg}, */
     /* { "wait", BUILTIN_REGULAR, builtin_wait}, */
     /* { "kill", BUILTIN_REGULAR, builtin_kill}, */
-    /* { "true", BUILTIN_REGULAR, builtin_true}, */
-    /* { "false", BUILTIN_REGULAR, builtin_false}, */
+    { "true", BUILTIN_REGULAR, builtin_true},
+    { "false", BUILTIN_REGULAR, builtin_false},
     {NULL, BUILTIN_NONE, NULL} // Sentinel
 };
 
@@ -567,7 +567,7 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
             }
 
             /* Set or unset the named option based on prefix */
-            builtin_set_set_named_option(ex, state.optarg, state.opt_plus_prefix);
+            builtin_set_set_named_option(frame, state.optarg, state.opt_plus_prefix);
             options_changed = true;
             break;
 
@@ -586,7 +586,7 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
     /* Handle special cases: set -o or set +o */
     if (print_o_options)
     {
-        builtin_set_print_options(ex, reusable_format);
+        builtin_set_print_options(frame, reusable_format);
         xfree(argv);
         return 0;
     }
@@ -606,21 +606,21 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
         if (!any_flags)
         {
             /* Pure "set" with no arguments - print all variables */
-            int ret = builtin_set_print_variables(ex);
+            int ret = builtin_set_print_variables(frame);
             xfree(argv);
             return ret;
         }
     }
 
     /* Apply collected short options to executor flags */
-    if (flag_a != -1) { ex->opt.allexport = (flag_a != 0); options_changed = true; }
-    if (flag_C != -1) { ex->opt.noclobber = (flag_C != 0); options_changed = true; }
-    if (flag_e != -1) { ex->opt.errexit = (flag_e != 0); options_changed = true; }
-    if (flag_f != -1) { ex->opt.noglob = (flag_f != 0); options_changed = true; }
-    if (flag_n != -1) { ex->opt.noexec = (flag_n != 0); options_changed = true; }
-    if (flag_u != -1) { ex->opt.nounset = (flag_u != 0); options_changed = true; }
-    if (flag_v != -1) { ex->opt.verbose = (flag_v != 0); options_changed = true; }
-    if (flag_x != -1) { ex->opt.xtrace = (flag_x != 0); options_changed = true; }
+    if (flag_a != -1) { opt->allexport = (flag_a != 0); options_changed = true; }
+    if (flag_C != -1) { opt->noclobber = (flag_C != 0); options_changed = true; }
+    if (flag_e != -1) { opt->errexit = (flag_e != 0); options_changed = true; }
+    if (flag_f != -1) { opt->noglob = (flag_f != 0); options_changed = true; }
+    if (flag_n != -1) { opt->noexec = (flag_n != 0); options_changed = true; }
+    if (flag_u != -1) { opt->nounset = (flag_u != 0); options_changed = true; }
+    if (flag_v != -1) { opt->verbose = (flag_v != 0); options_changed = true; }
+    if (flag_x != -1) { opt->xtrace = (flag_x != 0); options_changed = true; }
 
     /* Flags not yet implemented: b (notify), h (hashall), m (monitor) */
 
@@ -630,10 +630,10 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
     /* Replace positional parameters if requested (includes explicit "set --") */
     if (have_positional_request)
     {
-        if (!ex->positional_params)
+        if (!frame->positional_params)
         {
-            ex->positional_params = positional_params_create();
-            if (!ex->positional_params)
+            frame->positional_params = positional_params_create();
+            if (!frame->positional_params)
             {
                 fprintf(stderr, "set: failed to allocate positional parameters\n");
                 xfree(argv);
@@ -641,7 +641,7 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
             }
         }
 
-        int max_params = positional_params_get_max(ex->positional_params);
+        int max_params = positional_params_get_max(frame->positional_params);
         if (new_param_count > max_params)
         {
             fprintf(stderr, "set: too many positional parameters (max %d)\n", max_params);
@@ -659,7 +659,7 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
             }
         }
 
-        if (!positional_params_replace(ex->positional_params, new_params, new_param_count))
+        if (!positional_params_replace(frame->positional_params, new_params, new_param_count))
         {
             if (new_params)
             {
@@ -684,9 +684,9 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
  * unset - unset values and attributes of variables and functions
  * ============================================================================
  */
-int builtin_unset(exec_t *ex, const string_list_t *args)
+int builtin_unset(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
     getopt_reset();
@@ -696,8 +696,8 @@ int builtin_unset(exec_t *ex, const string_list_t *args)
     int flag_err = 0;
     int err_count = 0;
     int c;
-    variable_store_t *var_store = ex->variables;
-    func_store_t *func_store = ex->functions;
+    variable_store_t *var_store = frame->variables;
+    func_store_t *func_store = frame->functions;
     string_t *opts = string_create_from_cstr("fv");
 
     while ((c = getopt_string(args, opts)) != -1)
@@ -778,16 +778,16 @@ int builtin_unset(exec_t *ex, const string_list_t *args)
  * ============================================================================
  */
 #ifdef UCRT_API
-int builtin_cd(exec_t *ex, const string_list_t *args)
+int builtin_cd(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
     getopt_reset();
 
     int flag_err = 0;
     int c;
-    variable_store_t *var_store = ex->variables;
+    variable_store_t *var_store = frame->variables;
 
     string_t *opts = string_create_from_cstr("LP");
 
@@ -951,9 +951,9 @@ int builtin_cd(exec_t *ex, const string_list_t *args)
  * @param args Command arguments (including "pwd" as args[0])
  * @return 0 on success, 1 on failure
  */
-int builtin_pwd(exec_t *ex, const string_list_t *args)
+int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
     getopt_reset();
@@ -962,7 +962,7 @@ int builtin_pwd(exec_t *ex, const string_list_t *args)
     int flag_P = 0;
     int flag_err = 0;
     int c;
-    variable_store_t *var_store = ex->variables;
+    variable_store_t *var_store = frame->variables;
 
     string_t *opts = string_create_from_cstr("LP");
 
@@ -1205,13 +1205,14 @@ static void builtin_jobs_print_job(const job_store_t *store, const job_t *job, j
     }
 }
 
-int builtin_jobs(exec_t *ex, const string_list_t *args)
+int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
 {
     getopt_reset();
 
-    if (!ex)
+    if (!frame)
         return 1;
 
+    exec_t *ex = frame->executor;
     job_store_t *store = ex->jobs;
     if (!store)
     {
@@ -1644,12 +1645,12 @@ static int ls_list_directory(const string_t *dir_path, int flag_a, int flag_A, i
     return 0;
 }
 
-int builtin_ls(exec_t *ex, const string_list_t *args)
+int builtin_ls(exec_frame_t *frame, const string_list_t *args)
 {
-    Expects_not_null(ex);
+    Expects_not_null(frame);
     Expects_not_null(args);
 
-    (void)ex; /* Unused, but kept for consistent builtin signature */
+    (void)frame; /* Unused, but kept for consistent builtin signature */
 
     getopt_reset();
 
@@ -1758,13 +1759,179 @@ int builtin_ls(exec_t *ex, const string_list_t *args)
     return err_count > 0 ? 1 : 0;
 }
 #else
-int builtin_ls(exec_t* ex, const string_list_t* args)
+int builtin_ls(exec_frame_t *frame, const string_list_t *args)
 {
+    (void)frame;
+    (void)args;
     fprintf(stderr, "ls: not supported on this platform\n");
     return -2;
 }
 #endif
-    /* ============================================================================
+
+/* ============================================================================
+ * echo - Display a line of text
+ * ============================================================================
+ */
+
+int builtin_echo(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+    bool suppress_newline = false;
+    bool interpret_escapes = false;
+    int first_arg = 1;
+
+    /* Parse options (non-standard but common: -n and -e) */
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+        
+        if (strcmp(arg, "-n") == 0)
+        {
+            suppress_newline = true;
+            first_arg = i + 1;
+        }
+        else if (strcmp(arg, "-e") == 0)
+        {
+            interpret_escapes = true;
+            first_arg = i + 1;
+        }
+        else if (strcmp(arg, "-E") == 0)
+        {
+            interpret_escapes = false;
+            first_arg = i + 1;
+        }
+        else
+        {
+            /* Stop processing options at first non-option */
+            break;
+        }
+    }
+
+    /* Print arguments separated by spaces */
+    for (int i = first_arg; i < argc; i++)
+    {
+        if (i > first_arg)
+        {
+            putchar(' ');
+        }
+
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (interpret_escapes)
+        {
+            /* Interpret escape sequences */
+            for (const char *p = arg; *p; p++)
+            {
+                if (*p == '\\' && *(p + 1))
+                {
+                    p++;
+                    switch (*p)
+                    {
+                    case 'a': putchar('\a'); break;
+                    case 'b': putchar('\b'); break;
+                    case 'c': return 0; /* Stop printing */
+                    case 'e': putchar('\033'); break; /* ESC */
+                    case 'f': putchar('\f'); break;
+                    case 'n': putchar('\n'); break;
+                    case 'r': putchar('\r'); break;
+                    case 't': putchar('\t'); break;
+                    case 'v': putchar('\v'); break;
+                    case '\\': putchar('\\'); break;
+                    case '0': /* Octal */
+                    {
+                        int val = 0;
+                        for (int j = 0; j < 3 && p[1] >= '0' && p[1] <= '7'; j++)
+                        {
+                            p++;
+                            val = val * 8 + (*p - '0');
+                        }
+                        putchar(val);
+                        break;
+                    }
+                    default:
+                        /* Unknown escape - print literally */
+                        putchar('\\');
+                        putchar(*p);
+                        break;
+                    }
+                }
+                else
+                {
+                    putchar(*p);
+                }
+            }
+        }
+        else
+        {
+            /* No escape interpretation - print as-is */
+            fputs(arg, stdout);
+        }
+    }
+
+    if (!suppress_newline)
+    {
+        putchar('\n');
+    }
+
+    fflush(stdout);
+    return 0;
+}
+
+/* ============================================================================
+ * return - Return from a function or dot script
+ * ============================================================================
+ */
+
+int builtin_return(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    /* Check if return is valid (must be in a function or dot script) */
+    exec_frame_t *return_target = exec_frame_find_return_target(frame);
+    if (!return_target)
+    {
+        exec_set_error(ex, "return: can only be used in a function or sourced script");
+        return 2;
+    }
+
+    /* Parse optional exit status argument */
+    int exit_status = frame->last_exit_status;
+
+    if (string_list_size(args) > 1)
+    {
+        const char *arg = string_cstr(string_list_at(args, 1));
+        char *endptr;
+        long val = strtol(arg, &endptr, 10);
+
+        if (*endptr != '\0')
+        {
+            exec_set_error(ex, "return: numeric argument required");
+            return 2;
+        }
+
+        exit_status = (int)(val & 0xFF);
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "return: too many arguments");
+        return 1;
+    }
+
+    frame->pending_control_flow = EXEC_FLOW_RETURN;
+    frame->pending_flow_depth = 0;
+
+    return exit_status;
+}
+
+/* ============================================================================
  * Builtin function classification and lookup
  * ============================================================================
  */
@@ -1839,4 +2006,23 @@ builtin_func_t builtin_get_function(const string_t *name)
     if (name == NULL)
         return NULL;
     return builtin_get_function_cstr(string_cstr(name));
+}
+
+/* ============================================================================
+ * true / false - Return success or failure
+ * ============================================================================
+ */
+
+int builtin_true(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+    return 0;
+}
+
+int builtin_false(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+    return 1;
 }

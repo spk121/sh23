@@ -889,12 +889,6 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
             continue;
 
         exec_status_t exec_status = exec_execute(executor, ast);
-        const char *error = exec_get_error(executor);
-        if (error)
-        {
-            fprintf(stderr, "%s\n", error);
-            final_status = EXEC_ERROR;
-        }
         ast_node_destroy(&ast);
 
         if (exec_status != EXEC_OK)
@@ -1190,9 +1184,26 @@ exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
             case AST_SUBSHELL:
                 cmd_result = exec_subshell(frame, cmd->data.compound.body);
                 break;
-            // Add other command types as implemented (e.g., AST_SIMPLE_COMMAND)
+            case AST_IF_CLAUSE:
+                cmd_result = exec_if_clause(frame, cmd);
+                break;
+            case AST_WHILE_CLAUSE:
+            case AST_UNTIL_CLAUSE:
+                cmd_result = exec_while_clause(frame, cmd);
+                break;
+            case AST_FOR_CLAUSE:
+                cmd_result = exec_for_clause(frame, cmd);
+                break;
+            case AST_CASE_CLAUSE:
+                cmd_result = exec_case_clause(frame, cmd);
+                break;
+            case AST_REDIRECTED_COMMAND:
+                cmd_result = exec_redirected_command(frame, cmd);
+                break;
+            case AST_FUNCTION_DEF:
+                cmd_result = exec_function_def_clause(frame, cmd);
+                break;
             default:
-                // For now, treat as unsupported; in full impl, add more cases
                 exec_set_error(frame->executor, "Unsupported command type in compound list: %d (%s)", cmd->type, ast_node_type_to_string(cmd->type));
                 result.status = EXEC_NOT_IMPL;
                 return result;
@@ -1360,6 +1371,14 @@ exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *node)
         result.has_exit_status = false;
         result.exit_status = 0;
     }
+
+    /* Check if a builtin set pending control flow (return, break, continue) */
+    result.flow = frame->pending_control_flow;
+    result.flow_depth = frame->pending_flow_depth;
+
+    /* Reset pending flow for next command */
+    frame->pending_control_flow = EXEC_FLOW_NORMAL;
+    frame->pending_flow_depth = 0;
 
     return result;
 }

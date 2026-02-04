@@ -62,6 +62,8 @@ int builtin_dot(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_export(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_return(exec_frame_t *frame, const string_list_t *args);
+
 /**
  * set - Set or unset shell options and positional parameters
  *
@@ -80,8 +82,13 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args);
 int builtin_cd(exec_frame_t *frame, const string_list_t *args);
 int builtin_pwd(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_echo(exec_frame_t *frame, const string_list_t *args);
+
 int builtin_jobs(exec_frame_t *frame, const string_list_t *args);
 int builtin_ls(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_true(exec_frame_t *frame, const string_list_t *args);
+int builtin_false(exec_frame_t *frame, const string_list_t *args);
 
 
 #endif /* BUILTINS_H */
