@@ -150,7 +150,6 @@ struct part_list_t
 struct token_t
 {
     token_type_t type;
-    int padding1;
 
     /* Location tracking for error messages */
     int first_line;
@@ -163,7 +162,6 @@ struct token_t
 
     /* For TOKEN_IO_NUMBER: the actual number value (e.g., 2 in "2>file") */
     int io_number;
-    int padding2;
 
     /* For TOKEN_IO_LOCATION: the actual location string (e.g., "{2}>") */
     string_t *io_location;
@@ -172,7 +170,6 @@ struct token_t
     string_t *heredoc_delimiter; // the delimiter string
     string_t *heredoc_content;   // the body content
     bool heredoc_delim_quoted;   // <<'EOF' vs <<EOF
-    char padding3[7];
 
     /* For TOKEN_ASSIGNMENT_WORD */
     string_t *assignment_name;     // left side of =
@@ -184,7 +181,6 @@ struct token_t
     bool needs_pathname_expansion; // has unquoted glob characters
     bool was_quoted;               // entire word was quoted
     bool has_equals_before_quote;               // has an equals sign before a quoted character
-    char padding4[3];
 };
 
 /* ============================================================================
@@ -643,6 +639,14 @@ void token_list_destroy(token_list_t **list);
 int token_list_append(token_list_t *list, token_t *token);
 
 /**
+ * Append all tokens from list 'src' to list 'dest', then destroy the src list.
+ * The dest list takes ownership of all tokens from src.
+ * The src list is destroyed and set to NULL.
+ * Returns 0 on success, -1 on failure.
+ */
+int token_list_append_list_move(token_list_t *dest, token_list_t **src);
+
+/**
  * Get the number of tokens in a list.
  */
 int token_list_size(const token_list_t *list);
@@ -651,13 +655,25 @@ int token_list_size(const token_list_t *list);
  * Get a token by index.
  * Returns NULL if index is out of bounds.
  */
-token_t *token_list_get(const token_list_t *list, int index);
+const token_t *token_list_get(const token_list_t *list, int index);
 
 /**
  * Get the last token in a list.
  * Returns NULL if the list is empty.
  */
-token_t *token_list_get_last(const token_list_t *list);
+const token_t *token_list_get_last(const token_list_t *list);
+
+/**
+ * Set the type of the token at the specified index.
+ * Returns 0 on success, -1 if index is out of bounds.
+ */
+int token_list_set_token_type(token_list_t *list, int index, token_type_t type);
+
+/**
+ * Convert the token at the specified index to TOKEN_IO_NUMBER and set its value.
+ * Returns 0 on success, -1 if index is out of bounds.
+ */
+int token_list_set_io_number(token_list_t *list, int index, int io_number);
 
 /**
  * Destroys the token at the given index, shifting the

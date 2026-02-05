@@ -943,3 +943,164 @@ string_t *variable_store_write_env_file(variable_store_t *vars)
     return result;
 }
 
+bool variable_store_debug_verify_independent(const variable_store_t *store_a,
+                                             const variable_store_t *store_b)
+{
+    if (!store_a || !store_b)
+    {
+        log_error("variable_store_debug_verify_independent: NULL store pointer(s)");
+        return false;
+    }
+
+    if (!store_a->map || !store_b->map)
+    {
+        log_error("variable_store_debug_verify_independent: NULL map pointer(s)");
+        return false;
+    }
+
+    bool all_ok = true;
+
+    // Check that both stores have the same number of variables
+    if (store_a->map->size != store_b->map->size)
+    {
+        log_error("variable_store_debug_verify_independent: store sizes differ (%d vs %d)",
+                  store_a->map->size, store_b->map->size);
+        all_ok = false;
+    }
+
+    // Iterate through store_a and verify each variable in store_b
+    for (int32_t i = 0; i < store_a->map->capacity; i++)
+    {
+        if (!store_a->map->entries[i].occupied)
+            continue;
+
+        const string_t *key_a = store_a->map->entries[i].key;
+        const string_t *value_a = store_a->map->entries[i].mapped.value;
+
+        // Find matching entry in store_b
+        int32_t pos_b = variable_map_find(store_b->map, key_a);
+        if (pos_b == -1)
+        {
+            log_error("variable_store_debug_verify_independent: key '%s' exists in store_a but not in store_b",
+                      string_cstr(key_a));
+            all_ok = false;
+            continue;
+        }
+
+        const string_t *key_b = store_b->map->entries[pos_b].key;
+        const string_t *value_b = store_b->map->entries[pos_b].mapped.value;
+
+        // 1. Check that keys have the same content
+        if (!string_eq(key_a, key_b))
+        {
+            log_error("variable_store_debug_verify_independent: key content mismatch: '%s' vs '%s'",
+                      string_cstr(key_a), string_cstr(key_b));
+            all_ok = false;
+        }
+
+        // 3. Check that keys don't have identical string_t pointers
+        if (key_a == key_b)
+        {
+            log_error("variable_store_debug_verify_independent: key '%s' has identical string_t pointer in both stores (%p)",
+                      string_cstr(key_a), (void*)key_a);
+            all_ok = false;
+        }
+        else
+        {
+            // Check that keys don't have identical data pointers
+            if (string_data(key_a) == string_data(key_b))
+            {
+                log_error("variable_store_debug_verify_independent: key '%s' has identical data pointer in both stores (%p)",
+                          string_cstr(key_a), (void*)string_data(key_a));
+                all_ok = false;
+            }
+        }
+
+        // 2. Check that values have the same content
+        if (value_a == NULL && value_b == NULL)
+        {
+            // Both NULL - OK
+        }
+        else if (value_a == NULL || value_b == NULL)
+        {
+            log_error("variable_store_debug_verify_independent: value mismatch for key '%s': one is NULL, other is not",
+                      string_cstr(key_a));
+            all_ok = false;
+        }
+        else
+        {
+            if (!string_eq(value_a, value_b))
+            {
+                log_error("variable_store_debug_verify_independent: value content mismatch for key '%s': '%s' vs '%s'",
+                          string_cstr(key_a), string_cstr(value_a), string_cstr(value_b));
+                all_ok = false;
+            }
+
+            // 4. Check that values don't have identical string_t pointers
+            if (value_a == value_b)
+            {
+                log_error("variable_store_debug_verify_independent: value for key '%s' has identical string_t pointer in both stores (%p)",
+                          string_cstr(key_a), (void*)value_a);
+                all_ok = false;
+            }
+            else
+            {
+                // Check that values don't have identical data pointers
+                if (string_data(value_a) == string_data(value_b))
+                {
+                    log_error("variable_store_debug_verify_independent: value for key '%s' has identical data pointer in both stores (%p)",
+                              string_cstr(key_a), (void*)string_data(value_a));
+                    all_ok = false;
+                }
+            }
+        }
+
+        // Also check flags match
+        if (store_a->map->entries[i].mapped.exported != store_b->map->entries[pos_b].mapped.exported)
+        {
+            log_warn("variable_store_debug_verify_independent: exported flag mismatch for key '%s': %d vs %d",
+                     string_cstr(key_a), 
+                     store_a->map->entries[i].mapped.exported,
+                     store_b->map->entries[pos_b].mapped.exported);
+        }
+
+        if (store_a->map->entries[i].mapped.read_only != store_b->map->entries[pos_b].mapped.read_only)
+        {
+            log_warn("variable_store_debug_verify_independent: read_only flag mismatch for key '%s': %d vs %d",
+                     string_cstr(key_a),
+                     store_a->map->entries[i].mapped.read_only,
+                     store_b->map->entries[pos_b].mapped.read_only);
+        }
+    }
+
+    // Check for variables in store_b that aren't in store_a
+    for (int32_t i = 0; i < store_b->map->capacity; i++)
+    {
+        if (!store_b->map->entries[i].occupied)
+            continue;
+
+        const string_t *key_b = store_b->map->entries[i].key;
+        int32_t pos_a = variable_map_find(store_a->map, key_b);
+        if (pos_a == -1)
+        {
+            log_error("variable_store_debug_verify_independent: key '%s' exists in store_b but not in store_a",
+                      string_cstr(key_b));
+            all_ok = false;
+        }
+    }
+
+    if (all_ok)
+    {
+        log_debug("variable_store_debug_verify_independent: SUCCESS - stores are equal and independent (%d variables)",
+                  store_a->map->size);
+    }
+    else
+    {
+        log_error("variable_store_debug_verify_independent: FAILED - violations found");
+    }
+
+    return all_ok;
+}
+
+
+

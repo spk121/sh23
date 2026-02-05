@@ -88,7 +88,7 @@ static bool heredoc_previous_token_allows_io_number(const lexer_t *lx)
     if (token_list_size(lx->tokens) == 0)
         return true;
 
-    token_t *last = token_list_get_last(lx->tokens);
+    const token_t *last = token_list_get_last(lx->tokens);
     if (!last)
         return true;
 
@@ -536,7 +536,7 @@ static bool previous_token_allows_io_number(const lexer_t *lx)
     if (token_list_size(lx->tokens) == 0)
         return true; // start of input
 
-    token_t *last = token_list_get_last(lx->tokens);
+    const token_t *last = token_list_get_last(lx->tokens);
     if (!last)
         return true;
 

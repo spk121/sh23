@@ -22,7 +22,7 @@ CTEST(test_param_unbraced_simple)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -46,7 +46,7 @@ CTEST(test_param_unbraced_underscore)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "my_var", "param name is 'my_var'");
 
@@ -66,7 +66,7 @@ CTEST(test_param_unbraced_with_digits)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "var123", "param name is 'var123'");
 
@@ -86,7 +86,7 @@ CTEST(test_param_unbraced_positional)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "1", "param name is '1'");
 
@@ -106,7 +106,7 @@ CTEST(test_param_unbraced_special_question)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "?", "param name is '?'");
 
@@ -126,7 +126,7 @@ CTEST(test_param_unbraced_special_dollar)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "$", "param name is '$'");
 
@@ -146,7 +146,7 @@ CTEST(test_param_unbraced_special_at)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "@", "param name is '@'");
 
@@ -166,7 +166,7 @@ CTEST(test_param_unbraced_special_star)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "*", "param name is '*'");
 
@@ -186,7 +186,7 @@ CTEST(test_param_unbraced_special_hash)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "#", "param name is '#'");
 
@@ -207,7 +207,7 @@ CTEST(test_param_unbraced_with_suffix)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -239,7 +239,7 @@ CTEST(test_param_braced_simple)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_PARAMETER, "part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "var", "param name is 'var'");
@@ -261,7 +261,7 @@ CTEST(test_param_braced_with_suffix)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -286,7 +286,7 @@ CTEST(test_param_braced_length)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "var", "param name is 'var'");
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_LENGTH, "kind is PARAM_LENGTH");
@@ -307,7 +307,7 @@ CTEST(test_param_braced_special_hash)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "#", "param name is '#'");
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_PLAIN, "kind is PARAM_PLAIN");
@@ -328,7 +328,7 @@ CTEST(test_param_braced_use_default)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "var", "param name is 'var'");
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_USE_DEFAULT, "kind is PARAM_USE_DEFAULT");
@@ -351,7 +351,7 @@ CTEST(test_param_braced_assign_default)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_ASSIGN_DEFAULT, "kind is PARAM_ASSIGN_DEFAULT");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "value", "word is 'value'");
@@ -372,7 +372,7 @@ CTEST(test_param_braced_error_if_unset)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_ERROR_IF_UNSET, "kind is PARAM_ERROR_IF_UNSET");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "error", "word is 'error'");
@@ -393,7 +393,7 @@ CTEST(test_param_braced_use_alternate)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_USE_ALTERNATE, "kind is PARAM_USE_ALTERNATE");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "alternate", "word is 'alternate'");
@@ -414,7 +414,7 @@ CTEST(test_param_braced_remove_small_suffix)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_SMALL_SUFFIX, "kind is PARAM_REMOVE_SMALL_SUFFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "*.txt", "word is '*.txt'");
@@ -435,7 +435,7 @@ CTEST(test_param_braced_remove_large_suffix)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_LARGE_SUFFIX, "kind is PARAM_REMOVE_LARGE_SUFFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "*.txt", "word is '*.txt'");
@@ -456,7 +456,7 @@ CTEST(test_param_braced_remove_small_prefix)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_SMALL_PREFIX, "kind is PARAM_REMOVE_SMALL_PREFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "*/", "word is '*/'");
@@ -477,7 +477,7 @@ CTEST(test_param_braced_remove_large_prefix)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part->param_kind, PARAM_REMOVE_LARGE_PREFIX, "kind is PARAM_REMOVE_LARGE_PREFIX");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part->word), "*/", "word is '*/'");
@@ -535,7 +535,7 @@ CTEST(test_param_in_dquote)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -560,7 +560,7 @@ CTEST(test_param_braced_in_dquote)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_TRUE(ctest, part_was_double_quoted(part), "part was double-quoted");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part)), "var", "param name is 'var'");
@@ -581,7 +581,7 @@ CTEST(test_param_mixed_in_dquote)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 3, "three parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -618,7 +618,7 @@ CTEST(test_param_two_braced_with_space)
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 2, "two tokens produced");
 
     // First token: ${foo}
-    token_t *tok1 = token_list_get(tokens, 0);
+    const token_t *tok1 = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_WORD, "first token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok1), 1, "first token has one part");
     part_t *part1 = token_get_part(tok1, 0);
@@ -626,7 +626,7 @@ CTEST(test_param_two_braced_with_space)
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part1)), "foo", "param name is 'foo'");
 
     // Second token: ${bar}
-    token_t *tok2 = token_list_get(tokens, 1);
+    const token_t *tok2 = token_list_get(tokens, 1);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok2), TOKEN_WORD, "second token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok2), 1, "second token has one part");
     part_t *part2 = token_get_part(tok2, 0);
@@ -650,7 +650,7 @@ CTEST(test_param_two_braced_consecutive)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
@@ -679,11 +679,11 @@ CTEST(test_param_two_unbraced_consecutive)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
-    part_t *part1 = token_get_part(tok, 0);
+    const part_t *part1 = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part1), PART_PARAMETER, "first part is PARAMETER");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_param_name(part1)), "foo", "first param is 'foo'");
 
@@ -708,7 +708,7 @@ CTEST(test_param_unbraced_then_braced)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
@@ -737,7 +737,7 @@ CTEST(test_param_followed_by_squote)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
@@ -767,7 +767,7 @@ CTEST(test_squote_followed_by_param)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
@@ -797,7 +797,7 @@ CTEST(test_param_in_word_of_braced)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 

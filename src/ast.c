@@ -68,9 +68,10 @@ ast_node_t *ast_node_clone(const ast_node_t *node)
     case AST_IF_CLAUSE:
         new_node->data.if_clause.condition = ast_node_clone(node->data.if_clause.condition);
         new_node->data.if_clause.then_body = ast_node_clone(node->data.if_clause.then_body);
-        new_node->data.if_clause.elif_list =
-            ast_node_list_clone(node->data.if_clause.elif_list);
-        new_node->data.if_clause.else_body = ast_node_clone(node->data.if_clause.else_body);
+        if (node->data.if_clause.elif_list)
+            new_node->data.if_clause.elif_list = ast_node_list_clone(node->data.if_clause.elif_list);
+        if (new_node->data.if_clause.else_body)
+            new_node->data.if_clause.else_body = ast_node_clone(node->data.if_clause.else_body);
         break;
     case AST_WHILE_CLAUSE:
     case AST_UNTIL_CLAUSE:
@@ -1099,7 +1100,7 @@ static void ast_node_to_command_line_full_helper(const ast_node_t *node, string_
             for (int i = 0; i < node->data.simple_command.assignments->size; i++)
             {
                 if (i > 0) string_append_cstr(result, " ");
-                token_t *assign = token_list_get(node->data.simple_command.assignments, i);
+                const token_t *assign = token_list_get(node->data.simple_command.assignments, i);
                 string_t *assign_str = token_to_cmd_string(assign);
                 string_append(result, assign_str);
                 string_destroy(&assign_str);
@@ -1118,7 +1119,7 @@ static void ast_node_to_command_line_full_helper(const ast_node_t *node, string_
             for (int i = 0; i < node->data.simple_command.words->size; i++)
             {
                 if (i > 0) string_append_cstr(result, " ");
-                token_t *word = token_list_get(node->data.simple_command.words, i);
+                const token_t *word = token_list_get(node->data.simple_command.words, i);
                 string_t *word_str = token_to_cmd_string(word);
                 string_append(result, word_str);
                 string_destroy(&word_str);
@@ -1261,7 +1262,7 @@ static void ast_node_to_command_line_full_helper(const ast_node_t *node, string_
             for (int i = 0; i < node->data.for_clause.words->size; i++)
             {
                 if (i > 0) string_append_cstr(result, " ");
-                token_t *word = token_list_get(node->data.for_clause.words, i);
+                const token_t *word = token_list_get(node->data.for_clause.words, i);
                 string_t *word_str = token_to_cmd_string(word);
                 string_append(result, word_str);
                 string_destroy(&word_str);
@@ -1302,7 +1303,7 @@ static void ast_node_to_command_line_full_helper(const ast_node_t *node, string_
             for (int i = 0; i < node->data.case_item.patterns->size; i++)
             {
                 if (i > 0) string_append_cstr(result, " | ");
-                token_t *pattern = token_list_get(node->data.case_item.patterns, i);
+                const token_t *pattern = token_list_get(node->data.case_item.patterns, i);
                 string_t *pattern_str = token_to_cmd_string(pattern);
                 string_append(result, pattern_str);
                 string_destroy(&pattern_str);

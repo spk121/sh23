@@ -341,6 +341,24 @@ var_store_error_t variable_store_map(variable_store_t *store, var_store_map_fn f
 void variable_store_debug_print_exported(const variable_store_t *store);
 
 /**
+ * Debug: Verify that two variable stores have identical content but independent memory.
+ * 
+ * Checks that:
+ * 1. Both stores have the same keys (by string content)
+ * 2. Both stores have the same values (by string content) for matching keys
+ * 3. Keys don't share string_t pointers or data pointers (no aliasing)
+ * 4. Values don't share string_t pointers or data pointers (no aliasing)
+ * 
+ * Logs errors for any violations found.
+ * 
+ * @param store_a First variable store
+ * @param store_b Second variable store
+ * @return true if stores are equal in content and independent in memory, false otherwise
+ */
+bool variable_store_debug_verify_independent(const variable_store_t *store_a, 
+                                             const variable_store_t *store_b);
+
+/**
  * Returns the environment array for the variable store.
  * The returned pointer remains valid until the next update call.
  *

@@ -707,20 +707,38 @@ static ast_node_t *lower_compound_list(const gnode_t *g)
     else
     {
         /* sep is a valid G_SEPARATOR */
-        gnode_t *sep_op = sep->data.child;
-        switch (sep_op->data.token->type)
+        gnode_t *sep_child = sep->data.child;
+        
+        if (sep_child->type == G_SEPARATOR_OP)
         {
-        case TOKEN_AMPER:
-            final_separator = CMD_EXEC_BACKGROUND;
-            update_final_separator = true;
-            break;
-        case TOKEN_SEMI:
+            /* separator_op linebreak case */
+            switch (sep_child->data.token->type)
+            {
+            case TOKEN_AMPER:
+                final_separator = CMD_EXEC_BACKGROUND;
+                update_final_separator = true;
+                break;
+            case TOKEN_SEMI:
+                final_separator = CMD_EXEC_SEQUENTIAL;
+                update_final_separator = true;
+                break;
+            default:
+                log_error("lower_compound_list: unexpected separator token %s (%d)",
+                          token_type_to_cstr(sep_child->data.token->type), (int)sep_child->data.token->type);
+                ast_node_destroy(&list_node);
+                return NULL;
+            }
+        }
+        else if (sep_child->type == G_NEWLINE_LIST)
+        {
+            /* newline_list case - treat as sequential execution */
             final_separator = CMD_EXEC_SEQUENTIAL;
             update_final_separator = true;
-            break;
-        default:
-            log_error("lower_complete_command: unexpected separator token %s (%d)",
-                      token_type_to_cstr(sep_op->data.token->type), (int)sep_op->data.token->type);
+        }
+        else
+        {
+            log_error("lower_compound_list: expected G_SEPARATOR_OP or G_NEWLINE_LIST, got %s (%d)",
+                      g_node_type_to_cstr(sep_child->type), (int)sep_child->type);
             ast_node_destroy(&list_node);
             return NULL;
         }
@@ -922,13 +940,14 @@ static ast_node_t *lower_else_part(const gnode_t *g)
 
 /* ============================================================================
  * while / until
+ * Parser stores: .a=keyword_tok, .b=cond, .c=do_grp
  * ============================================================================
  */
 static ast_node_t *lower_while_clause(const gnode_t *g)
 {
     Expects_eq(g->type, G_WHILE_CLAUSE);
-    const gnode_t *gcond = g->data.multi.a;
-    const gnode_t *gbody = g->data.multi.b;
+    const gnode_t *gcond = g->data.multi.b;
+    const gnode_t *gbody = g->data.multi.c;
 
     ast_node_t *cond = lower_compound_list(gcond);
     if (!cond)
@@ -947,8 +966,8 @@ static ast_node_t *lower_while_clause(const gnode_t *g)
 static ast_node_t *lower_until_clause(const gnode_t *g)
 {
     Expects_eq(g->type, G_UNTIL_CLAUSE);
-    const gnode_t *gcond = g->data.multi.a;
-    const gnode_t *gbody = g->data.multi.b;
+    const gnode_t *gcond = g->data.multi.b;
+    const gnode_t *gbody = g->data.multi.c;
 
     ast_node_t *cond = lower_compound_list(gcond);
     if (!cond)
@@ -964,11 +983,13 @@ static ast_node_t *lower_until_clause(const gnode_t *g)
     return ast_create_until_clause(cond, body);
 }
 
-/* do_group: Do compound_list Done */
+/* do_group: Do compound_list Done 
+ * Parser stores: .a=do_tok, .b=compound_list, .c=done_tok */
 static ast_node_t *lower_do_group(const gnode_t *g)
 {
     Expects_eq(g->type, G_DO_GROUP);
-    return lower_compound_list(g->data.child);
+    const gnode_t *list = g->data.multi.b;
+    return lower_compound_list(list);
 }
 
 /* ============================================================================
@@ -979,19 +1000,28 @@ static ast_node_t *lower_for_clause(const gnode_t *g)
 {
     Expects_eq(g->type, G_FOR_CLAUSE);
 
-    const gnode_t *gname = g->data.multi.a;
-    const gnode_t *gwlist = g->data.multi.b; /* may be NULL */
-    const gnode_t *gdo = g->data.multi.c;
+    /* Parser stores: .a=for_tok, .b=name, .c=in_clause, .d=do_grp */
+    const gnode_t *gname = g->data.multi.b;
+    const gnode_t *gin_clause = g->data.multi.c; /* may be NULL */
+    const gnode_t *gdo = g->data.multi.d;
 
     EXPECT_TYPE(gname, G_NAME_NODE);
 
     string_t *var = token_get_all_text(gname->data.token);
 
     token_list_t *words = NULL;
-    if (gwlist)
+    if (gin_clause)
     {
-        EXPECT_TYPE(gwlist, G_WORDLIST);
-        words = token_list_from_wordlist(gwlist);
+        EXPECT_TYPE(gin_clause, G_IN_NODE);
+        /* in_clause can be:
+         * - Just 'in' keyword (payload_type = GNODE_PAYLOAD_TOKEN)
+         * - 'in' + wordlist (payload_type = GNODE_PAYLOAD_MULTI) */
+        if (gin_clause->payload_type == GNODE_PAYLOAD_MULTI && gin_clause->data.multi.b)
+        {
+            const gnode_t *gwlist = gin_clause->data.multi.b;
+            EXPECT_TYPE(gwlist, G_WORDLIST);
+            words = token_list_from_wordlist(gwlist);
+        }
     }
 
     ast_node_t *body = lower_do_group(gdo);
@@ -1324,7 +1354,7 @@ static token_list_t *token_list_from_wordlist(const gnode_t *g)
     {
         const gnode_t *w = lst->nodes[i];
         EXPECT_TYPE(w, G_WORD_NODE);
-        token_list_append(tl, w->data.token);
+        token_list_append(tl, token_clone(w->data.token));
     }
 
     return tl;
@@ -1341,7 +1371,8 @@ static token_list_t *token_list_from_pattern_list(const gnode_t *g)
     {
         const gnode_t *w = lst->nodes[i];
         EXPECT_TYPE(w, G_WORD_NODE);
-        token_list_append(tl, w->data.token);
+        /* Clone token - respect silo boundary between gnode and AST */
+        token_list_append(tl, token_clone(w->data.token));
     }
 
     return tl;

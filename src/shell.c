@@ -31,10 +31,34 @@ shell_t *shell_create(const shell_cfg_t *cfg)
         return NULL;
 
     sh->mode = cfg->mode;
+    
+    /* Initialize script filename if provided */
+    if (cfg->command_file)
+    {
+        sh->script_filename = string_create_from_cstr(cfg->command_file);
+    }
+    else
+    {
+        sh->script_filename = NULL;
+    }
+    
+    /* Initialize command string if provided */
+    if (cfg->command_string)
+    {
+        sh->command_string = string_create_from_cstr(cfg->command_string);
+    }
+    else
+    {
+        sh->command_string = NULL;
+    }
 
     sh->executor = exec_create(&cfg->exec_cfg);
     if (!sh->executor)
     {
+        if (sh->script_filename)
+            string_destroy(&sh->script_filename);
+        if (sh->command_string)
+            string_destroy(&sh->command_string);
         xfree(sh);
         return NULL;
     }
@@ -46,6 +70,16 @@ void shell_destroy(shell_t **sh)
     Expects_not_null(sh);
     if (!*sh)
         return;
+
+    /* Clean up string fields */
+    if ((*sh)->command_string)
+    {
+        string_destroy(&(*sh)->command_string);
+    }
+    if ((*sh)->script_filename)
+    {
+        string_destroy(&(*sh)->script_filename);
+    }
 
     exec_destroy(&(*sh)->executor);
     xfree(*sh);
@@ -192,6 +226,14 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
     Expects_not_null(sh);
 
     const char *ps1 = shell_get_ps1(sh);
+    string_t *ps1_str = string_create_from_cstr(ps1);
+    string_t *expanded_ps1_str = expand_string(sh->executor->current_frame,
+        ps1_str, EXPAND_ALL);
+    if (expanded_ps1_str)
+    {
+        ps1 = string_cstr(expanded_ps1_str);
+    }
+    string_destroy(&ps1_str);
 
     // Simple REPL: read line, execute, repeat
     // For now we execute each complete line - no PS2 multi-line support yet
@@ -253,6 +295,7 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
         fflush(stdout);
     }
 
+    string_destroy(&expanded_ps1_str);
     return SH_OK;
 }
 

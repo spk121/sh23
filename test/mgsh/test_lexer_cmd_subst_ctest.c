@@ -22,11 +22,11 @@ CTEST(test_cmd_subst_paren_basic)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
-    part_t *part = token_get_part(tok, 0);
+    const part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo hello", "command text is correct");
 
@@ -47,8 +47,8 @@ CTEST(test_cmd_subst_paren_empty)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
-    part_t *part = token_get_part(tok, 0);
+    const token_t *tok = token_list_get(tokens, 0);
+    const part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
 
     token_list_destroy(&tokens);
@@ -83,7 +83,7 @@ CTEST(test_cmd_subst_paren_nested_parens)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo (foo)", "nested parens preserved");
@@ -105,7 +105,7 @@ CTEST(test_cmd_subst_paren_in_word)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 3, "three parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -137,7 +137,7 @@ CTEST(test_cmd_subst_paren_in_dquote)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -161,7 +161,7 @@ CTEST(test_cmd_subst_paren_with_squotes)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo 'hello world'", "single quotes preserved");
 
@@ -186,7 +186,7 @@ CTEST(test_cmd_subst_backtick_basic)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -211,7 +211,7 @@ CTEST(test_cmd_subst_backtick_empty)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_COMMAND_SUBST, "part is command substitution");
 
@@ -248,7 +248,7 @@ CTEST(test_cmd_subst_backtick_escaped)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // Backslash escapes $, `, and backslash: \$ -> $, \` -> `, \\ -> single backslash
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo $VAR ` \\", "escape sequences resolved");
@@ -270,7 +270,7 @@ CTEST(test_cmd_subst_backtick_literal_backslash)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "echo \\n", "backslash+n literal");
 
@@ -291,7 +291,7 @@ CTEST(test_cmd_subst_backtick_in_word)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 3, "three parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -323,7 +323,7 @@ CTEST(test_cmd_subst_backtick_in_dquote)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -352,7 +352,7 @@ CTEST(test_cmd_subst_multiple)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -380,7 +380,7 @@ CTEST(test_cmd_subst_mixed_forms)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -414,7 +414,7 @@ CTEST(test_cmd_subst_backtick_nested)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -442,7 +442,7 @@ CTEST(test_cmd_subst_paren_not_arithmetic)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 

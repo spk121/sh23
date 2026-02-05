@@ -128,7 +128,7 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_frame_t *
     {
         for (int i = 0; i < token_list_size(assignments); i++)
         {
-            token_t *tok = token_list_get(assignments, i);
+            const token_t *tok = token_list_get(assignments, i);
             string_t *value = expand_assignment_value(frame, tok);
             if (!value)
             {
@@ -173,7 +173,7 @@ static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame, variable
 
     for (int i = 0; i < token_list_size(assignments); i++)
     {
-        token_t *tok = token_list_get(assignments, i);
+        const token_t *tok = token_list_get(assignments, i);
         string_t *value = expand_assignment_value(frame, tok);
         var_store_error_t err = variable_store_add(frame->variables, tok->assignment_name, value,
                                                     false, false);
@@ -219,7 +219,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             for (int i = 0; i < token_list_size(assign_tokens); i++)
             {
-                token_t *tok = token_list_get(assign_tokens, i);
+                const token_t *tok = token_list_get(assign_tokens, i);
                 string_t *value = expand_assignment_value(frame, tok);
                 if (!value)
                 {
@@ -259,9 +259,19 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         goto out_base_exp;
     }
 
+#if 0
+    /* Check to make sure that old_vars and temp_vars have the same contents, but, don't
+     * share any pointers */
+    if( variable_store_debug_verify_independent(old_vars, temp_vars) )
+    {
+        log_debug("After creation: Temporary variable store is independent from old store");
+    }
+#endif
+
     /* Since these varible changes shouldn't survive after the command execution, we'll swap in
      * the temporary variable store to use with the expansion step */
     frame->variables = temp_vars;
+    temp_vars = NULL;
 
     /* Expand command words. */
     string_list_t *expanded_words = expand_words(frame, word_tokens);
@@ -584,6 +594,16 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 done_execution:
     frame->last_exit_status = cmd_exit_status;
 
+#if 0
+    /* Check to make sure that old_vars and temp_vars have the same contents, but, don't
+     * share any pointers */
+    if (variable_store_debug_verify_independent(old_vars, frame->variables))
+    {
+        log_debug("After execution: Temporary variable store is independent from old store");
+    }
+#endif
+
+
     /* Update $_ with last argument */
     if (string_list_size(expanded_words) > 1)
     {
@@ -621,9 +641,8 @@ out_restore_redirs:
 
 out_exp_temp:
     /* Restore the permanent variable store */
-    temp_vars = frame->variables;
+    variable_store_destroy(&frame->variables);
     frame->variables = old_vars;
-    variable_store_destroy(&temp_vars);
 
 out_base_exp:
     return status;

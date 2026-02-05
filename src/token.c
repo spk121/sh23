@@ -30,6 +30,9 @@ token_t *token_create(token_type_t type)
 // Deep copy
 token_t *token_clone(const token_t *other)
 {
+    if (!other)
+        return NULL;
+        
     token_t *new_token = token_create(other->type);
     if (!new_token)
         return NULL;
@@ -72,6 +75,7 @@ token_t *token_clone(const token_t *other)
     }
     if (other->parts)
     {
+        new_token->parts = part_list_create();
         for (int i = 0; i < other->parts->size; i++)
         {
             part_t *prt = part_clone(other->parts->parts[i]);
@@ -98,6 +102,9 @@ void token_destroy(token_t **token)
 
     if (t->parts != NULL)
         part_list_destroy(&t->parts);
+
+    if (t->io_location != NULL)
+        string_destroy(&t->io_location);
 
     if (t->heredoc_delimiter != NULL)
         string_destroy(&t->heredoc_delimiter);
@@ -1337,6 +1344,39 @@ int token_list_append(token_list_t *list, token_t *token)
     return 0;
 }
 
+int token_list_append_list_move(token_list_t *dest, token_list_t **src)
+{
+    Expects_not_null(dest);
+    Expects_not_null(src);
+    token_list_t *s = *src;
+    Expects_not_null(s);
+
+    if (s->size == 0)
+    {
+        token_list_destroy(src);
+        return 0;
+    }
+
+    /* Ensure dest has enough capacity */
+    int needed_capacity = dest->size + s->size;
+    if (token_list_ensure_capacity(dest, needed_capacity) != 0)
+        return -1;
+
+    /* Transfer all token pointers from src to dest */
+    for (int i = 0; i < s->size; i++)
+    {
+        dest->tokens[dest->size++] = s->tokens[i];
+    }
+
+    /* Release src tokens without destroying them (ownership transferred) */
+    token_list_release_tokens(s);
+    
+    /* Destroy the now-empty src list structure */
+    token_list_destroy(src);
+    
+    return 0;
+}
+
 int token_list_size(const token_list_t *list)
 {
     Expects_not_null(list);
@@ -1344,10 +1384,11 @@ int token_list_size(const token_list_t *list)
     return list->size;
 }
 
-token_t *token_list_get(const token_list_t *list, int index)
+const token_t *token_list_get(const token_list_t *list, int index)
 {
     Expects_not_null(list);
     Expects_not_null(list->tokens);
+    Expects_ge(index, 0);
     Expects_lt(index, list->size);
 
     return list->tokens[index];
@@ -1371,13 +1412,58 @@ int token_list_remove(token_list_t *list, int index)
     return 0;
 }
 
-token_t *token_list_get_last(const token_list_t *list)
+const token_t *token_list_get_last(const token_list_t *list)
 {
     Expects_not_null(list);
     Expects_not_null(list->tokens);
     Expects_gt(list->size, 0);
 
     return list->tokens[list->size - 1];
+}
+
+/* This function can only change tokens to types that don't require payloads. */
+int token_list_set_token_type(token_list_t *list, int index, token_type_t type)
+{
+    Expects_not_null(list);
+    Expects_ge(index, 0);
+    Expects_lt(index, list->size);
+    Expects_not_null(list->tokens);
+    Expects_not_null(list->tokens[index]);
+    
+    token_t *token = list->tokens[index];
+    /* Some token types require payloads, so we error if this is a token that requires a payload. */
+    if (type == TOKEN_ASSIGNMENT_WORD || type == TOKEN_IO_LOCATION || type == TOKEN_IO_NUMBER ||
+        type == TOKEN_REDIRECT || type == TOKEN_END_OF_HEREDOC || type == TOKEN_WORD)
+    {
+        return -1;
+    }
+
+    if (token->parts != NULL)
+    {
+        part_list_destroy(&token->parts);
+        token->parts = NULL;
+    }
+
+    token_set_type(token, type);
+    return 0;
+}
+
+int token_list_set_io_number(token_list_t *list, int index, int io_number)
+{
+    Expects_not_null(list);
+    Expects_ge(io_number, 0);
+    Expects_ge(index, 0);
+    Expects_lt(index, list->size);
+    Expects_not_null(list->tokens);
+    Expects_not_null(list->tokens[index]);
+
+    token_t *token = list->tokens[index];
+    
+    /* Convert to TOKEN_IO_NUMBER and set the value */
+    token_set_type(token, TOKEN_IO_NUMBER);
+    token_set_io_number(token, io_number);
+    
+    return 0;
 }
 
 void token_list_clear(token_list_t *list)

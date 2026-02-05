@@ -49,13 +49,52 @@ static void destroy_entry(variable_map_entry_t *entry)
 
     if (entry->occupied)
     {
-        if (entry->key)
+        if (entry->mapped.value)
         {
-            string_destroy(&entry->key);
+            string_t *val = entry->mapped.value;
+            /* Check if value is not garbage */
+            if ((uintptr_t)val < 4096)
+            {
+                log_warn("destroy_entry: detected invalid value pointer %p for key '%s'",
+                         (void*)val,
+                         entry->key ? string_cstr(entry->key) : "(null)");
+            }
+            if (val->capacity > 12*1024 || val->capacity < 16)
+            {
+                log_warn("destroy_entry: destroying very large value (capacity %zu) for key '%s'",
+                         val->capacity, entry->key ? string_cstr(entry->key) : "(null)");
+            }
+            if (val->length > val->capacity || val->length < 0)
+            {
+                log_warn("destroy_entry: destroying value with invalid length %zu > capacity %zu for key '%s'",
+                         val->length, val->capacity,
+                         entry->key ? string_cstr(entry->key) : "(null)");
+            }
+            if (val->data == NULL)
+            {
+                log_warn("destroy_entry: destroying value with NULL data for key '%s'",
+                         entry->key ? string_cstr(entry->key) : "(null)");
+            }
+            if (strlen(val->data) != val->length)
+            {
+                log_warn("destroy_entry: destroying value with length mismatch (strlen %zu != length %zu) for key '%s'",
+                         strlen(val->data), val->length,
+                         entry->key ? string_cstr(entry->key) : "(null)");
+            }
+
         }
+#if 0
+        log_debug("destroy_entry: destroying entry for key '%s' value '%s'",
+                  entry->key ? string_cstr(entry->key) : "(null)",
+                  entry->mapped.value ? string_cstr(entry->mapped.value) : "(null)");
+#endif                      
         if (entry->mapped.value)
         {
             string_destroy(&entry->mapped.value);
+        }
+        if (entry->key)
+        {
+            string_destroy(&entry->key);
         }
         entry->occupied = false;
     }
@@ -333,6 +372,11 @@ void variable_map_erase(variable_map_t *map, const string_t *key)
     int32_t pos = variable_map_find(map, key);
     if (pos != -1)
     {
+        if (string_starts_with_cstr(key, "TEST_SHELL"))
+        {
+            log_debug("variable_map_erase: erasing key '%s' at pos %d",
+                      string_cstr(key), pos);
+        }
         variable_map_erase_at_pos(map, pos);
     }
 }

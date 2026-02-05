@@ -35,9 +35,9 @@ typedef struct builtin_implemented_function_map_t
 } builtin_implemented_function_map_t;
 
 builtin_implemented_function_map_t builtin_implemented_functions[] = {
-    /* { "break", BUILTIN_SPECIAL, builtin_break}, */
+    { "break", BUILTIN_SPECIAL, builtin_break},
     { ":", BUILTIN_SPECIAL, builtin_colon},
-    /* { "continue", BUILTIN_SPECIAL, builtin_continue}, */
+    { "continue", BUILTIN_SPECIAL, builtin_continue},
     { ".", BUILTIN_SPECIAL, builtin_dot},
     /* { "eval", BUILTIN_SPECIAL, builtin_eval}, */
     /* { "exec", BUILTIN_SPECIAL, builtin_exec}, */
@@ -46,7 +46,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "readonly", BUILTIN_SPECIAL, builtin_readonly}, */
     { "return", BUILTIN_SPECIAL, builtin_return},
     {"set", BUILTIN_SPECIAL, builtin_set},
-    /* { "shift", BUILTIN_SPECIAL, builtin_shift}, */
+    { "shift", BUILTIN_SPECIAL, builtin_shift},
     /* { "times", BUILTIN_SPECIAL, builtin_times}, */
     /* { "trap", BUILTIN_SPECIAL, builtin_trap}, */
     { "unset", BUILTIN_SPECIAL, builtin_unset},
@@ -58,9 +58,9 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "cd", BUILTIN_REGULAR, builtin_cd}, */
     /* { "pwd", BUILTIN_REGULAR, builtin_pwd}, */
     { "echo", BUILTIN_REGULAR, builtin_echo},
-    /* { "printf", BUILTIN_REGULAR, builtin_printf}, */
+    { "printf", BUILTIN_REGULAR, builtin_printf},
     /* { "test", BUILTIN_REGULAR, builtin_test}, */
-    /* { "[", BUILTIN_REGULAR, builtin_bracket}, */
+    { "[", BUILTIN_REGULAR, builtin_bracket},
     /* { "read", BUILTIN_REGULAR, builtin_read}, */
     /* { "alias", BUILTIN_REGULAR, builtin_alias}, */
     /* { "unalias", BUILTIN_REGULAR, builtin_unalias}, */
@@ -78,6 +78,8 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "bg", BUILTIN_REGULAR, builtin_bg}, */
     /* { "wait", BUILTIN_REGULAR, builtin_wait}, */
     /* { "kill", BUILTIN_REGULAR, builtin_kill}, */
+    { "basename", BUILTIN_REGULAR, builtin_basename},
+    { "dirname", BUILTIN_REGULAR, builtin_dirname},
     { "true", BUILTIN_REGULAR, builtin_true},
     { "false", BUILTIN_REGULAR, builtin_false},
     {NULL, BUILTIN_NONE, NULL} // Sentinel
@@ -97,6 +99,154 @@ int builtin_colon(exec_frame_t *frame, const string_list_t *args)
     getopt_reset();
 
     /* Do nothing, return success */
+    return 0;
+}
+
+/* ============================================================================
+ * break - exit from a loop
+ * ============================================================================
+ */
+
+int builtin_break(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    /* Parse optional loop count argument (default 1) */
+    int loop_count = 1;
+
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str) || val <= 0)
+        {
+            exec_set_error(ex, "break: numeric argument required");
+            return 2;
+        }
+
+        loop_count = (int)val;
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "break: too many arguments");
+        return 1;
+    }
+
+    frame->pending_control_flow = EXEC_FLOW_BREAK;
+    frame->pending_flow_depth = loop_count - 1;
+
+    return 0;
+}
+
+/* ============================================================================
+ * continue - skip to next iteration of a loop
+ * ============================================================================
+ */
+
+int builtin_continue(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    /* Parse optional loop count argument (default 1) */
+    int loop_count = 1;
+
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str) || val <= 0)
+        {
+            exec_set_error(ex, "continue: numeric argument required");
+            return 2;
+        }
+
+        loop_count = (int)val;
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "continue: too many arguments");
+        return 1;
+    }
+
+    frame->pending_control_flow = EXEC_FLOW_CONTINUE;
+    frame->pending_flow_depth = loop_count - 1;
+
+    return 0;
+}
+
+/* ============================================================================
+ * shift - remove positional parameters from the beginning
+ * ============================================================================
+ */
+
+int builtin_shift(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    exec_t *ex = frame->executor;
+    getopt_reset();
+
+    if (!frame->positional_params)
+    {
+        /* No positional parameters to shift */
+        return 0;
+    }
+
+    /* Parse optional shift count argument (default 1) */
+    int shift_count = 1;
+
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str) || val < 0)
+        {
+            exec_set_error(ex, "shift: numeric argument required");
+            return 2;
+        }
+
+        shift_count = (int)val;
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        exec_set_error(ex, "shift: too many arguments");
+        return 1;
+    }
+
+    /* Verify shift count doesn't exceed parameter count */
+    int param_count = positional_params_count(frame->positional_params);
+    if (shift_count > param_count)
+    {
+        exec_set_error(ex, "shift: shift count (%d) exceeds number of positional parameters (%d)",
+                       shift_count, param_count);
+        return 1;
+    }
+
+    /* Perform the shift */
+    if (!positional_params_shift(frame->positional_params, shift_count))
+    {
+        exec_set_error(ex, "shift: failed to shift positional parameters");
+        return 1;
+    }
+
     return 0;
 }
 
@@ -1111,10 +1261,12 @@ static char builtin_jobs_job_indicator(const job_store_t *store, const job_t *jo
  * Returns job_id on success, -1 on error
  * ---------------------------------------------------------------------------- */
 
-static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
+static int builtin_jobs_parse_job_id(const job_store_t *store, const string_t *arg_str)
 {
-    if (!arg || !*arg)
+    if (!arg_str || string_length(arg_str) == 0)
         return -1;
+
+    const char *arg = string_cstr(arg_str);
 
     if (arg[0] == '%')
     {
@@ -1135,9 +1287,9 @@ static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
         }
 
         /* %n -> job number n */
-        char *endptr;
-        long val = strtol(arg, &endptr, 10);
-        if (*endptr == '\0' && val > 0)
+        int endpos = 0;
+        long val = strtol(arg, (char **)&arg, 10);
+        if (*arg == '\0' && val > 0)
         {
             return (int)val;
         }
@@ -1147,9 +1299,9 @@ static int builtin_jobs_parse_job_id(const job_store_t *store, const char *arg)
     }
 
     /* Plain number */
-    char *endptr;
-    long val = strtol(arg, &endptr, 10);
-    if (*endptr == '\0' && val > 0)
+    int endpos = 0;
+    long val = string_atol_at(arg_str, 0, &endpos);
+    if (endpos == string_length(arg_str) && val > 0)
     {
         return (int)val;
     }
@@ -1268,12 +1420,12 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
     {
         for (int i = first_operand; i < argc; i++)
         {
-            const char *arg = string_cstr(string_list_at(args, i));
-            int job_id = builtin_jobs_parse_job_id(store, arg);
+            const string_t *arg_str = string_list_at(args, i);
+            int job_id = builtin_jobs_parse_job_id(store, arg_str);
 
             if (job_id < 0)
             {
-                fprintf(stderr, "jobs: %s: no such job\n", arg);
+                fprintf(stderr, "jobs: %s: no such job\n", string_cstr(arg_str));
                 exit_status = 1;
                 continue;
             }
@@ -1281,7 +1433,7 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
             job_t *job = job_store_find(store, job_id);
             if (!job)
             {
-                fprintf(stderr, "jobs: %s: no such job\n", arg);
+                fprintf(stderr, "jobs: %s: no such job\n", string_cstr(arg_str));
                 exit_status = 1;
                 continue;
             }
@@ -1778,49 +1930,56 @@ int builtin_echo(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    int argc = string_list_size(args);
-    bool suppress_newline = false;
-    bool interpret_escapes = false;
-    int first_arg = 1;
+    getopt_reset();
 
-    /* Parse options (non-standard but common: -n and -e) */
-    for (int i = 1; i < argc; i++)
+    int flag_n = 0;  /* suppress newline */
+    int flag_e = 0;  /* interpret escapes */
+    int flag_err = 0;
+    int c;
+
+    string_t *opts = string_create_from_cstr("neE");
+
+    while ((c = getopt_string(args, opts)) != -1)
     {
-        const char *arg = string_cstr(string_list_at(args, i));
-        
-        if (strcmp(arg, "-n") == 0)
+        switch (c)
         {
-            suppress_newline = true;
-            first_arg = i + 1;
-        }
-        else if (strcmp(arg, "-e") == 0)
-        {
-            interpret_escapes = true;
-            first_arg = i + 1;
-        }
-        else if (strcmp(arg, "-E") == 0)
-        {
-            interpret_escapes = false;
-            first_arg = i + 1;
-        }
-        else
-        {
-            /* Stop processing options at first non-option */
+        case 'n':
+            flag_n = 1;
+            break;
+        case 'e':
+            flag_e = 1;
+            flag_err = 0;  /* -e overrides -E */
+            break;
+        case 'E':
+            if (!flag_e)
+                flag_e = 0;
+            break;
+        case '?':
+            fprintf(stderr, "echo: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
             break;
         }
     }
+    string_destroy(&opts);
 
-    /* Print arguments separated by spaces */
-    for (int i = first_arg; i < argc; i++)
+    if (flag_err)
     {
-        if (i > first_arg)
+        fprintf(stderr, "usage: echo [-neE] [string ...]\n");
+        return 2;
+    }
+
+    /* Print arguments starting from optind, separated by spaces */
+    int argc = string_list_size(args);
+    for (int i = optind; i < argc; i++)
+    {
+        if (i > optind)
         {
             putchar(' ');
         }
 
         const char *arg = string_cstr(string_list_at(args, i));
 
-        if (interpret_escapes)
+        if (flag_e)
         {
             /* Interpret escape sequences */
             for (const char *p = arg; *p; p++)
@@ -1871,13 +2030,630 @@ int builtin_echo(exec_frame_t *frame, const string_list_t *args)
         }
     }
 
-    if (!suppress_newline)
+    if (!flag_n)
     {
         putchar('\n');
     }
 
     fflush(stdout);
     return 0;
+}
+
+/* ============================================================================
+ * printf - Format and print data
+ * 
+ * POSIX printf utility with format specifiers:
+ *   %b    - Print with backslash escapes interpreted
+ *   %c    - Print as character
+ *   %d, %i - Print as signed decimal integer
+ *   %u    - Print as unsigned decimal integer
+ *   %o    - Print as unsigned octal integer
+ *   %x    - Print as unsigned hexadecimal (lowercase)
+ *   %X    - Print as unsigned hexadecimal (uppercase)
+ *   %s    - Print as string
+ *   %%    - Print literal %
+ *
+ * Width and precision modifiers supported.
+ * If more arguments than format specifiers, format is reused.
+ * ============================================================================
+ */
+
+/* Helper: Parse and process escape sequences for %b format */
+static const char *printf_process_escapes(const char *str, int *stop_output)
+{
+    static char buffer[4096];
+    char *out = buffer;
+    const char *p = str;
+    
+    *stop_output = 0;
+    
+    while (*p && out < buffer + sizeof(buffer) - 1)
+    {
+        if (*p == '\\' && *(p + 1))
+        {
+            p++;
+            switch (*p)
+            {
+            case 'a': *out++ = '\a'; break;
+            case 'b': *out++ = '\b'; break;
+            case 'c': *stop_output = 1; *out = '\0'; return buffer; /* Stop */
+            case 'e': /* Extension: ESC */
+            case 'E': *out++ = '\033'; break;
+            case 'f': *out++ = '\f'; break;
+            case 'n': *out++ = '\n'; break;
+            case 'r': *out++ = '\r'; break;
+            case 't': *out++ = '\t'; break;
+            case 'v': *out++ = '\v'; break;
+            case '\\': *out++ = '\\'; break;
+            case '0': /* Octal */
+            case '1': case '2': case '3':
+            case '4': case '5': case '6': case '7':
+            {
+                int val = 0;
+                int count = 0;
+                while (count < 3 && *p >= '0' && *p <= '7')
+                {
+                    val = val * 8 + (*p - '0');
+                    p++;
+                    count++;
+                }
+                p--; /* Back up for loop increment */
+                *out++ = (char)val;
+                break;
+            }
+            default:
+                /* Unknown escape - print literally */
+                *out++ = '\\';
+                *out++ = *p;
+                break;
+            }
+            p++;
+        }
+        else
+        {
+            *out++ = *p++;
+        }
+    }
+    *out = '\0';
+    return buffer;
+}
+
+/* Helper: Parse width or precision number */
+static int printf_parse_number(const char **fmt)
+{
+    int num = 0;
+    while (**fmt >= '0' && **fmt <= '9')
+    {
+        num = num * 10 + (**fmt - '0');
+        (*fmt)++;
+    }
+    return num;
+}
+
+/* Helper: Parse and print a single format specifier */
+static int printf_process_format(const char **fmt, const char *arg, int *stop_output)
+{
+    const char *f = *fmt;
+    int width = 0;
+    int precision = -1;
+    int left_justify = 0;
+    int zero_pad = 0;
+    int has_precision = 0;
+    
+    *stop_output = 0;
+    
+    /* Skip % */
+    f++;
+    
+    /* Parse flags */
+    while (*f == '-' || *f == '0' || *f == ' ' || *f == '+' || *f == '#')
+    {
+        if (*f == '-') left_justify = 1;
+        if (*f == '0') zero_pad = 1;
+        f++;
+    }
+    
+    /* Parse width */
+    if (*f >= '0' && *f <= '9')
+    {
+        width = printf_parse_number(&f);
+    }
+    
+    /* Parse precision */
+    if (*f == '.')
+    {
+        f++;
+        has_precision = 1;
+        precision = printf_parse_number(&f);
+    }
+    
+    /* Get conversion specifier */
+    char spec = *f;
+    if (spec) f++;
+    
+    *fmt = f;
+    
+    /* Process conversion */
+    switch (spec)
+    {
+    case 'b': /* String with backslash escapes */
+    {
+        const char *processed = printf_process_escapes(arg, stop_output);
+        if (width > 0)
+        {
+            int len = (int)strlen(processed);
+            int pad = width - len;
+            if (pad > 0)
+            {
+                if (left_justify)
+                {
+                    printf("%s%*s", processed, pad, "");
+                }
+                else
+                {
+                    printf("%*s%s", pad, "", processed);
+                }
+            }
+            else
+            {
+                printf("%s", processed);
+            }
+        }
+        else
+        {
+            printf("%s", processed);
+        }
+        break;
+    }
+    
+    case 'c': /* Character */
+    {
+        int c = arg && *arg ? (unsigned char)*arg : 0;
+        if (width > 0)
+        {
+            if (left_justify)
+                printf("%-*c", width, c);
+            else
+                printf("%*c", width, c);
+        }
+        else
+        {
+            putchar(c);
+        }
+        break;
+    }
+    
+    case 'd':
+    case 'i': /* Signed decimal */
+    {
+        long val = arg && *arg ? strtol(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                printf("%-*.*ld", width, precision, val);
+            else
+                printf("%*.*ld", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            printf("%0*ld", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                printf("%-*ld", width, val);
+            else
+                printf("%*ld", width, val);
+        }
+        else
+        {
+            printf("%ld", val);
+        }
+        break;
+    }
+    
+    case 'u': /* Unsigned decimal */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                printf("%-*.*lu", width, precision, val);
+            else
+                printf("%*.*lu", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            printf("%0*lu", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                printf("%-*lu", width, val);
+            else
+                printf("%*lu", width, val);
+        }
+        else
+        {
+            printf("%lu", val);
+        }
+        break;
+    }
+    
+    case 'o': /* Octal */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                printf("%-*.*lo", width, precision, val);
+            else
+                printf("%*.*lo", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            printf("%0*lo", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                printf("%-*lo", width, val);
+            else
+                printf("%*lo", width, val);
+        }
+        else
+        {
+            printf("%lo", val);
+        }
+        break;
+    }
+    
+    case 'x': /* Hexadecimal lowercase */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                printf("%-*.*lx", width, precision, val);
+            else
+                printf("%*.*lx", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            printf("%0*lx", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                printf("%-*lx", width, val);
+            else
+                printf("%*lx", width, val);
+        }
+        else
+        {
+            printf("%lx", val);
+        }
+        break;
+    }
+    
+    case 'X': /* Hexadecimal uppercase */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                printf("%-*.*lX", width, precision, val);
+            else
+                printf("%*.*lX", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            printf("%0*lX", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                printf("%-*lX", width, val);
+            else
+                printf("%*lX", width, val);
+        }
+        else
+        {
+            printf("%lX", val);
+        }
+        break;
+    }
+    
+    case 's': /* String */
+    {
+        const char *str = arg ? arg : "";
+        int len = (int)strlen(str);
+        
+        /* Apply precision (max chars) */
+        if (has_precision && precision < len)
+        {
+            len = precision;
+        }
+        
+        if (width > 0)
+        {
+            int pad = width - len;
+            if (left_justify)
+            {
+                printf("%.*s%*s", len, str, pad > 0 ? pad : 0, "");
+            }
+            else
+            {
+                printf("%*s%.*s", pad > 0 ? pad : 0, "", len, str);
+            }
+        }
+        else
+        {
+            printf("%.*s", len, str);
+        }
+        break;
+    }
+    
+    case '%': /* Literal % */
+        putchar('%');
+        break;
+    
+    default:
+        /* Unknown specifier - print as-is */
+        putchar('%');
+        if (spec) putchar(spec);
+        return 1; /* Error */
+    }
+    
+    return 0;
+}
+
+int builtin_printf(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+    
+    /* Need at least format string */
+    if (argc < 2)
+    {
+        exec_set_error(frame->executor, "printf: usage: printf format [arguments...]");
+        return 2;
+    }
+    
+    const char *format = string_cstr(string_list_at(args, 1));
+    int arg_index = 2; /* Start of actual arguments */
+    int stop_output = 0;
+    
+    /* Process format string */
+    while (!stop_output)
+    {
+        const char *f = format;
+        int format_used = 0;
+        
+        while (*f && !stop_output)
+        {
+            if (*f == '%' && *(f + 1))
+            {
+                /* Get next argument (or empty string if no more args) */
+                const char *arg = "";
+                if (arg_index < argc)
+                {
+                    arg = string_cstr(string_list_at(args, arg_index));
+                    arg_index++;
+                    format_used = 1;
+                }
+                else if (format_used)
+                {
+                    /* No more arguments, use empty/zero defaults */
+                    arg = "";
+                }
+                else
+                {
+                    /* First pass through format, no arguments yet */
+                    arg = "";
+                }
+                
+                int err = printf_process_format(&f, arg, &stop_output);
+                if (err)
+                {
+                    exec_set_error(frame->executor, "printf: invalid format");
+                    return 1;
+                }
+            }
+            else if (*f == '\\' && *(f + 1))
+            {
+                /* Process escape sequences in format string */
+                f++;
+                switch (*f)
+                {
+                case 'a': putchar('\a'); break;
+                case 'b': putchar('\b'); break;
+                case 'c': stop_output = 1; break;
+                case 'e': putchar('\033'); break;
+                case 'f': putchar('\f'); break;
+                case 'n': putchar('\n'); break;
+                case 'r': putchar('\r'); break;
+                case 't': putchar('\t'); break;
+                case 'v': putchar('\v'); break;
+                case '\\': putchar('\\'); break;
+                case '0': /* Octal */
+                {
+                    int val = 0;
+                    int count = 0;
+                    f++;
+                    while (count < 3 && *f >= '0' && *f <= '7')
+                    {
+                        val = val * 8 + (*f - '0');
+                        f++;
+                        count++;
+                    }
+                    f--;
+                    putchar(val);
+                    break;
+                }
+                default:
+                    putchar(*f);
+                    break;
+                }
+                f++;
+            }
+            else
+            {
+                putchar(*f);
+                f++;
+            }
+        }
+        
+        /* If we used arguments, check if there are more to process */
+        if (format_used && arg_index < argc)
+        {
+            /* Reuse format string with remaining arguments */
+            continue;
+        }
+        else
+        {
+            /* Done */
+            break;
+        }
+    }
+    
+    fflush(stdout);
+    return 0;
+}
+
+/* ============================================================================
+ * bracket (test) - Conditional expression evaluation
+ * Implements: [ expression ]
+ * Focuses on ISO C compatible tests
+ * ============================================================================
+ */
+
+int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+    
+    /* Last argument must be "]" */
+    if (argc < 2)
+    {
+        exec_set_error(frame->executor, "[: missing ']'");
+        return 2;
+    }
+    
+    const string_t *last_str = string_list_at(args, argc - 1);
+    if (string_length(last_str) != 1 || string_cstr(last_str)[0] != ']')
+    {
+        exec_set_error(frame->executor, "[: missing ']'");
+        return 2;
+    }
+
+    /* [ ] is false */
+    if (argc == 2)
+    {
+        return 1;
+    }
+
+    /* Single argument - test if non-empty string */
+    if (argc == 3)
+    {
+        const string_t *arg = string_list_at(args, 1);
+        return (string_length(arg) > 0) ? 0 : 1;
+    }
+
+    /* Binary operators */
+    if (argc == 4)
+    {
+        const string_t *arg1_str = string_list_at(args, 1);
+        const string_t *op_str = string_list_at(args, 2);
+        const string_t *arg2_str = string_list_at(args, 3);
+        const char *op = string_cstr(op_str);
+
+        /* String comparisons */
+        if (strcmp(op, "=") == 0)
+            return (string_eq(arg1_str, arg2_str)) ? 0 : 1;
+        
+        if (strcmp(op, "!=") == 0)
+            return (string_ne(arg1_str, arg2_str)) ? 0 : 1;
+
+        /* Integer comparisons */
+        int endpos1 = 0, endpos2 = 0;
+        long val1 = string_atol_at(arg1_str, 0, &endpos1);
+        long val2 = string_atol_at(arg2_str, 0, &endpos2);
+        
+        /* Check if both arguments are valid integers */
+        int arg1_is_int = (endpos1 == (int)string_length(arg1_str));
+        int arg2_is_int = (endpos2 == (int)string_length(arg2_str));
+
+        if (arg1_is_int && arg2_is_int)
+        {
+            if (strcmp(op, "-eq") == 0)
+                return (val1 == val2) ? 0 : 1;
+            
+            if (strcmp(op, "-ne") == 0)
+                return (val1 != val2) ? 0 : 1;
+            
+            if (strcmp(op, "-lt") == 0)
+                return (val1 < val2) ? 0 : 1;
+            
+            if (strcmp(op, "-le") == 0)
+                return (val1 <= val2) ? 0 : 1;
+            
+            if (strcmp(op, "-gt") == 0)
+                return (val1 > val2) ? 0 : 1;
+            
+            if (strcmp(op, "-ge") == 0)
+                return (val1 >= val2) ? 0 : 1;
+        }
+
+        exec_set_error(frame->executor, "[: unknown operator '%s'", op);
+        return 2;
+    }
+
+    /* Unary operators */
+    if (argc == 3)
+    {
+        const string_t *op_str = string_list_at(args, 1);
+        const string_t *arg_str = string_list_at(args, 2);
+        const char *op = string_cstr(op_str);
+
+        /* File descriptor tests */
+        if (strcmp(op, "-t") == 0)
+        {
+            int endpos = 0;
+            long fd = string_atol_at(arg_str, 0, &endpos);
+            
+            /* Check if valid file descriptor number */
+            if (endpos != (int)string_length(arg_str) || fd < 0)
+            {
+                exec_set_error(frame->executor, "[: -t: invalid file descriptor");
+                return 2;
+            }
+
+#ifdef POSIX_API
+            return isatty((int)fd) ? 0 : 1;
+#elif defined UCRT_API
+            return _isatty((int)fd) ? 0 : 1;
+#endif
+        /* else, fallthrough to failure */
+        }
+
+        /* String tests */
+        if (strcmp(op, "-z") == 0)
+            return (string_length(arg_str) == 0) ? 0 : 1;
+        
+        if (strcmp(op, "-n") == 0)
+            return (string_length(arg_str) > 0) ? 0 : 1;
+
+        exec_set_error(frame->executor, "[: unknown operator '%s'", op);
+        return 2;
+    }
+
+    exec_set_error(frame->executor, "[: too many arguments");
+    return 2;
 }
 
 /* ============================================================================
@@ -1906,11 +2682,11 @@ int builtin_return(exec_frame_t *frame, const string_list_t *args)
 
     if (string_list_size(args) > 1)
     {
-        const char *arg = string_cstr(string_list_at(args, 1));
-        char *endptr;
-        long val = strtol(arg, &endptr, 10);
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
 
-        if (*endptr != '\0')
+        if (endpos != string_length(arg_str))
         {
             exec_set_error(ex, "return: numeric argument required");
             return 2;
@@ -2006,6 +2782,261 @@ builtin_func_t builtin_get_function(const string_t *name)
     if (name == NULL)
         return NULL;
     return builtin_get_function_cstr(string_cstr(name));
+}
+
+/* ============================================================================
+ * basename - Return the filename portion of a pathname
+ * 
+ * Usage: basename string [suffix]
+ * 
+ * The basename utility shall remove any prefix from string that ends with
+ * the last '/' and an optional suffix.
+ * 
+ * Examples:
+ *   basename /usr/bin/sort          -> "sort"
+ *   basename /usr/bin/              -> "bin"
+ *   basename stdio.h .h             -> "stdio"
+ *   basename /home/user/file.txt .txt -> "file"
+ * ============================================================================
+ */
+
+int builtin_basename(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+
+    /* Usage check */
+    if (argc < 2 || argc > 3)
+    {
+        exec_set_error(frame->executor, "basename: usage: basename string [suffix]");
+        return 2;
+    }
+
+    const string_t *path_arg = string_list_at(args, 1);
+    const string_t *suffix = (argc == 3) ? string_list_at(args, 2) : NULL;
+
+    /* Handle empty string */
+    if (!path_arg || string_empty(path_arg))
+    {
+        printf(".\n");
+        return 0;
+    }
+
+    /* Make a working copy */
+    string_t *work = string_create_from(path_arg);
+    int len = string_length(work);
+
+    /* Remove trailing slashes (except if the whole string is slashes) */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If only slashes remain, return "/" */
+    if (len == 1)
+    {
+        char first = string_at(work, 0);
+        if (first == '/' || first == '\\')
+        {
+            printf("/\n");
+            string_destroy(&work);
+            return 0;
+        }
+    }
+
+    /* Find last slash */
+    int last_slash_pos = string_rfind_cstr(work, "/");
+    int last_backslash_pos = string_rfind_cstr(work, "\\");
+    
+    /* Use whichever is later */
+    int last_sep_pos = -1;
+    if (last_slash_pos > last_backslash_pos)
+        last_sep_pos = last_slash_pos;
+    else if (last_backslash_pos > last_slash_pos)
+        last_sep_pos = last_backslash_pos;
+    else
+        last_sep_pos = last_slash_pos; /* Both are -1 or equal */
+
+    /* Extract basename */
+    string_t *base;
+    if (last_sep_pos >= 0 && last_sep_pos < len - 1)
+    {
+        /* There's a separator, take everything after it */
+        base = string_create_from_range(work, last_sep_pos + 1, -1);
+    }
+    else
+    {
+        /* No separator or separator at end, use whole string */
+        base = string_create_from(work);
+    }
+
+    /* Remove suffix if specified and matches */
+    if (suffix && !string_empty(suffix))
+    {
+        int base_len = string_length(base);
+        int suffix_len = string_length(suffix);
+
+        /* Only remove if suffix is shorter and matches end of basename */
+        if (suffix_len < base_len)
+        {
+            /* Check if the end of base matches suffix */
+            string_t *base_end = string_create_from_range(base, base_len - suffix_len, -1);
+            if (string_eq(base_end, suffix))
+            {
+                /* Remove the suffix */
+                string_resize(base, base_len - suffix_len);
+            }
+            string_destroy(&base_end);
+        }
+    }
+
+    /* Print the basename */
+    printf("%s\n", string_cstr(base));
+    
+    string_destroy(&base);
+    string_destroy(&work);
+    return 0;
+}
+
+/* ============================================================================
+ * dirname - Return the directory portion of a pathname
+ * 
+ * Usage: dirname string
+ * 
+ * The dirname utility shall remove the last component from string,
+ * leaving the directory path.
+ * 
+ * Examples:
+ *   dirname /usr/bin/sort           -> "/usr/bin"
+ *   dirname /usr/bin/               -> "/usr"
+ *   dirname stdio.h                 -> "."
+ *   dirname /                       -> "/"
+ *   dirname //                      -> "/"
+ *   dirname ///                     -> "/"
+ * ============================================================================
+ */
+
+int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+
+    /* Usage check */
+    if (argc != 2)
+    {
+        exec_set_error(frame->executor, "dirname: usage: dirname string");
+        return 2;
+    }
+
+    const string_t *path_arg = string_list_at(args, 1);
+
+    /* Handle empty string */
+    if (!path_arg || string_empty(path_arg))
+    {
+        printf(".\n");
+        return 0;
+    }
+
+    /* Make a working copy */
+    string_t *work = string_create_from(path_arg);
+    int len = string_length(work);
+
+    /* Remove trailing slashes */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If only slashes remain, return "/" */
+    if (len == 1)
+    {
+        char first = string_at(work, 0);
+        if (first == '/' || first == '\\')
+        {
+            printf("/\n");
+            string_destroy(&work);
+            return 0;
+        }
+    }
+
+    /* If no slashes, return "." */
+    int has_slash_pos = string_find_first_of_cstr(work, "/\\");
+    if (has_slash_pos < 0)
+    {
+        printf(".\n");
+        string_destroy(&work);
+        return 0;
+    }
+
+    /* Find last slash */
+    int last_slash_pos = string_rfind_cstr(work, "/");
+    int last_backslash_pos = string_rfind_cstr(work, "\\");
+    
+    /* Use whichever is later */
+    int last_sep_pos = -1;
+    if (last_slash_pos > last_backslash_pos)
+        last_sep_pos = last_slash_pos;
+    else if (last_backslash_pos > last_slash_pos)
+        last_sep_pos = last_backslash_pos;
+    else
+        last_sep_pos = last_slash_pos; /* Both are -1 or equal */
+
+    /* Remove everything after the last slash */
+    if (last_sep_pos >= 0)
+    {
+        string_resize(work, last_sep_pos);
+        len = last_sep_pos;
+    }
+
+    /* Remove trailing slashes again */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If we ended up with empty string or only slashes, return "/" */
+    if (len == 0 || (len == 1 && (string_at(work, 0) == '/' || string_at(work, 0) == '\\')))
+    {
+        printf("/\n");
+    }
+    else
+    {
+        printf("%s\n", string_cstr(work));
+    }
+
+    string_destroy(&work);
+    return 0;
 }
 
 /* ============================================================================
