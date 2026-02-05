@@ -187,10 +187,10 @@ CTEST(test_heredoc_integration_unquoted)
     CTEST_ASSERT_TRUE(ctest, token_list_size(tokens) >= 3, "at least 3 tokens produced");
 
     // Should have: WORD(cat), DLESS(<<), NEWLINE, and possibly more
-    token_t *tok0 = token_list_get(tokens, 0);
+    const token_t *tok0 = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok0), TOKEN_WORD, "first token is WORD");
 
-    token_t *tok1 = token_list_get(tokens, 1);
+    const token_t *tok1 = token_list_get(tokens, 1);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_DLESS, "second token is DLESS");
 
     token_list_destroy(&tokens);
@@ -210,7 +210,7 @@ CTEST(test_heredoc_integration_strip_tabs)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize completes successfully");
 
     // Should have: WORD(cat), DLESSDASH(<<-), NEWLINE
-    token_t *tok1 = token_list_get(tokens, 1);
+    const token_t *tok1 = token_list_get(tokens, 1);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok1), TOKEN_DLESSDASH, "second token is DLESSDASH");
 
     token_list_destroy(&tokens);

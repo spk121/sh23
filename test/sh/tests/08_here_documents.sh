@@ -64,15 +64,15 @@ assert_eq 'hello $var world' "$result" "backslash-quoted delimiter prevents expa
 
 # Tab stripping with <<- (tabs before delimiter and content)
 result=$(cat <<-EOF
-	indented line
-	EOF
+    indented line
+    EOF
 )
 assert_eq "indented line" "$result" "<<- strips leading tabs"
 
 # <<- with quoted delimiter
 result=$(cat <<-'EOF'
-	$var not expanded
-	EOF
+    $var not expanded
+    EOF
 )
 assert_eq '$var not expanded' "$result" "<<- with quoted delimiter"
 

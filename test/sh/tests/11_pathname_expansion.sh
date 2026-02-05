@@ -144,7 +144,7 @@ assert_eq "3" "$result" "glob matches file with space"
 # Verify the spaced file is one argument
 for f in *.txt; do
     case "$f" in
-        *" "*) 
+        *" "*)
             result=$(count_words "$f")
             assert_eq "1" "$result" "spaced filename is one word when quoted"
             break

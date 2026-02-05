@@ -80,7 +80,7 @@ assert_eq "textvalue" "$result" "quoted var after text"
 result='hello\'
 # Shell should error or interpret differently
 # In single quotes, backslash is literal, so this is: hello\
-# But then there's no closing quote... 
+# But then there's no closing quote...
 # Actually 'hello\' is a valid single-quoted string containing hello\
 assert_eq 'hello\' "$result" "backslash at end of single quotes"
 

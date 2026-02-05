@@ -23,7 +23,7 @@ CTEST(test_squote_basic)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
@@ -50,7 +50,7 @@ CTEST(test_squote_special_chars)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     const char *expected = "$VAR `cmd` \\n \"quoted\"";
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), expected, "special chars are literal");
@@ -71,7 +71,7 @@ CTEST(test_squote_with_newline)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "line1\nline2", "newline is preserved");
 
@@ -92,7 +92,7 @@ CTEST(test_squote_empty)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     // Empty quoted string should still produce a WORD token with empty part
 
@@ -130,7 +130,7 @@ CTEST(test_squote_with_suffix)
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced (word continues)");
 
     // Token should have two parts: quoted 'hello' and unquoted 'world'
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -162,7 +162,7 @@ CTEST(test_dquote_basic)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
@@ -188,7 +188,7 @@ CTEST(test_dquote_escapes)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // \$ -> $, \` -> `, \" -> ", \\ -> \  (becomes a$b`c"d\e)
     const char *expected = "a$b`c\"d\\e";
@@ -210,7 +210,7 @@ CTEST(test_dquote_literal_backslash)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // \n is NOT escapable in double quotes, so both \ and n are kept
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "a\\nb", "backslash+n literal");
@@ -231,7 +231,7 @@ CTEST(test_dquote_line_continuation)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // \<newline> is consumed entirely
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "helloworld", "line continuation removed");
@@ -253,7 +253,7 @@ CTEST(test_dquote_empty)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
 
     token_list_destroy(&tokens);
@@ -288,7 +288,7 @@ CTEST(test_dquote_literal_metachars)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     // Metacharacters are literal inside double quotes
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "a|b;c&d", "metacharacters are literal");
@@ -309,7 +309,7 @@ CTEST(test_dquote_with_squote)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "it's", "single quote literal in dquote");
 
@@ -334,7 +334,7 @@ CTEST(test_mixed_quotes)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one combined token");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -362,7 +362,7 @@ CTEST(test_quoted_unquoted_mix)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one combined token");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 3, "three parts");
 
     part_t *part1 = token_get_part(tok, 0);

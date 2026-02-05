@@ -13,7 +13,7 @@ assert_eq() {
     actual="$2"
     description="$3"
     _test_count=$((_test_count + 1))
-    
+
     if [ "$expected" = "$actual" ]; then
         printf "    ✓ %s\n" "$description"
         return 0

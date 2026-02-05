@@ -1,6 +1,6 @@
 #!/bin/sh
 # Test: Single Quotes (POSIX 2.2.2)
-# "Enclosing characters in single-quotes shall preserve the literal 
+# "Enclosing characters in single-quotes shall preserve the literal
 # value of each character within the single-quotes."
 
 . "$(dirname "$0")/../test_helpers.sh"

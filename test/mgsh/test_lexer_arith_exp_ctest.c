@@ -22,7 +22,7 @@ CTEST(test_arith_exp_basic)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_get_type(tok), TOKEN_WORD, "token is WORD");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -47,7 +47,7 @@ CTEST(test_arith_exp_empty)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
 
@@ -99,7 +99,7 @@ CTEST(test_arith_exp_with_spaces)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " 1 + 2 ", "expression text preserves spaces");
@@ -124,7 +124,7 @@ CTEST(test_arith_exp_nested_parens)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " (1+2)*3 ", "nested parens preserved");
@@ -145,7 +145,7 @@ CTEST(test_arith_exp_deeply_nested_parens)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), " ((1+2)) ", "deeply nested parens preserved");
@@ -170,7 +170,7 @@ CTEST(test_arith_exp_with_variable)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "x+1", "variable reference preserved");
@@ -191,7 +191,7 @@ CTEST(test_arith_exp_with_dollar_variable)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "$x+1", "$variable reference preserved");
@@ -212,7 +212,7 @@ CTEST(test_arith_exp_with_braced_param)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "${x}+1", "braced param preserved");
@@ -237,7 +237,7 @@ CTEST(test_arith_exp_operators)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1+2-3*4/5%6", "operators preserved");
 
@@ -257,7 +257,7 @@ CTEST(test_arith_exp_comparison_operators)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "x<y", "comparison operators preserved");
 
@@ -277,7 +277,7 @@ CTEST(test_arith_exp_ternary_operator)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "x?1:0", "ternary operator preserved");
 
@@ -302,7 +302,7 @@ CTEST(test_arith_exp_in_word)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 3, "three parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -334,7 +334,7 @@ CTEST(test_arith_exp_in_dquote)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_TRUE(ctest, token_was_quoted(tok), "token was quoted");
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 1, "one part");
 
@@ -359,7 +359,7 @@ CTEST(test_arith_exp_multiple)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -391,7 +391,7 @@ CTEST(test_arith_exp_mixed_with_cmd_subst)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -417,7 +417,7 @@ CTEST(test_arith_exp_cmd_subst_then_arith)
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
     CTEST_ASSERT_EQ(ctest, token_list_size(tokens), 1, "one token produced");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     CTEST_ASSERT_EQ(ctest, token_part_count(tok), 2, "two parts");
 
     part_t *part1 = token_get_part(tok, 0);
@@ -447,7 +447,7 @@ CTEST(test_arith_exp_with_squote)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "'1'+2", "single quotes preserved");
@@ -468,7 +468,7 @@ CTEST(test_arith_exp_with_backslash)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1\\+2", "backslash preserved");
@@ -490,7 +490,7 @@ CTEST(test_arith_exp_paren_not_closing)
 
     CTEST_ASSERT_EQ(ctest, status, LEX_OK, "tokenize status is LEX_OK");
 
-    token_t *tok = token_list_get(tokens, 0);
+    const token_t *tok = token_list_get(tokens, 0);
     part_t *part = token_get_part(tok, 0);
     CTEST_ASSERT_EQ(ctest, part_get_type(part), PART_ARITHMETIC, "part is arithmetic");
     CTEST_ASSERT_STR_EQ(ctest, string_cstr(part_get_text(part)), "1+(2)", "nested parens handled correctly");
