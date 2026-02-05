@@ -126,7 +126,7 @@ parse_status_t gparse_separator(parser_t *parser, gnode_t **out_node);
  * Get the current token without advancing.
  * Returns NULL if at end of input.
  */
-token_t *parser_current_token(const parser_t *parser);
+const token_t *parser_current_token(const parser_t *parser);
 
 /**
  * Get the type of the current token.
@@ -168,13 +168,13 @@ void parser_skip_newlines(parser_t *parser);
  * Peek at a token at an offset from current position.
  * Returns NULL if offset is out of bounds.
  */
-token_t *parser_peek_token(const parser_t *parser, int offset);
+const token_t *parser_peek_token(const parser_t *parser, int offset);
 
 /**
  * Get the previous token.
  * Returns NULL if at start of input.
  */
-token_t *parser_previous_token(const parser_t *parser);
+const token_t *parser_previous_token(const parser_t *parser);
 
 /* ============================================================================
  * Error Handling Functions

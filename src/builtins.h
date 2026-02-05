@@ -89,11 +89,15 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args);
 int builtin_pwd(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_echo(exec_frame_t *frame, const string_list_t *args);
+int builtin_printf(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_bracket(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_jobs(exec_frame_t *frame, const string_list_t *args);
 int builtin_ls(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_basename(exec_frame_t *frame, const string_list_t *args);
+int builtin_dirname(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_true(exec_frame_t *frame, const string_list_t *args);
 int builtin_false(exec_frame_t *frame, const string_list_t *args);

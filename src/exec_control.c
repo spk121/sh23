@@ -335,7 +335,7 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
             {
                 for (int j = 0; j < token_list_size(patterns); j++)
                 {
-                    token_t *pattern_token = token_list_get(patterns, j);
+                    const token_t *pattern_token = token_list_get(patterns, j);
 
                     // Expand the pattern (patterns can contain variables, etc.)
                     string_list_t *pattern_list =

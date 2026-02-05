@@ -927,7 +927,7 @@ static string_t *arithmetic_expand_expression(exec_t *exp, const string_t *expr_
     // FIXME: was the expander created with the correct variable store?
 
     for (int i = 0; i < token_list_size(aliased_tokens); i++) {
-        token_t *tok = token_list_get(aliased_tokens, i);
+        const token_t *tok = token_list_get(aliased_tokens, i);
 
         if (token_get_type(tok) == TOKEN_WORD) {
             // Expand the word

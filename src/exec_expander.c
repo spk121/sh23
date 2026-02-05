@@ -11,12 +11,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
+#include "arithmetic.h"
 #include "exec_expander.h"
 #include "exec_frame.h"
 #include "exec_internal.h"
 #include "glob_util.h"
 #include "logging.h"
+#include "pattern_removal.h"
 #include "string_t.h"
 #include "variable_store.h"
 #include "xalloc.h"
@@ -114,8 +117,6 @@ static void strip_trailing_newlines(string_t *str)
 
 string_t *expand_tilde(exec_frame_t *frame, const string_t *username)
 {
-    (void)frame; /* May use frame for PWD lookup in future */
-
 #ifdef POSIX_API
     struct passwd *pw;
 
@@ -126,8 +127,34 @@ string_t *expand_tilde(exec_frame_t *frame, const string_t *username)
     }
     else
     {
+        const char *uname = string_cstr(username);
+        
+        /* Check for special ~+ and ~- forms */
+        if (strcmp(uname, "+") == 0)
+        {
+            /* ~+ expands to PWD */
+            const char *pwd = frame ? variable_store_get_value_cstr(
+                exec_frame_get_variables(frame), "PWD") : NULL;
+            if (!pwd)
+                pwd = getenv("PWD");
+            if (pwd)
+                return string_create_from_cstr(pwd);
+            return NULL;
+        }
+        else if (strcmp(uname, "-") == 0)
+        {
+            /* ~- expands to OLDPWD */
+            const char *oldpwd = frame ? variable_store_get_value_cstr(
+                exec_frame_get_variables(frame), "OLDPWD") : NULL;
+            if (!oldpwd)
+                oldpwd = getenv("OLDPWD");
+            if (oldpwd)
+                return string_create_from_cstr(oldpwd);
+            return NULL;
+        }
+        
         /* Expand ~username to specified user's home */
-        pw = getpwnam(string_cstr(username));
+        pw = getpwnam(uname);
     }
 
     if (pw == NULL || pw->pw_dir == NULL)
@@ -151,12 +178,61 @@ string_t *expand_tilde(exec_frame_t *frame, const string_t *username)
             return string_create_from_cstr(home);
         }
     }
+    else
+    {
+        const char *uname = string_cstr(username);
+        
+        /* Check for special ~+ and ~- forms */
+        if (strcmp(uname, "+") == 0)
+        {
+            const char *pwd = frame ? variable_store_get_value_cstr(
+                exec_frame_get_variables(frame), "PWD") : NULL;
+            if (!pwd)
+                pwd = getenv("PWD");
+            if (pwd)
+                return string_create_from_cstr(pwd);
+        }
+        else if (strcmp(uname, "-") == 0)
+        {
+            const char *oldpwd = frame ? variable_store_get_value_cstr(
+                exec_frame_get_variables(frame), "OLDPWD") : NULL;
+            if (!oldpwd)
+                oldpwd = getenv("OLDPWD");
+            if (oldpwd)
+                return string_create_from_cstr(oldpwd);
+        }
+    }
     /* ~username not supported on Windows */
     return NULL;
 
 #else
-    /* ISO C: no tilde expansion available */
-    (void)username;
+    if (username == NULL || string_length(username) == 0)
+    {
+        /* ISO C: try HOME environment variable */
+        const char *home = getenv("HOME");
+        if (home != NULL)
+        {
+            return string_create_from_cstr(home);
+        }
+    }
+    else
+    {
+        const char *uname = string_cstr(username);
+        
+        /* Check for special ~+ and ~- forms */
+        if (strcmp(uname, "+") == 0)
+        {
+            const char *pwd = getenv("PWD");
+            if (pwd)
+                return string_create_from_cstr(pwd);
+        }
+        else if (strcmp(uname, "-") == 0)
+        {
+            const char *oldpwd = getenv("OLDPWD");
+            if (oldpwd)
+                return string_create_from_cstr(oldpwd);
+        }
+    }
     return NULL;
 #endif
 }
@@ -165,11 +241,15 @@ string_t *expand_tilde(exec_frame_t *frame, const string_t *username)
  * Parameter Expansion
  * ============================================================================ */
 
-string_t *expand_parameter(exec_frame_t *frame, const string_t *name)
+/**
+ * Get the value of a parameter (variable or special param).
+ * Returns NULL if not set.
+ */
+static string_t *get_parameter_value(exec_frame_t *frame, const string_t *name)
 {
     if (!name || string_length(name) == 0)
     {
-        return string_create();
+        return NULL;
     }
 
     const char *name_cstr = string_cstr(name);
@@ -197,6 +277,212 @@ string_t *expand_parameter(exec_frame_t *frame, const string_t *name)
     if (env_val)
     {
         return string_create_from_cstr(env_val);
+    }
+
+    return NULL; /* Not set */
+}
+
+/**
+ * Set a variable in the frame.
+ */
+static void set_parameter_value(exec_frame_t *frame, const string_t *name, const string_t *value)
+{
+    if (!frame || !name || !value)
+        return;
+
+    variable_store_t *vars = exec_frame_get_variables(frame);
+    if (vars)
+    {
+        variable_store_add_cstr(vars, string_cstr(name), string_cstr(value), false, false);
+    }
+}
+
+/**
+ * Check if a parameter is set (even if empty).
+ */
+static bool is_parameter_set(exec_frame_t *frame, const string_t *name)
+{
+    string_t *value = get_parameter_value(frame, name);
+    if (value)
+    {
+        string_destroy(&value);
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Expand parameter with modifiers (${var:-word}, ${var#pattern}, etc.)
+ */
+static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_t *part)
+{
+    const string_t *v = get_parameter_value(frame, part->param_name);
+    bool is_set = (v != NULL);
+    bool is_null = (v == NULL || string_length(v) == 0);
+
+    switch (part->param_kind)
+    {
+    case PARAM_PLAIN:
+        /* Simple parameter expansion */
+        if (v)
+        {
+            return string_create_from(v);
+        }
+        return string_create();
+
+    case PARAM_LENGTH:
+        /* ${#var} - length of parameter */
+        if (v)
+        {
+            int len = string_length(v);
+            return string_from_int(len);
+        }
+        return string_create_from_cstr("0");
+
+    case PARAM_USE_DEFAULT:
+        /* ${var:-word} - use default if unset or null */
+        if (is_null)
+        {
+            /* Expand the word */
+            if (part->word)
+            {
+                return string_create_from(part->word);
+            }
+            return string_create();
+        }
+        return string_create_from(v);
+
+    case PARAM_ASSIGN_DEFAULT:
+        /* ${var:=word} - assign default if unset or null */
+        if (is_null)
+        {
+            /* Expand and assign the word */
+            if (part->word)
+            {
+                string_t *value = string_create_from(part->word);
+                set_parameter_value(frame, part->param_name, value);
+                return value;
+            }
+            return string_create();
+        }
+        return string_create_from(v);
+
+    case PARAM_ERROR_IF_UNSET:
+        /* ${var:?word} - error if unset or null */
+        if (is_null)
+        {
+            const char *msg = part->word ? string_cstr(part->word) : "parameter null or not set";
+            log_error("Parameter expansion error: %s: %s", string_cstr(part->param_name), msg);
+            if (frame)
+            {
+                frame->last_exit_status = 1;
+            }
+            return string_create();
+        }
+        return string_create_from(v);
+
+    case PARAM_USE_ALTERNATE:
+        /* ${var:+word} - use alternate if set and not null */
+        if (!is_null)
+        {
+            /* Expand the word */
+            if (part->word)
+            {
+                return string_create_from(part->word);
+            }
+            return string_create();
+        }
+        return string_create();
+
+    case PARAM_REMOVE_SMALL_SUFFIX:
+        /* ${var%pattern} - remove smallest matching suffix */
+        if (v)
+        {
+            if (part->word && string_length(part->word) > 0)
+            {
+                string_t *result = remove_suffix_smallest(v, part->word);
+                return result;
+            }
+            return string_create_from(v);
+        }
+        return string_create();
+
+    case PARAM_REMOVE_LARGE_SUFFIX:
+        /* ${var%%pattern} - remove largest matching suffix */
+        if (v)
+        {
+            if (part->word && string_length(part->word) > 0)
+            {
+                string_t *result = remove_suffix_largest(v, part->word);
+                return result;
+            }
+            return string_create_from(v);
+        }
+        return string_create();
+
+    case PARAM_REMOVE_SMALL_PREFIX:
+        /* ${var#pattern} - remove smallest matching prefix */
+        if (v)
+        {
+            if (part->word && string_length(part->word) > 0)
+            {
+                string_t *result = remove_prefix_smallest(v, part->word);
+                return result;
+            }
+            return string_create_from(v);
+        }
+        return string_create();
+
+    case PARAM_REMOVE_LARGE_PREFIX:
+        /* ${var##pattern} - remove largest matching prefix */
+        if (v)
+        {
+            if (part->word && string_length(part->word) > 0)
+            {
+                string_t *result = remove_prefix_largest(v, part->word);
+                return result;
+            }
+            return string_create_from(v);
+        }
+        return string_create();
+
+    case PARAM_INDIRECT:
+        /* ${!var} - indirect expansion */
+        /* First, get the value of the named variable */
+        if (v)
+        {
+            /* The value contains the name of another variable */
+            /* Now expand that variable */
+            string_t *indirect_value = get_parameter_value(frame, v);
+            
+            if (indirect_value)
+            {
+                return indirect_value;
+            }
+            return string_create();
+        }
+        else
+        {
+            /* Variable not set, return empty */
+            return string_create();
+        }
+
+    default:
+        return string_create();
+    }
+}
+
+string_t *expand_parameter(exec_frame_t *frame, const string_t *name)
+{
+    if (!name || string_length(name) == 0)
+    {
+        return string_create();
+    }
+
+    string_t *value = get_parameter_value(frame, name);
+    if (value)
+    {
+        return value;
     }
 
     return string_create(); /* Empty string if not set */
@@ -416,17 +702,76 @@ string_t *expand_command_subst(exec_frame_t *frame, const string_t *command)
 
 string_t *expand_arithmetic(exec_frame_t *frame, const string_t *expression)
 {
-    /* TODO: Implement proper arithmetic evaluation */
-    /* For now, return a placeholder */
-    (void)frame;
-    (void)expression;
-    return string_create_from_cstr("0");
+    if (!expression)
+    {
+        return string_create_from_cstr("0");
+    }
+
+    /* Get the executor and variable store for arithmetic evaluation */
+    exec_t *executor = frame ? frame->executor : NULL;
+    variable_store_t *vars = frame ? exec_frame_get_variables(frame) : NULL;
+
+    if (!executor || !vars)
+    {
+        log_warn("expand_arithmetic: no executor or variable store available");
+        return string_create_from_cstr("0");
+    }
+
+    /* Use the arithmetic module to evaluate the expression */
+    ArithmeticResult result = arithmetic_evaluate(executor, vars, expression);
+
+    if (result.failed)
+    {
+        log_error("Arithmetic expansion error: %s", 
+                  result.error ? string_cstr(result.error) : "unknown error");
+        arithmetic_result_free(&result);
+        if (frame)
+        {
+            frame->last_exit_status = 1;
+        }
+        return string_create_from_cstr("0");
+    }
+
+    string_t *value = string_from_int((int)result.value);
+    arithmetic_result_free(&result);
+    return value;
 }
 
 /* ============================================================================
  * Field Splitting
  * ============================================================================ */
 
+/**
+ * Check if a character is IFS whitespace (space, tab, newline).
+ */
+static bool is_ifs_whitespace(char c)
+{
+    return c == ' ' || c == '\t' || c == '\n';
+}
+
+/**
+ * Check if a character is in the IFS string.
+ */
+static bool is_ifs_char(char c, const char *ifs)
+{
+    for (const char *p = ifs; *p; p++)
+    {
+        if (*p == c)
+            return true;
+    }
+    return false;
+}
+
+/**
+ * POSIX-compliant field splitting.
+ * 
+ * Rules:
+ * 1. If IFS is null (empty), no splitting occurs
+ * 2. IFS whitespace (space/tab/newline) at start/end is ignored
+ * 3. Consecutive IFS whitespace is treated as a single delimiter
+ * 4. Non-whitespace IFS characters create empty fields
+ * 5. IFS whitespace adjacent to non-whitespace IFS is ignored
+ */
 string_list_t *expand_field_split(exec_frame_t *frame, const string_t *text)
 {
     string_list_t *fields = string_list_create();
@@ -445,19 +790,65 @@ string_list_t *expand_field_split(exec_frame_t *frame, const string_t *text)
         return fields;
     }
 
-    /* Perform IFS-based splitting */
-    char *str = xstrdup(string_cstr(text));
-    char *token = strtok(str, ifs);
+    const char *str = string_cstr(text);
+    int len = string_length(text);
+    string_t *current_field = string_create();
+    bool in_field = false;
 
-    while (token)
+    for (int i = 0; i < len; i++)
     {
-        string_list_push_back(fields, string_create_from_cstr(token));
-        token = strtok(NULL, ifs);
+        char c = str[i];
+
+        if (is_ifs_char(c, ifs))
+        {
+            bool is_ws = is_ifs_whitespace(c);
+
+            if (in_field)
+            {
+                /* End current field */
+                string_list_move_push_back(fields, &current_field);
+                current_field = string_create();
+                in_field = false;
+
+                /* Non-whitespace IFS creates empty field after */
+                if (!is_ws)
+                {
+                    /* Check if next char is IFS whitespace, if so skip it */
+                    if (i + 1 < len && is_ifs_whitespace(str[i + 1]) && is_ifs_char(str[i + 1], ifs))
+                    {
+                        i++; /* Skip adjacent whitespace */
+                    }
+                }
+            }
+            else
+            {
+                /* Multiple IFS at start or between fields */
+                if (!is_ws)
+                {
+                    /* Non-whitespace IFS: empty field */
+                    string_list_push_back(fields, string_create());
+                }
+                /* IFS whitespace at start or between: skip */
+            }
+        }
+        else
+        {
+            /* Regular character */
+            string_append_char(current_field, c);
+            in_field = true;
+        }
     }
 
-    xfree(str);
+    /* Add final field if non-empty */
+    if (in_field && string_length(current_field) > 0)
+    {
+        string_list_move_push_back(fields, &current_field);
+    }
+    else
+    {
+        string_destroy(&current_field);
+    }
 
-    /* If no fields resulted, return empty list (not a list with empty string) */
     return fields;
 }
 
@@ -502,14 +893,16 @@ static string_t *expand_part(exec_frame_t *frame, const part_t *part)
         return string_create_from(part->text);
 
     case PART_PARAMETER:
-        return expand_parameter(frame, part->param_name);
+        /* Use the full parameter expansion with modifiers */
+        return expand_parameter_with_modifier(frame, part);
 
     case PART_COMMAND_SUBST: {
         /* Convert nested tokens to command string */
         string_t *cmd = string_create();
-        for (int i = 0; i < token_list_size(part->nested); i++)
+        int len = part->nested ? token_list_size(part->nested) : 0;
+        for (int i = 0; i < len; i++)
         {
-            token_t *t = token_list_get(part->nested, i);
+            const token_t *t = token_list_get(part->nested, i);
             string_t *ts = token_to_string(t);
             string_append(cmd, ts);
             string_destroy(&ts);
@@ -536,6 +929,7 @@ static string_t *expand_part(exec_frame_t *frame, const part_t *part)
 
 /**
  * Expand all parts of a token to a single string.
+ * Respects quoting: single-quoted parts are literal, double-quoted allow expansion.
  */
 static string_t *expand_parts_to_string(exec_frame_t *frame, const part_list_t *parts)
 {
@@ -544,6 +938,15 @@ static string_t *expand_parts_to_string(exec_frame_t *frame, const part_list_t *
     for (int i = 0; i < part_list_size(parts); i++)
     {
         const part_t *part = part_list_get(parts, i);
+        
+        /* Single-quoted parts: no expansion, literal text */
+        if (part->was_single_quoted && part->type == PART_LITERAL)
+        {
+            string_append(result, part->text);
+            continue;
+        }
+        
+        /* Expand the part */
         string_t *expanded = expand_part(frame, part);
 
         if (expanded)
@@ -556,11 +959,24 @@ static string_t *expand_parts_to_string(exec_frame_t *frame, const part_list_t *
     return result;
 }
 
+/**
+ * Remove quote characters from a string (final step of word expansion).
+ * Note: This is typically handled during tokenization/parsing, but included
+ * for completeness in the expansion sequence.
+ */
+static string_t *remove_quotes(const string_t *text)
+{
+    /* In our implementation, quotes are already removed during tokenization.
+     * Parts track was_single_quoted and was_double_quoted flags.
+     * This function is a no-op but kept for API completeness. */
+    return string_create_from(text);
+}
+
 /* ============================================================================
  * High-Level Expansion Functions
  * ============================================================================ */
 
-string_list_t *expand_word(exec_frame_t *frame, const token_t *tok)
+string_list_t *expand_word(const exec_frame_t *frame, const token_t *tok)
 {
     if (!tok || tok->type != TOKEN_WORD)
     {
@@ -623,7 +1039,7 @@ string_list_t *expand_word(exec_frame_t *frame, const token_t *tok)
     return fields;
 }
 
-string_list_t *expand_words(exec_frame_t *frame, const token_list_t *tokens)
+string_list_t *expand_words(const exec_frame_t *frame, const token_list_t *tokens)
 {
     if (!tokens)
     {
@@ -634,7 +1050,7 @@ string_list_t *expand_words(exec_frame_t *frame, const token_list_t *tokens)
 
     for (int i = 0; i < token_list_size(tokens); i++)
     {
-        token_t *tok = token_list_get(tokens, i);
+        const token_t *tok = token_list_get(tokens, i);
         string_list_t *expanded = expand_word(frame, tok);
 
         if (expanded)
@@ -691,10 +1107,146 @@ string_t *expand_heredoc(exec_frame_t *frame, const string_t *body, bool is_quot
         return string_create_from(body);
     }
 
-    /* Unquoted: parameter, command, arithmetic expansions */
-    /* TODO: Implement proper heredoc expansion by tokenizing the body */
-    (void)frame;
-    return string_create_from(body);
+    /* Unquoted heredoc: perform parameter, command, and arithmetic expansions.
+     * No field splitting or pathname expansion.
+     * 
+     * We need to scan through the text and expand $var, ${...}, $(...), $((...))
+     * but not perform field splitting or globbing.
+     */
+    
+    string_t *result = string_create();
+    const char *text = string_cstr(body);
+    int len = string_length(body);
+    
+    for (int i = 0; i < len; i++)
+    {
+        char c = text[i];
+        
+        if (c == '\\' && i + 1 < len)
+        {
+            /* Backslash escapes: \$, \`, \\ */
+            char next = text[i + 1];
+            if (next == '$' || next == '`' || next == '\\' || next == '\n')
+            {
+                if (next != '\n')
+                {
+                    string_append_char(result, next);
+                }
+                i++; /* Skip escaped character */
+                continue;
+            }
+            /* Other backslashes are literal */
+            string_append_char(result, c);
+        }
+        else if (c == '$')
+        {
+            /* Parameter or command/arithmetic expansion */
+            if (i + 1 < len)
+            {
+                char next = text[i + 1];
+                
+                if (next == '(')
+                {
+                    /* Command substitution $(...) or arithmetic $((...)) */
+                    /* This is complex - for now, log a warning and skip */
+                    log_warn("Command/arithmetic substitution in heredoc not fully implemented");
+                    string_append_char(result, c);
+                }
+                else if (next == '{')
+                {
+                    /* Parameter expansion ${...} */
+                    /* Find matching } */
+                    int j = i + 2;
+                    int brace_depth = 1;
+                    while (j < len && brace_depth > 0)
+                    {
+                        if (text[j] == '{')
+                            brace_depth++;
+                        else if (text[j] == '}')
+                            brace_depth--;
+                        j++;
+                    }
+                    
+                    if (brace_depth == 0)
+                    {
+                        /* Extract parameter name (simple case) */
+                        string_t *param_name = string_create();
+                        for (int k = i + 2; k < j - 1; k++)
+                        {
+                            string_append_char(param_name, text[k]);
+                        }
+                        
+                        string_t *value = expand_parameter(frame, param_name);
+                        if (value)
+                        {
+                            string_append(result, value);
+                            string_destroy(&value);
+                        }
+                        string_destroy(&param_name);
+                        
+                        i = j - 1; /* Move past the expansion */
+                        continue;
+                    }
+                    string_append_char(result, c);
+                }
+                else if (isalnum(next) || next == '_' || next == '?' || next == '$' ||
+                         next == '!' || next == '#' || next == '@' || next == '*' ||
+                         next == '-' || next == '0')
+                {
+                    /* Simple parameter: $var or $1, $?, etc. */
+                    string_t *param_name = string_create();
+                    i++; /* Move to first char of name */
+                    
+                    /* Special single-char parameters */
+                    if (strchr("?$!#@*-0", text[i]))
+                    {
+                        string_append_char(param_name, text[i]);
+                    }
+                    else
+                    {
+                        /* Variable name or positional param */
+                        while (i < len && (isalnum(text[i]) || text[i] == '_'))
+                        {
+                            string_append_char(param_name, text[i]);
+                            i++;
+                        }
+                        i--; /* Back up one for loop increment */
+                    }
+                    
+                    string_t *value = expand_parameter(frame, param_name);
+                    if (value)
+                    {
+                        string_append(result, value);
+                        string_destroy(&value);
+                    }
+                    string_destroy(&param_name);
+                }
+                else
+                {
+                    /* Literal $ */
+                    string_append_char(result, c);
+                }
+            }
+            else
+            {
+                /* $ at end of string */
+                string_append_char(result, c);
+            }
+        }
+        else if (c == '`')
+        {
+            /* Backquote command substitution - deprecated but supported */
+            log_warn("Backquote command substitution in heredoc not fully implemented");
+            string_append_char(result, c);
+        }
+        else
+        {
+            /* Regular character */
+            string_append_char(result, c);
+        }
+    }
+    
+    return result;
 }
 
 /* ============================================================================

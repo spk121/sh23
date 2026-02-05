@@ -236,6 +236,7 @@ void tokenizer_update_command_position(tokenizer_t *tok, const token_t *token)
     case TOKEN_AND_IF:
     case TOKEN_OR_IF:
     case TOKEN_LPAREN:
+    case TOKEN_RPAREN:  /* After ) in function definition, { should be recognized */
     case TOKEN_DSEMI:
     case TOKEN_IF:
     case TOKEN_THEN:
@@ -417,7 +418,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
     // Get the next input token
-    token_t *token = token_list_get(tok->input_tokens, tok->input_pos);
+    const token_t *token = token_list_get(tok->input_tokens, tok->input_pos);
 
     // Check if this token is eligible for alias expansion
     if (tok->aliases != NULL && tokenizer_is_alias_eligible(tok, token))
@@ -468,10 +469,12 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
             if (word_text != NULL)
             {
                 token_type_t reserved_type = token_string_to_reserved_word(word_text);
-                if (reserved_type != TOKEN_WORD)
+                /* Exclude 'in' from automatic promotion - it's context-sensitive.
+                 * The parser will recognize 'in' explicitly in for/case contexts. */
+                if (reserved_type != TOKEN_WORD && reserved_type != TOKEN_IN)
                 {
                     // Convert TOKEN_WORD to reserved word token
-                    token->type = reserved_type;
+                    token_list_set_token_type(tok->input_tokens, tok->input_pos, reserved_type);
                     xfree(word_text);
                     // Add token to output and update position
                     goto add_token;
@@ -483,7 +486,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
         // Check if next token is a redirection operator
         if (tok->input_pos + 1 < token_list_size(tok->input_tokens))
         {
-            token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
+            const token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
             token_type_t next_type = token_get_type(next_token);
 
             // List of redirection operators
@@ -517,8 +520,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
                     {
                         // Convert to TOKEN_IO_NUMBER
                         int io_num = atoi(word_text);
-                        token_set_type(token, TOKEN_IO_NUMBER);
-                        token_set_io_number(token, io_num);
+                        token_list_set_io_number(tok->input_tokens, tok->input_pos + 1, io_num);
                     }
                 }
                 xfree(word_text);

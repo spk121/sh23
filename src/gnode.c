@@ -166,7 +166,6 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_PATTERN_LIST:
     case G_WORDLIST:
     case G_TERM:
-    case G_DO_GROUP:
     case G_NEWLINE_LIST:
         return GNODE_PAYLOAD_LIST;
 
@@ -202,6 +201,7 @@ gnode_payload_t gnode_get_payload_type(gnode_type_t type)
     case G_IO_REDIRECT:
     case G_IO_FILE:
     case G_SUBSHELL:
+    case G_DO_GROUP:
         return GNODE_PAYLOAD_MULTI;
 
     /* Nodes with context-dependent payload */

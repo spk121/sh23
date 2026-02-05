@@ -1211,7 +1211,7 @@ trap_store_t *exec_frame_get_traps(exec_frame_t *frame)
     return frame->traps;
 }
 
-string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name)
+const string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name)
 {
     if (!frame || !name)
         return NULL;
@@ -1221,14 +1221,14 @@ string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name)
     {
         const string_t *local_value = variable_store_get_value(frame->local_variables, name);
         if (local_value)
-            return (string_t *)local_value;
+            return local_value;
     }
 
     /* Fall back to global store */
     if (frame->variables)
     {
         const string_t *global_value = variable_store_get_value(frame->variables, name);
-        return (string_t *)global_value;
+        return global_value;
     }
 
     return NULL;
