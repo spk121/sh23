@@ -1,3 +1,4 @@
+#define ALIAS_STORE_INTERNAL
 #include "alias_array.h"
 #include "alias.h"
 #include "logging.h"
@@ -204,8 +205,8 @@ int alias_array_find(alias_array_t *array, alias_t *element, int *index)
     return -1;
 }
 
-int alias_array_find_with_compare(alias_array_t *array, const void *data, alias_array_compare_func_t compare_func,
-                                  int *index)
+int alias_array_find_with_compare(alias_array_t *array, const void *data,
+                                  alias_array_compare_func_t compare_func, int *index)
 {
     Expects_not_null(array);
     Expects_not_null(array->data);
