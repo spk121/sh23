@@ -18,7 +18,6 @@
 #include "positional_params.h"
 #include "string_list.h"
 #include "string_t.h"
-#include "variable_map.h"
 #include "variable_store.h"
 #include "xalloc.h"
 #ifdef UCRT_API
@@ -442,6 +441,33 @@ typedef struct
     const string_t *value;
 } builtin_set_var_entry_t;
 
+/* Collector context for variable_store_for_each */
+typedef struct
+{
+    builtin_set_var_entry_t *vars;
+    int count;
+    int capacity;
+} builtin_set_collect_ctx_t;
+
+static void builtin_set_collect_var(const string_t *name, const string_t *value, bool exported,
+                                    bool read_only, void *user_data)
+{
+    (void)exported;
+    (void)read_only;
+
+    builtin_set_collect_ctx_t *ctx = user_data;
+
+    if (ctx->count >= ctx->capacity)
+    {
+        ctx->capacity = ctx->capacity ? ctx->capacity * 2 : 32;
+        ctx->vars = xrealloc(ctx->vars, ctx->capacity * sizeof(builtin_set_var_entry_t));
+    }
+
+    ctx->vars[ctx->count].key = name;
+    ctx->vars[ctx->count].value = value;
+    ctx->count++;
+}
+
 /* Comparison function for sorting variables by name using locale collation */
 static int builtin_set_compare_vars(const void *a, const void *b)
 {
@@ -455,50 +481,30 @@ static int builtin_set_print_variables(exec_frame_t *frame)
 {
     Expects_not_null(frame);
 
-    if (!frame->variables || !frame->variables->map)
+    if (!frame->variables)
     {
-        return 0; /* No variables to print */
+        return 0;
     }
 
-    variable_map_t *map = frame->variables->map;
+    /* Collect all variables via the public iteration API */
+    builtin_set_collect_ctx_t ctx = {NULL, 0, 0};
+    variable_store_for_each(frame->variables, builtin_set_collect_var, &ctx);
 
-    /* Count occupied entries */
-    int count = 0;
-    for (int32_t i = 0; i < map->capacity; i++)
-    {
-        if (map->entries[i].occupied)
-            count++;
-    }
-
-    if (count == 0)
-        return 0; /* No variables to print */
-
-    /* Collect all variables into an array */
-    builtin_set_var_entry_t *vars = xmalloc(count * sizeof(builtin_set_var_entry_t));
-    int idx = 0;
-    for (int32_t i = 0; i < map->capacity; i++)
-    {
-        if (map->entries[i].occupied)
-        {
-            vars[idx].key = map->entries[i].key;
-            vars[idx].value = map->entries[i].mapped.value;
-            idx++;
-        }
-    }
+    if (ctx.count == 0)
+        return 0;
 
     /* Sort by name using locale collation */
-    qsort(vars, count, sizeof(builtin_set_var_entry_t), builtin_set_compare_vars);
+    qsort(ctx.vars, ctx.count, sizeof(builtin_set_var_entry_t), builtin_set_compare_vars);
 
     /* Print each variable in name=value format */
-    for (int i = 0; i < count; i++)
+    for (int i = 0; i < ctx.count; i++)
     {
-        /* Quote according to POSIX shell rules so output is reinput-safe */
-        string_t *quoted = lib_quote(vars[i].key, vars[i].value);
+        string_t *quoted = lib_quote(ctx.vars[i].key, ctx.vars[i].value);
         fprintf(stdout, "%s\n", string_cstr(quoted));
         string_destroy(&quoted);
     }
 
-    xfree(vars);
+    xfree(ctx.vars);
     return 0;
 }
 
@@ -2564,8 +2570,39 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
         return (string_length(arg) > 0) ? 0 : 1;
     }
 
-    /* Binary operators */
+    /* Check for field splitting artifact: binary operator as first argument.
+     * 
+     * This happens when field splitting removes the entire first argument
+     * (producing zero words), leaving the binary operator as the first token.
+     * Per POSIX, this is expected behavior when an unquoted expansion produces
+     * only IFS whitespace.
+     * 
+     * Example: [ $nl = "x" ] where nl contains only whitespace
+     * Correctly becomes: [ = "x" ] after field splitting (argc=4)
+     */
     if (argc == 4)
+    {
+        /* This often happens with field splitting - check if arg1 looks like a binary operator */
+        const string_t *arg1_str = string_list_at(args, 1);
+        const char *arg1 = string_cstr(arg1_str);
+        
+        /* Common binary operators */
+        if (strcmp(arg1, "=") == 0 || strcmp(arg1, "!=") == 0 ||
+            strcmp(arg1, "-eq") == 0 || strcmp(arg1, "-ne") == 0 ||
+            strcmp(arg1, "-lt") == 0 || strcmp(arg1, "-le") == 0 ||
+            strcmp(arg1, "-gt") == 0 || strcmp(arg1, "-ge") == 0)
+        {
+            fprintf(stderr, "[: %s: unary operator expected\n", arg1);
+            return 2;
+        }
+        
+        /* Otherwise treat as too many arguments */
+        fprintf(stderr, "[: too many arguments\n");
+        return 2;
+    }
+
+    /* Binary operators */
+    if (argc == 5)
     {
         const string_t *arg1_str = string_list_at(args, 1);
         const string_t *op_str = string_list_at(args, 2);
@@ -2613,8 +2650,8 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
         return 2;
     }
 
-    /* Unary operators */
-    if (argc == 3)
+    /* Unary operators (or single string test) */
+    if (argc == 4)
     {
         const string_t *op_str = string_list_at(args, 1);
         const string_t *arg_str = string_list_at(args, 2);
