@@ -1,8 +1,13 @@
 ﻿#ifndef VARIABLE_MAP_H
 #define VARIABLE_MAP_H
 
-#include "string_t.h"
+#ifndef VARIABLE_MAP_INTERNAL
+#error                                                                                             \
+    "variable_map.h is an internal header. Only variable_store.c and variable_map.c may include it."
+#endif
+
 #include "string_list.h"
+#include "string_t.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -148,7 +153,7 @@ void variable_map_clear(variable_map_t *map);
  * @return Insert result containing position and success flag.
  */
 variable_map_insert_result_t variable_map_insert(variable_map_t *map, const string_t *key,
-                                                const variable_map_mapped_t *mapped);
+                                                 const variable_map_mapped_t *mapped);
 
 /**
  * Inserts or assigns a key/value pair. It deep-copies *mapped, thus not transferring owernship.
@@ -276,6 +281,5 @@ void variable_map_iterator_increment(variable_map_iterator_t *it);
  * @return Pointer to mapped value.
  */
 const variable_map_entry_t *variable_map_iterator_deref(variable_map_iterator_t it);
-
 
 #endif

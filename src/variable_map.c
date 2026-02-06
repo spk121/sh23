@@ -1,7 +1,8 @@
 #include <stdint.h>
+#define VARIABLE_MAP_INTERNAL
 #include "logging.h"
-#include "string_t.h"
 #include "string_list.h"
+#include "string_t.h"
 #include "variable_map.h"
 #include "xalloc.h"
 
@@ -26,7 +27,7 @@ static int32_t find_slot(const string_t *key, int32_t capacity)
     Expects_not_null(key);
     Expects_gt(capacity, 0);
 
-    uint32_t hash = string_hash(key); // returns uint32_t
+    uint32_t hash = string_hash(key);            // returns uint32_t
     uint32_t uindex = hash % (uint32_t)capacity; // unsigned modulo
 
     return (int32_t)uindex; // safe narrowing
@@ -56,17 +57,17 @@ static void destroy_entry(variable_map_entry_t *entry)
             if ((uintptr_t)val < 4096)
             {
                 log_warn("destroy_entry: detected invalid value pointer %p for key '%s'",
-                         (void*)val,
-                         entry->key ? string_cstr(entry->key) : "(null)");
+                         (void *)val, entry->key ? string_cstr(entry->key) : "(null)");
             }
-            if (val->capacity > 12*1024 || val->capacity < 16)
+            if (val->capacity > 12 * 1024 || val->capacity < 16)
             {
                 log_warn("destroy_entry: destroying very large value (capacity %zu) for key '%s'",
                          val->capacity, entry->key ? string_cstr(entry->key) : "(null)");
             }
             if (val->length > val->capacity || val->length < 0)
             {
-                log_warn("destroy_entry: destroying value with invalid length %zu > capacity %zu for key '%s'",
+                log_warn("destroy_entry: destroying value with invalid length %zu > capacity %zu "
+                         "for key '%s'",
                          val->length, val->capacity,
                          entry->key ? string_cstr(entry->key) : "(null)");
             }
@@ -77,17 +78,17 @@ static void destroy_entry(variable_map_entry_t *entry)
             }
             if (strlen(val->data) != val->length)
             {
-                log_warn("destroy_entry: destroying value with length mismatch (strlen %zu != length %zu) for key '%s'",
+                log_warn("destroy_entry: destroying value with length mismatch (strlen %zu != "
+                         "length %zu) for key '%s'",
                          strlen(val->data), val->length,
                          entry->key ? string_cstr(entry->key) : "(null)");
             }
-
         }
 #if 0
         log_debug("destroy_entry: destroying entry for key '%s' value '%s'",
                   entry->key ? string_cstr(entry->key) : "(null)",
                   entry->mapped.value ? string_cstr(entry->mapped.value) : "(null)");
-#endif                      
+#endif
         if (entry->mapped.value)
         {
             string_destroy(&entry->mapped.value);
@@ -374,8 +375,7 @@ void variable_map_erase(variable_map_t *map, const string_t *key)
     {
         if (string_starts_with_cstr(key, "TEST_SHELL"))
         {
-            log_debug("variable_map_erase: erasing key '%s' at pos %d",
-                      string_cstr(key), pos);
+            log_debug("variable_map_erase: erasing key '%s' at pos %d", string_cstr(key), pos);
         }
         variable_map_erase_at_pos(map, pos);
     }
@@ -476,7 +476,6 @@ void variable_map_erase_multiple(variable_map_t *map, const string_list_t *keys)
     xfree(old_entries);
 }
 
-
 variable_map_mapped_t *variable_map_extract(variable_map_t *map, const string_t *key)
 {
     Expects_not_null(map);
@@ -556,14 +555,13 @@ bool variable_map_contains(const variable_map_t *map, const string_t *key)
     return variable_map_find(map, key) != -1;
 }
 
-
 /**
  * Returns an iterator to the beginning of the map.
  *
  * @param map Variable map.
  * @return Iterator to the first entry.
  */
-variable_map_iterator_t variable_map_begin(variable_map_t* map)
+variable_map_iterator_t variable_map_begin(variable_map_t *map)
 {
     Expects_not_null(map);
     variable_map_iterator_t it;
@@ -599,7 +597,7 @@ bool variable_map_iterator_equal(variable_map_iterator_t a, variable_map_iterato
     return a.map == b.map && a.index == b.index;
 }
 
-const variable_map_entry_t* variable_map_iterator_deref(variable_map_iterator_t it)
+const variable_map_entry_t *variable_map_iterator_deref(variable_map_iterator_t it)
 {
     Expects_not_null(it.map);
     Expects_lt(it.index, it.map->capacity);
@@ -617,4 +615,3 @@ void variable_map_iterator_increment(variable_map_iterator_t *it)
         it->index++;
     }
 }
-

@@ -1,12 +1,39 @@
 ﻿#ifndef VARIABLE_STORE_H
 #define VARIABLE_STORE_H
 
-#include <stdbool.h>
-#include <stdint.h>
 #include "ast.h"
 #include "logging.h"
 #include "string_t.h"
-#include "variable_map.h"
+#include <stdbool.h>
+#include <stdint.h>
+
+/**
+ * @file variable_store.h
+ * @brief Public API for the shell variable store.
+ *
+ * MEMORY SAFETY CONTRACT:
+ * ========================
+ * The variable store is a self-contained memory silo. The following invariants
+ * are maintained by this public API:
+ *
+ * 1. INPUTS: All functions that modify the store accept non-immediate arguments
+ *    as const pointers and deep-copy any data before incorporating it. The caller
+ *    retains full ownership of all arguments passed in.
+ *
+ * 2. OUTPUTS: Functions that return internal data do so via const pointers.
+ *    All non-immediate members of returned view structs use const pointers.
+ *    Returned pointers are valid only until the next mutating operation on
+ *    the store. Functions that return newly allocated data transfer ownership
+ *    to the caller.
+ *
+ * 3. MOVE SEMANTICS: Functions with "move" in the name take ownership of
+ *    pointer arguments (passed as T**) and set the source pointer to NULL.
+ *
+ * The internal variable_map is not exposed through this header.
+ */
+
+/* Forward declaration -- opaque to public consumers */
+typedef struct variable_map_t variable_map_t;
 
 /**
  * Represents a shell variable store containing name/value pairs,
@@ -14,7 +41,7 @@
  */
 typedef struct variable_store_t
 {
-    /** Map of variable names to values and metadata. */
+    /** Map of variable names to values and metadata. (Internal -- do not access directly.) */
     variable_map_t *map;
 
     /** Increment on any modification */
@@ -26,11 +53,33 @@ typedef struct variable_store_t
     /** Parent store that we built the cache against for cache validation. */
     const struct variable_store_t *cached_parent;
     /**
-     * Cached NULL‑terminated environment array.
+     * Cached NULL-terminated environment array.
      * Owned by the store and rebuilt on demand.
      */
     char **cached_envp;
 } variable_store_t;
+
+/**
+ * Read-only view of a variable entry, returned by accessor functions.
+ *
+ * All pointer members are const-qualified to prevent external code from
+ * modifying or freeing internal store data. The pointers are valid only
+ * until the next mutating operation on the store.
+ */
+typedef struct variable_view_t
+{
+    /** The variable name (const -- do not modify or free). */
+    const string_t *name;
+
+    /** The variable value (const -- do not modify or free). May be NULL. */
+    const string_t *value;
+
+    /** Whether the variable is exported to the environment. */
+    bool exported;
+
+    /** Whether the variable is read-only. */
+    bool read_only;
+} variable_view_t;
 
 /**
  * Error codes returned by variable store operations.
@@ -39,13 +88,17 @@ typedef enum var_store_error_t
 {
     VAR_STORE_ERROR_NONE = 0,               /**< Operation succeeded. */
     VAR_STORE_ERROR_NOT_FOUND,              /**< Variable does not exist. */
-    VAR_STORE_ERROR_READ_ONLY,              /**< Variable is read‑only. */
+    VAR_STORE_ERROR_READ_ONLY,              /**< Variable is read-only. */
     VAR_STORE_ERROR_EMPTY_NAME,             /**< Variable name is empty. */
     VAR_STORE_ERROR_NAME_TOO_LONG,          /**< Variable name exceeds limits. */
     VAR_STORE_ERROR_NAME_STARTS_WITH_DIGIT, /**< Variable name begins with a digit. */
     VAR_STORE_ERROR_NAME_INVALID_CHARACTER, /**< Variable name contains invalid characters. */
     VAR_STORE_ERROR_VALUE_TOO_LONG          /**< Variable value exceeds limits. */
 } var_store_error_t;
+
+/* ============================================================================
+ * Constructors and Destructors
+ * ============================================================================ */
 
 /**
  * Creates an empty variable store.
@@ -56,14 +109,28 @@ variable_store_t *variable_store_create(void);
 
 /**
  * Creates a variable store initialized from an envp array.
+ * The envp strings are deep-copied; the caller retains ownership.
  *
- * @param envp NULL‑terminated environment array.
+ * @param envp NULL-terminated environment array.
  * @return Newly allocated variable store.
  */
 variable_store_t *variable_store_create_from_envp(char **envp);
 
+/**
+ * Creates a deep copy of the source variable store.
+ * The returned store is fully independent (no shared pointers).
+ *
+ * @param src Source variable store (must not be NULL).
+ * @return Newly allocated clone.
+ */
 variable_store_t *variable_store_clone(const variable_store_t *src);
 
+/**
+ * Creates a deep copy containing only the exported variables from the source.
+ *
+ * @param src Source variable store (must not be NULL).
+ * @return Newly allocated clone with only exported variables.
+ */
 variable_store_t *variable_store_clone_exported(const variable_store_t *src);
 
 /**
@@ -80,43 +147,49 @@ void variable_store_destroy(variable_store_t **store);
  */
 void variable_store_clear(variable_store_t *store);
 
+/* ============================================================================
+ * Bulk Operations
+ * ============================================================================ */
+
 /**
  * Copies all variables from one store to another.
  *
  * Iterates through all variables in the source store and adds them to the
  * destination store, preserving their values, export status, and read-only
- * flags. This is a deep copy operation - values are cloned, not shared.
- *
- * This function is commonly used when creating child execution environments
- * or building temporary variable stores for command execution with prefix
- * assignments.
+ * flags. This is a deep copy operation -- values are cloned, not shared.
  *
  * @param dst Destination variable store (must not be NULL).
  * @param src Source variable store (must not be NULL).
  */
 void variable_store_copy_all(variable_store_t *dst, const variable_store_t *src);
 
+/* ============================================================================
+ * Modifiers (deep-copy inputs)
+ * ============================================================================ */
+
 /**
  * Adds or updates a variable using string_t values.
+ * Both name and value are deep-copied; the caller retains ownership.
  *
  * @param store Variable store.
- * @param name Variable name.
- * @param value Variable value.
+ * @param name Variable name (deep-copied).
+ * @param value Variable value (deep-copied; may be NULL for empty value).
  * @param exported Whether the variable should be exported.
- * @param read_only Whether the variable should be read‑only.
+ * @param read_only Whether the variable should be read-only.
  * @return Error code indicating success or failure.
  */
 var_store_error_t variable_store_add(variable_store_t *store, const string_t *name,
                                      const string_t *value, bool exported, bool read_only);
 
 /**
- * Adds or updates a variable using C‑string values.
+ * Adds or updates a variable using C-string values.
+ * Both name and value are deep-copied; the caller retains ownership.
  *
  * @param store Variable store.
- * @param name Variable name.
- * @param value Variable value.
+ * @param name Variable name (deep-copied).
+ * @param value Variable value (deep-copied; may be NULL for empty value).
  * @param exported Whether the variable should be exported.
- * @param read_only Whether the variable should be read‑only.
+ * @param read_only Whether the variable should be read-only.
  * @return Error code indicating success or failure.
  */
 var_store_error_t variable_store_add_cstr(variable_store_t *store, const char *name,
@@ -124,9 +197,10 @@ var_store_error_t variable_store_add_cstr(variable_store_t *store, const char *n
 
 /**
  * Adds a variable from a raw "NAME=VALUE" environment string.
+ * The string is deep-copied; the caller retains ownership.
  *
  * @param store Variable store.
- * @param env Environment string.
+ * @param env Environment string (deep-copied).
  */
 void variable_store_add_env(variable_store_t *store, const char *env);
 
@@ -139,124 +213,34 @@ void variable_store_add_env(variable_store_t *store, const char *env);
 void variable_store_remove(variable_store_t *store, const string_t *name);
 
 /**
- * Removes a variable by C‑string name.
+ * Removes a variable by C-string name.
  *
  * @param store Variable store.
  * @param name Variable name.
  */
 void variable_store_remove_cstr(variable_store_t *store, const char *name);
 
+/* ============================================================================
+ * Flag Modifiers
+ * ============================================================================ */
+
 /**
- * Checks whether a variable exists.
+ * Sets or clears the read-only flag on a variable.
  *
  * @param store Variable store.
  * @param name Variable name.
- * @return true if the variable exists.
- */
-bool variable_store_has_name(const variable_store_t *store, const string_t *name);
-
-/**
- * Checks whether a variable exists using a C‑string name.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return true if the variable exists.
- */
-bool variable_store_has_name_cstr(const variable_store_t *store, const char *name);
-
-
-
-/**
- * Retrieves a variable entry by name.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return Pointer to the variable entry or NULL.
- */
-const variable_map_entry_t *variable_store_get_variable(const variable_store_t *store,
-                                                        const string_t *name);
-
-/**
- * Retrieves a variable entry by C‑string name.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return Pointer to the variable entry or NULL.
- */
-const variable_map_entry_t *variable_store_get_variable_cstr(const variable_store_t *store,
-                                                             const char *name);
-
-/**
- * Retrieves a variable's value.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return Value string or NULL.
- */
-const string_t *variable_store_get_value(const variable_store_t *store, const string_t *name);
-
-/**
- * Retrieves a variable's value as a C‑string.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return Value string or NULL.
- */
-const char *variable_store_get_value_cstr(const variable_store_t *store, const char *name);
-
-/**
- * Checks whether a variable is read‑only.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return true if read‑only.
- */
-bool variable_store_is_read_only(const variable_store_t *store, const string_t *name);
-
-/**
- * Checks whether a variable is read‑only using a C‑string name.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return true if read‑only.
- */
-bool variable_store_is_read_only_cstr(const variable_store_t *store, const char *name);
-
-/**
- * Checks whether a variable is exported.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return true if exported.
- */
-bool variable_store_is_exported(const variable_store_t *store, const string_t *name);
-
-/**
- * Checks whether a variable is exported using a C‑string name.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @return true if exported.
- */
-bool variable_store_is_exported_cstr(const variable_store_t *store, const char *name);
-
-/**
- * Sets or clears the read‑only flag on a variable.
- *
- * @param store Variable store.
- * @param name Variable name.
- * @param read_only New read‑only state.
+ * @param read_only New read-only state.
  * @return Error code.
  */
 var_store_error_t variable_store_set_read_only(variable_store_t *store, const string_t *name,
                                                bool read_only);
 
 /**
- * Sets or clears the read‑only flag using a C‑string name.
+ * Sets or clears the read-only flag using a C-string name.
  *
  * @param store Variable store.
  * @param name Variable name.
- * @param read_only New read‑only state.
+ * @param read_only New read-only state.
  * @return Error code.
  */
 var_store_error_t variable_store_set_read_only_cstr(variable_store_t *store, const char *name,
@@ -274,7 +258,7 @@ var_store_error_t variable_store_set_exported(variable_store_t *store, const str
                                               bool exported);
 
 /**
- * Sets or clears the exported flag using a C‑string name.
+ * Sets or clears the exported flag using a C-string name.
  *
  * @param store Variable store.
  * @param name Variable name.
@@ -283,6 +267,116 @@ var_store_error_t variable_store_set_exported(variable_store_t *store, const str
  */
 var_store_error_t variable_store_set_exported_cstr(variable_store_t *store, const char *name,
                                                    bool exported);
+
+/* ============================================================================
+ * Queries (const outputs)
+ *
+ * All returned pointers refer to internal store data and are valid only until
+ * the next mutating operation on the store. Do not free or modify them.
+ * ============================================================================ */
+
+/**
+ * Checks whether a variable exists.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return true if the variable exists.
+ */
+bool variable_store_has_name(const variable_store_t *store, const string_t *name);
+
+/**
+ * Checks whether a variable exists using a C-string name.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return true if the variable exists.
+ */
+bool variable_store_has_name_cstr(const variable_store_t *store, const char *name);
+
+/**
+ * Retrieves a read-only view of a variable by name.
+ *
+ * The returned view contains const pointers to internal store data.
+ * Valid only until the next mutating operation on the store.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @param out_view Pointer to variable_view_t to fill (must not be NULL).
+ * @return true if the variable was found and out_view was populated, false otherwise.
+ */
+bool variable_store_get_variable(const variable_store_t *store, const string_t *name,
+                                 variable_view_t *out_view);
+
+/**
+ * Retrieves a read-only view of a variable by C-string name.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @param out_view Pointer to variable_view_t to fill (must not be NULL).
+ * @return true if the variable was found and out_view was populated, false otherwise.
+ */
+bool variable_store_get_variable_cstr(const variable_store_t *store, const char *name,
+                                      variable_view_t *out_view);
+
+/**
+ * Retrieves a variable's value.
+ *
+ * Returns a const pointer to the internal string. Valid only until the
+ * next mutating operation on the store.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return Value string or NULL if not found.
+ */
+const string_t *variable_store_get_value(const variable_store_t *store, const string_t *name);
+
+/**
+ * Retrieves a variable's value as a C-string.
+ *
+ * Returns a const pointer to the internal string data. Valid only until the
+ * next mutating operation on the store.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return Value string or NULL if not found.
+ */
+const char *variable_store_get_value_cstr(const variable_store_t *store, const char *name);
+
+/**
+ * Checks whether a variable is read-only.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return true if read-only.
+ */
+bool variable_store_is_read_only(const variable_store_t *store, const string_t *name);
+
+/**
+ * Checks whether a variable is read-only using a C-string name.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return true if read-only.
+ */
+bool variable_store_is_read_only_cstr(const variable_store_t *store, const char *name);
+
+/**
+ * Checks whether a variable is exported.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return true if exported.
+ */
+bool variable_store_is_exported(const variable_store_t *store, const string_t *name);
+
+/**
+ * Checks whether a variable is exported using a C-string name.
+ *
+ * @param store Variable store.
+ * @param name Variable name.
+ * @return true if exported.
+ */
+bool variable_store_is_exported_cstr(const variable_store_t *store, const char *name);
 
 /**
  * Returns the length of a variable's value.
@@ -293,13 +387,18 @@ var_store_error_t variable_store_set_exported_cstr(variable_store_t *store, cons
  */
 int32_t variable_store_get_value_length(const variable_store_t *store, const string_t *name);
 
+/* ============================================================================
+ * Iteration
+ *
+ * Callbacks receive const pointers to internal data. Do not modify or free.
+ * ============================================================================ */
+
 typedef void (*var_store_iter_fn)(const string_t *name, const string_t *value, bool exported,
                                   bool read_only, void *user_data);
 
-
 /**
  * Iterates over all variables in the store, calling the provided function for each.
- * Does not modify the store.
+ * Does not modify the store. Callback receives const pointers.
  *
  * @param store Variable store.
  * @param fn Function to call for each variable.
@@ -317,23 +416,36 @@ typedef enum
     VAR_STORE_MAP_ACTION_REMOVE    /**< Remove the variable from the store. */
 } var_store_map_action_t;
 
+/**
+ * Callback for variable_store_map.
+ *
+ * The name and value parameters are mutable deep copies that the callback can
+ * freely modify. Modified values are validated and deep-copied back into the store.
+ * The callback does NOT receive direct pointers to store internals.
+ */
 typedef var_store_map_action_t (*var_store_map_fn)(string_t *name, string_t *value, bool *exported,
                                                    bool *read_only, void *user_data);
 
 /**
  * Iterates over all variables in the store, allowing modification via the provided function.
- * Stop iteration if the function returns an error.
- * N.B.: you cannot use this function to remove an entry from the store.
+ * The callback receives deep copies of name/value that it may freely modify.
+ * Modified values are validated before being applied back to the store.
  *
  * @param store Variable store.
  * @param fn Function to call for each variable.
  * @param user_data User data passed to the function.
- * @param failed_name If non-NULL, set to the unmodified name of the variable that caused an error.
+ * @param failed_name If non-NULL, set to a newly allocated copy of the name that caused an error.
+ *                    Caller must free with string_destroy().
+ * @return Error code.
  */
 var_store_error_t variable_store_map(variable_store_t *store, var_store_map_fn fn, void *user_data,
                                      string_t **failed_name);
 
-    /**
+/* ============================================================================
+ * Environment
+ * ============================================================================ */
+
+/**
  * Prints all exported variables to the log at DEBUG level.
  *
  * @param store Variable store.
@@ -342,43 +454,39 @@ void variable_store_debug_print_exported(const variable_store_t *store);
 
 /**
  * Debug: Verify that two variable stores have identical content but independent memory.
- * 
+ *
  * Checks that:
  * 1. Both stores have the same keys (by string content)
  * 2. Both stores have the same values (by string content) for matching keys
  * 3. Keys don't share string_t pointers or data pointers (no aliasing)
  * 4. Values don't share string_t pointers or data pointers (no aliasing)
- * 
+ *
  * Logs errors for any violations found.
- * 
+ *
  * @param store_a First variable store
  * @param store_b Second variable store
  * @return true if stores are equal in content and independent in memory, false otherwise
  */
-bool variable_store_debug_verify_independent(const variable_store_t *store_a, 
+bool variable_store_debug_verify_independent(const variable_store_t *store_a,
                                              const variable_store_t *store_b);
 
 /**
  * Returns the environment array for the variable store.
- * The returned pointer remains valid until the next update call.
+ * The returned pointer is owned by the store and remains valid until the
+ * next mutating operation. Do not free.
  *
  * @param vs Variable store.
- * @return NULL‑terminated environment array.
+ * @return NULL-terminated environment array.
  */
 char *const *variable_store_get_envp(variable_store_t *vs);
 
 /**
  * Write the environment variables from `vars` to the env file specified by the
- * MGSH_ENV_FILE variable, if set. This is used in ISO C mode where envp cannot
- * be passed to the child process via system() - instead, the environment is
- * written to a file that the child process can source.
- *
- * Note that the `vars` parameter is mutable because we may need to update its
- * internal state when generating the envp array.
+ * MGSH_ENV_FILE variable, if set.
  *
  * @param vars Variable store to export.
- * @return Path to the env file as a newly allocated string, or NULL on failure
- *         or if MGSH_ENV_FILE is not set.
+ * @return Path to the env file as a newly allocated string (caller must free),
+ *         or NULL on failure or if MGSH_ENV_FILE is not set.
  */
 string_t *variable_store_write_env_file(variable_store_t *vars);
 
