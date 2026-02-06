@@ -1,13 +1,14 @@
-#include <string.h>
-#include <stdio.h>
 #include <ctype.h>
+#include <stdio.h>
+#include <string.h>
 
-#include "func_store.h"
-#include "func_map.h"
+#define FUNC_MAP_INTERNAL
 #include "exec_redirect.h"
+#include "func_map.h"
+#include "func_store.h"
+#include "logging.h"
 #include "string_t.h"
 #include "xalloc.h"
-#include "logging.h"
 
 // Simple POSIX-like identifier validator: [A-Za-z_][A-Za-z0-9_]*
 static bool is_valid_name_cstr(const char *s)
@@ -42,6 +43,20 @@ func_store_t *func_store_create(void)
     return store;
 }
 
+/* Callback context for func_store_clone */
+typedef struct clone_ctx_t
+{
+    func_store_t *dst;
+} clone_ctx_t;
+
+static void clone_callback(const string_t *key, const func_map_mapped_t *mapped, void *user_data)
+{
+    clone_ctx_t *ctx = user_data;
+
+    /* func_store_add_ex deep-copies everything internally */
+    func_store_add_ex(ctx->dst, key, mapped->func, mapped->redirections);
+}
+
 func_store_t *func_store_clone(const func_store_t *other)
 {
     if (!other || !other->map)
@@ -51,30 +66,8 @@ func_store_t *func_store_clone(const func_store_t *other)
     if (!new_store)
         return NULL;
 
-    for (int32_t i = 0; i < other->map->capacity; i++)
-    {
-        if (!other->map->entries[i].occupied)
-            continue;
-
-        const string_t *name = other->map->entries[i].key;
-        const func_map_mapped_t *mapped = &other->map->entries[i].mapped;
-
-        // Clone the AST node (deep copy because by policy no AST node can have more than 1 owner)
-        ast_node_t *func_clone = ast_node_clone(mapped->func);
-
-        // Clone redirections if present
-        exec_redirections_t *redir_clone = mapped->redirections 
-            ? exec_redirections_clone(mapped->redirections) 
-            : NULL;
-
-        // Add to new store
-        func_store_add_ex(new_store, name, func_clone, redir_clone);
-
-        // Clean up temporary clones (func_store_add_ex makes its own copies)
-        ast_node_destroy(&func_clone);
-        if (redir_clone)
-            exec_redirections_destroy(&redir_clone);
-    }
+    clone_ctx_t ctx = {.dst = new_store};
+    func_map_foreach(other->map, clone_callback, &ctx);
 
     return new_store;
 }
@@ -209,7 +202,8 @@ const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char 
     return result;
 }
 
-const exec_redirections_t* func_store_get_redirections(const func_store_t* store, const string_t* name)
+const exec_redirections_t *func_store_get_redirections(const func_store_t *store,
+                                                       const string_t *name)
 {
     Expects_not_null(store);
     Expects_not_null(name);
@@ -220,11 +214,12 @@ const exec_redirections_t* func_store_get_redirections(const func_store_t* store
 }
 
 func_store_insert_result_t func_store_add_ex(func_store_t *store, const string_t *name,
-    const ast_node_t *value, const exec_redirections_t *redirections)
+                                             const ast_node_t *value,
+                                             const exec_redirections_t *redirections)
 {
     func_store_insert_result_t result;
     result.was_new = false;
-    
+
     if (!store || !store->map)
     {
         result.error = FUNC_STORE_ERROR_STORAGE_FAILURE;
@@ -261,7 +256,7 @@ func_store_insert_result_t func_store_add_ex(func_store_t *store, const string_t
     func_map_mapped_t mapped;
     mapped.name = string_create_from(name);
     mapped.func = ast_node_clone(value);
-    mapped.redirections = exec_redirections_clone(redirections);
+    mapped.redirections = redirections ? exec_redirections_clone(redirections) : NULL;
 
     func_map_insert_or_assign_move(store->map, name, &mapped);
 
@@ -279,7 +274,8 @@ typedef struct func_store_foreach_context_t
     void *user_data;
 } func_store_foreach_context_t;
 
-static void func_store_foreach_wrapper(const string_t *key, const func_map_mapped_t *mapped, void *user_data)
+static void func_store_foreach_wrapper(const string_t *key, const func_map_mapped_t *mapped,
+                                       void *user_data)
 {
     func_store_foreach_context_t *ctx = (func_store_foreach_context_t *)user_data;
     if (ctx && ctx->user_callback && mapped)

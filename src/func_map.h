@@ -1,13 +1,14 @@
 #ifndef FUNC_MAP_H
 #define FUNC_MAP_H
 
+#ifndef FUNC_MAP_INTERNAL
+#error "func_map.h is an internal header. Only func_store.c and func_map.c may include it."
+#endif
+
 #include "ast.h"
 #include "string_t.h"
 #include <stdbool.h>
 #include <stdint.h>
-
-/* Forward declaration */
-typedef struct exec_redirections_t exec_redirections_t;
 
 /* Forward declaration */
 typedef struct exec_redirections_t exec_redirections_t;
@@ -17,6 +18,8 @@ typedef struct exec_redirections_t exec_redirections_t;
  *
  * Maps function names (string_t) to function definitions (ast_node_t).
  * Used to store user-defined functions in a POSIX shell.
+ *
+ * This is an INTERNAL header. External code must use func_store.h.
  */
 
 /**
@@ -24,9 +27,10 @@ typedef struct exec_redirections_t exec_redirections_t;
  */
 typedef struct func_map_mapped_t
 {
-    ast_node_t *func;                    // Function body (AST node, typically AST_FUNCTION_DEF)
-    string_t *name;                      // Function name (copy stored here for convenience)
-    exec_redirections_t *redirections;   // Redirections to apply when function is invoked (may be NULL)
+    ast_node_t *func; // Function body (AST node, typically AST_FUNCTION_DEF)
+    string_t *name;   // Function name (copy stored here for convenience)
+    exec_redirections_t
+        *redirections; // Redirections to apply when function is invoked (may be NULL)
 } func_map_mapped_t;
 
 /**
@@ -34,9 +38,9 @@ typedef struct func_map_mapped_t
  */
 typedef struct func_map_entry_t
 {
-    string_t *key;              // Function name (used as hash key)
-    func_map_mapped_t mapped;   // Associated function data
-    bool occupied;              // True if this slot is occupied
+    string_t *key;            // Function name (used as hash key)
+    func_map_mapped_t mapped; // Associated function data
+    bool occupied;            // True if this slot is occupied
 } func_map_entry_t;
 
 /**
@@ -45,8 +49,8 @@ typedef struct func_map_entry_t
 typedef struct func_map_t
 {
     func_map_entry_t *entries;
-    int32_t size;       // Number of entries in the map
-    int32_t capacity;   // Total capacity of the hash table
+    int32_t size;     // Number of entries in the map
+    int32_t capacity; // Total capacity of the hash table
 } func_map_t;
 
 /**
@@ -54,8 +58,8 @@ typedef struct func_map_t
  */
 typedef struct func_map_insert_result_t
 {
-    int32_t pos;     // Position where the key was inserted or found
-    bool success;    // True if new key was inserted, false if key already existed
+    int32_t pos;  // Position where the key was inserted or found
+    bool success; // True if new key was inserted, false if key already existed
 } func_map_insert_result_t;
 
 /* ============================================================================
@@ -112,22 +116,12 @@ int32_t func_map_size(const func_map_t *map);
 void func_map_clear(func_map_t *map);
 
 /**
- * Insert a new entry (moves the mapped value into the map)
- * The map will clone the key. The mapped value is moved (not copied).
- * Returns a result indicating success and position.
- */
-func_map_insert_result_t func_map_insert_move(func_map_t *map,
-                                               const string_t *key,
-                                               func_map_mapped_t *mapped);
-
-/**
  * Insert or update an entry (moves the mapped value into the map)
  * If the key exists, replaces the value. Otherwise, inserts a new entry.
  * Returns the position of the entry.
  */
-int32_t func_map_insert_or_assign_move(func_map_t *map,
-                                        const string_t *key,
-                                        func_map_mapped_t *mapped);
+int32_t func_map_insert_or_assign_move(func_map_t *map, const string_t *key,
+                                       func_map_mapped_t *mapped);
 
 /**
  * Remove an entry by key
@@ -181,7 +175,8 @@ bool func_map_contains(const func_map_t *map, const string_t *key);
  * @param mapped Mapped value (function data)
  * @param user_data User-provided context pointer
  */
-typedef void (*func_map_foreach_fn)(const string_t *key, const func_map_mapped_t *mapped, void *user_data);
+typedef void (*func_map_foreach_fn)(const string_t *key, const func_map_mapped_t *mapped,
+                                    void *user_data);
 
 /**
  * Iterate over all entries in the map
