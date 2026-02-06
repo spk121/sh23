@@ -86,12 +86,6 @@ static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, pa
     token_add_part(lx->current_token, part);
     lx->current_token->needs_expansion = true;
 
-    // Field splitting only if not in double quotes
-    if (!lexer_in_mode(lx, LEX_DOUBLE_QUOTE))
-    {
-        lx->current_token->needs_field_splitting = true;
-    }
-
     string_destroy(&param_name);
 }
 
@@ -197,7 +191,7 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         string_t *name = string_create_from_cstr_len(input + name_start, name_len);
         part_t *part = part_create_parameter(name);
         part->param_kind = PARAM_LENGTH;
-        part_set_quoted(part, lexer_in_mode(lx, LEX_DOUBLE_QUOTE), false);
+        part_set_quoted(part, false, lexer_in_mode(lx, LEX_DOUBLE_QUOTE));
         token_add_part(lx->current_token, part);
         lx->current_token->needs_expansion = true;
 
