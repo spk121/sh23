@@ -845,7 +845,49 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
         {
             log_debug("exec_execute_stream: Lexer incomplete/heredoc at line %d", line_num);
-            token_list_destroy(&raw_tokens);
+            
+            /* Check if any tokens were produced before the incomplete state.
+             * If so, we should accumulate them for parsing when more input arrives. */
+            if (token_list_size(raw_tokens) > 0)
+            {
+                log_debug("exec_execute_stream: Lexer produced %d tokens before becoming incomplete",
+                          token_list_size(raw_tokens));
+                
+                /* Process the tokens that were produced */
+                token_list_t *processed_tokens = token_list_create();
+                tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+                token_list_destroy(&raw_tokens);
+                
+                if (tok_status != TOK_OK)
+                {
+                    log_debug("exec_execute_stream: Tokenizer error on incomplete line %d", line_num);
+                    token_list_destroy(&processed_tokens);
+                    if (accumulated_tokens)
+                        token_list_destroy(&accumulated_tokens);
+                    final_status = EXEC_ERROR;
+                    break;
+                }
+                
+                /* Accumulate these tokens for when the lexer completes */
+                if (accumulated_tokens == NULL)
+                {
+                    accumulated_tokens = processed_tokens;
+                }
+                else
+                {
+                    if (token_list_append_list_move(accumulated_tokens, &processed_tokens) != 0)
+                    {
+                        log_debug("exec_execute_stream: Failed to append incomplete tokens");
+                        token_list_destroy(&accumulated_tokens);
+                        final_status = EXEC_ERROR;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                token_list_destroy(&raw_tokens);
+            }
             continue;
         }
 

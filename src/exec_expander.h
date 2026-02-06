@@ -74,7 +74,7 @@ typedef enum expand_flags_t
  * @param tok    Token to expand (must be TOKEN_WORD)
  * @return       List of expanded strings, or NULL on error
  */
-string_list_t *expand_word(const exec_frame_t *frame, const token_t *tok);
+string_list_t *expand_word(exec_frame_t *frame, const token_t *tok);
 
 /**
  * Expand multiple word tokens.
@@ -83,7 +83,7 @@ string_list_t *expand_word(const exec_frame_t *frame, const token_t *tok);
  * @param tokens  List of tokens to expand
  * @return        List of all expanded strings, or NULL on error
  */
-string_list_t *expand_words(const exec_frame_t *frame, const token_list_t *tokens);
+string_list_t *expand_words(exec_frame_t *frame, const token_list_t *tokens);
 
 /**
  * Expand a string with specified expansion flags.
@@ -214,7 +214,7 @@ string_list_t *expand_pathname(exec_frame_t *frame, const string_t *pattern);
  * @param name   Parameter name (without $)
  * @return       Parameter value, or NULL if not a special parameter
  */
-string_t *expand_special_param(exec_frame_t *frame, const string_t *name);
+string_t *expand_special_param(const exec_frame_t *frame, const string_t *name);
 
 /**
  * Check if a name is a special parameter.

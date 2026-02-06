@@ -418,7 +418,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
     // Get the next input token
-    const token_t *token = token_list_get(tok->input_tokens, tok->input_pos);
+    token_t *token = tok->input_tokens->tokens[tok->input_pos];
 
     // Check if this token is eligible for alias expansion
     if (tok->aliases != NULL && tokenizer_is_alias_eligible(tok, token))
@@ -474,7 +474,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
                 if (reserved_type != TOKEN_WORD && reserved_type != TOKEN_IN)
                 {
                     // Convert TOKEN_WORD to reserved word token
-                    token_list_set_token_type(tok->input_tokens, tok->input_pos, reserved_type);
+                    token_set_type(token, reserved_type);
                     xfree(word_text);
                     // Add token to output and update position
                     goto add_token;

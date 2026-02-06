@@ -177,7 +177,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame,
 
         case REDIR_TARGET_FILE: {
             string_t *fname_str =
-                exec_expand_redirection_target(executor, r->data.redirection.target);
+                expand_redirection_target(frame, r->data.redirection.target);
             const char *fname = string_cstr(fname_str);
             int flags = 0;
             mode_t mode = 0666;
@@ -389,6 +389,12 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
                 exec_set_error(executor, "Failed to get redirection target");
                 xfree(saved);
                 return EXEC_ERROR;
+            }
+
+            // On Windows, translate /dev/null to NUL
+            if (strcmp(fname, "/dev/null") == 0 || strcmp(fname, "\\dev\\null") == 0)
+            {
+                fname = "NUL";
             }
 
             // Determine flags and permissions for _open

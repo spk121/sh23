@@ -245,7 +245,7 @@ string_t *expand_tilde(exec_frame_t *frame, const string_t *username)
  * Get the value of a parameter (variable or special param).
  * Returns NULL if not set.
  */
-static string_t *get_parameter_value(exec_frame_t *frame, const string_t *name)
+static string_t *get_parameter_value(const exec_frame_t *frame, const string_t *name)
 {
     if (!name || string_length(name) == 0)
     {
@@ -265,10 +265,10 @@ static string_t *get_parameter_value(exec_frame_t *frame, const string_t *name)
     if (frame)
     {
         /* Check local variables first (if frame supports them) */
-        string_t *value = exec_frame_get_variable(frame, name);
+        const string_t *value = exec_frame_get_variable(frame, name);
         if (value)
         {
-            return value;
+            return string_create_from(value);
         }
     }
 
@@ -313,10 +313,12 @@ static bool is_parameter_set(exec_frame_t *frame, const string_t *name)
 
 /**
  * Expand parameter with modifiers (${var:-word}, ${var#pattern}, etc.)
+ * Despite looking like an accessor, this function may have side effects
+ * (e.g., modifying the frame's last_exit_status or assigning variables for := modifier).
  */
 static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_t *part)
 {
-    const string_t *v = get_parameter_value(frame, part->param_name);
+    string_t *v = get_parameter_value(frame, part->param_name);
     bool is_set = (v != NULL);
     bool is_null = (v == NULL || string_length(v) == 0);
 
@@ -326,7 +328,7 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
         /* Simple parameter expansion */
         if (v)
         {
-            return string_create_from(v);
+            return v;
         }
         return string_create();
 
@@ -335,6 +337,7 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
         if (v)
         {
             int len = string_length(v);
+            string_destroy(&v);
             return string_from_int(len);
         }
         return string_create_from_cstr("0");
@@ -350,7 +353,7 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             }
             return string_create();
         }
-        return string_create_from(v);
+        return v;
 
     case PARAM_ASSIGN_DEFAULT:
         /* ${var:=word} - assign default if unset or null */
@@ -365,7 +368,7 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             }
             return string_create();
         }
-        return string_create_from(v);
+        return v;
 
     case PARAM_ERROR_IF_UNSET:
         /* ${var:?word} - error if unset or null */
@@ -379,7 +382,7 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             }
             return string_create();
         }
-        return string_create_from(v);
+        return v;
 
     case PARAM_USE_ALTERNATE:
         /* ${var:+word} - use alternate if set and not null */
@@ -401,9 +404,10 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             if (part->word && string_length(part->word) > 0)
             {
                 string_t *result = remove_suffix_smallest(v, part->word);
+                string_destroy(&v);
                 return result;
             }
-            return string_create_from(v);
+            return v;
         }
         return string_create();
 
@@ -414,9 +418,10 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             if (part->word && string_length(part->word) > 0)
             {
                 string_t *result = remove_suffix_largest(v, part->word);
+                string_destroy(&v);
                 return result;
             }
-            return string_create_from(v);
+            return v;
         }
         return string_create();
 
@@ -427,9 +432,10 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             if (part->word && string_length(part->word) > 0)
             {
                 string_t *result = remove_prefix_smallest(v, part->word);
+                string_destroy(&v);
                 return result;
             }
-            return string_create_from(v);
+            return v;
         }
         return string_create();
 
@@ -440,9 +446,10 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             if (part->word && string_length(part->word) > 0)
             {
                 string_t *result = remove_prefix_largest(v, part->word);
+                string_destroy(&v);
                 return result;
             }
-            return string_create_from(v);
+            return v;
         }
         return string_create();
 
@@ -454,6 +461,7 @@ static string_t *expand_parameter_with_modifier(exec_frame_t *frame, const part_
             /* The value contains the name of another variable */
             /* Now expand that variable */
             string_t *indirect_value = get_parameter_value(frame, v);
+            string_destroy(&v);
             
             if (indirect_value)
             {
@@ -488,7 +496,7 @@ string_t *expand_parameter(exec_frame_t *frame, const string_t *name)
     return string_create(); /* Empty string if not set */
 }
 
-string_t *expand_special_param(exec_frame_t *frame, const string_t *name)
+string_t *expand_special_param(const exec_frame_t *frame, const string_t *name)
 {
     if (!name || string_length(name) == 0)
     {
@@ -707,28 +715,21 @@ string_t *expand_arithmetic(exec_frame_t *frame, const string_t *expression)
         return string_create_from_cstr("0");
     }
 
-    /* Get the executor and variable store for arithmetic evaluation */
-    exec_t *executor = frame ? frame->executor : NULL;
-    variable_store_t *vars = frame ? exec_frame_get_variables(frame) : NULL;
-
-    if (!executor || !vars)
+    if (!frame)
     {
-        log_warn("expand_arithmetic: no executor or variable store available");
+        log_warn("expand_arithmetic: no frame available");
         return string_create_from_cstr("0");
     }
 
     /* Use the arithmetic module to evaluate the expression */
-    ArithmeticResult result = arithmetic_evaluate(executor, vars, expression);
+    ArithmeticResult result = arithmetic_evaluate(frame, expression);
 
     if (result.failed)
     {
         log_error("Arithmetic expansion error: %s", 
                   result.error ? string_cstr(result.error) : "unknown error");
         arithmetic_result_free(&result);
-        if (frame)
-        {
-            frame->last_exit_status = 1;
-        }
+        frame->last_exit_status = 1;
         return string_create_from_cstr("0");
     }
 
@@ -771,6 +772,7 @@ static bool is_ifs_char(char c, const char *ifs)
  * 3. Consecutive IFS whitespace is treated as a single delimiter
  * 4. Non-whitespace IFS characters create empty fields
  * 5. IFS whitespace adjacent to non-whitespace IFS is ignored
+ * 6. If the result contains only IFS whitespace, produce zero words (empty list)
  */
 string_list_t *expand_field_split(exec_frame_t *frame, const string_t *text)
 {
@@ -849,6 +851,26 @@ string_list_t *expand_field_split(exec_frame_t *frame, const string_t *text)
         string_destroy(&current_field);
     }
 
+    /* POSIX: If the input contained only IFS whitespace, produce zero words.
+     * This happens when we've processed the entire string but never set in_field,
+     * OR we set in_field but only to accumulate empty strings that got removed.
+     */
+    if (string_list_size(fields) == 0)
+    {
+        /* Check if we had only IFS whitespace */
+        bool only_ifs_whitespace = true;
+        for (int i = 0; i < len; i++)
+        {
+            if (!is_ifs_char(str[i], ifs) || !is_ifs_whitespace(str[i]))
+            {
+                only_ifs_whitespace = false;
+                break;
+            }
+        }
+        /* If we had only IFS whitespace, return empty list (zero words).
+         * This is correct POSIX behavior. */
+    }
+
     return fields;
 }
 
@@ -884,6 +906,8 @@ string_list_t *expand_pathname(exec_frame_t *frame, const string_t *pattern)
 
 /**
  * Expand a single token part.
+ * This function may have side effects
+ * (e.g., modifying the frame's last_exit_status or assigning variables for := modifier).
  */
 static string_t *expand_part(exec_frame_t *frame, const part_t *part)
 {
@@ -930,6 +954,7 @@ static string_t *expand_part(exec_frame_t *frame, const part_t *part)
 /**
  * Expand all parts of a token to a single string.
  * Respects quoting: single-quoted parts are literal, double-quoted allow expansion.
+ * May have side effects from parameter expansions with modifiers.
  */
 static string_t *expand_parts_to_string(exec_frame_t *frame, const part_list_t *parts)
 {
@@ -976,7 +1001,11 @@ static string_t *remove_quotes(const string_t *text)
  * High-Level Expansion Functions
  * ============================================================================ */
 
-string_list_t *expand_word(const exec_frame_t *frame, const token_t *tok)
+/**
+ * Expands a single WORD token into a list of strings, applying all relevant expansions.
+ * This may have side effects from parameter expansions with modifiers and command substitutions.
+ */
+string_list_t *expand_word(exec_frame_t *frame, const token_t *tok)
 {
     if (!tok || tok->type != TOKEN_WORD)
     {
@@ -1002,12 +1031,9 @@ string_list_t *expand_word(const exec_frame_t *frame, const token_t *tok)
     {
         fields = expand_field_split(frame, expanded);
         string_destroy(&expanded);
-
-        if (string_list_size(fields) == 0)
-        {
-            /* If splitting produced no fields, add an empty string */
-            string_list_push_back(fields, string_create());
-        }
+        
+        /* POSIX: If field splitting produced zero words (e.g., input was only
+         * IFS whitespace), that's correct - don't add an empty string. */
     }
     else
     {
@@ -1039,7 +1065,11 @@ string_list_t *expand_word(const exec_frame_t *frame, const token_t *tok)
     return fields;
 }
 
-string_list_t *expand_words(const exec_frame_t *frame, const token_list_t *tokens)
+/**
+ * Expand a list of WORD tokens into a list of strings, applying all relevant expansions.
+ * This may have side effects from parameter expansions with modifiers and command substitutions.
+ */
+string_list_t *expand_words(exec_frame_t *frame, const token_list_t *tokens)
 {
     if (!tokens)
     {

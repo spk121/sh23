@@ -311,7 +311,7 @@ trap_store_t* exec_frame_get_traps(exec_frame_t* frame);
  /**
   * Get variable value, checking local store first if applicable.
   */
-const string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name);
+const string_t* exec_frame_get_variable(const exec_frame_t* frame, const string_t* name);
 
 /**
  * Set variable, respecting local scope if applicable.

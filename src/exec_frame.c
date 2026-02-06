@@ -1211,10 +1211,11 @@ trap_store_t *exec_frame_get_traps(exec_frame_t *frame)
     return frame->traps;
 }
 
-const string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name)
+const string_t* exec_frame_get_variable(const exec_frame_t* frame, const string_t* name)
 {
-    if (!frame || !name)
-        return NULL;
+    Expects_not_null(frame);
+    Expects_not_null(name);
+    Expects_gt(name->length, 0);
 
     /* Check local store first if present */
     if (frame->local_variables)
