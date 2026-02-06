@@ -380,7 +380,8 @@ static int get_precedence(math_token_type_t type) {
         case MATH_TOKEN_MODULO:
             return 13;
         default:
-            return 0;
+            // Return -1 for EOF and invalid tokens so they're caught by precedence check
+            return -1;
     }
 }
 
@@ -397,6 +398,7 @@ static ArithmeticResult parse_expression(math_parser_t *parser, int min_preceden
     // Handle unary operators (prefix)
     int saved_pos = parser->pos;
     math_token_t token = get_token(parser);
+    
     if (token.type == MATH_TOKEN_PLUS || token.type == MATH_TOKEN_MINUS ||
         token.type == MATH_TOKEN_BIT_NOT || token.type == MATH_TOKEN_LOGICAL_NOT) {
         math_token_type_t unary_op = token.type;
@@ -769,10 +771,15 @@ static string_t *arithmetic_expand_expression(exec_frame_t *frame, const string_
 
     for (int i = 0; i < token_list_size(aliased_tokens); i++) {
         const token_t *tok = token_list_get(aliased_tokens, i);
+        token_type_t tok_type = token_get_type(tok);
 
-        if (token_get_type(tok) == TOKEN_WORD) {
+        if (tok_type == TOKEN_WORD) {
             // Expand the word using the frame-based API
             string_list_t *expanded_words = expand_word(frame, tok);
+
+            if (!expanded_words) {
+                continue;
+            }
 
             // Concatenate all expanded words without adding spaces
             // Arithmetic expressions should not have field splitting
@@ -782,9 +789,9 @@ static string_t *arithmetic_expand_expression(exec_frame_t *frame, const string_
             }
 
             string_list_destroy(&expanded_words);
+        } else if (tok_type == TOKEN_NEWLINE) {
+            // Skip newlines in arithmetic expressions
         }
-        // For non-word tokens, we skip them as arithmetic expressions
-        // should only contain word tokens
     }
 
     // Cleanup
@@ -811,6 +818,12 @@ ArithmeticResult arithmetic_evaluate(exec_frame_t *frame, const string_t *expres
     string_t *expanded_str = arithmetic_expand_expression(frame, expression);
     if (!expanded_str) {
         return make_error("Failed to expand arithmetic expression");
+    }
+
+    // Check if expansion produced an empty string
+    if (string_length(expanded_str) == 0) {
+        string_destroy(&expanded_str);
+        return make_value(0);
     }
 
     // Step 5: Parse and evaluate the fully expanded expression
