@@ -12,10 +12,13 @@
  * could be interpreted as part of the name.
  */
 
+#include <ctype.h>
+
+#define LEXER_INTERNAL
 #include "lexer_param_exp.h"
+
 #include "lexer.h"
 #include "token.h"
-#include <ctype.h>
 
 /**
  * Check if a character is a special parameter character.

@@ -1,8 +1,11 @@
-#include "lexer_normal.h"
-#include "lexer.h"
-#include "token.h"
 #include <ctype.h>
 #include <limits.h>
+
+#define LEXER_INTERNAL
+#include "lexer_normal.h"
+
+#include "lexer.h"
+#include "token.h"
 
 // Operators that can appear in normal mode
 static const char normal_mode_operators[TOKEN_TYPE_COUNT][4] = {

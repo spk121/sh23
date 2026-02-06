@@ -8,7 +8,9 @@
  * single quotes, even when preceded by a backslash.
  */
 
+#define LEXER_INTERNAL
 #include "lexer_squote.h"
+
 #include "lexer.h"
 #include "token.h"
 

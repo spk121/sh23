@@ -1,7 +1,11 @@
 #ifndef LEXER_DQUOTE_H
 #define LEXER_DQUOTE_H
 
-#include "lexer.h"
+#ifndef LEXER_INTERNAL
+#error "This is a private header. Do not include it directly; include lexer.h instead."
+#endif
+
+#include "lexer_priv_t.h"
 
 /**
  * @file lexer_dquote.h

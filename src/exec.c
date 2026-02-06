@@ -833,8 +833,9 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         if (lex_status == LEX_ERROR)
         {
             log_debug("exec_execute_stream: Lexer error at line %d", line_num);
+            const char *err = lexer_get_error(lx);
             exec_set_error(executor, "Lexer error: %s",
-                           lx->error_msg ? string_cstr(lx->error_msg) : "unknown");
+                           err ? err : "unknown");
             token_list_destroy(&raw_tokens);
             if (accumulated_tokens)
                 token_list_destroy(&accumulated_tokens);

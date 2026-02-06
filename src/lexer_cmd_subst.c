@@ -17,7 +17,9 @@
  * except when followed by $, `, \, or newline.
  */
 
+#define LEXER_INTERNAL
 #include "lexer_cmd_subst.h"
+
 #include "lexer.h"
 #include "logging.h"
 #include "token.h"

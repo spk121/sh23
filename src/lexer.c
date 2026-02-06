@@ -1,5 +1,12 @@
+#include <ctype.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+
 #include "lexer.h"
 
+#define LEXER_INTERNAL
 #include "lexer_arith_exp.h"
 #include "lexer_cmd_subst.h"
 #include "lexer_dquote.h"
@@ -11,11 +18,6 @@
 #include "string_t.h"
 #include "token.h"
 #include "xalloc.h"
-#include <ctype.h>
-#include <limits.h>
-#include <stdarg.h>
-#include <stdlib.h>
-#include <string.h>
 
 /* ============================================================================
  * Lexer Lifecycle Functions

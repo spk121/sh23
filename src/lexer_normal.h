@@ -1,6 +1,11 @@
 #ifndef LEXER_NORMAL_H
 #define LEXER_NORMAL_H
-#include "lexer.h"
+
+#ifndef LEXER_INTERNAL
+#error "This is a private header. Do not include it directly; include lexer.h instead."
+#endif
+
+#include "lexer_priv_t.h"
 
 /**
  * Attempt to process one token in NORMAL mode, storing it internally.
@@ -9,4 +14,4 @@
  */
 lex_status_t lexer_process_one_normal_token(lexer_t *lx);
 
-#endif
+#endif /* LEXER_NORMAL_H */

@@ -1,4 +1,6 @@
 #include "ctest.h"
+
+#define LEXER_INTERNAL
 #include "lexer.h"
 #include "lexer_normal.h"
 #include "lexer_cmd_subst.h"

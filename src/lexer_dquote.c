@@ -12,10 +12,13 @@
  * For any other character, the backslash is preserved literally.
  */
 
+#include <ctype.h>
+
+#define LEXER_INTERNAL
 #include "lexer_dquote.h"
+
 #include "lexer.h"
 #include "token.h"
-#include <ctype.h>
 
 /**
  * Characters that can be escaped with backslash inside double quotes.
