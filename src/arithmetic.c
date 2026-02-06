@@ -4,6 +4,7 @@
 #include "alias_store.h"
 #include "arithmetic.h"
 #include "exec_expander.h"
+#include "exec_frame.h"
 #include "lexer.h"
 #include "logging.h"
 #include "parser.h"
@@ -23,8 +24,7 @@ typedef struct {
     string_t *input;
     int pos;
     int padding;
-    exec_t *exp;
-    variable_store_t *vars;
+    exec_frame_t *frame;
 } math_parser_t;
 
 // Token types for arithmetic lexer
@@ -85,11 +85,18 @@ static bool is_alnum_or_underscore(char c) {
 }
 
 // Initialize parser
-static void parser_init(math_parser_t *parser, exec_t *exp, variable_store_t *vars, const string_t *input) {
+static void parser_init(math_parser_t *parser, exec_frame_t *frame, const string_t *input) {
     parser->input = string_create_from(input);
     parser->pos = 0;
-    parser->exp = exp;
-    parser->vars = vars;
+    parser->frame = frame;
+}
+
+// Clean up parser resources
+static void parser_cleanup(math_parser_t *parser) {
+    if (parser && parser->input) {
+        string_destroy(&parser->input);
+        parser->input = NULL;
+    }
 }
 
 // Skip whitespace
@@ -167,14 +174,13 @@ static math_token_t get_token(math_parser_t *parser) {
         return token;
     }
 
-    if (isalpha(c) || c == '_') {
-        // Parse variable name: first char is alpha/underscore, rest can include digits
-        int endpos = string_find_first_not_of_predicate_at(parser->input, is_alnum_or_underscore, parser->pos);
-        string_t *var = string_substring(parser->input, parser->pos, endpos);
-        parser->pos = endpos;
+    if (isalpha(c) || c == '_')
+    {
+        int endpos = string_find_first_not_of_predicate_at(parser->input, is_alnum_or_underscore,
+                                                           parser->pos);
         token.type = MATH_TOKEN_VARIABLE;
-        token.variable = var;
-        string_destroy(&var);
+        token.variable = string_substring(parser->input, parser->pos, endpos); // token owns it
+        parser->pos = endpos;
         return token;
     }
 
@@ -314,24 +320,12 @@ static math_token_t get_token(math_parser_t *parser) {
 // Free token
 static void free_token(math_token_t *token) {
     if (token->type == MATH_TOKEN_VARIABLE && token->variable) {
-        free(token->variable);
+        xfree(token->variable);
     }
 }
 
-// Parse and evaluate expression (comma expression)
-static ArithmeticResult parse_comma(math_parser_t *parser);
-static ArithmeticResult parse_ternary(math_parser_t *parser);
-static ArithmeticResult parse_logical_or(math_parser_t *parser);
-static ArithmeticResult parse_logical_and(math_parser_t *parser);
-static ArithmeticResult parse_bit_or(math_parser_t *parser);
-static ArithmeticResult parse_bit_xor(math_parser_t *parser);
-static ArithmeticResult parse_bit_and(math_parser_t *parser);
-static ArithmeticResult parse_equality(math_parser_t *parser);
-static ArithmeticResult parse_comparison(math_parser_t *parser);
-static ArithmeticResult parse_shift(math_parser_t *parser);
-static ArithmeticResult parse_additive(math_parser_t *parser);
-static ArithmeticResult parse_multiplicative(math_parser_t *parser);
-static ArithmeticResult parse_unary(math_parser_t *parser);
+// Parse and evaluate expression
+static ArithmeticResult parse_expression(math_parser_t *parser, int min_precedence);
 static ArithmeticResult parse_primary(math_parser_t *parser);
 
 // Helper to create error result
@@ -350,512 +344,361 @@ static ArithmeticResult make_value(long value) {
     return result;
 }
 
-// Comma expression (handles assignments)
-static ArithmeticResult parse_comma(math_parser_t *parser) {
-    ArithmeticResult left = parse_ternary(parser);
-    if (left.failed) return left;
-
-    int saved_pos = parser->pos;
-    math_token_t token = get_token(parser);
-    if (token.type != MATH_TOKEN_COMMA) {
-        parser->pos = saved_pos; // Rewind to start of token
-        return left;
-    }
-
-    ArithmeticResult right = parse_comma(parser);
-    if (right.failed) {
-        arithmetic_result_free(&left);
-        return right;
-    }
-
-    arithmetic_result_free(&right);
-    return left;
-}
-
-// Ternary expression
-static ArithmeticResult parse_ternary(math_parser_t *parser) {
-    ArithmeticResult cond = parse_logical_or(parser);
-    if (cond.failed) return cond;
-
-    int saved_pos = parser->pos;
-    math_token_t token = get_token(parser);
-    if (token.type != MATH_TOKEN_QUESTION) {
-        parser->pos = saved_pos; // Rewind to start of token
-        return cond;
-    }
-
-    ArithmeticResult true_expr = parse_comma(parser);
-    if (true_expr.failed) {
-        arithmetic_result_free(&cond);
-        return true_expr;
-    }
-
-    token = get_token(parser);
-    if (token.type != MATH_TOKEN_COLON) {
-        arithmetic_result_free(&cond);
-        arithmetic_result_free(&true_expr);
-        return make_error("Expected ':' in ternary expression");
-    }
-
-    ArithmeticResult false_expr = parse_comma(parser);
-    if (false_expr.failed) {
-        arithmetic_result_free(&cond);
-        arithmetic_result_free(&true_expr);
-        return false_expr;
-    }
-
-    ArithmeticResult result = cond.value ? true_expr : false_expr;
-    arithmetic_result_free(&cond);
-    arithmetic_result_free(true_expr.value == result.value ? &false_expr : &true_expr);
-    return result;
-}
-
-// Logical OR
-static ArithmeticResult parse_logical_or(math_parser_t *parser) {
-    ArithmeticResult left = parse_logical_and(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_LOGICAL_OR) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        if (left.value) {
-            // Short-circuit
-            return left;
-        }
-
-        ArithmeticResult right = parse_logical_and(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        left.value = left.value || right.value;
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Logical AND
-static ArithmeticResult parse_logical_and(math_parser_t *parser) {
-    ArithmeticResult left = parse_bit_or(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_LOGICAL_AND) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        if (!left.value) {
-            // Short-circuit
-            return left;
-        }
-
-        ArithmeticResult right = parse_bit_or(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        left.value = left.value && right.value;
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Bitwise OR
-static ArithmeticResult parse_bit_or(math_parser_t *parser) {
-    ArithmeticResult left = parse_bit_xor(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_BIT_OR) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_bit_xor(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        left.value |= right.value;
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Bitwise XOR
-static ArithmeticResult parse_bit_xor(math_parser_t *parser) {
-    ArithmeticResult left = parse_bit_and(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_BIT_XOR) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_bit_and(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        left.value ^= right.value;
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Bitwise AND
-static ArithmeticResult parse_bit_and(math_parser_t *parser) {
-    ArithmeticResult left = parse_equality(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_BIT_AND) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_equality(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        left.value &= right.value;
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Equality
-static ArithmeticResult parse_equality(math_parser_t *parser) {
-    ArithmeticResult left = parse_comparison(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_EQUAL && token.type != MATH_TOKEN_NOT_EQUAL) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_comparison(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        if (token.type == MATH_TOKEN_EQUAL) {
-            left.value = left.value == right.value;
-        } else {
-            left.value = left.value != right.value;
-        }
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Comparison
-static ArithmeticResult parse_comparison(math_parser_t *parser)
-{
-    ArithmeticResult left = parse_shift(parser);
-    if (left.failed)
-        return left;
-
-    while (1)
-    {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_LESS && token.type != MATH_TOKEN_GREATER &&
-            token.type != MATH_TOKEN_LESS_EQUAL && token.type != MATH_TOKEN_GREATER_EQUAL)
-        {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_shift(parser);
-        if (right.failed)
-        {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        switch (token.type)
-        {
+// Get operator precedence (higher number = higher precedence)
+static int get_precedence(math_token_type_t type) {
+    switch (type) {
+        case MATH_TOKEN_COMMA:
+            return 1;
+        case MATH_TOKEN_QUESTION:
+            return 3;
+        case MATH_TOKEN_LOGICAL_OR:
+            return 4;
+        case MATH_TOKEN_LOGICAL_AND:
+            return 5;
+        case MATH_TOKEN_BIT_OR:
+            return 6;
+        case MATH_TOKEN_BIT_XOR:
+            return 7;
+        case MATH_TOKEN_BIT_AND:
+            return 8;
+        case MATH_TOKEN_EQUAL:
+        case MATH_TOKEN_NOT_EQUAL:
+            return 9;
         case MATH_TOKEN_LESS:
-            left.value = left.value < right.value;
-            break;
         case MATH_TOKEN_GREATER:
-            left.value = left.value > right.value;
-            break;
         case MATH_TOKEN_LESS_EQUAL:
-            left.value = left.value <= right.value;
-            break;
         case MATH_TOKEN_GREATER_EQUAL:
-            left.value = left.value >= right.value;
-            break;
+            return 10;
+        case MATH_TOKEN_LEFT_SHIFT:
+        case MATH_TOKEN_RIGHT_SHIFT:
+            return 11;
+        case MATH_TOKEN_PLUS:
+        case MATH_TOKEN_MINUS:
+            return 12;
+        case MATH_TOKEN_MULTIPLY:
+        case MATH_TOKEN_DIVIDE:
+        case MATH_TOKEN_MODULO:
+            return 13;
         default:
-            break;
-        }
-        arithmetic_result_free(&right);
+            return 0;
     }
-    return left;
 }
 
-// Shift
-static ArithmeticResult parse_shift(math_parser_t *parser) {
-    ArithmeticResult left = parse_additive(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_LEFT_SHIFT && token.type != MATH_TOKEN_RIGHT_SHIFT) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_additive(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        if (token.type == MATH_TOKEN_LEFT_SHIFT) {
-            left.value <<= right.value;
-        } else {
-            left.value >>= right.value;
-        }
-        arithmetic_result_free(&right);
-    }
-    return left;
+// Check if operator is right-associative
+static bool is_right_associative(math_token_type_t type) {
+    return type == MATH_TOKEN_QUESTION;
 }
 
-// Additive
-static ArithmeticResult parse_additive(math_parser_t *parser) {
-    ArithmeticResult left = parse_multiplicative(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_PLUS && token.type != MATH_TOKEN_MINUS) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_multiplicative(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        if (token.type == MATH_TOKEN_PLUS) {
-            left.value += right.value;
-        } else {
-            left.value -= right.value;
-        }
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Multiplicative
-static ArithmeticResult parse_multiplicative(math_parser_t *parser) {
-    ArithmeticResult left = parse_unary(parser);
-    if (left.failed) return left;
-
-    while (1) {
-        int saved_pos = parser->pos;
-        math_token_t token = get_token(parser);
-        if (token.type != MATH_TOKEN_MULTIPLY && token.type != MATH_TOKEN_DIVIDE && token.type != MATH_TOKEN_MODULO) {
-            parser->pos = saved_pos; // Rewind to start of token
-            break;
-        }
-
-        ArithmeticResult right = parse_unary(parser);
-        if (right.failed) {
-            arithmetic_result_free(&left);
-            return right;
-        }
-
-        if (token.type == MATH_TOKEN_MULTIPLY) {
-            left.value *= right.value;
-        } else if (token.type == MATH_TOKEN_DIVIDE) {
-            if (right.value == 0) {
-                arithmetic_result_free(&left);
-                arithmetic_result_free(&right);
-                return make_error("Division by zero");
-            }
-            left.value /= right.value;
-        } else {
-            if (right.value == 0) {
-                arithmetic_result_free(&left);
-                arithmetic_result_free(&right);
-                return make_error("Modulo by zero");
-            }
-            left.value %= right.value;
-        }
-        arithmetic_result_free(&right);
-    }
-    return left;
-}
-
-// Unary
-static ArithmeticResult parse_unary(math_parser_t *parser) {
+// Unified expression parser using precedence climbing
+// Handles unary operators, binary operators, ternary operator, and comma operator
+static ArithmeticResult parse_expression(math_parser_t *parser, int min_precedence) {
+    ArithmeticResult left;
+    
+    // Handle unary operators (prefix)
     int saved_pos = parser->pos;
     math_token_t token = get_token(parser);
     if (token.type == MATH_TOKEN_PLUS || token.type == MATH_TOKEN_MINUS ||
         token.type == MATH_TOKEN_BIT_NOT || token.type == MATH_TOKEN_LOGICAL_NOT) {
-        ArithmeticResult expr = parse_unary(parser);
+        math_token_type_t unary_op = token.type;
+        free_token(&token);
+        
+        ArithmeticResult expr = parse_expression(parser, 14); // Unary has highest precedence
         if (expr.failed) return expr;
 
-        switch (token.type) {
+        switch (unary_op) {
             case MATH_TOKEN_PLUS:        /* No-op */ break;
             case MATH_TOKEN_MINUS:       expr.value = -expr.value; break;
             case MATH_TOKEN_BIT_NOT:     expr.value = ~expr.value; break;
             case MATH_TOKEN_LOGICAL_NOT: expr.value = !expr.value; break;
             default: break;
         }
-        return expr;
+        left = expr;
+    } else {
+        // Not a unary operator, rewind and parse primary
+        parser->pos = saved_pos;
+        free_token(&token);
+        left = parse_primary(parser);
+        if (left.failed) return left;
     }
-    // Token was not a unary operator, rewind and try primary
-    parser->pos = saved_pos; // Rewind to start of token
-    return parse_primary(parser);
+
+    // Handle binary and ternary operators using precedence climbing
+    while (1) {
+        saved_pos = parser->pos;
+        token = get_token(parser);
+        int prec = get_precedence(token.type);
+        
+        if (prec < min_precedence) {
+            parser->pos = saved_pos;
+            free_token(&token);
+            break;
+        }
+
+        math_token_type_t op = token.type;
+        free_token(&token);
+
+        // Special handling for comma operator
+        if (op == MATH_TOKEN_COMMA) {
+            int next_min_prec = is_right_associative(op) ? prec : prec + 1;
+            ArithmeticResult right = parse_expression(parser, next_min_prec);
+            if (right.failed) {
+                arithmetic_result_free(&left);
+                return right;
+            }
+            // Comma operator: evaluate both, discard right, return left
+            arithmetic_result_free(&right);
+            continue;
+        }
+
+        // Special handling for ternary operator
+        if (op == MATH_TOKEN_QUESTION) {
+            ArithmeticResult true_expr = parse_expression(parser, 0); // Allow comma in branches
+            if (true_expr.failed) {
+                arithmetic_result_free(&left);
+                return true_expr;
+            }
+
+            token = get_token(parser);
+            if (token.type != MATH_TOKEN_COLON) {
+                free_token(&token);
+                arithmetic_result_free(&left);
+                arithmetic_result_free(&true_expr);
+                return make_error("Expected ':' in ternary expression");
+            }
+            free_token(&token);
+
+            ArithmeticResult false_expr = parse_expression(parser, prec); // Right-associative
+            if (false_expr.failed) {
+                arithmetic_result_free(&left);
+                arithmetic_result_free(&true_expr);
+                return false_expr;
+            }
+
+            ArithmeticResult result = left.value ? true_expr : false_expr;
+            arithmetic_result_free(&left);
+            arithmetic_result_free(left.value ? &false_expr : &true_expr);
+            left = result;
+            continue;
+        }
+
+        // Handle short-circuit evaluation for logical operators
+        if (op == MATH_TOKEN_LOGICAL_OR && left.value) {
+            return left;
+        }
+        if (op == MATH_TOKEN_LOGICAL_AND && !left.value) {
+            return left;
+        }
+
+        // Standard binary operators
+        int next_min_prec = is_right_associative(op) ? prec : prec + 1;
+        ArithmeticResult right = parse_expression(parser, next_min_prec);
+        if (right.failed) {
+            arithmetic_result_free(&left);
+            return right;
+        }
+
+        // Apply the operator
+        switch (op) {
+            case MATH_TOKEN_MULTIPLY:
+                left.value *= right.value;
+                break;
+            case MATH_TOKEN_DIVIDE:
+                if (right.value == 0) {
+                    arithmetic_result_free(&left);
+                    arithmetic_result_free(&right);
+                    return make_error("Division by zero");
+                }
+                left.value /= right.value;
+                break;
+            case MATH_TOKEN_MODULO:
+                if (right.value == 0) {
+                    arithmetic_result_free(&left);
+                    arithmetic_result_free(&right);
+                    return make_error("Modulo by zero");
+                }
+                left.value %= right.value;
+                break;
+            case MATH_TOKEN_PLUS:
+                left.value += right.value;
+                break;
+            case MATH_TOKEN_MINUS:
+                left.value -= right.value;
+                break;
+            case MATH_TOKEN_LEFT_SHIFT:
+                left.value <<= right.value;
+                break;
+            case MATH_TOKEN_RIGHT_SHIFT:
+                left.value >>= right.value;
+                break;
+            case MATH_TOKEN_LESS:
+                left.value = left.value < right.value;
+                break;
+            case MATH_TOKEN_GREATER:
+                left.value = left.value > right.value;
+                break;
+            case MATH_TOKEN_LESS_EQUAL:
+                left.value = left.value <= right.value;
+                break;
+            case MATH_TOKEN_GREATER_EQUAL:
+                left.value = left.value >= right.value;
+                break;
+            case MATH_TOKEN_EQUAL:
+                left.value = left.value == right.value;
+                break;
+            case MATH_TOKEN_NOT_EQUAL:
+                left.value = left.value != right.value;
+                break;
+            case MATH_TOKEN_BIT_AND:
+                left.value &= right.value;
+                break;
+            case MATH_TOKEN_BIT_XOR:
+                left.value ^= right.value;
+                break;
+            case MATH_TOKEN_BIT_OR:
+                left.value |= right.value;
+                break;
+            case MATH_TOKEN_LOGICAL_AND:
+                left.value = left.value && right.value;
+                break;
+            case MATH_TOKEN_LOGICAL_OR:
+                left.value = left.value || right.value;
+                break;
+            default:
+                arithmetic_result_free(&left);
+                arithmetic_result_free(&right);
+                return make_error("Unknown binary operator");
+        }
+        
+        arithmetic_result_free(&right);
+    }
+    return left;
 }
 
 // Primary (number, variable, parenthesized expression, assignment)
-static ArithmeticResult parse_primary(math_parser_t *parser) {
+static ArithmeticResult parse_primary(math_parser_t *parser)
+{
     math_token_t token = get_token(parser);
 
-    if (token.type == MATH_TOKEN_NUMBER) {
+    if (token.type == MATH_TOKEN_NUMBER)
+    {
         return make_value(token.number);
     }
 
-    if (token.type == MATH_TOKEN_VARIABLE) {
-        // Check if this is a simple variable read (not followed by assignment operator)
-        // We need to peek ahead to see if an assignment operator follows
+    if (token.type == MATH_TOKEN_VARIABLE)
+    {
+        // Peek ahead to see if an assignment operator follows
         int saved_pos = parser->pos;
         math_token_t next_token = get_token(parser);
-        parser->pos = saved_pos; // Restore position
+        parser->pos = saved_pos;
+        free_token(&next_token);
 
         // If not followed by assignment operator, treat as variable read
-        if (next_token.type != MATH_TOKEN_ASSIGN &&
-            next_token.type != MATH_TOKEN_MULTIPLY_ASSIGN &&
+        if (next_token.type != MATH_TOKEN_ASSIGN && next_token.type != MATH_TOKEN_MULTIPLY_ASSIGN &&
             next_token.type != MATH_TOKEN_DIVIDE_ASSIGN &&
             next_token.type != MATH_TOKEN_MODULO_ASSIGN &&
             next_token.type != MATH_TOKEN_PLUS_ASSIGN &&
             next_token.type != MATH_TOKEN_MINUS_ASSIGN &&
             next_token.type != MATH_TOKEN_LEFT_SHIFT_ASSIGN &&
             next_token.type != MATH_TOKEN_RIGHT_SHIFT_ASSIGN &&
-            next_token.type != MATH_TOKEN_AND_ASSIGN &&
-            next_token.type != MATH_TOKEN_XOR_ASSIGN &&
-            next_token.type != MATH_TOKEN_OR_ASSIGN) {
-            // Variable read - get its value
-            const string_t *value = variable_store_get_value(parser->vars, token.variable);
+            next_token.type != MATH_TOKEN_AND_ASSIGN && next_token.type != MATH_TOKEN_XOR_ASSIGN &&
+            next_token.type != MATH_TOKEN_OR_ASSIGN)
+        {
+            // Variable read
+            const string_t *value = exec_frame_get_variable(parser->frame, token.variable);
             long num = value ? string_atol(value) : 0;
             free_token(&token);
             return make_value(num);
         }
-        // Otherwise, fall through to handle assignment below
-    }
 
-    if (token.type == MATH_TOKEN_LPAREN) {
-        ArithmeticResult expr = parse_comma(parser);
-        if (expr.failed) return expr;
+        // Assignment: save variable name, then consume the operator
+        string_t *var_name = token.variable;
+        token.variable = NULL; // detach so free_token won't destroy it
 
-        token = get_token(parser);
-        if (token.type != MATH_TOKEN_RPAREN) {
-            arithmetic_result_free(&expr);
-            return make_error("Expected ')'");
-        }
-        return expr;
-    }
+        math_token_t op_token = get_token(parser);
+        math_token_type_t assign_type = op_token.type;
+        free_token(&op_token);
 
-    // Handle assignment (e.g., x=5, x+=2)
-    if (token.type == MATH_TOKEN_VARIABLE) {
-        token = get_token(parser);
-        math_token_type_t assign_type = token.type;
-
-        // Note: We've already checked that this is an assignment operator in the lookahead above
-        // So this check should always pass
-
-        ArithmeticResult right = parse_comma(parser);
-        if (right.failed) {
+        ArithmeticResult right = parse_expression(parser, 0);
+        if (right.failed)
+        {
+            string_destroy(&var_name);
             return right;
         }
 
         long value = right.value;
-        const string_t *var_value = variable_store_get_value(parser->vars, token.variable);
+        const string_t *var_value = exec_frame_get_variable(parser->frame, var_name);
         long var_num = var_value ? string_atol(var_value) : 0;
-        switch (assign_type) {
-            case MATH_TOKEN_MULTIPLY_ASSIGN:
-                value *= var_num;
-                break;
-            case MATH_TOKEN_DIVIDE_ASSIGN:
-                if (value == 0) {
-                    arithmetic_result_free(&right);
-                    return make_error("Division by zero in assignment");
-                }
 
-                value = var_num / value;
-                break;
-            case MATH_TOKEN_MODULO_ASSIGN:
-                if (value == 0) {
-                    arithmetic_result_free(&right);
-                    return make_error("Modulo by zero in assignment");
-                }
-                value = var_num % value;
-                break;
-            case MATH_TOKEN_PLUS_ASSIGN:
-                value += var_num;
-                break;
-            case MATH_TOKEN_MINUS_ASSIGN:
-                value = var_num - value;
-                break;
-            case MATH_TOKEN_LEFT_SHIFT_ASSIGN:
-                value = var_num << value;
-                break;
-            case MATH_TOKEN_RIGHT_SHIFT_ASSIGN:
-                value = var_num >> value;
-                break;
-            case MATH_TOKEN_AND_ASSIGN:
-                value &= var_num;
-                break;
-            case MATH_TOKEN_XOR_ASSIGN:
-                value ^= var_num;
-                break;
-            case MATH_TOKEN_OR_ASSIGN:
-                value |= var_num;
-                break;
-            default:
-                break; // MATH_TOKEN_ASSIGN uses right.value directly
+        switch (assign_type)
+        {
+        case MATH_TOKEN_MULTIPLY_ASSIGN:
+            value = var_num * value;
+            break;
+        case MATH_TOKEN_DIVIDE_ASSIGN:
+            if (value == 0)
+            {
+                string_destroy(&var_name);
+                arithmetic_result_free(&right);
+                return make_error("Division by zero in assignment");
+            }
+            value = var_num / value;
+            break;
+        case MATH_TOKEN_MODULO_ASSIGN:
+            if (value == 0)
+            {
+                string_destroy(&var_name);
+                arithmetic_result_free(&right);
+                return make_error("Modulo by zero in assignment");
+            }
+            value = var_num % value;
+            break;
+        case MATH_TOKEN_PLUS_ASSIGN:
+            value = var_num + value;
+            break;
+        case MATH_TOKEN_MINUS_ASSIGN:
+            value = var_num - value;
+            break;
+        case MATH_TOKEN_LEFT_SHIFT_ASSIGN:
+            value = var_num << value;
+            break;
+        case MATH_TOKEN_RIGHT_SHIFT_ASSIGN:
+            value = var_num >> value;
+            break;
+        case MATH_TOKEN_AND_ASSIGN:
+            value = var_num & value;
+            break;
+        case MATH_TOKEN_XOR_ASSIGN:
+            value = var_num ^ value;
+            break;
+        case MATH_TOKEN_OR_ASSIGN:
+            value = var_num | value;
+            break;
+        default:
+            break; // MATH_TOKEN_ASSIGN uses right.value directly
         }
 
-        // Update variable
+        // Update variable in the frame
         string_t *value_str = string_from_long(value);
-        variable_store_add(parser->vars, token.variable, value_str, false, false);
+        exec_frame_set_variable((exec_frame_t *)parser->frame, var_name, value_str);
         string_destroy(&value_str);
-        return right;
+        string_destroy(&var_name);
+
+        return make_value(value);
+    }
+
+    if (token.type == MATH_TOKEN_LPAREN)
+    {
+        ArithmeticResult expr = parse_expression(parser, 0);
+        if (expr.failed)
+            return expr;
+
+        token = get_token(parser);
+        if (token.type != MATH_TOKEN_RPAREN)
+        {
+            arithmetic_result_free(&expr);
+            free_token(&token);
+            return make_error("Expected ')'");
+        }
+        return expr;
     }
 
     free_token(&token);
@@ -871,7 +714,7 @@ static ArithmeticResult parse_primary(math_parser_t *parser) {
  * 4. Expand the AST (parameter expansion, command substitution, quote removal)
  * 5. Return the fully expanded string
  */
-static string_t *arithmetic_expand_expression(exec_t *exp, const string_t *expr_text)
+static string_t *arithmetic_expand_expression(exec_frame_t *frame, const string_t *expr_text)
 {
     // Step 1: Re-lex the raw text inside $(())
     lexer_t *lx = lexer_create();
@@ -924,14 +767,12 @@ static string_t *arithmetic_expand_expression(exec_t *exp, const string_t *expr_
     // We need to expand parameters, command substitutions, etc.
     string_t *result = string_create();
 
-    // FIXME: was the expander created with the correct variable store?
-
     for (int i = 0; i < token_list_size(aliased_tokens); i++) {
         const token_t *tok = token_list_get(aliased_tokens, i);
 
         if (token_get_type(tok) == TOKEN_WORD) {
-            // Expand the word
-            string_list_t *expanded_words = exec_expand_word(exp, tok);
+            // Expand the word using the frame-based API
+            string_list_t *expanded_words = expand_word(frame, tok);
 
             // Concatenate all expanded words without adding spaces
             // Arithmetic expressions should not have field splitting
@@ -957,17 +798,25 @@ static string_t *arithmetic_expand_expression(exec_t *exp, const string_t *expr_
 }
 
 // Evaluate arithmetic expression
-ArithmeticResult arithmetic_evaluate(exec_t *exp, variable_store_t *vars, const string_t *expression) {
+ArithmeticResult arithmetic_evaluate(exec_frame_t *frame, const string_t *expression) {
+    // Validate inputs
+    if (!frame) {
+        return make_error("Execution frame is NULL");
+    }
+    if (!expression) {
+        return make_error("Expression is NULL");
+    }
+
     // Step 1-4: Perform full recursive expansion
-    string_t *expanded_str = arithmetic_expand_expression(exp, expression);
+    string_t *expanded_str = arithmetic_expand_expression(frame, expression);
     if (!expanded_str) {
         return make_error("Failed to expand arithmetic expression");
     }
 
     // Step 5: Parse and evaluate the fully expanded expression
     math_parser_t parser;
-    parser_init(&parser, exp, vars, expanded_str);
-    ArithmeticResult result = parse_comma(&parser);
+    parser_init(&parser, frame, expanded_str);
+    ArithmeticResult result = parse_expression(&parser, 0); // Start with minimum precedence
 
     // Check for trailing tokens
     math_token_t token = get_token(&parser);
@@ -977,14 +826,19 @@ ArithmeticResult arithmetic_evaluate(exec_t *exp, variable_store_t *vars, const 
     }
     free_token(&token);
 
+    // Clean up parser and expanded string
+    parser_cleanup(&parser);
     string_destroy(&expanded_str);
     return result;
 }
 
 // Free ArithmeticResult
 void arithmetic_result_free(ArithmeticResult *result) {
+    if (!result) {
+        return;
+    }
     if (result->error) {
-        free(result->error);
+        string_destroy(&result->error);
         result->error = NULL;
     }
     result->failed = 0;
