@@ -262,7 +262,7 @@ int builtin_dot(exec_frame_t *frame, const string_list_t *args)
     exec_t *ex = frame->executor;
     getopt_reset();
 
-    if (string_list_size(args) != 1)
+    if (string_list_size(args) != 2)
     {
         exec_set_error(ex, "dot: filename argument required");
         return 2; /* misuse of shell builtin */
