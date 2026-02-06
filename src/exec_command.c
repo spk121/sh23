@@ -503,11 +503,21 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         intptr_t spawn_result = 0;
         if (frame->policy->classification.is_background)
         {
+            log_debug("Preparing to execute external background command: %s", cmd_name);
+            for (int i = 0; i < string_list_size(expanded_words); i++)
+            {
+                log_debug("\targv%d: %s", i, argv[i]);
+            }
             spawn_result = _spawnvpe(_P_NOWAIT, cmd_name, (const char *const *)argv,
                                      (const char *const *)envp);
         }
         else
         {
+            log_debug("Preparing to execute external command: %s", cmd_name);
+            for (int i = 0; i < string_list_size(expanded_words); i++)
+            {
+                log_debug("\targv%d: %s", i, argv[i]);
+            }
             spawn_result =
                 _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
         }

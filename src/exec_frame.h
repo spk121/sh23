@@ -184,18 +184,16 @@ typedef struct exec_result_t {
 
 exec_frame_t *exec_frame_create_top_level(exec_t *exec);
 
-
-
- /**
-  * Push a new frame onto the stack.
-  * Initializes all scope-dependent storage according to the frame's policy.
-  *
-  * @param parent  The parent frame (NULL only for top-level)
-  * @param type    The type of frame to create
-  * @param exec    The executor state
-  * @param params  Optional parameters for frame initialization
-  * @return        The newly created frame
-  */
+/**
+ * Push a new frame onto the stack.
+ * Initializes all scope-dependent storage according to the frame's policy.
+ *
+ * @param parent  The parent frame (NULL only for top-level)
+ * @param type    The type of frame to create
+ * @param exec    The executor state
+ * @param params  Optional parameters for frame initialization
+ * @return        The newly created frame
+ */
 exec_frame_t* exec_frame_push(exec_frame_t* parent, exec_frame_type_t type,
     exec_t* exec, exec_params_t* params);
 
