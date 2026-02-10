@@ -1,7 +1,7 @@
 #ifndef ARITHMETIC_H
 #define ARITHMETIC_H
 
-#include "exec_frame.h"
+#include "frame.h"
 #include "string_t.h"
 
 /**

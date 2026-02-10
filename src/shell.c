@@ -4,7 +4,7 @@
 #include "shell.h"
 
 #include "exec.h"
-#include "exec_frame.h"
+#include "frame.h"
 #include "logging.h"
 #include "positional_params.h"
 #include "string_t.h"

@@ -1101,10 +1101,10 @@ void exec_reap_background_jobs(exec_t *executor, bool notify)
             if (state == JOB_DONE || state == JOB_TERMINATED)
                 any_completed = true;
         }
-        else if (!WaitForSingleObject(h, 0))
+        else if (!WaitForSingleObject((HANDLE)h, (DWORD)0))
         {
             DWORD exit_code;
-            GetExitCodeProcess(h, &exit_code);
+            GetExitCodeProcess((HANDLE)h, &exit_code);
             job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
 
             // Check if job is now complete

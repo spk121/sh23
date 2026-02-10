@@ -1,5 +1,6 @@
 #define ALIAS_STORE_INTERNAL
 #include "alias.h"
+
 #include "xalloc.h"
 
 // Constructors

@@ -3,8 +3,7 @@
 #include <string.h>
 #include "alias_store.h"
 #include "arithmetic.h"
-#include "exec_expander.h"
-#include "exec_frame.h"
+#include "frame.h"
 #include "lexer.h"
 #include "logging.h"
 #include "parser.h"
@@ -605,8 +604,13 @@ static ArithmeticResult parse_primary(math_parser_t *parser)
             next_token.type != MATH_TOKEN_OR_ASSIGN)
         {
             // Variable read
-            const string_t *value = exec_frame_get_variable(parser->frame, token.variable);
-            long num = value ? string_atol(value) : 0;
+            long num = 0;
+            if (frame_has_variable(parser->frame, token.variable))
+            {
+                string_t *value = frame_get_variable_value(parser->frame, token.variable);
+                num = string_atol(value);
+                string_destroy(&value);
+            }
             free_token(&token);
             return make_value(num);
         }
@@ -627,8 +631,13 @@ static ArithmeticResult parse_primary(math_parser_t *parser)
         }
 
         long value = right.value;
-        const string_t *var_value = exec_frame_get_variable(parser->frame, var_name);
-        long var_num = var_value ? string_atol(var_value) : 0;
+        long var_num = 0;
+        if (frame_has_variable(parser->frame, var_name))
+        {
+            string_t *var_value = frame_get_variable_value(parser->frame, var_name);
+            var_num = string_atol(var_value);
+            string_destroy(&var_value);
+        }
 
         switch (assign_type)
         {
@@ -680,7 +689,7 @@ static ArithmeticResult parse_primary(math_parser_t *parser)
 
         // Update variable in the frame
         string_t *value_str = string_from_long(value);
-        exec_frame_set_variable((exec_frame_t *)parser->frame, var_name, value_str);
+        frame_set_variable(parser->frame, var_name, value_str);
         string_destroy(&value_str);
         string_destroy(&var_name);
 
@@ -775,7 +784,7 @@ static string_t *arithmetic_expand_expression(exec_frame_t *frame, const string_
 
         if (tok_type == TOKEN_WORD) {
             // Expand the word using the frame-based API
-            string_list_t *expanded_words = expand_word(frame, tok);
+            string_list_t *expanded_words = frame_expand_word_token(frame, tok);
 
             if (!expanded_words) {
                 continue;

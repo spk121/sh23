@@ -1,8 +1,9 @@
 #ifndef ALIAS_STORE_H
 #define ALIAS_STORE_H
 
-#include "string_t.h"
 #include <stdbool.h>
+
+#include "string_t.h"
 
 /**
  * @file alias_store.h
