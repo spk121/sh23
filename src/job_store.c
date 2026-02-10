@@ -56,7 +56,7 @@ static void process_destroy(process_t *proc)
 #ifdef UCRT_API
     if (proc->handle)
     {
-        CloseHandle(proc->handle);
+        CloseHandle((HANDLE)(proc->handle));
         proc->handle = 0;
     }
 #endif
@@ -426,6 +426,18 @@ void job_store_print_completed_jobs(job_store_t *store, FILE *output)
                     job->command_line ? string_cstr(job->command_line) : "(no command)");
             job->is_notified = true;
         }
+    }
+}
+
+void job_store_print_jobs(const job_store_t *store, FILE *output)
+{
+    Expects_not_null(store);
+    Expects_not_null(output);
+    for (const job_t *job = store->jobs; job; job = job->next)
+    {
+        const char *state_str = job_state_to_string(job->state);
+        fprintf(output, "[%d] %s\t%s\n", job->job_id, state_str,
+                job->command_line ? string_cstr(job->command_line) : "(no command)");
     }
 }
 

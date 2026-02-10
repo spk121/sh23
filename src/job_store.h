@@ -39,7 +39,7 @@ typedef struct process_t
     pid_t pid; // Process ID
 #elifdef UCRT_API
     int pid; // Process ID (or 0 if not available)
-    unsigned long handle; // Process handle (or 0 if not available)
+    unsigned long long handle; // Process handle (or 0 if not available)
 #else
     int pid;           // Process ID (or 0 if not available)
 #endif
@@ -254,6 +254,8 @@ bool job_store_mark_notified(job_store_t *store, int job_id);
  * @param output The output stream (e.g., stdout)
  */
 void job_store_print_completed_jobs(job_store_t *store, FILE *output);
+
+void job_store_print_jobs(const job_store_t *store, FILE *output);
 
 // ============================================================================
 // Job Removal
