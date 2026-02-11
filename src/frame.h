@@ -1,6 +1,8 @@
 #ifndef FRAME_H
 #define FRAME_H
 
+#include <stdio.h>
+
 #include "string_t.h"
 #include "string_list.h"
 #include "variable_store.h"
@@ -9,9 +11,32 @@
 typedef struct exec_frame_t exec_frame_t;
 typedef struct trap_store_t trap_store_t;
 typedef struct word_token_t word_token_t;
+typedef struct ast_node_t ast_node_t;
 
 typedef enum expand_flags_t expand_flags_t;
-typedef enum exec_status_t exec_status_t;
+
+/**
+ * Execution status codes for frame operations.
+ */
+typedef enum frame_exec_status_t
+{
+    FRAME_EXEC_OK = 0,       /* Execution succeeded */
+    FRAME_EXEC_ERROR = 1,    /* Execution error */
+    FRAME_EXEC_NOT_IMPL = 2, /* Feature not implemented */
+} frame_exec_status_t;
+
+/**
+ * Export variable status codes.
+ */
+typedef enum frame_export_status_t
+{
+    FRAME_EXPORT_SUCCESS = 0,        /* Export succeeded */
+    FRAME_EXPORT_INVALID_NAME,       /* Invalid variable name */
+    FRAME_EXPORT_INVALID_VALUE,      /* Invalid variable value */
+    FRAME_EXPORT_READONLY,           /* Variable is readonly */
+    FRAME_EXPORT_NOT_SUPPORTED,      /* Export not supported on platform */
+    FRAME_EXPORT_SYSTEM_ERROR        /* System error during export */
+} frame_export_status_t;
 
 /**
  * Control flow state after executing a frame or command.
@@ -112,6 +137,20 @@ var_store_error_t frame_set_variable_cstr(exec_frame_t *frame, const char *name,
  */
 var_store_error_t frame_set_variable_exported(exec_frame_t *frame, const string_t *name,
                                               bool exported);
+
+/**
+ * Exports a variable to the environment. This is a convenience function that:
+ * - Sets or creates the variable with the given value (if value is not NULL)
+ * - Marks the variable as exported
+ * - Exports it to the system environment (if supported)
+ * 
+ * If value is NULL, only marks an existing variable as exported without changing its value.
+ * If the variable doesn't exist and value is NULL, marks the variable as exported with empty value.
+ * 
+ * Returns FRAME_EXPORT_SUCCESS on success, or an error code on failure.
+ */
+frame_export_status_t frame_export_variable(exec_frame_t *frame, const string_t *name,
+                                           const string_t *value);
 
 /**
  * Updates the read-only status of an existing variable in the variable store associated with the
@@ -261,14 +300,25 @@ func_store_error_t frame_unset_function(exec_frame_t *frame, const string_t *nam
 func_store_error_t frame_unset_function_cstr(exec_frame_t *frame, const char *name);
 
 // Is this public API? Or is this only for the exec_execute_* function to call?
-exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
-                                  const string_list_t *args);
+frame_exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
+                                        const string_list_t *args);
+
+
 
 // NEW API: exit status
 int frame_get_last_exit_status(const exec_frame_t *frame);
 void frame_set_last_exit_status(exec_frame_t *frame, int status);
 
 // NEW API: control flow
+
+/**
+ * Find the nearest ancestor frame that is a return target (function or dot script).
+ * Returns NULL if no return target exists (return is invalid).
+ * 
+ * @param frame The current frame
+ * @return The target frame for return, or NULL if return is not valid
+ */
+exec_frame_t* frame_find_return_target(exec_frame_t* frame);
 
 /**
  * Sets whether this frame is supposed to return, break, or continue.
@@ -291,7 +341,68 @@ void frame_set_pending_control_flow(exec_frame_t *frame, frame_control_flow_t fl
 void frame_run_exit_traps(const trap_store_t *store, exec_frame_t *frame);
 
 // NEW API: background jobs
-bool frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
+void frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
 void frame_print_background_jobs(exec_frame_t *frame);
+
+/* ============================================================================
+ * Job Control Functions
+ * ============================================================================ */
+
+/**
+ * Job output format for frame job printing functions.
+ */
+typedef enum frame_jobs_format_t
+{
+    FRAME_JOBS_FORMAT_DEFAULT,   /* Default format: [job_id]± state command */
+    FRAME_JOBS_FORMAT_LONG,      /* Long format: includes PIDs */
+    FRAME_JOBS_FORMAT_PID_ONLY   /* PID only: just the process group leader PID */
+} frame_jobs_format_t;
+
+/**
+ * Parse a job ID spec from a string.
+ * Accepts: %n, %+, %%, %-, plain number n
+ * 
+ * @param frame   The execution frame
+ * @param arg_str The string to parse
+ * @return        Job ID on success, -1 on error
+ */
+int frame_parse_job_id(const exec_frame_t* frame, const string_t* arg_str);
+
+/**
+ * Print a specific job by ID.
+ * 
+ * @param frame   The execution frame
+ * @param job_id  The job ID to print
+ * @param format  The output format
+ * @return        true if job was found and printed, false otherwise
+ */
+bool frame_print_job_by_id(const exec_frame_t* frame, int job_id, frame_jobs_format_t format);
+
+/**
+ * Print all jobs.
+ * 
+ * @param frame   The execution frame
+ * @param format  The output format
+ */
+void frame_print_all_jobs(const exec_frame_t* frame, frame_jobs_format_t format);
+
+/**
+ * Check if the frame has any jobs.
+ * 
+ * @param frame  The execution frame
+ * @return       true if there are jobs, false otherwise
+ */
+bool frame_has_jobs(const exec_frame_t* frame);
+
+// NEW API: stream execution
+/**
+ * Execute commands from a stream (file or stdin) in the context of the given frame.
+ * Reads lines from the stream, parses them, and executes them in the frame.
+ * 
+ * @param frame The execution frame context
+ * @param fp The file stream to read from
+ * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ */
+frame_exec_status_t frame_execute_stream(exec_frame_t *frame, FILE *fp);
 
 #endif

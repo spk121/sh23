@@ -53,6 +53,7 @@ typedef enum func_store_error_t
     FUNC_STORE_ERROR_NAME_INVALID_CHARACTER,
     FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT,
     FUNC_STORE_ERROR_STORAGE_FAILURE,
+    FUNC_STORE_ERROR_PARSE_FAILURE
 } func_store_error_t;
 
 /**
@@ -218,7 +219,7 @@ const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char 
  * @return Redirections associated with the function, or NULL if none or not found.
  */
 const exec_redirections_t *func_store_get_redirections(const func_store_t *store,
-                                                       const string_t *name);
+                                                  const string_t *name);
 
 /* ============================================================================
  * Iteration

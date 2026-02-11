@@ -203,7 +203,7 @@ const ast_node_t *func_store_get_def_cstr(const func_store_t *store, const char 
 }
 
 const exec_redirections_t *func_store_get_redirections(const func_store_t *store,
-                                                       const string_t *name)
+                                                  const string_t *name)
 {
     Expects_not_null(store);
     Expects_not_null(name);

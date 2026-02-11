@@ -837,7 +837,7 @@ exec_redirections_t* exec_redirections_clone(const exec_redirections_t* redirs)
  * @param redirections The runtime redirection structure
  * @return 0 on success, -1 on error
  */
-int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redirections)
+int exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
 {
     if (!frame || !redirections)
         return 0; // No redirections or frame is NULL - this is OK
@@ -875,7 +875,7 @@ int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redi
  * @param frame The execution frame
  * @param redirections The runtime redirection structure (for context, not strictly needed)
  */
-void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirections)
+void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
 {
     (void)frame;
     (void)redirections;

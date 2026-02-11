@@ -399,7 +399,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         exec_result_t func_result = exec_function(frame,
                                                    func_body,
                                                    expanded_words,
-                                                   (exec_redirections_t *)func_redirs);
+                                                   func_redirs);
 
         cmd_exit_status = func_result.exit_status;
         goto done_execution;

@@ -123,12 +123,12 @@ void exec_redirections_append(exec_redirections_t *redirections, exec_redirectio
  *
  * @return 0 on success, -1 on error
  */
-int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redirections);
+int exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
 
 /**
  * Restore file descriptors to their state before redirections were applied.
  */
-void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirections);
+void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
 
 /* ============================================================================
  * Command Execution
@@ -137,7 +137,7 @@ void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirec
 /**
  * Execute a compound list (sequence of and-or lists).
  */
-exec_result_t exec_compound_list(exec_frame_t *frame, ast_node_t *list);
+exec_result_t exec_compound_list(exec_frame_t *frame, const ast_node_t *list);
 
 /**
  * Execute an and-or list (cmd1 && cmd2 || cmd3).
@@ -160,12 +160,40 @@ exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *cmd);
 exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
 
 /**
+ * Execute an if clause.
+ */
+exec_result_t exec_if_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a while or until clause.
+ */
+exec_result_t exec_while_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a for clause.
+ */
+exec_result_t exec_for_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a function definition clause.
+ */
+exec_result_t exec_function_def_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a redirected command.
+ */
+exec_result_t exec_redirected_command(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a case clause.
+ */
+exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
  * Execute an external command (fork/exec).
  */
 exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,
                                     exec_redirections_t *redirections);
-
-exec_result_t exec_if_clause(exec_frame_t *frame, ast_node_t *node);
 
 /**
  * Execute a builtin command.

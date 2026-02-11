@@ -1,8 +1,7 @@
 #ifndef BUILTINS_H
 #define BUILTINS_H
 
-#include "exec.h"
-#include "exec_frame.h"
+#include "frame.h"
 #include "string_t.h"
 #include "string_list.h"
 

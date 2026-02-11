@@ -124,10 +124,10 @@ typedef struct exec_frame_t {
 typedef struct exec_params_t
 {
     /* Body to execute */
-    ast_node_t *body;
+    const ast_node_t *body;
 
     /* Redirections to apply */
-    exec_redirections_t *redirections;
+    const exec_redirections_t *redirections;
 
     /* For functions and dot scripts: arguments to set $1, $2, ... */
     string_list_t *arguments;
@@ -136,7 +136,7 @@ typedef struct exec_params_t
     string_t *script_path;
 
     /* For loops */
-    ast_node_t *condition;          /* while/until condition */
+    const ast_node_t *condition;    /* while/until condition */
     bool until_mode;                /* true for until, false for while */
     string_list_t *iteration_words; /* for loop word list */
     string_t *loop_var_name;        /* for loop variable */
@@ -225,50 +225,50 @@ exec_result_t exec_in_frame(exec_frame_t* parent, exec_frame_type_t type,
  */
 
 exec_result_t exec_subshell(exec_frame_t* parent,
-    ast_node_t* body);
+const ast_node_t* body);
 
 exec_result_t exec_brace_group(exec_frame_t* parent,
-    ast_node_t* body,
-    exec_redirections_t* redirections);
+const ast_node_t* body,
+const exec_redirections_t* redirections);
 
 exec_result_t exec_function(exec_frame_t* parent,
-ast_node_t* body,
+const ast_node_t* body,
 string_list_t* arguments,
-exec_redirections_t* redirections);
+const exec_redirections_t* redirections);
 
 exec_result_t exec_for_loop(exec_frame_t* parent,
-    string_t* var_name, string_list_t* words,
-    ast_node_t* body);
+string_t* var_name, string_list_t* words,
+const ast_node_t* body);
 
 exec_result_t exec_while_loop(exec_frame_t* parent,
-    ast_node_t* condition, ast_node_t* body,
-    bool until_mode);
+const ast_node_t* condition, const ast_node_t* body,
+bool until_mode);
 
 exec_result_t exec_dot_script(exec_frame_t* parent,
-    string_t* script_path, ast_node_t* body,
-    string_list_t* arguments);
+string_t* script_path, const ast_node_t* body,
+string_list_t* arguments);
 
 exec_result_t exec_trap_handler(exec_frame_t* parent,
-    ast_node_t* body);
+const ast_node_t* body);
 
 exec_result_t exec_background_job(exec_frame_t* parent,
-    ast_node_t* body,
-    string_list_t* command_args);
+const ast_node_t* body,
+string_list_t* command_args);
 
 exec_result_t exec_pipeline_group(exec_frame_t *parent, ast_node_list_t *commands, bool negated);
 
 #ifdef POSIX_API
 exec_result_t exec_pipeline_cmd(exec_frame_t* parent,
-    ast_node_t* body,
+    const ast_node_t* body,
     pid_t pipeline_pgid);
 #else
 exec_result_t exec_pipeline_cmd(exec_frame_t* parent,
-    ast_node_t* body,
+    const ast_node_t* body,
     int pipeline_pgid);
 #endif
 
 exec_result_t exec_eval(exec_frame_t* parent,
-    ast_node_t* body);
+const ast_node_t* body);
 
 /* ============================================================================
  * Frame Query Functions

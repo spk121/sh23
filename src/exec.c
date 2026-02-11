@@ -1263,7 +1263,7 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
     return ast_traverse_helper(root, visitor, user_data);
 }
 
-exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
+exec_result_t exec_compound_list(exec_frame_t* frame, const ast_node_t* list)
 {
     Expects_not_null(frame);
     Expects_not_null(list);
