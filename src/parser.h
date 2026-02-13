@@ -193,6 +193,11 @@ const token_t *parser_previous_token(const parser_t *parser);
 
 bool parser_token_try_promote_to_lbrace(parser_t *parser, int offset);
 bool parser_token_try_promote_to_rbrace(parser_t *parser, int offset);
+bool parser_token_try_promote_to_do(parser_t *parser, int offset);
+bool parser_token_try_promote_to_done(parser_t *parser, int offset);
+bool parser_token_try_promote_to_elif(parser_t *parser, int offset);
+bool parser_token_try_promote_to_else(parser_t *parser, int offset);
+bool parser_token_try_promote_to_esac(parser_t *parser, int offset);
 
 /* ============================================================================
  * Error Handling Functions
