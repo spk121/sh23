@@ -35,6 +35,9 @@ typedef struct tokenizer_t
     /* Output tokens after tokenization */
     token_list_t *output_tokens;
 
+    /* Buffered tokens for incomplete compound commands */
+    token_list_t *buffered_tokens;
+
     /* Expansion tracking to prevent infinite recursion */
     int expansion_depth;
     int max_expansion_depth;
@@ -50,7 +53,10 @@ typedef struct tokenizer_t
 
     /* Context flags */
     bool at_command_position; // true if next word could be eligible for alias expansion
-    char padding2[7];
+    char padding2[3];
+
+    /* Compound command nesting depth - tracks incomplete constructs (if/while/for/case/etc) */
+    int compound_depth;
 
 } tokenizer_t;
 

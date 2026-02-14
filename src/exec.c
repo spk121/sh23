@@ -458,7 +458,8 @@ void exec_destroy(exec_t **executor_ptr)
     }
 
     /* Clean up executor-owned resources */
-    string_destroy(&e->working_directory);
+    if (e->working_directory)
+        string_destroy(&e->working_directory);
     string_destroy(&e->shell_name);
     string_destroy(&e->error_msg);
 
@@ -858,17 +859,27 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
                 token_list_t *processed_tokens = token_list_create();
                 tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
                 token_list_destroy(&raw_tokens);
-                
-                if (tok_status != TOK_OK)
+
+                if (tok_status == TOK_ERROR)
                 {
                     log_debug("exec_execute_stream: Tokenizer error on incomplete line %d", line_num);
+                    const char *err = tokenizer_get_error(tokenizer);
+                    exec_set_error(executor, "Tokenizer error: %s", err ? err : "unknown");
                     token_list_destroy(&processed_tokens);
                     if (accumulated_tokens)
                         token_list_destroy(&accumulated_tokens);
                     final_status = EXEC_ERROR;
                     break;
                 }
-                
+
+                if (tok_status == TOK_INCOMPLETE)
+                {
+                    log_debug("exec_execute_stream: Tokenizer incomplete (compound command) during lexer incomplete at line %d", line_num);
+                    /* Tokens are buffered in tokenizer, continue to next line */
+                    token_list_destroy(&processed_tokens);
+                    continue;
+                }
+
                 /* Accumulate these tokens for when the lexer completes */
                 if (accumulated_tokens == NULL)
                 {
@@ -899,15 +910,26 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
         token_list_destroy(&raw_tokens);
 
-        if (tok_status != TOK_OK)
+        if (tok_status == TOK_ERROR)
         {
             log_debug("exec_execute_stream: Tokenizer error at line %d", line_num);
-            exec_set_error(executor, "Tokenizer error");
+            const char *err = tokenizer_get_error(tokenizer);
+            exec_set_error(executor, "Tokenizer error: %s", err ? err : "unknown");
             token_list_destroy(&processed_tokens);
             if (accumulated_tokens)
                 token_list_destroy(&accumulated_tokens);
             final_status = EXEC_ERROR;
             break;
+        }
+
+        if (tok_status == TOK_INCOMPLETE)
+        {
+            log_debug("exec_execute_stream: Tokenizer incomplete (compound command) at line %d, tokens buffered", line_num);
+            /* Tokenizer is buffering tokens for an incomplete compound command.
+             * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
+             * Continue reading more input. */
+            token_list_destroy(&processed_tokens);
+            continue;
         }
 
         if (token_list_size(processed_tokens) == 0)

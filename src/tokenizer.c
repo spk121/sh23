@@ -37,6 +37,7 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     tok->input_tokens = NULL;
     tok->input_pos = 0;
     tok->output_tokens = NULL;
+    tok->buffered_tokens = token_list_create(); // Buffer for incomplete compound commands
 
     tok->expansion_depth = 0;
     tok->max_expansion_depth = TOKENIZER_MAX_EXPANSION_DEPTH;
@@ -48,6 +49,7 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     tok->error_msg = NULL;
 
     tok->at_command_position = true; // start at command position
+    tok->compound_depth = 0; // no open compound commands
 
     return tok;
 }
@@ -60,6 +62,10 @@ void tokenizer_destroy(tokenizer_t **tok)
 
     if (t->error_msg)
         string_destroy(&t->error_msg);
+
+    // Free the buffered tokens
+    if (t->buffered_tokens)
+        token_list_destroy(&t->buffered_tokens);
 
     // Free the expanded_aliases tracking array
     if (t->expanded_aliases)
@@ -518,9 +524,18 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
 
                     if (all_digits)
                     {
-                        // Convert to TOKEN_IO_NUMBER
+                        // Convert to TOKEN_IO_NUMBER by attaching it to the redirection operator
                         int io_num = atoi(word_text);
                         token_list_set_io_number(tok->input_tokens, tok->input_pos + 1, io_num);
+                        xfree(word_text);
+
+                        // Remove this WORD token from input - it's been converted to an IO number
+                        // on the redirection operator. The token will be destroyed.
+                        token_list_remove(tok->input_tokens, tok->input_pos);
+
+                        // Don't increment input_pos - the next token is now at the current position
+                        // Continue processing from the same position
+                        return TOK_OK;
                     }
                 }
                 xfree(word_text);
@@ -529,9 +544,47 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
 add_token:
-    // Add token to output and move to next
+    // Track compound command nesting depth
+    token_type_t type = token_get_type(token);
+
+    // Opening keywords that start compound commands
+    // Note: TOKEN_LPAREN/RPAREN are NOT tracked here because:
+    // - For subshells ( ), the parser handles the complete construct
+    // - For function definitions foo() {...}, only the {...} body is a compound command
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_UNTIL || 
+        type == TOKEN_FOR || type == TOKEN_CASE || type == TOKEN_LBRACE)
+    {
+        tok->compound_depth++;
+    }
+
+    // Closing keywords that end compound commands
+    if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_ESAC ||
+        type == TOKEN_RBRACE)
+    {
+        tok->compound_depth--;
+        // Protect against going negative (parser error, but don't crash)
+        if (tok->compound_depth < 0)
+        {
+            tok->compound_depth = 0;
+        }
+    }
+
+    // Decide where to add the token:
+    // - If compound_depth > 0 OR we have buffered tokens, add to buffer
+    // - Otherwise add directly to output
+    token_list_t *target_list;
+    if (tok->compound_depth > 0 || token_list_size(tok->buffered_tokens) > 0)
+    {
+        target_list = tok->buffered_tokens;
+    }
+    else
+    {
+        target_list = tok->output_tokens;
+    }
+
+    // Add token to target list and move to next
     tok->input_pos++;
-    token_list_append(tok->output_tokens, token);
+    token_list_append(target_list, token);
 
     // Update command position for next token
     tokenizer_update_command_position(tok, token);
@@ -562,6 +615,38 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
         {
             return status;
         }
+    }
+
+    // Check if we have unclosed compound commands
+    if (tok->compound_depth > 0)
+    {
+        // Compound commands are incomplete - keep tokens in buffer
+        // Clear the input tokens array without destroying the tokens
+        // (they've been transferred to buffered_tokens)
+        token_list_release_tokens(input_tokens);
+
+        // Clean up context but preserve compound_depth and buffered_tokens for next call
+        tok->input_tokens = NULL;
+        tok->output_tokens = NULL;
+        tok->input_pos = 0;
+
+        // Signal that more input is needed to complete the compound command
+        return TOK_INCOMPLETE;
+    }
+
+    // Compound command is complete (depth == 0)
+    // Flush any buffered tokens to output
+    int buffered_count = token_list_size(tok->buffered_tokens);
+    if (buffered_count > 0)
+    {
+        // Transfer all buffered tokens to output
+        for (int i = 0; i < buffered_count; i++)
+        {
+            token_t *buffered_token = token_list_get(tok->buffered_tokens, i);
+            token_list_append(tok->output_tokens, buffered_token);
+        }
+        // Clear the buffer without destroying tokens (they're now in output)
+        token_list_release_tokens(tok->buffered_tokens);
     }
 
     // Clear the input tokens array without destroying the tokens

@@ -732,6 +732,14 @@ static ast_node_t *lower_brace_group(const gnode_t *g)
     Expects_eq(g->type, G_BRACE_GROUP);
     /* multi.a and multi.c should be '{' and '}' */
     const gnode_t *clist = g->data.multi.b;
+
+    /* Handle empty brace group { } */
+    if (!clist)
+    {
+        ast_node_t *empty_list = ast_create_command_list();
+        return ast_create_brace_group(empty_list);
+    }
+
     ast_node_t *body = lower_compound_list(clist);
     if (!body)
         return NULL;

@@ -69,7 +69,9 @@ typedef struct exec_redirection_t
         /* REDIR_TARGET_FILE */
         struct
         {
-            string_t *raw_filename; /* Unexpanded - expand at runtime */
+            bool is_expanded;
+            string_t *filename; /* Expanded filename */
+            token_t *tok; /* Original parts for expansion (if not yet expanded) */
         } file;
 
         /* REDIR_TARGET_FD */

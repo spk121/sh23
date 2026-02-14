@@ -2238,6 +2238,22 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
     if (parser_current_token_type(parser) != TOKEN_WORD)
         return PARSE_ERROR;
 
+    /* Check that function name is not a reserved word */
+    const token_t *fname_tok = parser_current_token(parser);
+    if (fname_tok && !token_was_quoted(fname_tok) && token_part_count(fname_tok) == 1)
+    {
+        const part_t *part = fname_tok->parts->parts[0];
+        if (part_get_type(part) == PART_LITERAL)
+        {
+            const char *word = string_cstr(part->text);
+            if (token_is_reserved_word(word))
+            {
+                parser_set_error(parser, "Cannot use reserved word '%s' as function name", word);
+                return PARSE_ERROR;
+            }
+        }
+    }
+
     /* Look ahead for '(' */
     const token_t *next = parser_peek_token(parser, 1);
     if (!next || token_get_type(next) != TOKEN_LPAREN)
@@ -2272,17 +2288,41 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
     /* linebreak */
     parser_skip_newlines(parser);
 
-    /* function_body (compound_command) */
-    gnode_t *body = NULL;
-    parse_status_t status = gparse_compound_command(parser, &body);
+    /* function_body: compound_command [redirect_list] */
+    gnode_t *compound = NULL;
+    parse_status_t status = gparse_compound_command(parser, &compound);
 
     if (status != PARSE_OK)
     {
+        /* Once we've parsed name(), we're committed to a function definition.
+         * If compound_command fails, give a helpful error message. */
+        if (status == PARSE_ERROR)
+        {
+            parser_set_error(parser, "Expected compound command (e.g., { ... }) after function declaration");
+        }
         g_node_destroy(&node);
         g_node_destroy(&fname);
         g_node_destroy(&lparen);
         g_node_destroy(&rparen);
         return status;
+    }
+
+    /* Try optional redirect_list */
+    gnode_t *redirects = NULL;
+    parse_status_t redir_status = gparse_redirect_list(parser, &redirects);
+
+    gnode_t *body = NULL;
+    if (redir_status == PARSE_OK)
+    {
+        /* Create G_FUNCTION_BODY wrapper with compound_command and redirect_list */
+        body = g_node_create(G_FUNCTION_BODY);
+        body->data.multi.a = compound;
+        body->data.multi.b = redirects;
+    }
+    else
+    {
+        /* No redirections - use compound_command directly */
+        body = compound;
     }
 
     node->data.multi.a = fname;
@@ -2329,15 +2369,24 @@ parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
     lbrace->data.token = token_clone(parser_current_token(parser));
     parser_advance(parser);
 
-    /* compound_list */
+    /* compound_list (optional for empty braces) */
     gnode_t *list = NULL;
     parse_status_t status = gparse_compound_list(parser, &list);
 
+    /* If compound_list fails and we're at '}', allow empty brace group */
     if (status != PARSE_OK)
     {
-        g_node_destroy(&node);
-        g_node_destroy(&lbrace);
-        return status;
+        if (parser_current_token_type(parser) == TOKEN_RBRACE)
+        {
+            /* Empty brace group { } */
+            list = NULL;
+        }
+        else
+        {
+            g_node_destroy(&node);
+            g_node_destroy(&lbrace);
+            return status;
+        }
     }
 
     /* '}' */

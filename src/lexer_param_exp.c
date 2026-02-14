@@ -160,9 +160,25 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         return LEX_INCOMPLETE;
 
     char c = lexer_peek(lx);
+
+    // Check for ${#...} - length expansion
+    // This must be checked BEFORE reading parameter name
+    bool is_length = false;
+    if (c == '#')
+    {
+        is_length = true;
+        lexer_advance(lx);  // consume #
+
+        if (lexer_at_end(lx))
+            return LEX_INCOMPLETE;
+
+        c = lexer_peek(lx);
+    }
+
     int name_start = lx->pos;
     int name_len = 0;
 
+    // Now read the parameter name
     if (is_special_param_char(c))
     {
         lexer_advance(lx);
@@ -172,14 +188,20 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     {
         while (!lexer_at_end(lx) && is_name_char(lexer_peek(lx)))
         {
-            lexer_advance(lx); // consume !
+            lexer_advance(lx);
             name_len++;
         }
     }
-    else if (c == '}' || c == '#')
+    else if (c == '}')
     {
-        // ${} or ${#} → special case below
-        name_len = 0;
+        // ${} or ${#} without parameter name
+        if (is_length)
+        {
+            lexer_set_error(lx, "bad substitution: ${#} requires a parameter name");
+            return LEX_ERROR;
+        }
+        lexer_set_error(lx, "bad substitution: empty parameter name");
+        return LEX_ERROR;
     }
     else
     {
@@ -187,16 +209,19 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         return LEX_ERROR;
     }
 
-    // Read the longest valid name
-    if (lexer_peek(lx) == '#' && name_len > 0)
+    // If this is a length expansion, create the part and return
+    if (is_length)
     {
-        lexer_advance(lx);
         string_t *name = string_create_from_cstr_len(input + name_start, name_len);
         part_t *part = part_create_parameter(name);
         part->param_kind = PARAM_LENGTH;
         part_set_quoted(part, false, lexer_in_mode(lx, LEX_DOUBLE_QUOTE));
         token_add_part(lx->current_token, part);
         lx->current_token->needs_expansion = true;
+        string_destroy(&name);
+
+        if (lexer_at_end(lx))
+            return LEX_INCOMPLETE;
 
         if (lexer_peek(lx) != '}')
         {
@@ -206,12 +231,6 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
         lexer_advance(lx);
         lexer_pop_mode(lx);
         return LEX_OK;
-    }
-
-    if (name_len == 0)
-    {
-        lexer_set_error(lx, "bad substitution: empty parameter name");
-        return LEX_ERROR;
     }
 
     if (lexer_at_end(lx))
