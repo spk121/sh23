@@ -2641,33 +2641,65 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
         return (string_length(arg) > 0) ? 0 : 1;
     }
 
-    /* Check for field splitting artifact: binary operator as first argument.
-     * 
-     * This happens when field splitting removes the entire first argument
-     * (producing zero words), leaving the binary operator as the first token.
-     * Per POSIX, this is expected behavior when an unquoted expansion produces
-     * only IFS whitespace.
-     * 
-     * Example: [ $nl = "x" ] where nl contains only whitespace
-     * Correctly becomes: [ = "x" ] after field splitting (argc=4)
-     */
+    /* Unary operators or field splitting artifacts */
     if (argc == 4)
     {
-        /* This often happens with field splitting - check if arg1 looks like a binary operator */
-        const string_t *arg1_str = string_list_at(args, 1);
-        const char *arg1 = string_cstr(arg1_str);
-        
-        /* Common binary operators */
-        if (strcmp(arg1, "=") == 0 || strcmp(arg1, "!=") == 0 ||
-            strcmp(arg1, "-eq") == 0 || strcmp(arg1, "-ne") == 0 ||
-            strcmp(arg1, "-lt") == 0 || strcmp(arg1, "-le") == 0 ||
-            strcmp(arg1, "-gt") == 0 || strcmp(arg1, "-ge") == 0)
+        const string_t *op_str = string_list_at(args, 1);
+        const string_t *arg_str = string_list_at(args, 2);
+        const char *op = string_cstr(op_str);
+
+        /* First check for unary operators */
+
+        /* File descriptor tests */
+        if (strcmp(op, "-t") == 0)
         {
-            fprintf(stderr, "[: %s: unary operator expected\n", arg1);
+            int endpos = 0;
+            long fd = string_atol_at(arg_str, 0, &endpos);
+
+            /* Check if valid file descriptor number */
+            if (endpos != (int)string_length(arg_str) || fd < 0)
+            {
+                frame_set_error_printf(frame, "[: -t: invalid file descriptor");
+                return 2;
+            }
+
+#ifdef POSIX_API
+            return isatty((int)fd) ? 0 : 1;
+#elif defined UCRT_API
+            return _isatty((int)fd) ? 0 : 1;
+#endif
+        /* else, fallthrough to failure */
+        }
+
+        /* String tests */
+        if (strcmp(op, "-z") == 0)
+            return (string_length(arg_str) == 0) ? 0 : 1;
+
+        if (strcmp(op, "-n") == 0)
+            return (string_length(arg_str) > 0) ? 0 : 1;
+
+        /* Check for field splitting artifact: binary operator as first argument.
+         * 
+         * This happens when field splitting removes the entire first argument
+         * (producing zero words), leaving the binary operator as the first token.
+         * Per POSIX, this is expected behavior when an unquoted expansion produces
+         * only IFS whitespace.
+         * 
+         * Example: [ $nl = "x" ] where nl contains only whitespace
+         * Correctly becomes: [ = "x" ] after field splitting (argc=4)
+         */
+
+        /* Common binary operators */
+        if (strcmp(op, "=") == 0 || strcmp(op, "!=") == 0 ||
+            strcmp(op, "-eq") == 0 || strcmp(op, "-ne") == 0 ||
+            strcmp(op, "-lt") == 0 || strcmp(op, "-le") == 0 ||
+            strcmp(op, "-gt") == 0 || strcmp(op, "-ge") == 0)
+        {
+            fprintf(stderr, "[: %s: unary operator expected\n", op);
             return 2;
         }
-        
-        /* Otherwise treat as too many arguments */
+
+        /* Unknown operator or too many arguments */
         fprintf(stderr, "[: too many arguments\n");
         return 2;
     }
@@ -2716,45 +2748,6 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
             if (strcmp(op, "-ge") == 0)
                 return (val1 >= val2) ? 0 : 1;
         }
-
-        frame_set_error_printf(frame, "[: unknown operator '%s'", op);
-        return 2;
-    }
-
-    /* Unary operators (or single string test) */
-    if (argc == 4)
-    {
-        const string_t *op_str = string_list_at(args, 1);
-        const string_t *arg_str = string_list_at(args, 2);
-        const char *op = string_cstr(op_str);
-
-        /* File descriptor tests */
-        if (strcmp(op, "-t") == 0)
-        {
-            int endpos = 0;
-            long fd = string_atol_at(arg_str, 0, &endpos);
-            
-            /* Check if valid file descriptor number */
-            if (endpos != (int)string_length(arg_str) || fd < 0)
-            {
-                frame_set_error_printf(frame, "[: -t: invalid file descriptor");
-                return 2;
-            }
-
-#ifdef POSIX_API
-            return isatty((int)fd) ? 0 : 1;
-#elif defined UCRT_API
-            return _isatty((int)fd) ? 0 : 1;
-#endif
-        /* else, fallthrough to failure */
-        }
-
-        /* String tests */
-        if (strcmp(op, "-z") == 0)
-            return (string_length(arg_str) == 0) ? 0 : 1;
-        
-        if (strcmp(op, "-n") == 0)
-            return (string_length(arg_str) > 0) ? 0 : 1;
 
         frame_set_error_printf(frame, "[: unknown operator '%s'", op);
         return 2;

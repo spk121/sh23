@@ -22,6 +22,7 @@
 #include "exec_redirect.h"
 #include "fd_table.h"
 #include "func_store.h"
+#include "glob_util.h"
 #include "gnode.h"
 #include "job_store.h"
 #include "lexer.h"
@@ -971,9 +972,9 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         log_debug("exec_execute_stream: Tokenizer produced %d processed tokens at line %d",
                   token_list_size(processed_tokens), line_num);
-        
-        /* Debug: print first few tokens */
-        for (int i = 0; i < token_list_size(processed_tokens) && i < 10; i++)
+
+        /* Debug: print all tokens */
+        for (int i = 0; i < token_list_size(processed_tokens); i++)
         {
             const token_t *t = token_list_get(processed_tokens, i);
             log_debug("  Token %d: type=%d, text='%s'", i, token_get_type(t),
@@ -1043,11 +1044,19 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         }
 
         ast_node_t *ast = ast_lower(gnode);
+
+        // Store gnode type for debugging before destroying it
+        gnode_type_t gnode_type = gnode ? gnode->type : G_UNSPECIFIED;
+
         g_node_destroy(&gnode);
         parser_destroy(&parser);
 
         if (!ast)
+        {
+            log_debug("exec_execute_stream: ast_lower returned NULL (empty program, type=%s) at line %d", 
+                      g_node_type_to_cstr(gnode_type), line_num);
             continue;
+        }
 
         exec_status_t exec_status = exec_execute(executor, ast);
         ast_node_destroy(&ast);
@@ -2179,8 +2188,9 @@ exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node)
         return result; // No word, exit status 0
     }
 
-    // Expand the word (for now, just convert to string - full expansion would be needed)
-    string_t *word = token_to_string(word_token);
+    // Expand the word
+    string_list_t *word_list = exec_expand_word(frame->executor, word_token);
+    string_t *word = string_list_join_move(&word_list, " ");
     if (!word) {
         exec_set_error(frame->executor, "Failed to expand case word");
         result.status = EXEC_ERROR;
@@ -2210,16 +2220,22 @@ exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node)
 
         for (int j = 0; j < token_list_size(patterns); j++) {
             const token_t *pattern_token = token_list_get(patterns, j);
-            string_t *pattern = token_to_string(pattern_token);
-            
-            // Pattern matching (for now, simple string equality - full impl would use fnmatch)
+
+            // Expand the pattern
+            string_list_t *pattern_list = exec_expand_word(frame->executor, pattern_token);
+            string_t *pattern = string_list_join_move(&pattern_list, " ");
+            if (!pattern) {
+                continue;
+            }
+
+            // Pattern matching
             bool pattern_matches = false;
 #ifdef POSIX_API
             // Use fnmatch for proper pattern matching
             pattern_matches = (fnmatch(string_cstr(pattern), string_cstr(word), 0) == 0);
 #else
-            // Fallback to simple string comparison
-            pattern_matches = string_eq(pattern, word);
+            // Use glob_util_match for pattern matching on Windows
+            pattern_matches = glob_util_match(string_cstr(pattern), string_cstr(word), 0);
 #endif
             
             string_destroy(&pattern);

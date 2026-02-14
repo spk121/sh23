@@ -604,7 +604,8 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     if (token_get_type(token) == TOKEN_WORD)
     {
         // First, check if this word is a reserved word at command position
-        if (tok->at_command_position)
+        // But only if it wasn't quoted - quoted words are always literal
+        if (tok->at_command_position && !token_was_quoted(token))
         {
             char *word_text = tokenizer_extract_word_text(token);
             if (word_text != NULL)

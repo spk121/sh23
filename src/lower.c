@@ -1123,11 +1123,11 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
      * - When there's a case_list: wrapper with multi.a = inner node, multi.b = list
      * - Inner node has: multi.a = case_tok, multi.b = word, multi.c = in_tok, multi.d = esac_tok
      * - When there's no list: node has multi.a = case_tok, multi.b = word, ... */
-    
+
     const gnode_t *ginner = g->data.multi.a;
     const gnode_t *glist = g->data.multi.b;
     const gnode_t *gword = NULL;
-    
+
     if (ginner && ginner->type == G_CASE_CLAUSE)
     {
         /* Nested structure: unwrap to get the word */
@@ -1135,8 +1135,20 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
     }
     else if (ginner && ginner->type == G_WORD_NODE)
     {
-        /* Simple structure (no list, older format): multi.a is already the word */
-        gword = ginner;
+        /* Simple structure (no list, older format): multi.a is already the word.
+         * Actually, this might be the case_tok, and the word is in multi.b */
+        if (g->data.multi.b && g->data.multi.b->type == G_WORD_NODE)
+        {
+            /* multi.a is case_tok, multi.b is word */
+            gword = g->data.multi.b;
+            glist = NULL;
+        }
+        else
+        {
+            /* Fallback - assume multi.a is the word */
+            gword = ginner;
+            glist = NULL;
+        }
     }
     else
     {
@@ -1512,7 +1524,15 @@ static token_list_t *token_list_from_wordlist(const gnode_t *g)
     for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *w = lst->nodes[i];
-        EXPECT_TYPE(w, G_WORD_NODE);
+        if (!w || w->type != G_WORD_NODE)
+        {
+            log_error("token_list_from_wordlist: item %d is not G_WORD_NODE (got %s / %d)", 
+                      i, 
+                      w ? g_node_type_to_cstr(w->type) : "NULL",
+                      w ? (int)w->type : -1);
+            token_list_destroy(&tl);
+            return NULL;
+        }
         token_list_append(tl, token_clone(w->data.token));
     }
 
