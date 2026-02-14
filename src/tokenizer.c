@@ -49,7 +49,11 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     tok->error_msg = NULL;
 
     tok->at_command_position = true; // start at command position
-    tok->compound_depth = 0; // no open compound commands
+
+    // Initialize compound command stack
+    tok->compound_stack_capacity = 8; // Initial capacity
+    tok->compound_stack = xcalloc(tok->compound_stack_capacity, sizeof(token_type_t));
+    tok->compound_stack_size = 0;
 
     return tok;
 }
@@ -67,6 +71,10 @@ void tokenizer_destroy(tokenizer_t **tok)
     if (t->buffered_tokens)
         token_list_destroy(&t->buffered_tokens);
 
+    // Free the compound command stack
+    if (t->compound_stack)
+        xfree(t->compound_stack);
+
     // Free the expanded_aliases tracking array
     if (t->expanded_aliases)
     {
@@ -79,6 +87,31 @@ void tokenizer_destroy(tokenizer_t **tok)
 
     xfree(t);
     *tok = NULL;
+}
+
+void tokenizer_reset(tokenizer_t *tok)
+{
+    if (tok == NULL)
+        return;
+
+    // Clear compound command stack
+    tok->compound_stack_size = 0;
+
+    // Clear buffered tokens
+    if (tok->buffered_tokens)
+    {
+        token_list_destroy(&tok->buffered_tokens);
+        tok->buffered_tokens = token_list_create();
+    }
+
+    // Reset command position tracking
+    tok->at_command_position = true;
+
+    // Clear any error state
+    tokenizer_clear_error(tok);
+
+    // Note: We do NOT clear expanded_aliases or reset expansion_depth
+    // because alias expansion state should persist across commands
 }
 
 /* ============================================================================
@@ -219,6 +252,108 @@ char *tokenizer_extract_word_text(const token_t *token)
         return NULL;
 
     return xstrdup(string_cstr(text));
+}
+
+/* ============================================================================
+ * Compound Command Stack Functions
+ * ============================================================================ */
+
+/**
+ * Push an opening token onto the compound command stack.
+ */
+static void tokenizer_push_compound(tokenizer_t *tok, token_type_t opening_token)
+{
+    Expects_not_null(tok);
+
+    // Grow stack if needed
+    if (tok->compound_stack_size >= tok->compound_stack_capacity)
+    {
+        int new_capacity = tok->compound_stack_capacity * 2;
+        if (new_capacity < tok->compound_stack_capacity) // Overflow check
+            new_capacity = INT_MAX;
+
+        tok->compound_stack = xrealloc(tok->compound_stack, new_capacity * sizeof(token_type_t));
+        tok->compound_stack_capacity = new_capacity;
+    }
+
+    tok->compound_stack[tok->compound_stack_size++] = opening_token;
+}
+
+/**
+ * Get the expected closing token for an opening token.
+ */
+static token_type_t tokenizer_get_closing_token(token_type_t opening_token)
+{
+    switch (opening_token)
+    {
+    case TOKEN_IF:      return TOKEN_FI;
+    case TOKEN_WHILE:   return TOKEN_DONE;
+    case TOKEN_UNTIL:   return TOKEN_DONE;
+    case TOKEN_FOR:     return TOKEN_DONE;
+    case TOKEN_CASE:    return TOKEN_ESAC;
+    case TOKEN_LBRACE:  return TOKEN_RBRACE;
+    default:            return TOKEN_WORD; // Should never happen
+    }
+}
+
+/**
+ * Get a human-readable name for a token type.
+ */
+static const char *tokenizer_token_name(token_type_t type)
+{
+    switch (type)
+    {
+    case TOKEN_IF:      return "if";
+    case TOKEN_THEN:    return "then";
+    case TOKEN_ELIF:    return "elif";
+    case TOKEN_ELSE:    return "else";
+    case TOKEN_FI:      return "fi";
+    case TOKEN_WHILE:   return "while";
+    case TOKEN_UNTIL:   return "until";
+    case TOKEN_FOR:     return "for";
+    case TOKEN_DO:      return "do";
+    case TOKEN_DONE:    return "done";
+    case TOKEN_CASE:    return "case";
+    case TOKEN_ESAC:    return "esac";
+    case TOKEN_LBRACE:  return "{";
+    case TOKEN_RBRACE:  return "}";
+    default:            return "???";
+    }
+}
+
+/**
+ * Pop and validate a closing token against the compound command stack.
+ * Returns true if valid, false if mismatch (sets error message).
+ */
+static bool tokenizer_pop_compound(tokenizer_t *tok, token_type_t closing_token)
+{
+    Expects_not_null(tok);
+
+    // Check if stack is empty
+    if (tok->compound_stack_size == 0)
+    {
+        tokenizer_set_error(tok, "Unexpected closing token '%s' with no matching opening token",
+                          tokenizer_token_name(closing_token));
+        return false;
+    }
+
+    // Get the expected closing token for what's on top of stack
+    token_type_t opening_token = tok->compound_stack[tok->compound_stack_size - 1];
+    token_type_t expected_closing = tokenizer_get_closing_token(opening_token);
+
+    // Check if closing token matches
+    if (closing_token != expected_closing)
+    {
+        tokenizer_set_error(tok, "Mismatched compound command: expected '%s' to close '%s', but got '%s'",
+                          tokenizer_token_name(expected_closing),
+                          tokenizer_token_name(opening_token),
+                          tokenizer_token_name(closing_token));
+        return false;
+    }
+
+    // Valid match - pop the stack
+    tok->compound_stack_size--;
+    return true;
 }
 
 /* ============================================================================
@@ -544,36 +679,42 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
 add_token:
-    // Track compound command nesting depth
+    // Track compound command nesting with a stack
     token_type_t type = token_get_type(token);
+
+    // Determine current buffering state BEFORE processing this token
+    bool should_buffer_before = (tok->compound_stack_size > 0 || token_list_size(tok->buffered_tokens) > 0);
 
     // Opening keywords that start compound commands
     // Note: TOKEN_LPAREN/RPAREN are NOT tracked here because:
     // - For subshells ( ), the parser handles the complete construct
     // - For function definitions foo() {...}, only the {...} body is a compound command
+    //
+    // Middle keywords (then/elif/else/do) are NOT validated here - that's the parser's job.
+    // The tokenizer only tracks opening/closing for buffering purposes.
     if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_UNTIL || 
         type == TOKEN_FOR || type == TOKEN_CASE || type == TOKEN_LBRACE)
     {
-        tok->compound_depth++;
+        tokenizer_push_compound(tok, type);
     }
 
     // Closing keywords that end compound commands
     if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_ESAC ||
         type == TOKEN_RBRACE)
     {
-        tok->compound_depth--;
-        // Protect against going negative (parser error, but don't crash)
-        if (tok->compound_depth < 0)
+        if (!tokenizer_pop_compound(tok, type))
         {
-            tok->compound_depth = 0;
+            // Mismatch error - error message already set by tokenizer_pop_compound
+            return TOK_ERROR;
         }
     }
 
     // Decide where to add the token:
-    // - If compound_depth > 0 OR we have buffered tokens, add to buffer
-    // - Otherwise add directly to output
+    // - If we were buffering before, OR compound_stack_size > 0 after processing, add to buffer
+    // - This ensures that closing tokens (like 'fi') that pop the stack still go to buffer
+    //   if they're part of a nested structure
     token_list_t *target_list;
-    if (tok->compound_depth > 0 || token_list_size(tok->buffered_tokens) > 0)
+    if (should_buffer_before || tok->compound_stack_size > 0)
     {
         target_list = tok->buffered_tokens;
     }
@@ -598,6 +739,11 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     return_val_if_null(input_tokens, TOK_INTERNAL_ERROR);
     return_val_if_null(output_tokens, TOK_INTERNAL_ERROR);
 
+    log_debug("tokenizer_process: START - compound_stack_size=%d, buffered=%d, input=%d", 
+              tok->compound_stack_size, 
+              token_list_size(tok->buffered_tokens),
+              token_list_size(input_tokens));
+
     // Set up the context
     tok->input_tokens = input_tokens;
     tok->input_pos = 0;
@@ -618,17 +764,34 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     }
 
     // Check if we have unclosed compound commands
-    if (tok->compound_depth > 0)
+    if (tok->compound_stack_size > 0)
     {
+        // Build a helpful error message showing what's unclosed
+        string_t *error_msg = string_create_from_cstr("Unclosed compound command(s): ");
+        for (int i = 0; i < tok->compound_stack_size; i++)
+        {
+            if (i > 0)
+                string_append_cstr(error_msg, ", ");
+            string_append_cstr(error_msg, "'");
+            string_append_cstr(error_msg, tokenizer_token_name(tok->compound_stack[i]));
+            string_append_cstr(error_msg, "'");
+        }
+        tokenizer_set_error(tok, "%s", string_cstr(error_msg));
+        string_destroy(&error_msg);
+
         // Compound commands are incomplete - keep tokens in buffer
         // Clear the input tokens array without destroying the tokens
         // (they've been transferred to buffered_tokens)
         token_list_release_tokens(input_tokens);
 
-        // Clean up context but preserve compound_depth and buffered_tokens for next call
+        // Clean up context but preserve compound_stack and buffered_tokens for next call
         tok->input_tokens = NULL;
         tok->output_tokens = NULL;
         tok->input_pos = 0;
+
+        log_debug("tokenizer_process: END - compound_stack_size=%d, buffered=%d, status=INCOMPLETE", 
+                  tok->compound_stack_size,
+                  token_list_size(tok->buffered_tokens));
 
         // Signal that more input is needed to complete the compound command
         return TOK_INCOMPLETE;
@@ -658,6 +821,11 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     tok->input_tokens = NULL;
     tok->output_tokens = NULL;
     tok->input_pos = 0;
+
+    log_debug("tokenizer_process: END - compound_stack_size=%d, buffered=%d, output=%d, status=OK", 
+              tok->compound_stack_size,
+              token_list_size(tok->buffered_tokens),
+              token_list_size(output_tokens));
 
     return TOK_OK;
 }

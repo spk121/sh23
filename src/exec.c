@@ -303,6 +303,9 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     /* RC File handling happens when creating the top frame, aliases is empty for now*/
     e->aliases = alias_store_create();
 
+    /* Tokenizer for persistent state across interactive commands (created lazily) */
+    e->tokenizer = NULL;
+
     e->jobs = job_store_create();
     e->job_control_enabled = cfg->job_control_enabled_set ? cfg->job_control_enabled
                                                           : e->is_interactive;
@@ -477,6 +480,8 @@ void exec_destroy(exec_t **executor_ptr)
         func_store_destroy(&e->functions);
     if (e->aliases)
         alias_store_destroy(&e->aliases);
+    if (e->tokenizer)
+        tokenizer_destroy(&e->tokenizer);
     if (e->traps)
         trap_store_destroy(&e->traps);
     if (e->original_signals)
@@ -803,13 +808,18 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         return EXEC_ERROR;
     }
 
-    tokenizer_t *tokenizer = tokenizer_create(executor->aliases);
-    if (!tokenizer)
+    /* Use the executor's persistent tokenizer (create if needed) */
+    if (!executor->tokenizer)
     {
-        lexer_destroy(&lx);
-        exec_set_error(executor, "Failed to create tokenizer");
-        return EXEC_ERROR;
+        executor->tokenizer = tokenizer_create(executor->aliases);
+        if (!executor->tokenizer)
+        {
+            lexer_destroy(&lx);
+            exec_set_error(executor, "Failed to create tokenizer");
+            return EXEC_ERROR;
+        }
     }
+    tokenizer_t *tokenizer = executor->tokenizer;
 
     exec_status_t final_status = EXEC_OK;
 
@@ -1051,7 +1061,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         /* Only reset lexer after successful execution */
         lexer_reset(lx);
-        
+
         /* Clear accumulated tokens after successful execution */
         if (accumulated_tokens)
         {
@@ -1066,7 +1076,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         token_list_destroy(&accumulated_tokens);
     }
 
-    tokenizer_destroy(&tokenizer);
+    /* Don't destroy tokenizer - it's persistent in executor */
     lexer_destroy(&lx);
 
     return final_status;

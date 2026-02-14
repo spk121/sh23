@@ -55,8 +55,10 @@ typedef struct tokenizer_t
     bool at_command_position; // true if next word could be eligible for alias expansion
     char padding2[3];
 
-    /* Compound command nesting depth - tracks incomplete constructs (if/while/for/case/etc) */
-    int compound_depth;
+    /* Compound command nesting tracking - stack of opening tokens */
+    token_type_t *compound_stack;  // Stack of opening token types (IF, WHILE, FOR, CASE, LBRACE)
+    int compound_stack_size;       // Current number of items on stack
+    int compound_stack_capacity;   // Allocated capacity
 
 } tokenizer_t;
 
@@ -76,6 +78,13 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases);
  * Does not destroy the alias store (caller retains ownership).
  */
 void tokenizer_destroy(tokenizer_t **tok);
+
+/**
+ * Reset the tokenizer state after a complete command has been processed.
+ * Clears the compound command stack and buffered tokens, preparing for
+ * the next command. Does NOT reset alias expansion tracking.
+ */
+void tokenizer_reset(tokenizer_t *tok);
 
 /* ============================================================================
  * Main Tokenization Function

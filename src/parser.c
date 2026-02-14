@@ -1076,6 +1076,7 @@ parse_status_t gparse_compound_command(parser_t *parser, gnode_t **out_node)
         status = gparse_until_clause(parser, &child);
         break;
     default:
+        parser_set_error(parser, "Expected compound command (if/while/for/case/{/())");
         return PARSE_ERROR;
     }
 
@@ -1356,7 +1357,10 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
     }
     
     if (t != TOKEN_IN)
+    {
+        parser_set_error(parser, "Expected 'in' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_IN_NODE);
     node->payload_type = GNODE_PAYLOAD_TOKEN;  /* Just 'in' keyword uses .token */
@@ -1397,7 +1401,10 @@ parse_status_t gparse_wordlist(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_WORD)
+    {
+        parser_set_error(parser, "Expected word in wordlist");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_WORDLIST);
     node->data.list = g_list_create();
@@ -2116,6 +2123,7 @@ parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
         return PARSE_OK;
     }
 
+    /* Neither elif nor else - not an else_part */
     return PARSE_ERROR;
 }
 
@@ -2131,7 +2139,10 @@ parse_status_t gparse_while_clause(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_WHILE)
+    {
+        parser_set_error(parser, "Expected 'while' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_WHILE_CLAUSE);
 
@@ -2183,7 +2194,10 @@ parse_status_t gparse_until_clause(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_UNTIL)
+    {
+        parser_set_error(parser, "Expected 'until' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_UNTIL_CLAUSE);
 
@@ -2346,7 +2360,10 @@ parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_LBRACE)
+    {
+        parser_set_error(parser, "Expected '{' to start brace group");
         return PARSE_ERROR;
+    }
 
     /* Make sure that the next '}' has been promoted to a TOKEN_RBRACE */
     int offset = 1;
@@ -2439,7 +2456,10 @@ parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node)
     }
 
     if (parser_current_token_type(parser) != TOKEN_DO)
+    {
+        parser_set_error(parser, "Expected 'do' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_DO_GROUP);
 
