@@ -607,21 +607,55 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
         // But only if it wasn't quoted - quoted words are always literal
         if (tok->at_command_position && !token_was_quoted(token))
         {
-            char *word_text = tokenizer_extract_word_text(token);
-            if (word_text != NULL)
+            // Check if we're in a case statement and the next token is ')'
+            // If so, this word is a case pattern and should NOT be promoted to a reserved word
+            bool is_case_pattern = false;
+            if (tok->compound_stack_size > 0 && 
+                tok->compound_stack[tok->compound_stack_size - 1] == TOKEN_CASE &&
+                tok->input_pos + 1 < token_list_size(tok->input_tokens))
             {
-                token_type_t reserved_type = token_string_to_reserved_word(word_text);
-                /* Exclude 'in' from automatic promotion - it's context-sensitive.
-                 * The parser will recognize 'in' explicitly in for/case contexts. */
-                if (reserved_type != TOKEN_WORD && reserved_type != TOKEN_IN)
+                const token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
+                if (token_get_type(next_token) == TOKEN_RPAREN)
                 {
-                    // Convert TOKEN_WORD to reserved word token
-                    token_set_type(token, reserved_type);
-                    xfree(word_text);
-                    // Add token to output and update position
-                    goto add_token;
+                    is_case_pattern = true;
                 }
-                xfree(word_text);
+            }
+
+            // Check if the previous output token was TOKEN_FOR or TOKEN_CASE
+            // If so, this word is a variable/word name and should NOT be promoted
+            // We need to check both output_tokens and buffered_tokens
+            bool is_loop_var_or_case_word = false;
+            token_list_t *list_to_check = (tok->compound_stack_size > 0) ? 
+                                          tok->buffered_tokens : tok->output_tokens;
+            if (token_list_size(list_to_check) > 0)
+            {
+                const token_t *prev_token = token_list_get(list_to_check, 
+                                                          token_list_size(list_to_check) - 1);
+                token_type_t prev_type = token_get_type(prev_token);
+                if (prev_type == TOKEN_FOR || prev_type == TOKEN_CASE)
+                {
+                    is_loop_var_or_case_word = true;
+                }
+            }
+
+            if (!is_case_pattern && !is_loop_var_or_case_word)
+            {
+                char *word_text = tokenizer_extract_word_text(token);
+                if (word_text != NULL)
+                {
+                    token_type_t reserved_type = token_string_to_reserved_word(word_text);
+                    /* Exclude 'in' from automatic promotion - it's context-sensitive.
+                     * The parser will recognize 'in' explicitly in for/case contexts. */
+                    if (reserved_type != TOKEN_WORD && reserved_type != TOKEN_IN)
+                    {
+                        // Convert TOKEN_WORD to reserved word token
+                        token_set_type(token, reserved_type);
+                        xfree(word_text);
+                        // Add token to output and update position
+                        goto add_token;
+                    }
+                    xfree(word_text);
+                }
             }
         }
 

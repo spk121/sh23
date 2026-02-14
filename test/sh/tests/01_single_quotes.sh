@@ -3,7 +3,20 @@
 # "Enclosing characters in single-quotes shall preserve the literal
 # value of each character within the single-quotes."
 
+echo "$(dirname "$0")/../test_helpers.sh"
+
 . "$(dirname "$0")/../test_helpers.sh"
+
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
 
 printf "  Testing single quote behavior...\n"
 
@@ -37,6 +50,7 @@ else
     _test_failures=$((_test_failures + 1))
 fi
 _test_count=$((_test_count + 1))
+
 
 # Multiple special characters together
 assert_eq '|&;<>()$`\"' '|&;<>()$`\"' "multiple specials preserved"
@@ -84,12 +98,12 @@ assert_eq '}' '}' "close brace preserved"
 assert_eq ',' ',' "comma preserved"
 
 # Glob patterns should not expand
-mkdir -p /tmp/quoting_test_$$
-touch /tmp/quoting_test_$$/file1.txt /tmp/quoting_test_$$/file2.txt
-cd /tmp/quoting_test_$$
+mkdir -p "$TMPDIR/quoting_test_$$"
+touch "$TMPDIR/quoting_test_$$/file1.txt" "$TMPDIR/quoting_test_$$/file2.txt"
+cd "$TMPDIR/quoting_test_$$"
 result='*.txt'
 assert_eq '*.txt' "$result" "glob pattern not expanded"
 cd - >/dev/null
-rm -rf /tmp/quoting_test_$$
+rm -rf "$TMPDIR/quoting_test_$$"
 
 finish_tests

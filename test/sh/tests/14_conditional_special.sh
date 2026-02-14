@@ -5,6 +5,17 @@
 
 . "$(dirname "$0")/../test_helpers.sh"
 
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
+
 printf "  Testing conditionally special characters...\n"
 
 count_words() {
@@ -12,7 +23,7 @@ count_words() {
 }
 
 # Setup test directory for glob tests
-TEST_DIR="/tmp/cond_special_$$"
+TEST_DIR="$TMPDIR/cond_special_$$"
 mkdir -p "$TEST_DIR"
 touch "$TEST_DIR/file1" "$TEST_DIR/file2"
 cd "$TEST_DIR"

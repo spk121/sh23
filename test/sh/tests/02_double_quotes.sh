@@ -6,6 +6,17 @@
 
 . "$(dirname "$0")/../test_helpers.sh"
 
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
+
 printf "  Testing double quote behavior...\n"
 
 # Characters that SHOULD be preserved literally in double quotes
@@ -61,13 +72,13 @@ result=$(count_words "one two three")
 assert_eq "1" "$result" "double-quoted string is one word"
 
 # No glob expansion in double quotes
-mkdir -p /tmp/quoting_test_$$
-touch /tmp/quoting_test_$$/file1.txt /tmp/quoting_test_$$/file2.txt
-cd /tmp/quoting_test_$$
+mkdir -p "$TMPDIR/quoting_test_$$"
+touch "$TMPDIR/quoting_test_$$/file1.txt" "$TMPDIR/quoting_test_$$/file2.txt"
+cd "$TMPDIR/quoting_test_$$"
 result="*.txt"
 assert_eq "*.txt" "$result" "glob pattern not expanded"
 cd - >/dev/null
-rm -rf /tmp/quoting_test_$$
+rm -rf "$TMPDIR/quoting_test_$$"
 
 # Dollar sign - DOES trigger expansion
 var="hello"

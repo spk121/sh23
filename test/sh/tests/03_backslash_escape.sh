@@ -5,6 +5,17 @@
 
 . "$(dirname "$0")/../test_helpers.sh"
 
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
+
 printf "  Testing backslash escape behavior...\n"
 
 # Escaping characters that must be quoted
@@ -58,13 +69,13 @@ result=\$\$\$
 assert_eq '$$$' "$result" "multiple escaped dollars"
 
 # Escape prevents glob expansion
-mkdir -p /tmp/quoting_test_$$
-touch /tmp/quoting_test_$$/file1.txt /tmp/quoting_test_$$/file2.txt
-cd /tmp/quoting_test_$$
+mkdir -p "$TMPDIR/quoting_test_$$"
+touch "$TMPDIR/quoting_test_$$/file1.txt" "$TMPDIR/quoting_test_$$/file2.txt"
+cd "$TMPDIR/quoting_test_$$"
 result=\*.txt
 assert_eq '*.txt' "$result" "escaped glob not expanded"
 cd - >/dev/null
-rm -rf /tmp/quoting_test_$$
+rm -rf "$TMPDIR/quoting_test_$$"
 
 # Escape prevents variable expansion
 var="REPLACED"

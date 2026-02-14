@@ -4,6 +4,17 @@
 
 . "$(dirname "$0")/../test_helpers.sh"
 
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
+
 printf "  Testing quoting with word splitting...\n"
 
 count_words() {
@@ -149,14 +160,14 @@ assert_eq "a:b:c" "$result" '"$*" joins with first char of IFS'
 IFS="$oldIFS"
 
 # Glob characters and word splitting combined
-mkdir -p /tmp/ws_test_$$
-touch /tmp/ws_test_$$/file1 /tmp/ws_test_$$/file2
-cd /tmp/ws_test_$$
+mkdir -p "$TMPDIR/ws_test_$$"
+touch "$TMPDIR/ws_test_$$/file1" "$TMPDIR/ws_test_$$/file2"
+cd "$TMPDIR/ws_test_$$"
 var="file*"
 # Unquoted: word split then glob
 result=$(count_words $var)
 assert_eq "2" "$result" "unquoted glob in var expands to matching files"
 cd - >/dev/null
-rm -rf /tmp/ws_test_$$
+rm -rf "$TMPDIR/ws_test_$$"
 
 finish_tests
