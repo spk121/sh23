@@ -37,6 +37,7 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     tok->input_tokens = NULL;
     tok->input_pos = 0;
     tok->output_tokens = NULL;
+    tok->buffered_tokens = token_list_create(); // Buffer for incomplete compound commands
 
     tok->expansion_depth = 0;
     tok->max_expansion_depth = TOKENIZER_MAX_EXPANSION_DEPTH;
@@ -48,6 +49,11 @@ tokenizer_t *tokenizer_create(alias_store_t *aliases)
     tok->error_msg = NULL;
 
     tok->at_command_position = true; // start at command position
+
+    // Initialize compound command stack
+    tok->compound_stack_capacity = 8; // Initial capacity
+    tok->compound_stack = xcalloc(tok->compound_stack_capacity, sizeof(token_type_t));
+    tok->compound_stack_size = 0;
 
     return tok;
 }
@@ -61,6 +67,14 @@ void tokenizer_destroy(tokenizer_t **tok)
     if (t->error_msg)
         string_destroy(&t->error_msg);
 
+    // Free the buffered tokens
+    if (t->buffered_tokens)
+        token_list_destroy(&t->buffered_tokens);
+
+    // Free the compound command stack
+    if (t->compound_stack)
+        xfree(t->compound_stack);
+
     // Free the expanded_aliases tracking array
     if (t->expanded_aliases)
     {
@@ -73,6 +87,31 @@ void tokenizer_destroy(tokenizer_t **tok)
 
     xfree(t);
     *tok = NULL;
+}
+
+void tokenizer_reset(tokenizer_t *tok)
+{
+    if (tok == NULL)
+        return;
+
+    // Clear compound command stack
+    tok->compound_stack_size = 0;
+
+    // Clear buffered tokens
+    if (tok->buffered_tokens)
+    {
+        token_list_destroy(&tok->buffered_tokens);
+        tok->buffered_tokens = token_list_create();
+    }
+
+    // Reset command position tracking
+    tok->at_command_position = true;
+
+    // Clear any error state
+    tokenizer_clear_error(tok);
+
+    // Note: We do NOT clear expanded_aliases or reset expansion_depth
+    // because alias expansion state should persist across commands
 }
 
 /* ============================================================================
@@ -213,6 +252,108 @@ char *tokenizer_extract_word_text(const token_t *token)
         return NULL;
 
     return xstrdup(string_cstr(text));
+}
+
+/* ============================================================================
+ * Compound Command Stack Functions
+ * ============================================================================ */
+
+/**
+ * Push an opening token onto the compound command stack.
+ */
+static void tokenizer_push_compound(tokenizer_t *tok, token_type_t opening_token)
+{
+    Expects_not_null(tok);
+
+    // Grow stack if needed
+    if (tok->compound_stack_size >= tok->compound_stack_capacity)
+    {
+        int new_capacity = tok->compound_stack_capacity * 2;
+        if (new_capacity < tok->compound_stack_capacity) // Overflow check
+            new_capacity = INT_MAX;
+
+        tok->compound_stack = xrealloc(tok->compound_stack, new_capacity * sizeof(token_type_t));
+        tok->compound_stack_capacity = new_capacity;
+    }
+
+    tok->compound_stack[tok->compound_stack_size++] = opening_token;
+}
+
+/**
+ * Get the expected closing token for an opening token.
+ */
+static token_type_t tokenizer_get_closing_token(token_type_t opening_token)
+{
+    switch (opening_token)
+    {
+    case TOKEN_IF:      return TOKEN_FI;
+    case TOKEN_WHILE:   return TOKEN_DONE;
+    case TOKEN_UNTIL:   return TOKEN_DONE;
+    case TOKEN_FOR:     return TOKEN_DONE;
+    case TOKEN_CASE:    return TOKEN_ESAC;
+    case TOKEN_LBRACE:  return TOKEN_RBRACE;
+    default:            return TOKEN_WORD; // Should never happen
+    }
+}
+
+/**
+ * Get a human-readable name for a token type.
+ */
+static const char *tokenizer_token_name(token_type_t type)
+{
+    switch (type)
+    {
+    case TOKEN_IF:      return "if";
+    case TOKEN_THEN:    return "then";
+    case TOKEN_ELIF:    return "elif";
+    case TOKEN_ELSE:    return "else";
+    case TOKEN_FI:      return "fi";
+    case TOKEN_WHILE:   return "while";
+    case TOKEN_UNTIL:   return "until";
+    case TOKEN_FOR:     return "for";
+    case TOKEN_DO:      return "do";
+    case TOKEN_DONE:    return "done";
+    case TOKEN_CASE:    return "case";
+    case TOKEN_ESAC:    return "esac";
+    case TOKEN_LBRACE:  return "{";
+    case TOKEN_RBRACE:  return "}";
+    default:            return "???";
+    }
+}
+
+/**
+ * Pop and validate a closing token against the compound command stack.
+ * Returns true if valid, false if mismatch (sets error message).
+ */
+static bool tokenizer_pop_compound(tokenizer_t *tok, token_type_t closing_token)
+{
+    Expects_not_null(tok);
+
+    // Check if stack is empty
+    if (tok->compound_stack_size == 0)
+    {
+        tokenizer_set_error(tok, "Unexpected closing token '%s' with no matching opening token",
+                          tokenizer_token_name(closing_token));
+        return false;
+    }
+
+    // Get the expected closing token for what's on top of stack
+    token_type_t opening_token = tok->compound_stack[tok->compound_stack_size - 1];
+    token_type_t expected_closing = tokenizer_get_closing_token(opening_token);
+
+    // Check if closing token matches
+    if (closing_token != expected_closing)
+    {
+        tokenizer_set_error(tok, "Mismatched compound command: expected '%s' to close '%s', but got '%s'",
+                          tokenizer_token_name(expected_closing),
+                          tokenizer_token_name(opening_token),
+                          tokenizer_token_name(closing_token));
+        return false;
+    }
+
+    // Valid match - pop the stack
+    tok->compound_stack_size--;
+    return true;
 }
 
 /* ============================================================================
@@ -418,7 +559,7 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
     // Get the next input token
-    const token_t *token = token_list_get(tok->input_tokens, tok->input_pos);
+    token_t *token = tok->input_tokens->tokens[tok->input_pos];
 
     // Check if this token is eligible for alias expansion
     if (tok->aliases != NULL && tokenizer_is_alias_eligible(tok, token))
@@ -463,23 +604,58 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     if (token_get_type(token) == TOKEN_WORD)
     {
         // First, check if this word is a reserved word at command position
-        if (tok->at_command_position)
+        // But only if it wasn't quoted - quoted words are always literal
+        if (tok->at_command_position && !token_was_quoted(token))
         {
-            char *word_text = tokenizer_extract_word_text(token);
-            if (word_text != NULL)
+            // Check if we're in a case statement and the next token is ')'
+            // If so, this word is a case pattern and should NOT be promoted to a reserved word
+            bool is_case_pattern = false;
+            if (tok->compound_stack_size > 0 && 
+                tok->compound_stack[tok->compound_stack_size - 1] == TOKEN_CASE &&
+                tok->input_pos + 1 < token_list_size(tok->input_tokens))
             {
-                token_type_t reserved_type = token_string_to_reserved_word(word_text);
-                /* Exclude 'in' from automatic promotion - it's context-sensitive.
-                 * The parser will recognize 'in' explicitly in for/case contexts. */
-                if (reserved_type != TOKEN_WORD && reserved_type != TOKEN_IN)
+                const token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
+                if (token_get_type(next_token) == TOKEN_RPAREN)
                 {
-                    // Convert TOKEN_WORD to reserved word token
-                    token_list_set_token_type(tok->input_tokens, tok->input_pos, reserved_type);
-                    xfree(word_text);
-                    // Add token to output and update position
-                    goto add_token;
+                    is_case_pattern = true;
                 }
-                xfree(word_text);
+            }
+
+            // Check if the previous output token was TOKEN_FOR or TOKEN_CASE
+            // If so, this word is a variable/word name and should NOT be promoted
+            // We need to check both output_tokens and buffered_tokens
+            bool is_loop_var_or_case_word = false;
+            token_list_t *list_to_check = (tok->compound_stack_size > 0) ? 
+                                          tok->buffered_tokens : tok->output_tokens;
+            if (token_list_size(list_to_check) > 0)
+            {
+                const token_t *prev_token = token_list_get(list_to_check, 
+                                                          token_list_size(list_to_check) - 1);
+                token_type_t prev_type = token_get_type(prev_token);
+                if (prev_type == TOKEN_FOR || prev_type == TOKEN_CASE)
+                {
+                    is_loop_var_or_case_word = true;
+                }
+            }
+
+            if (!is_case_pattern && !is_loop_var_or_case_word)
+            {
+                char *word_text = tokenizer_extract_word_text(token);
+                if (word_text != NULL)
+                {
+                    token_type_t reserved_type = token_string_to_reserved_word(word_text);
+                    /* Exclude 'in' from automatic promotion - it's context-sensitive.
+                     * The parser will recognize 'in' explicitly in for/case contexts. */
+                    if (reserved_type != TOKEN_WORD && reserved_type != TOKEN_IN)
+                    {
+                        // Convert TOKEN_WORD to reserved word token
+                        token_set_type(token, reserved_type);
+                        xfree(word_text);
+                        // Add token to output and update position
+                        goto add_token;
+                    }
+                    xfree(word_text);
+                }
             }
         }
 
@@ -518,9 +694,18 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
 
                     if (all_digits)
                     {
-                        // Convert to TOKEN_IO_NUMBER
+                        // Convert to TOKEN_IO_NUMBER by attaching it to the redirection operator
                         int io_num = atoi(word_text);
                         token_list_set_io_number(tok->input_tokens, tok->input_pos + 1, io_num);
+                        xfree(word_text);
+
+                        // Remove this WORD token from input - it's been converted to an IO number
+                        // on the redirection operator. The token will be destroyed.
+                        token_list_remove(tok->input_tokens, tok->input_pos);
+
+                        // Don't increment input_pos - the next token is now at the current position
+                        // Continue processing from the same position
+                        return TOK_OK;
                     }
                 }
                 xfree(word_text);
@@ -529,9 +714,85 @@ tok_status_t tokenizer_process_one_token(tokenizer_t *tok)
     }
 
 add_token:
-    // Add token to output and move to next
+    // Track compound command nesting with a stack
+    token_type_t type = token_get_type(token);
+
+    // Determine current buffering state BEFORE processing this token
+    bool should_buffer_before = (tok->compound_stack_size > 0 || token_list_size(tok->buffered_tokens) > 0);
+
+    // Special handling for function definitions: WORD ( ) compound_command
+    // When we see '(' after a WORD, check if this is a function definition
+    if (type == TOKEN_LPAREN && !should_buffer_before)
+    {
+        // Check if previous token in output is a WORD
+        int output_size = token_list_size(tok->output_tokens);
+        if (output_size > 0)
+        {
+            token_t *prev_token = token_list_get(tok->output_tokens, output_size - 1);
+            if (token_get_type(prev_token) == TOKEN_WORD)
+            {
+                // Look ahead to see if next token is RPAREN
+                if (tok->input_pos + 1 < token_list_size(tok->input_tokens))
+                {
+                    token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
+                    if (token_get_type(next_token) == TOKEN_RPAREN)
+                    {
+                        // This is a function definition pattern: word ( )
+                        // Retroactively move the WORD from output to buffer
+                        token_t *word_token = tok->output_tokens->tokens[output_size - 1];
+                        tok->output_tokens->tokens[output_size - 1] = NULL;
+                        tok->output_tokens->size--;
+                        token_list_append(tok->buffered_tokens, word_token);
+
+                        // Now we're buffering
+                        should_buffer_before = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // Opening keywords that start compound commands
+    // Note: TOKEN_LPAREN/RPAREN are NOT tracked here because:
+    // - For subshells ( ), the parser handles the complete construct
+    // - For function definitions foo() {...}, only the {...} body is a compound command
+    //
+    // Middle keywords (then/elif/else/do) are NOT validated here - that's the parser's job.
+    // The tokenizer only tracks opening/closing for buffering purposes.
+    if (type == TOKEN_IF || type == TOKEN_WHILE || type == TOKEN_UNTIL || 
+        type == TOKEN_FOR || type == TOKEN_CASE || type == TOKEN_LBRACE)
+    {
+        tokenizer_push_compound(tok, type);
+    }
+
+    // Closing keywords that end compound commands
+    if (type == TOKEN_FI || type == TOKEN_DONE || type == TOKEN_ESAC ||
+        type == TOKEN_RBRACE)
+    {
+        if (!tokenizer_pop_compound(tok, type))
+        {
+            // Mismatch error - error message already set by tokenizer_pop_compound
+            return TOK_ERROR;
+        }
+    }
+
+    // Decide where to add the token:
+    // - If we were buffering before, OR compound_stack_size > 0 after processing, add to buffer
+    // - This ensures that closing tokens (like 'fi') that pop the stack still go to buffer
+    //   if they're part of a nested structure
+    token_list_t *target_list;
+    if (should_buffer_before || tok->compound_stack_size > 0)
+    {
+        target_list = tok->buffered_tokens;
+    }
+    else
+    {
+        target_list = tok->output_tokens;
+    }
+
+    // Add token to target list and move to next
     tok->input_pos++;
-    token_list_append(tok->output_tokens, token);
+    token_list_append(target_list, token);
 
     // Update command position for next token
     tokenizer_update_command_position(tok, token);
@@ -544,6 +805,11 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     return_val_if_null(tok, TOK_INTERNAL_ERROR);
     return_val_if_null(input_tokens, TOK_INTERNAL_ERROR);
     return_val_if_null(output_tokens, TOK_INTERNAL_ERROR);
+
+    log_debug("tokenizer_process: START - compound_stack_size=%d, buffered=%d, input=%d", 
+              tok->compound_stack_size, 
+              token_list_size(tok->buffered_tokens),
+              token_list_size(input_tokens));
 
     // Set up the context
     tok->input_tokens = input_tokens;
@@ -564,6 +830,55 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
         }
     }
 
+    // Check if we have unclosed compound commands
+    if (tok->compound_stack_size > 0)
+    {
+        // Build a helpful error message showing what's unclosed
+        string_t *error_msg = string_create_from_cstr("Unclosed compound command(s): ");
+        for (int i = 0; i < tok->compound_stack_size; i++)
+        {
+            if (i > 0)
+                string_append_cstr(error_msg, ", ");
+            string_append_cstr(error_msg, "'");
+            string_append_cstr(error_msg, tokenizer_token_name(tok->compound_stack[i]));
+            string_append_cstr(error_msg, "'");
+        }
+        tokenizer_set_error(tok, "%s", string_cstr(error_msg));
+        string_destroy(&error_msg);
+
+        // Compound commands are incomplete - keep tokens in buffer
+        // Clear the input tokens array without destroying the tokens
+        // (they've been transferred to buffered_tokens)
+        token_list_release_tokens(input_tokens);
+
+        // Clean up context but preserve compound_stack and buffered_tokens for next call
+        tok->input_tokens = NULL;
+        tok->output_tokens = NULL;
+        tok->input_pos = 0;
+
+        log_debug("tokenizer_process: END - compound_stack_size=%d, buffered=%d, status=INCOMPLETE", 
+                  tok->compound_stack_size,
+                  token_list_size(tok->buffered_tokens));
+
+        // Signal that more input is needed to complete the compound command
+        return TOK_INCOMPLETE;
+    }
+
+    // Compound command is complete (depth == 0)
+    // Flush any buffered tokens to output
+    int buffered_count = token_list_size(tok->buffered_tokens);
+    if (buffered_count > 0)
+    {
+        // Transfer all buffered tokens to output
+        for (int i = 0; i < buffered_count; i++)
+        {
+            token_t *buffered_token = token_list_get(tok->buffered_tokens, i);
+            token_list_append(tok->output_tokens, buffered_token);
+        }
+        // Clear the buffer without destroying tokens (they're now in output)
+        token_list_release_tokens(tok->buffered_tokens);
+    }
+
     // Clear the input tokens array without destroying the tokens
     // (they've been transferred to output)
     // This prevents double-free when the caller destroys input_tokens
@@ -573,6 +888,11 @@ tok_status_t tokenizer_process(tokenizer_t *tok, token_list_t *input_tokens, tok
     tok->input_tokens = NULL;
     tok->output_tokens = NULL;
     tok->input_pos = 0;
+
+    log_debug("tokenizer_process: END - compound_stack_size=%d, buffered=%d, output=%d, status=OK", 
+              tok->compound_stack_size,
+              token_list_size(tok->buffered_tokens),
+              token_list_size(output_tokens));
 
     return TOK_OK;
 }

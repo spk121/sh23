@@ -1,8 +1,7 @@
 #ifndef BUILTINS_H
 #define BUILTINS_H
 
-#include "exec.h"
-#include "exec_frame.h"
+#include "frame.h"
 #include "string_t.h"
 #include "string_list.h"
 
@@ -98,6 +97,8 @@ int builtin_ls(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_basename(exec_frame_t *frame, const string_list_t *args);
 int builtin_dirname(exec_frame_t *frame, const string_list_t *args);
+int builtin_mgsh_dirnamevar(exec_frame_t *frame, const string_list_t *args);
+int builtin_mgsh_printfvar(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_true(exec_frame_t *frame, const string_list_t *args);
 int builtin_false(exec_frame_t *frame, const string_list_t *args);

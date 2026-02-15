@@ -7,8 +7,7 @@
 
 #include "builtins.h"
 
-#include "exec.h"
-#include "exec_frame.h"
+#include "frame.h"
 #include "func_store.h"
 #include "getopt.h"
 #include "getopt_string.h"
@@ -18,7 +17,6 @@
 #include "positional_params.h"
 #include "string_list.h"
 #include "string_t.h"
-#include "variable_map.h"
 #include "variable_store.h"
 #include "xalloc.h"
 #ifdef UCRT_API
@@ -53,7 +51,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
 
 #ifdef UCRT_API
     {"cd", BUILTIN_REGULAR, builtin_cd },
-        {"pwd", BUILTIN_REGULAR, builtin_pwd},
+    {"pwd", BUILTIN_REGULAR, builtin_pwd},
 #endif
     /* { "cd", BUILTIN_REGULAR, builtin_cd}, */
     /* { "pwd", BUILTIN_REGULAR, builtin_pwd}, */
@@ -82,6 +80,8 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "dirname", BUILTIN_REGULAR, builtin_dirname},
     { "true", BUILTIN_REGULAR, builtin_true},
     { "false", BUILTIN_REGULAR, builtin_false},
+    {"mgsh_dirnamevar", BUILTIN_REGULAR, builtin_mgsh_dirnamevar},
+    {"mgsh_printfvar", BUILTIN_REGULAR, builtin_mgsh_printfvar},
     {NULL, BUILTIN_NONE, NULL} // Sentinel
 };
 
@@ -112,7 +112,6 @@ int builtin_break(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
     getopt_reset();
 
     /* Parse optional loop count argument (default 1) */
@@ -126,7 +125,7 @@ int builtin_break(exec_frame_t *frame, const string_list_t *args)
 
         if (endpos != string_length(arg_str) || val <= 0)
         {
-            exec_set_error(ex, "break: numeric argument required");
+            frame_set_error_printf(frame, "break: argument '%s' is not a positive number", string_cstr(arg_str));
             return 2;
         }
 
@@ -135,12 +134,11 @@ int builtin_break(exec_frame_t *frame, const string_list_t *args)
 
     if (string_list_size(args) > 2)
     {
-        exec_set_error(ex, "break: too many arguments");
+        frame_set_error_printf(frame, "break: invalid number of arguments (%d)", string_list_size(args));
         return 1;
     }
 
-    frame->pending_control_flow = EXEC_FLOW_BREAK;
-    frame->pending_flow_depth = loop_count - 1;
+    frame_set_pending_control_flow(frame, FRAME_FLOW_BREAK, loop_count - 1);
 
     return 0;
 }
@@ -155,7 +153,6 @@ int builtin_continue(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
     getopt_reset();
 
     /* Parse optional loop count argument (default 1) */
@@ -169,7 +166,7 @@ int builtin_continue(exec_frame_t *frame, const string_list_t *args)
 
         if (endpos != string_length(arg_str) || val <= 0)
         {
-            exec_set_error(ex, "continue: numeric argument required");
+            frame_set_error_printf(frame, "continue: argument '%s' is not a positive number", string_cstr(arg_str));
             return 2;
         }
 
@@ -178,12 +175,11 @@ int builtin_continue(exec_frame_t *frame, const string_list_t *args)
 
     if (string_list_size(args) > 2)
     {
-        exec_set_error(ex, "continue: too many arguments");
+        frame_set_error_printf(frame, "continue: too many arguments (%d)", string_list_size(args));
         return 1;
     }
 
-    frame->pending_control_flow = EXEC_FLOW_CONTINUE;
-    frame->pending_flow_depth = loop_count - 1;
+    frame_set_pending_control_flow(frame, FRAME_FLOW_CONTINUE, loop_count - 1);
 
     return 0;
 }
@@ -198,10 +194,9 @@ int builtin_shift(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
     getopt_reset();
 
-    if (!frame->positional_params)
+    if (!frame_has_positional_params(frame))
     {
         /* No positional parameters to shift */
         return 0;
@@ -218,7 +213,7 @@ int builtin_shift(exec_frame_t *frame, const string_list_t *args)
 
         if (endpos != string_length(arg_str) || val < 0)
         {
-            exec_set_error(ex, "shift: numeric argument required");
+            frame_set_error_printf(frame, "shift: argument '%s' is not a positive number", string_cstr(arg_str));
             return 2;
         }
 
@@ -227,56 +222,221 @@ int builtin_shift(exec_frame_t *frame, const string_list_t *args)
 
     if (string_list_size(args) > 2)
     {
-        exec_set_error(ex, "shift: too many arguments");
+        frame_set_error_printf(frame, "shift: too many arguments (%d)", string_list_size(args));
         return 1;
     }
 
     /* Verify shift count doesn't exceed parameter count */
-    int param_count = positional_params_count(frame->positional_params);
+    int param_count = frame_count_positional_params(frame);
     if (shift_count > param_count)
     {
-        exec_set_error(ex, "shift: shift count (%d) exceeds number of positional parameters (%d)",
+        frame_set_error_printf(frame, "shift: shift count (%d) exceeds number of positional parameters (%d)",
                        shift_count, param_count);
         return 1;
     }
 
     /* Perform the shift */
-    if (!positional_params_shift(frame->positional_params, shift_count))
-    {
-        exec_set_error(ex, "shift: failed to shift positional parameters");
-        return 1;
-    }
+    frame_shift_positional_params(frame, shift_count);
 
     return 0;
 }
 
 /* ============================================================================
  * dot - run file contents in current environment
+ * 
+ * POSIX Synopsis: . filename [argument...]
+ * 
+ * The dot utility shall execute commands from filename in the current 
+ * environment. If filename does not contain a slash, the shell searches
+ * PATH for filename.
+ * 
+ * If arguments are given, they become the positional parameters for the
+ * duration of the sourced file execution.
  * ============================================================================
  */
+
+/**
+ * Helper: Check if a filename contains a path separator
+ */
+static bool dot_has_path_separator(const char *filename)
+{
+    return strchr(filename, '/') != NULL
+#ifdef UCRT_API
+           || strchr(filename, '\\') != NULL
+#endif
+        ;
+}
+
+/**
+ * Helper: Search PATH for a file and return the full path if found
+ * Returns NULL if not found. Caller must free the returned string.
+ */
+static string_t *dot_search_path(exec_frame_t *frame, const char *filename)
+{
+    string_t *path_var = frame_get_variable_cstr(frame, "PATH");
+    if (!path_var || string_empty(path_var))
+    {
+        if (path_var)
+            string_destroy(&path_var);
+        return NULL;
+    }
+
+    const char *path_str = string_cstr(path_var);
+    const char *start = path_str;
+    const char *end;
+
+#ifdef UCRT_API
+    const char path_sep = ';';
+    const char dir_sep = '\\';
+#else
+    const char path_sep = ':';
+    const char dir_sep = '/';
+#endif
+
+    while (*start)
+    {
+        /* Find end of this PATH component */
+        end = strchr(start, path_sep);
+        if (!end)
+            end = start + strlen(start);
+
+        /* Build full path: dir + separator + filename */
+        string_t *full_path = string_create();
+
+        if (end > start)
+        {
+            /* Append the PATH component character by character */
+            for (const char *p = start; p < end; p++)
+            {
+                string_append_char(full_path, *p);
+            }
+            /* Add directory separator if needed */
+            int len = string_length(full_path);
+            if (len > 0)
+            {
+                char last = string_at(full_path, len - 1);
+                if (last != '/' && last != '\\')
+                {
+                    string_append_char(full_path, dir_sep);
+                }
+            }
+        }
+        else
+        {
+            /* Empty component means current directory */
+            string_append_char(full_path, '.');
+            string_append_char(full_path, dir_sep);
+        }
+
+        string_append_cstr(full_path, filename);
+
+        /* Check if file exists and is readable */
+        FILE *test_fp = fopen(string_cstr(full_path), "r");
+        if (test_fp)
+        {
+            fclose(test_fp);
+            string_destroy(&path_var);
+            return full_path;
+        }
+
+        string_destroy(&full_path);
+
+        /* Move to next PATH component */
+        if (*end)
+            start = end + 1;
+        else
+            break;
+    }
+
+    string_destroy(&path_var);
+    return NULL;
+}
 
 int builtin_dot(exec_frame_t *frame, const string_list_t *args)
 {
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
     getopt_reset();
 
-    if (string_list_size(args) != 1)
+    int argc = string_list_size(args);
+
+    if (argc < 2)
     {
-        exec_set_error(ex, "dot: filename argument required");
+        fprintf(stderr, "dot: filename argument required\n");
         return 2; /* misuse of shell builtin */
     }
-    FILE *fp = fopen(string_cstr(string_list_at(args, 1)), "r");
+
+    const char *filename = string_cstr(string_list_at(args, 1));
+    string_t *resolved_path = NULL;
+    FILE *fp = NULL;
+
+    /* If filename contains no path separator, search PATH */
+    if (!dot_has_path_separator(filename))
+    {
+        resolved_path = dot_search_path(frame, filename);
+        if (resolved_path)
+        {
+            fp = fopen(string_cstr(resolved_path), "r");
+        }
+    }
+    else
+    {
+        /* Filename has a path, open directly */
+        fp = fopen(filename, "r");
+    }
+
     if (!fp)
     {
-        exec_set_error(ex, "dot: cannot open file: %s", string_cstr(string_list_at(args, 1)));
-        return 1; /* general error */
+        char cwd[1024];
+        if (filename[0] == '.' && getcwd(cwd, sizeof(cwd)))
+            fprintf(stderr, "dot: %s: not found relative to '%s'", filename, cwd);
+        else
+            fprintf(stderr, "dot: %s: not found\n", filename);
+        if (resolved_path)
+            string_destroy(&resolved_path);
+        return 1;
     }
-    exec_status_t status = exec_execute_stream(ex, fp);
+
+    /* Save current positional parameters if we have new ones */
+    string_list_t *saved_params = NULL;
+    if (argc > 2)
+    {
+        saved_params = frame_get_all_positional_params(frame);
+
+        /* Build new positional parameters from args[2..] */
+        string_list_t *new_params = string_list_create();
+        for (int i = 2; i < argc; i++)
+        {
+            string_list_push_back(new_params, string_list_at(args, i));
+        }
+        frame_replace_positional_params(frame, new_params);
+        string_list_destroy(&new_params);
+    }
+
+    /* Execute the file in the current environment */
+    frame_exec_status_t status = frame_execute_stream(frame, fp);
     fclose(fp);
-    return (status == EXEC_OK) ? 0 : 1;
+
+    /* Get the exit status from the last command executed */
+    int exit_status = frame_get_last_exit_status(frame);
+
+    /* Restore positional parameters if we saved them */
+    if (saved_params)
+    {
+        frame_replace_positional_params(frame, saved_params);
+        string_list_destroy(&saved_params);
+    }
+
+    if (resolved_path)
+        string_destroy(&resolved_path);
+
+    /* Return the exit status of the last command in the sourced file,
+     * unless there was a framework error */
+    if (status == FRAME_EXEC_ERROR && exit_status == 0)
+        return 1;
+
+    return exit_status;
 }
 
 /* ============================================================================
@@ -325,20 +485,12 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
     getopt_reset();
-
-    variable_store_t *var_store = frame->variables;
-    if (!var_store)
-    {
-        exec_set_error(ex, "export: no variable store available");
-        return 1;
-    }
 
     /* No arguments → print exported variables */
     if (string_list_size(args) == 1)
     {
-        builtin_export_variable_store_print_exported(var_store);
+        frame_print_exported_variables_in_export_format(frame);
         return 0;
     }
 
@@ -349,16 +501,16 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args)
         const string_t *arg = string_list_at(args, i);
         if (!arg || string_empty(arg))
         {
-            exec_set_error(ex, "export: invalid variable name");
+            frame_set_error_printf(frame, "export: invalid variable name '%s'", string_cstr(arg));
             exit_status = 2;
             continue;
         }
 
-#if defined(POSIX_API) || defined(UCRT_API)
         int eq_pos = string_find_cstr(arg, "=");
 
         string_t *name = NULL;
         string_t *value = NULL;
+        var_store_error_t res = VAR_STORE_ERROR_NONE;
 
         /* eq_pos == 0 should never happen. */
         if (eq_pos > 0)
@@ -374,52 +526,42 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args)
             value = NULL;
         }
 
-        var_store_error_t res = variable_store_add(var_store, name, value, false, false);
+        {
+            frame_export_status_t res = frame_export_variable(frame, name, value);
 
-        if (res == VAR_STORE_ERROR_READ_ONLY)
-        {
-            exec_set_error(ex, "export: variable '%s' is read-only", string_cstr(name));
-            exit_status = 1;
-        }
-        else if (res == VAR_STORE_ERROR_EMPTY_NAME || res == VAR_STORE_ERROR_NAME_TOO_LONG ||
-                 res == VAR_STORE_ERROR_NAME_STARTS_WITH_DIGIT ||
-                 res == VAR_STORE_ERROR_NAME_INVALID_CHARACTER)
-        {
-            exec_set_error(ex, "export: invalid variable name '%s'", string_cstr(name));
-            exit_status = 2;
-        }
-        else if (res != VAR_STORE_ERROR_NONE)
-        {
-            exec_set_error(ex, "export: failed to set variable");
-            exit_status = 1;
-        }
-        else
-        {
-            /* Successful: update environment + store */
-#ifdef POSIX_API
-            if (eq_pos)
-                putenv(string_cstr(arg));
-#elifdef UCRT_API
-            if (eq_pos)
+            /* Note: name and value are freed inside frame_export_variable if needed,
+             * but we still own our copies */
+            string_destroy(&name);
+            if (value)
+                string_destroy(&value);
+
+            switch (res)
             {
-                int ret = _putenv_s(string_cstr(name), string_cstr(value));
-                if (ret != 0)
-                {
-                    exec_set_error(ex, "export: failed to set environment variable");
-                    exit_status = 1;
-                }
+            case FRAME_EXPORT_SUCCESS:
+                break;
+            case FRAME_EXPORT_INVALID_NAME:
+                frame_set_error_printf(frame, "export: variable name is invalid");
+                exit_status = 1;
+                break;
+            case FRAME_EXPORT_INVALID_VALUE:
+                frame_set_error_printf(frame, "export: variable value is invalid");
+                exit_status = 1;
+                break;
+            case FRAME_EXPORT_READONLY:
+                frame_set_error_printf(frame, "export: variable is readonly, cannot change value");
+                exit_status = 1;
+                break;
+            case FRAME_EXPORT_NOT_SUPPORTED:
+                frame_set_error_printf(frame, "export: failed to export to system, not supported");
+                exit_status = 1;
+                break;
+            case FRAME_EXPORT_SYSTEM_ERROR:
+            default:
+                frame_set_error_printf(frame, "export: failed to export to system");
+                exit_status = 1;
+                break;
             }
-#endif
-            variable_store_set_exported(var_store, name, true);
         }
-
-        string_destroy(&name);
-        string_destroy(&value);
-
-#else
-        exec_set_error(ex, "export: not supported on this platform");
-        exit_status = 1;
-#endif
     }
 
     return exit_status;
@@ -433,74 +575,6 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args)
  */
 
 static void builtin_set_print_options(exec_frame_t *frame, bool reusable_format);
-
-
-/* Helper structure for sorting variables */
-typedef struct
-{
-    const string_t *key;
-    const string_t *value;
-} builtin_set_var_entry_t;
-
-/* Comparison function for sorting variables by name using locale collation */
-static int builtin_set_compare_vars(const void *a, const void *b)
-{
-    const builtin_set_var_entry_t *va = (const builtin_set_var_entry_t *)a;
-    const builtin_set_var_entry_t *vb = (const builtin_set_var_entry_t *)b;
-    return lib_strcoll(string_cstr(va->key), string_cstr(vb->key));
-}
-
-/* Print all variables in collation sequence (set with no arguments) */
-static int builtin_set_print_variables(exec_frame_t *frame)
-{
-    Expects_not_null(frame);
-
-    if (!frame->variables || !frame->variables->map)
-    {
-        return 0; /* No variables to print */
-    }
-
-    variable_map_t *map = frame->variables->map;
-
-    /* Count occupied entries */
-    int count = 0;
-    for (int32_t i = 0; i < map->capacity; i++)
-    {
-        if (map->entries[i].occupied)
-            count++;
-    }
-
-    if (count == 0)
-        return 0; /* No variables to print */
-
-    /* Collect all variables into an array */
-    builtin_set_var_entry_t *vars = xmalloc(count * sizeof(builtin_set_var_entry_t));
-    int idx = 0;
-    for (int32_t i = 0; i < map->capacity; i++)
-    {
-        if (map->entries[i].occupied)
-        {
-            vars[idx].key = map->entries[i].key;
-            vars[idx].value = map->entries[i].mapped.value;
-            idx++;
-        }
-    }
-
-    /* Sort by name using locale collation */
-    qsort(vars, count, sizeof(builtin_set_var_entry_t), builtin_set_compare_vars);
-
-    /* Print each variable in name=value format */
-    for (int i = 0; i < count; i++)
-    {
-        /* Quote according to POSIX shell rules so output is reinput-safe */
-        string_t *quoted = lib_quote(vars[i].key, vars[i].value);
-        fprintf(stdout, "%s\n", string_cstr(quoted));
-        string_destroy(&quoted);
-    }
-
-    xfree(vars);
-    return 0;
-}
 
 /* Valid -o/+o option arguments for the set builtin */
 static const char *builtin_set_valid_o_args[] = {
@@ -521,58 +595,6 @@ static bool builtin_set_is_valid_o_arg(const char *arg)
             return true;
     }
     return false;
-}
-
-/* Set or unset a named option via -o/+o */
-static int builtin_set_set_named_option(exec_frame_t *frame, const char *name, bool unset)
-{
-    Expects_not_null(frame);
-    Expects_not_null(name);
-
-    exec_opt_flags_t *opt = frame->opt_flags;
-    bool value = !unset;
-    bool handled = true;
-
-    if (strcmp(name, "allexport") == 0)
-        opt->allexport = value;
-    else if (strcmp(name, "errexit") == 0)
-        opt->errexit = value;
-    else if (strcmp(name, "ignoreeof") == 0)
-        opt->ignoreeof = value;
-    else if (strcmp(name, "noclobber") == 0)
-        opt->noclobber = value;
-    else if (strcmp(name, "noglob") == 0)
-        opt->noglob = value;
-    else if (strcmp(name, "noexec") == 0)
-        opt->noexec = value;
-    else if (strcmp(name, "nounset") == 0)
-        opt->nounset = value;
-    else if (strcmp(name, "pipefail") == 0)
-        opt->pipefail = value;
-    else if (strcmp(name, "verbose") == 0)
-        opt->verbose = value;
-    else if (strcmp(name, "vi") == 0)
-        opt->vi = value;
-    else if (strcmp(name, "xtrace") == 0)
-        opt->xtrace = value;
-    else if (strcmp(name, "monitor") == 0 || strcmp(name, "notify") == 0)
-    {
-        // Not implemented yet
-        handled = false;
-    }
-    else
-    {
-        handled = false;
-    }
-
-    if (handled)
-    {
-        // ex->opt_flags_set = true;
-        return 0;
-    }
-
-    fprintf(stderr, "set: option '%s' not supported yet\n", name);
-    return 1;
 }
 
 /* Print all shell options (set -o) */
@@ -602,8 +624,6 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
-    exec_opt_flags_t *opt = frame->opt_flags;
     getopt_reset();
 
     // Shell option flags - initialized to -1 so we can detect "not mentioned"
@@ -717,7 +737,14 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
             }
 
             /* Set or unset the named option based on prefix */
-            builtin_set_set_named_option(frame, state.optarg, state.opt_plus_prefix);
+            /* state.opt_plus_prefix = true means +o (unset), false means -o (set) */
+            bool value = !state.opt_plus_prefix;
+            if (!frame_set_named_option_cstr(frame, state.optarg, value, state.opt_plus_prefix))
+            {
+                fprintf(stderr, "set: option '%s' not supported yet\n", state.optarg);
+                xfree(argv);
+                return 1;
+            }
             options_changed = true;
             break;
 
@@ -756,74 +783,39 @@ int builtin_set(exec_frame_t *frame, const string_list_t *args)
         if (!any_flags)
         {
             /* Pure "set" with no arguments - print all variables */
-            int ret = builtin_set_print_variables(frame);
+            frame_print_variables(frame, true);
             xfree(argv);
-            return ret;
+            return 0;
         }
     }
 
-    /* Apply collected short options to executor flags */
-    if (flag_a != -1) { opt->allexport = (flag_a != 0); options_changed = true; }
-    if (flag_C != -1) { opt->noclobber = (flag_C != 0); options_changed = true; }
-    if (flag_e != -1) { opt->errexit = (flag_e != 0); options_changed = true; }
-    if (flag_f != -1) { opt->noglob = (flag_f != 0); options_changed = true; }
-    if (flag_n != -1) { opt->noexec = (flag_n != 0); options_changed = true; }
-    if (flag_u != -1) { opt->nounset = (flag_u != 0); options_changed = true; }
-    if (flag_v != -1) { opt->verbose = (flag_v != 0); options_changed = true; }
-    if (flag_x != -1) { opt->xtrace = (flag_x != 0); options_changed = true; }
+    /* Apply collected short options using frame API */
+    if (flag_a != -1) { frame_set_named_option_cstr(frame, "allexport", (flag_a != 0), false); options_changed = true; }
+    if (flag_C != -1) { frame_set_named_option_cstr(frame, "noclobber", (flag_C != 0), false); options_changed = true; }
+    if (flag_e != -1) { frame_set_named_option_cstr(frame, "errexit", (flag_e != 0), false); options_changed = true; }
+    if (flag_f != -1) { frame_set_named_option_cstr(frame, "noglob", (flag_f != 0), false); options_changed = true; }
+    if (flag_n != -1) { frame_set_named_option_cstr(frame, "noexec", (flag_n != 0), false); options_changed = true; }
+    if (flag_u != -1) { frame_set_named_option_cstr(frame, "nounset", (flag_u != 0), false); options_changed = true; }
+    if (flag_v != -1) { frame_set_named_option_cstr(frame, "verbose", (flag_v != 0), false); options_changed = true; }
+    if (flag_x != -1) { frame_set_named_option_cstr(frame, "xtrace", (flag_x != 0), false); options_changed = true; }
 
     /* Flags not yet implemented: b (notify), h (hashall), m (monitor) */
-
-    //if (options_changed)
-    //    ex->opt_flags_set = true;
 
     /* Replace positional parameters if requested (includes explicit "set --") */
     if (have_positional_request)
     {
-        if (!frame->positional_params)
+        /* Build a string_list_t from the new parameters */
+        string_list_t *new_params = string_list_create();
+        for (int i = 0; i < new_param_count; i++)
         {
-            frame->positional_params = positional_params_create();
-            if (!frame->positional_params)
-            {
-                fprintf(stderr, "set: failed to allocate positional parameters\n");
-                xfree(argv);
-                return 1;
-            }
+            string_t *param = string_create_from_cstr(argv[state.optind + i]);
+            string_list_push_back(new_params, param);
+            string_destroy(&param);
         }
 
-        int max_params = positional_params_get_max(frame->positional_params);
-        if (new_param_count > max_params)
-        {
-            fprintf(stderr, "set: too many positional parameters (max %d)\n", max_params);
-            xfree(argv);
-            return 1;
-        }
-
-        string_t **new_params = NULL;
-        if (new_param_count > 0)
-        {
-            new_params = xcalloc((size_t)new_param_count, sizeof(string_t *));
-            for (int i = 0; i < new_param_count; i++)
-            {
-                new_params[i] = string_create_from_cstr(argv[state.optind + i]);
-            }
-        }
-
-        if (!positional_params_replace(frame->positional_params, new_params, new_param_count))
-        {
-            if (new_params)
-            {
-                for (int i = 0; i < new_param_count; i++)
-                {
-                    if (new_params[i])
-                        string_destroy(&new_params[i]);
-                }
-                xfree(new_params);
-            }
-            fprintf(stderr, "set: failed to replace positional parameters\n");
-            xfree(argv);
-            return 1;
-        }
+        /* Use frame API to replace positional parameters */
+        frame_replace_positional_params(frame, new_params);
+        string_list_destroy(&new_params);
     }
 
     xfree(argv);
@@ -846,8 +838,6 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
     int flag_err = 0;
     int err_count = 0;
     int c;
-    variable_store_t *var_store = frame->variables;
-    func_store_t *func_store = frame->functions;
     string_t *opts = string_create_from_cstr("fv");
 
     while ((c = getopt_string(args, opts)) != -1)
@@ -882,8 +872,8 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
     {
         if (flag_f)
         {
-            func_store_error_t err;
-            err = func_store_remove(func_store, string_list_at(args, optind));
+            /* Unset function using frame API */
+            func_store_error_t err = frame_unset_function(frame, string_list_at(args, optind));
             if (err == FUNC_STORE_ERROR_NOT_FOUND)
             {
                 fprintf(stderr, "unset: function '%s' not found\n",
@@ -901,21 +891,23 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
         }
         else
         {
-            /* Either flag_v or no specific flag */
-            if (!variable_store_has_name(var_store, string_list_at(args, optind)))
+            /* Unset variable using frame API */
+            if (!frame_has_variable(frame, string_list_at(args, optind)))
             {
                 fprintf(stderr, "unset: variable '%s' not found\n",
                         string_cstr(string_list_at(args, optind)));
                 err_count++;
             }
-            else if (variable_store_is_read_only(var_store, string_list_at(args, optind)))
+            else if (frame_variable_is_readonly(frame, string_list_at(args, optind)))
             {
                 fprintf(stderr, "unset: variable '%s' is read-only\n",
                         string_cstr(string_list_at(args, optind)));
                 err_count++;
             }
             else
-                variable_store_remove(var_store, string_list_at(args, optind));
+            {
+                frame_unset_variable(frame, string_list_at(args, optind));
+            }
         }
     }
     if (err_count > 0)
@@ -927,7 +919,7 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
  * cd - Change the shell working directory
  * ============================================================================
  */
-#ifdef UCRT_API
+#if defined(POSIX_API)
 int builtin_cd(exec_frame_t *frame, const string_list_t *args)
 {
     Expects_not_null(frame);
@@ -937,7 +929,258 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
 
     int flag_err = 0;
     int c;
-    variable_store_t *var_store = frame->variables;
+
+    string_t *opts = string_create_from_cstr("LP");
+
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'L':
+        case 'P':
+            /* -L and -P options are accepted but currently ignored */
+            break;
+        case '?':
+            fprintf(stderr, "cd: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+
+    if (flag_err)
+    {
+        fprintf(stderr, "usage: cd [-L|-P] [directory]\n");
+        return 2;
+    }
+
+    const char *target_dir = NULL;
+
+    int remaining = string_list_size(args) - optind;
+
+    if (remaining > 1)
+    {
+        fprintf(stderr, "cd: too many arguments\n");
+        return 1;
+    }
+
+    if (remaining == 0)
+    {
+        /* No argument: go to HOME */
+        string_t *home = frame_get_variable_cstr(frame, "HOME");
+        if (!home || string_empty(home))
+        {
+            if (home)
+                string_destroy(&home);
+            /* Try environment variable as fallback */
+            const char *env_home = getenv("HOME");
+            if (!env_home || env_home[0] == '\0')
+            {
+                fprintf(stderr, "cd: HOME not set\n");
+                return 1;
+            }
+            target_dir = env_home;
+        }
+        else
+        {
+            target_dir = string_cstr(home);
+        }
+        
+        /* Get current directory before changing (for OLDPWD) */
+        char *old_cwd = getcwd(NULL, 0);
+        if (!old_cwd)
+        {
+            if (home && !string_empty(home))
+                string_destroy(&home);
+            fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+            return 1;
+        }
+
+        /* Attempt to change directory */
+        if (chdir(target_dir) != 0)
+        {
+            int saved_errno = errno;
+            free(old_cwd);
+            if (home && !string_empty(home))
+                string_destroy(&home);
+
+            switch (saved_errno)
+            {
+            case ENOENT:
+                fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+                break;
+            case EACCES:
+                fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+                break;
+            case ENOTDIR:
+                fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+                break;
+            default:
+                fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+                break;
+            }
+            return 1;
+        }
+
+        /* Get new current directory (resolved path) */
+        char *new_cwd = getcwd(NULL, 0);
+        if (!new_cwd)
+        {
+            fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+            /* Continue anyway - the chdir succeeded */
+            new_cwd = xstrdup(target_dir);
+        }
+
+        /* Update OLDPWD and PWD using frame API */
+        frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+        frame_set_variable_cstr(frame, "PWD", new_cwd);
+
+        free(old_cwd);
+        free(new_cwd);
+        if (home && !string_empty(home))
+            string_destroy(&home);
+
+        return 0;
+    }
+    else
+    {
+        const string_t *arg = string_list_at(args, optind);
+        const char *arg_cstr = string_cstr(arg);
+
+        if (strcmp(arg_cstr, "-") == 0)
+        {
+            /* cd - : go to OLDPWD */
+            string_t *oldpwd = frame_get_variable_cstr(frame, "OLDPWD");
+            if (!oldpwd || string_empty(oldpwd))
+            {
+                if (oldpwd)
+                    string_destroy(&oldpwd);
+                fprintf(stderr, "cd: OLDPWD not set\n");
+                return 1;
+            }
+            target_dir = string_cstr(oldpwd);
+            /* Print the directory when using cd - */
+            printf("%s\n", target_dir);
+            
+            /* Get current directory before changing (for OLDPWD) */
+            char *old_cwd = getcwd(NULL, 0);
+            if (!old_cwd)
+            {
+                string_destroy(&oldpwd);
+                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+                return 1;
+            }
+
+            /* Attempt to change directory */
+            if (chdir(target_dir) != 0)
+            {
+                int saved_errno = errno;
+                free(old_cwd);
+                string_destroy(&oldpwd);
+
+                switch (saved_errno)
+                {
+                case ENOENT:
+                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+                    break;
+                case EACCES:
+                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+                    break;
+                case ENOTDIR:
+                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+                    break;
+                default:
+                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+                    break;
+                }
+                return 1;
+            }
+
+            /* Get new current directory (resolved path) */
+            char *new_cwd = getcwd(NULL, 0);
+            if (!new_cwd)
+            {
+                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+                /* Continue anyway - the chdir succeeded */
+                new_cwd = xstrdup(target_dir);
+            }
+
+            /* Update OLDPWD and PWD using frame API */
+            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+            frame_set_variable_cstr(frame, "PWD", new_cwd);
+
+            free(old_cwd);
+            free(new_cwd);
+            string_destroy(&oldpwd);
+
+            return 0;
+        }
+        else
+        {
+            target_dir = arg_cstr;
+            
+            /* Get current directory before changing (for OLDPWD) */
+            char *old_cwd = getcwd(NULL, 0);
+            if (!old_cwd)
+            {
+                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+                return 1;
+            }
+
+            /* Attempt to change directory */
+            if (chdir(target_dir) != 0)
+            {
+                int saved_errno = errno;
+                free(old_cwd);
+
+                switch (saved_errno)
+                {
+                case ENOENT:
+                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+                    break;
+                case EACCES:
+                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+                    break;
+                case ENOTDIR:
+                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+                    break;
+                default:
+                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+                    break;
+                }
+                return 1;
+            }
+
+            /* Get new current directory (resolved path) */
+            char *new_cwd = getcwd(NULL, 0);
+            if (!new_cwd)
+            {
+                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+                /* Continue anyway - the chdir succeeded */
+                new_cwd = xstrdup(target_dir);
+            }
+
+            /* Update OLDPWD and PWD using frame API */
+            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+            frame_set_variable_cstr(frame, "PWD", new_cwd);
+
+            free(old_cwd);
+            free(new_cwd);
+
+            return 0;
+        }
+    }
+}
+#elif defined(UCRT_API)
+int builtin_cd(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int flag_err = 0;
+    int c;
 
     string_t *opts = string_create_from_cstr("LP");
 
@@ -964,7 +1207,6 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
     }
 
     const char *target_dir = NULL;
-    string_t *allocated_target = NULL;
 
     int remaining = string_list_size(args) - optind;
 
@@ -977,25 +1219,90 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
     if (remaining == 0)
     {
         /* No argument: go to HOME or USERPROFILE */
-        const char *home = variable_store_get_value_cstr(var_store, "HOME");
-        if (!home || home[0] == '\0')
+        string_t *home = frame_get_variable_cstr(frame, "HOME");
+        if (!home || string_empty(home))
         {
-            home = variable_store_get_value_cstr(var_store, "USERPROFILE");
+            if (home)
+                string_destroy(&home);
+            home = frame_get_variable_cstr(frame, "USERPROFILE");
         }
-        if (!home || home[0] == '\0')
+        if (!home || string_empty(home))
         {
-            home = getenv("HOME");
+            if (home)
+                string_destroy(&home);
+            /* Try environment variables as fallback */
+            const char *env_home = getenv("HOME");
+            if (!env_home || env_home[0] == '\0')
+            {
+                env_home = getenv("USERPROFILE");
+            }
+            if (!env_home || env_home[0] == '\0')
+            {
+                fprintf(stderr, "cd: HOME not set\n");
+                return 1;
+            }
+            target_dir = env_home;
         }
-        if (!home || home[0] == '\0')
+        else
         {
-            home = getenv("USERPROFILE");
+            target_dir = string_cstr(home);
         }
-        if (!home || home[0] == '\0')
+        
+        /* Get current directory before changing (for OLDPWD) */
+        char *old_cwd = _getcwd(NULL, 0);
+        if (!old_cwd)
         {
-            fprintf(stderr, "cd: HOME not set\n");
+            if (home && !string_empty(home))
+                string_destroy(&home);
+            fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
             return 1;
         }
-        target_dir = home;
+
+        /* Attempt to change directory */
+        if (_chdir(target_dir) != 0)
+        {
+            int saved_errno = errno;
+            free(old_cwd);
+            if (home && !string_empty(home))
+                string_destroy(&home);
+
+            switch (saved_errno)
+            {
+            case ENOENT:
+                fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+                break;
+            case EACCES:
+                fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+                break;
+            case ENOTDIR:
+                fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+                break;
+            default:
+                fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+                break;
+            }
+            return 1;
+        }
+
+        /* Get new current directory (resolved path) */
+        char *new_cwd = _getcwd(NULL, 0);
+        if (!new_cwd)
+        {
+            fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+            /* Continue anyway - the chdir succeeded */
+            new_cwd = xstrdup(target_dir);
+        }
+
+        /* Update OLDPWD and PWD using frame API */
+        frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+        frame_set_variable_cstr(frame, "PWD", new_cwd);
+
+        free(old_cwd);
+        free(new_cwd);
+        if (home && !string_empty(home))
+            string_destroy(&home);
+
+        return 0;
     }
     else
     {
@@ -1005,81 +1312,134 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
         if (strcmp(arg_cstr, "-") == 0)
         {
             /* cd - : go to OLDPWD */
-            const char *oldpwd = variable_store_get_value_cstr(var_store, "OLDPWD");
-            if (!oldpwd || oldpwd[0] == '\0')
+            string_t *oldpwd = frame_get_variable_cstr(frame, "OLDPWD");
+            if (!oldpwd || string_empty(oldpwd))
             {
+                if (oldpwd)
+                    string_destroy(&oldpwd);
                 fprintf(stderr, "cd: OLDPWD not set\n");
                 return 1;
             }
-            target_dir = oldpwd;
+            target_dir = string_cstr(oldpwd);
             /* Print the directory when using cd - */
             printf("%s\n", target_dir);
+            
+            /* Get current directory before changing (for OLDPWD) */
+            char *old_cwd = _getcwd(NULL, 0);
+            if (!old_cwd)
+            {
+                string_destroy(&oldpwd);
+                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+                return 1;
+            }
+
+            /* Attempt to change directory */
+            if (_chdir(target_dir) != 0)
+            {
+                int saved_errno = errno;
+                free(old_cwd);
+                string_destroy(&oldpwd);
+
+                switch (saved_errno)
+                {
+                case ENOENT:
+                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+                    break;
+                case EACCES:
+                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+                    break;
+                case ENOTDIR:
+                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+                    break;
+                default:
+                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+                    break;
+                }
+                return 1;
+            }
+
+            /* Get new current directory (resolved path) */
+            char *new_cwd = _getcwd(NULL, 0);
+            if (!new_cwd)
+            {
+                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+                /* Continue anyway - the chdir succeeded */
+                new_cwd = xstrdup(target_dir);
+            }
+
+            /* Update OLDPWD and PWD using frame API */
+            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+            frame_set_variable_cstr(frame, "PWD", new_cwd);
+
+            free(old_cwd);
+            free(new_cwd);
+            string_destroy(&oldpwd);
+
+            return 0;
         }
         else
         {
             target_dir = arg_cstr;
+            
+            /* Get current directory before changing (for OLDPWD) */
+            char *old_cwd = _getcwd(NULL, 0);
+            if (!old_cwd)
+            {
+                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+                return 1;
+            }
+
+            /* Attempt to change directory */
+            if (_chdir(target_dir) != 0)
+            {
+                int saved_errno = errno;
+                free(old_cwd);
+
+                switch (saved_errno)
+                {
+                case ENOENT:
+                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
+                    break;
+                case EACCES:
+                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
+                    break;
+                case ENOTDIR:
+                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
+                    break;
+                default:
+                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
+                    break;
+                }
+                return 1;
+            }
+
+            /* Get new current directory (resolved path) */
+            char *new_cwd = _getcwd(NULL, 0);
+            if (!new_cwd)
+            {
+                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+                /* Continue anyway - the chdir succeeded */
+                new_cwd = xstrdup(target_dir);
+            }
+
+            /* Update OLDPWD and PWD using frame API */
+            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+            frame_set_variable_cstr(frame, "PWD", new_cwd);
+
+            free(old_cwd);
+            free(new_cwd);
+
+            return 0;
         }
     }
-
-    /* Get current directory before changing (for OLDPWD) */
-    char *old_cwd = _getcwd(NULL, 0);
-    if (!old_cwd)
-    {
-        fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-        return 1;
-    }
-
-    /* Attempt to change directory */
-    if (_chdir(target_dir) != 0)
-    {
-        int saved_errno = errno;
-
-        switch (saved_errno)
-        {
-        case ENOENT:
-            fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-            break;
-        case EACCES:
-            fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-            break;
-        case ENOTDIR:
-            fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-            break;
-        default:
-            fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-            break;
-        }
-
-        free(old_cwd);
-        if (allocated_target)
-        {
-            string_destroy(&allocated_target);
-        }
-        return 1;
-    }
-
-    /* Get new current directory (resolved path) */
-    char *new_cwd = _getcwd(NULL, 0);
-    if (!new_cwd)
-    {
-        fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-        /* Continue anyway - the chdir succeeded */
-        new_cwd = xstrdup(target_dir);
-    }
-
-    /* Update OLDPWD and PWD */
-    variable_store_add_cstr(var_store, "OLDPWD", old_cwd, true, false);
-    variable_store_add_cstr(var_store, "PWD", new_cwd, true, false);
-
-    free(old_cwd);
-    free(new_cwd);
-
-    if (allocated_target)
-    {
-        string_destroy(&allocated_target);
-    }
-
-    return 0;
+}
+#else
+int builtin_cd(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+    fprintf(stderr, "cd: not supported on this platform\n");
+    return 2;
 }
 #endif
 
@@ -1087,20 +1447,7 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
  * pwd - Print working directory
  * ============================================================================
  */
-#ifdef UCRT_API
-/**
- * builtin_pwd - Print working directory (Windows UCRT implementation)
- *
- * Implements the 'pwd' command for Windows using only UCRT functions.
- *
- * Options:
- *   -P    Print the physical directory (resolve symlinks) - default on Windows
- *   -L    Print the logical directory (from PWD variable if valid)
- *
- * @param ex   Execution context
- * @param args Command arguments (including "pwd" as args[0])
- * @return 0 on success, 1 on failure
- */
+#if defined(POSIX_API)
 int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
 {
     Expects_not_null(frame);
@@ -1112,7 +1459,6 @@ int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
     int flag_P = 0;
     int flag_err = 0;
     int c;
-    variable_store_t *var_store = frame->variables;
 
     string_t *opts = string_create_from_cstr("LP");
 
@@ -1148,7 +1494,78 @@ int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
         return 1;
     }
 
-    const char *pwd_to_print = NULL;
+    if (flag_L)
+    {
+        /* Logical mode: use PWD if it's set and valid */
+        string_t *pwd_var = frame_get_variable_cstr(frame, "PWD");
+        if (pwd_var && !string_empty(pwd_var))
+        {
+            printf("%s\n", string_cstr(pwd_var));
+            string_destroy(&pwd_var);
+            return 0;
+        }
+        if (pwd_var)
+            string_destroy(&pwd_var);
+    }
+
+    /* Physical mode (default) or PWD not available: use getcwd */
+    char *cwd = getcwd(NULL, 0);
+    if (!cwd)
+    {
+        fprintf(stderr, "pwd: cannot determine current directory: %s\n", strerror(errno));
+        return 1;
+    }
+
+    printf("%s\n", cwd);
+    free(cwd);
+    return 0;
+}
+#elif defined(UCRT_API)
+int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int flag_L = 0;
+    int flag_P = 0;
+    int flag_err = 0;
+    int c;
+
+    string_t *opts = string_create_from_cstr("LP");
+
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'L':
+            flag_L = 1;
+            flag_P = 0;
+            break;
+        case 'P':
+            flag_P = 1;
+            flag_L = 0;
+            break;
+        case '?':
+            fprintf(stderr, "pwd: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+
+    if (flag_err)
+    {
+        fprintf(stderr, "usage: pwd [-L|-P]\n");
+        return 2;
+    }
+
+    if (optind < string_list_size(args))
+    {
+        fprintf(stderr, "pwd: too many arguments\n");
+        return 1;
+    }
 
     if (flag_L)
     {
@@ -1158,32 +1575,36 @@ int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
          * On Windows without Windows API, we can't easily verify this,
          * so we just check that PWD is set and non-empty, then trust it.
          */
-        const char *pwd_var = variable_store_get_value_cstr(var_store, "PWD");
-        if (pwd_var && pwd_var[0] != '\0')
+        string_t *pwd_var = frame_get_variable_cstr(frame, "PWD");
+        if (pwd_var && !string_empty(pwd_var))
         {
-            pwd_to_print = pwd_var;
+            printf("%s\n", string_cstr(pwd_var));
+            string_destroy(&pwd_var);
+            return 0;
         }
+        if (pwd_var)
+            string_destroy(&pwd_var);
     }
 
-    if (!pwd_to_print)
+    /* Physical mode (default) or PWD not available: use _getcwd */
+    char *cwd = _getcwd(NULL, 0);
+    if (!cwd)
     {
-        /* Physical mode (default) or PWD not available: use _getcwd */
-        char *cwd = _getcwd(NULL, 0);
-        if (!cwd)
-        {
-            fprintf(stderr, "pwd: cannot determine current directory: %s\n", strerror(errno));
-            return 1;
-        }
-
-        printf("%s\n", cwd);
-        free(cwd);
-    }
-    else
-    {
-        printf("%s\n", pwd_to_print);
+        fprintf(stderr, "pwd: cannot determine current directory: %s\n", strerror(errno));
+        return 1;
     }
 
+    printf("%s\n", cwd);
+    free(cwd);
     return 0;
+}
+#else
+int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+    fprintf(stderr, "pwd: not supported on this platform\n");
+    return 2;
 }
 #endif
 
@@ -1192,171 +1613,6 @@ int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
  * ============================================================================
  */
 
-/* ============================================================================
- * builtin_jobs.c
- *
- * Implementation of the POSIX 'jobs' builtin command.
- *
- * Synopsis:
- *   jobs [-l | -p] [job_id...]
- *
- * Options:
- *   -l    Long format: include process IDs
- *   -p    PID only: display only the process group leader's PID
- *
- * If job_id arguments are given, only those jobs are displayed.
- * Otherwise, all jobs are displayed.
- *
- * Exit status:
- *   0     Successful completion
- *   >0    An error occurred (e.g., invalid job_id)
- *
- * ============================================================================ */
-
-typedef enum
-{
-    JOBS_FORMAT_DEFAULT,
-    JOBS_FORMAT_LONG,    /* -l: include PIDs */
-    JOBS_FORMAT_PID_ONLY /* -p: only PIDs */
-} jobs_format_t;
-
-static const char *builtin_jobs_job_state_to_string(job_state_t state)
-{
-    switch (state)
-    {
-    case JOB_RUNNING:
-        return "Running";
-    case JOB_STOPPED:
-        return "Stopped";
-    case JOB_DONE:
-        return "Done";
-    case JOB_TERMINATED:
-        return "Terminated";
-    default:
-        return "Unknown";
-    }
-}
-
-static char builtin_jobs_job_indicator(const job_store_t *store, const job_t *job)
-{
-    if (job == store->current_job)
-        return '+';
-    if (job == store->previous_job)
-        return '-';
-    return ' ';
-}
-
-/* ----------------------------------------------------------------------------
- * Helper: Parse job_id from string
- *
- * Accepts:
- *   %n    - job number n
- *   %+    - current job
- *   %%    - current job
- *   %-    - previous job
- *   %?str - job whose command contains str (not implemented)
- *   %str  - job whose command starts with str (not implemented)
- *   n     - job number n (without %)
- *
- * Returns job_id on success, -1 on error
- * ---------------------------------------------------------------------------- */
-
-static int builtin_jobs_parse_job_id(const job_store_t *store, const string_t *arg_str)
-{
-    if (!arg_str || string_length(arg_str) == 0)
-        return -1;
-
-    const char *arg = string_cstr(arg_str);
-
-    if (arg[0] == '%')
-    {
-        arg++; /* Skip % */
-
-        if (*arg == '\0' || *arg == '+' || *arg == '%')
-        {
-            /* %%, %+, or just % -> current job */
-            job_t *current = job_store_get_current(store);
-            return current ? current->job_id : -1;
-        }
-
-        if (*arg == '-')
-        {
-            /* %- -> previous job */
-            job_t *previous = job_store_get_previous(store);
-            return previous ? previous->job_id : -1;
-        }
-
-        /* %n -> job number n */
-        int endpos = 0;
-        long val = strtol(arg, (char **)&arg, 10);
-        if (*arg == '\0' && val > 0)
-        {
-            return (int)val;
-        }
-
-        /* %?str or %str not implemented */
-        return -1;
-    }
-
-    /* Plain number */
-    int endpos = 0;
-    long val = string_atol_at(arg_str, 0, &endpos);
-    if (endpos == string_length(arg_str) && val > 0)
-    {
-        return (int)val;
-    }
-
-    return -1;
-}
-
-static void builtin_jobs_print_job(const job_store_t *store, const job_t *job, jobs_format_t format)
-{
-    if (!job)
-        return;
-
-    char indicator = builtin_jobs_job_indicator(store, job);
-    const char *state_str = builtin_jobs_job_state_to_string(job->state);
-    const char *cmd = job->command_line ? string_cstr(job->command_line) : "";
-
-    switch (format)
-    {
-    case JOBS_FORMAT_PID_ONLY:
-        /* Print only the process group leader PID */
-        if (job->processes)
-        {
-#ifdef POSIX_API
-            printf("%d\n", (int)job->pgid);
-#else
-            printf("%d\n", job->pgid);
-#endif
-        }
-        break;
-
-    case JOBS_FORMAT_LONG:
-        /* Long format: [job_id]± PID state command */
-        printf("[%d]%c ", job->job_id, indicator);
-
-        /* Print each process in the pipeline */
-        for (process_t *proc = job->processes; proc; proc = proc->next)
-        {
-#ifdef POSIX_API
-            printf("%d ", (int)proc->pid);
-#else
-            printf("%d ", proc->pid);
-#endif
-        }
-
-        printf(" %s\t%s\n", state_str, cmd);
-        break;
-
-    case JOBS_FORMAT_DEFAULT:
-    default:
-        /* Default format: [job_id]± state command */
-        printf("[%d]%c  %s\t\t%s\n", job->job_id, indicator, state_str, cmd);
-        break;
-    }
-}
-
 int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
 {
     getopt_reset();
@@ -1364,15 +1620,14 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
     if (!frame)
         return 1;
 
-    exec_t *ex = frame->executor;
-    job_store_t *store = ex->jobs;
-    if (!store)
+    /* Check if there are any jobs */
+    if (!frame_has_jobs(frame))
     {
-        /* No job store - nothing to show */
+        /* No jobs - nothing to show */
         return 0;
     }
 
-    jobs_format_t format = JOBS_FORMAT_DEFAULT;
+    frame_jobs_format_t format = FRAME_JOBS_FORMAT_DEFAULT;
     int first_operand = 1; /* Index of first non-option argument */
     int exit_status = 0;
 
@@ -1400,10 +1655,10 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
             switch (*p)
             {
             case 'l':
-                format = JOBS_FORMAT_LONG;
+                format = FRAME_JOBS_FORMAT_LONG;
                 break;
             case 'p':
-                format = JOBS_FORMAT_PID_ONLY;
+                format = FRAME_JOBS_FORMAT_PID_ONLY;
                 break;
             default:
                 fprintf(stderr, "jobs: -%c: invalid option\n", *p);
@@ -1421,7 +1676,7 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
         for (int i = first_operand; i < argc; i++)
         {
             const string_t *arg_str = string_list_at(args, i);
-            int job_id = builtin_jobs_parse_job_id(store, arg_str);
+            int job_id = frame_parse_job_id(frame, arg_str);
 
             if (job_id < 0)
             {
@@ -1430,28 +1685,22 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
                 continue;
             }
 
-            job_t *job = job_store_find(store, job_id);
-            if (!job)
+            if (!frame_print_job_by_id(frame, job_id, format))
             {
                 fprintf(stderr, "jobs: %s: no such job\n", string_cstr(arg_str));
                 exit_status = 1;
-                continue;
             }
-
-            builtin_jobs_print_job(store, job, format);
         }
     }
     else
     {
         /* No job_ids specified - show all jobs */
-        for (job_t *job = store->jobs; job; job = job->next)
-        {
-            builtin_jobs_print_job(store, job, format);
-        }
+        frame_print_all_jobs(frame, format);
     }
 
     return exit_status;
 }
+
 
 /* ===========================================================================
  * ls - list files
@@ -2058,33 +2307,34 @@ int builtin_echo(exec_frame_t *frame, const string_list_t *args)
  * ============================================================================
  */
 
-/* Helper: Parse and process escape sequences for %b format */
-static const char *printf_process_escapes(const char *str, int *stop_output)
+/* Helper: Parse and process escape sequences for %b format 
+ * Returns a string_t that must be freed by the caller.
+ */
+static string_t *printf_process_escapes(const char *str, int *stop_output)
 {
-    static char buffer[4096];
-    char *out = buffer;
+    string_t *result = string_create();
     const char *p = str;
     
     *stop_output = 0;
     
-    while (*p && out < buffer + sizeof(buffer) - 1)
+    while (*p)
     {
         if (*p == '\\' && *(p + 1))
         {
             p++;
             switch (*p)
             {
-            case 'a': *out++ = '\a'; break;
-            case 'b': *out++ = '\b'; break;
-            case 'c': *stop_output = 1; *out = '\0'; return buffer; /* Stop */
+            case 'a': string_push_back(result, '\a'); break;
+            case 'b': string_push_back(result, '\b'); break;
+            case 'c': *stop_output = 1; return result; /* Stop */
             case 'e': /* Extension: ESC */
-            case 'E': *out++ = '\033'; break;
-            case 'f': *out++ = '\f'; break;
-            case 'n': *out++ = '\n'; break;
-            case 'r': *out++ = '\r'; break;
-            case 't': *out++ = '\t'; break;
-            case 'v': *out++ = '\v'; break;
-            case '\\': *out++ = '\\'; break;
+            case 'E': string_push_back(result, '\033'); break;
+            case 'f': string_push_back(result, '\f'); break;
+            case 'n': string_push_back(result, '\n'); break;
+            case 'r': string_push_back(result, '\r'); break;
+            case 't': string_push_back(result, '\t'); break;
+            case 'v': string_push_back(result, '\v'); break;
+            case '\\': string_push_back(result, '\\'); break;
             case '0': /* Octal */
             case '1': case '2': case '3':
             case '4': case '5': case '6': case '7':
@@ -2098,24 +2348,23 @@ static const char *printf_process_escapes(const char *str, int *stop_output)
                     count++;
                 }
                 p--; /* Back up for loop increment */
-                *out++ = (char)val;
+                string_push_back(result, (char)val);
                 break;
             }
             default:
                 /* Unknown escape - print literally */
-                *out++ = '\\';
-                *out++ = *p;
+                string_push_back(result, '\\');
+                string_push_back(result, *p);
                 break;
             }
             p++;
         }
         else
         {
-            *out++ = *p++;
+            string_push_back(result, *p++);
         }
     }
-    *out = '\0';
-    return buffer;
+    return result;
 }
 
 /* Helper: Parse width or precision number */
@@ -2178,31 +2427,33 @@ static int printf_process_format(const char **fmt, const char *arg, int *stop_ou
     {
     case 'b': /* String with backslash escapes */
     {
-        const char *processed = printf_process_escapes(arg, stop_output);
+        string_t *processed = printf_process_escapes(arg, stop_output);
+        const char *processed_str = string_cstr(processed);
         if (width > 0)
         {
-            int len = (int)strlen(processed);
+            int len = (int)strlen(processed_str);
             int pad = width - len;
             if (pad > 0)
             {
                 if (left_justify)
                 {
-                    printf("%s%*s", processed, pad, "");
+                    printf("%s%*s", processed_str, pad, "");
                 }
                 else
                 {
-                    printf("%*s%s", pad, "", processed);
+                    printf("%*s%s", pad, "", processed_str);
                 }
             }
             else
             {
-                printf("%s", processed);
+                printf("%s", processed_str);
             }
         }
         else
         {
-            printf("%s", processed);
+            printf("%s", processed_str);
         }
+        string_destroy(&processed);
         break;
     }
     
@@ -2415,10 +2666,13 @@ int builtin_printf(exec_frame_t *frame, const string_list_t *args)
 
     int argc = string_list_size(args);
     
+    // for (int i = 0; i < string_list_size(args); i++)
+    //     log_debug(string_cstr(string_list_at(args, i)));
+    
     /* Need at least format string */
     if (argc < 2)
     {
-        exec_set_error(frame->executor, "printf: usage: printf format [arguments...]");
+        frame_set_error_printf(frame, "printf: usage: printf format [arguments...]");
         return 2;
     }
     
@@ -2458,7 +2712,7 @@ int builtin_printf(exec_frame_t *frame, const string_list_t *args)
                 int err = printf_process_format(&f, arg, &stop_output);
                 if (err)
                 {
-                    exec_set_error(frame->executor, "printf: invalid format");
+                    frame_set_error_printf(frame, "printf: invalid format");
                     return 1;
                 }
             }
@@ -2540,14 +2794,14 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
     /* Last argument must be "]" */
     if (argc < 2)
     {
-        exec_set_error(frame->executor, "[: missing ']'");
+        frame_set_error_printf(frame, "[: missing ']'");
         return 2;
     }
     
     const string_t *last_str = string_list_at(args, argc - 1);
     if (string_length(last_str) != 1 || string_cstr(last_str)[0] != ']')
     {
-        exec_set_error(frame->executor, "[: missing ']'");
+        frame_set_error_printf(frame, "[: missing ']'");
         return 2;
     }
 
@@ -2564,8 +2818,71 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
         return (string_length(arg) > 0) ? 0 : 1;
     }
 
-    /* Binary operators */
+    /* Unary operators or field splitting artifacts */
     if (argc == 4)
+    {
+        const string_t *op_str = string_list_at(args, 1);
+        const string_t *arg_str = string_list_at(args, 2);
+        const char *op = string_cstr(op_str);
+
+        /* First check for unary operators */
+
+        /* File descriptor tests */
+        if (strcmp(op, "-t") == 0)
+        {
+            int endpos = 0;
+            long fd = string_atol_at(arg_str, 0, &endpos);
+
+            /* Check if valid file descriptor number */
+            if (endpos != (int)string_length(arg_str) || fd < 0)
+            {
+                frame_set_error_printf(frame, "[: -t: invalid file descriptor");
+                return 2;
+            }
+
+#ifdef POSIX_API
+            return isatty((int)fd) ? 0 : 1;
+#elif defined UCRT_API
+            return _isatty((int)fd) ? 0 : 1;
+#endif
+        /* else, fallthrough to failure */
+        }
+
+        /* String tests */
+        if (strcmp(op, "-z") == 0)
+            return (string_length(arg_str) == 0) ? 0 : 1;
+
+        if (strcmp(op, "-n") == 0)
+            return (string_length(arg_str) > 0) ? 0 : 1;
+
+        /* Check for field splitting artifact: binary operator as first argument.
+         * 
+         * This happens when field splitting removes the entire first argument
+         * (producing zero words), leaving the binary operator as the first token.
+         * Per POSIX, this is expected behavior when an unquoted expansion produces
+         * only IFS whitespace.
+         * 
+         * Example: [ $nl = "x" ] where nl contains only whitespace
+         * Correctly becomes: [ = "x" ] after field splitting (argc=4)
+         */
+
+        /* Common binary operators */
+        if (strcmp(op, "=") == 0 || strcmp(op, "!=") == 0 ||
+            strcmp(op, "-eq") == 0 || strcmp(op, "-ne") == 0 ||
+            strcmp(op, "-lt") == 0 || strcmp(op, "-le") == 0 ||
+            strcmp(op, "-gt") == 0 || strcmp(op, "-ge") == 0)
+        {
+            fprintf(stderr, "[: %s: unary operator expected\n", op);
+            return 2;
+        }
+
+        /* Unknown operator or too many arguments */
+        fprintf(stderr, "[: too many arguments\n");
+        return 2;
+    }
+
+    /* Binary operators */
+    if (argc == 5)
     {
         const string_t *arg1_str = string_list_at(args, 1);
         const string_t *op_str = string_list_at(args, 2);
@@ -2609,50 +2926,11 @@ int builtin_bracket(exec_frame_t *frame, const string_list_t *args)
                 return (val1 >= val2) ? 0 : 1;
         }
 
-        exec_set_error(frame->executor, "[: unknown operator '%s'", op);
+        frame_set_error_printf(frame, "[: unknown operator '%s'", op);
         return 2;
     }
 
-    /* Unary operators */
-    if (argc == 3)
-    {
-        const string_t *op_str = string_list_at(args, 1);
-        const string_t *arg_str = string_list_at(args, 2);
-        const char *op = string_cstr(op_str);
-
-        /* File descriptor tests */
-        if (strcmp(op, "-t") == 0)
-        {
-            int endpos = 0;
-            long fd = string_atol_at(arg_str, 0, &endpos);
-            
-            /* Check if valid file descriptor number */
-            if (endpos != (int)string_length(arg_str) || fd < 0)
-            {
-                exec_set_error(frame->executor, "[: -t: invalid file descriptor");
-                return 2;
-            }
-
-#ifdef POSIX_API
-            return isatty((int)fd) ? 0 : 1;
-#elif defined UCRT_API
-            return _isatty((int)fd) ? 0 : 1;
-#endif
-        /* else, fallthrough to failure */
-        }
-
-        /* String tests */
-        if (strcmp(op, "-z") == 0)
-            return (string_length(arg_str) == 0) ? 0 : 1;
-        
-        if (strcmp(op, "-n") == 0)
-            return (string_length(arg_str) > 0) ? 0 : 1;
-
-        exec_set_error(frame->executor, "[: unknown operator '%s'", op);
-        return 2;
-    }
-
-    exec_set_error(frame->executor, "[: too many arguments");
+    frame_set_error_printf(frame, "[: too many arguments");
     return 2;
 }
 
@@ -2666,19 +2944,18 @@ int builtin_return(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    exec_t *ex = frame->executor;
     getopt_reset();
 
     /* Check if return is valid (must be in a function or dot script) */
-    exec_frame_t *return_target = exec_frame_find_return_target(frame);
+    exec_frame_t *return_target = frame_find_return_target(frame);
     if (!return_target)
     {
-        exec_set_error(ex, "return: can only be used in a function or sourced script");
+        frame_set_error_printf(frame, "return: can only be used in a function or sourced script");
         return 2;
     }
 
     /* Parse optional exit status argument */
-    int exit_status = frame->last_exit_status;
+    int exit_status = frame_get_last_exit_status(frame);
 
     if (string_list_size(args) > 1)
     {
@@ -2688,7 +2965,7 @@ int builtin_return(exec_frame_t *frame, const string_list_t *args)
 
         if (endpos != string_length(arg_str))
         {
-            exec_set_error(ex, "return: numeric argument required");
+            frame_set_error_printf(frame, "return: numeric argument required");
             return 2;
         }
 
@@ -2697,12 +2974,11 @@ int builtin_return(exec_frame_t *frame, const string_list_t *args)
 
     if (string_list_size(args) > 2)
     {
-        exec_set_error(ex, "return: too many arguments");
+        frame_set_error_printf(frame, "return: too many arguments");
         return 1;
     }
 
-    frame->pending_control_flow = EXEC_FLOW_RETURN;
-    frame->pending_flow_depth = 0;
+    frame_set_pending_control_flow(frame, FRAME_FLOW_RETURN, 0);
 
     return exit_status;
 }
@@ -2810,7 +3086,7 @@ int builtin_basename(exec_frame_t *frame, const string_list_t *args)
     /* Usage check */
     if (argc < 2 || argc > 3)
     {
-        exec_set_error(frame->executor, "basename: usage: basename string [suffix]");
+        frame_set_error_printf(frame, "basename: usage: basename string [suffix]");
         return 2;
     }
 
@@ -2937,11 +3213,14 @@ int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
     /* Usage check */
     if (argc != 2)
     {
-        exec_set_error(frame->executor, "dirname: usage: dirname string");
+        // frame_set_error_printf(frame, "dirname: usage: dirname string");
+        fprintf(stderr, "dirname: usage: dirname string\n");
         return 2;
     }
 
     const string_t *path_arg = string_list_at(args, 1);
+
+    log_debug("dirname: path_arg %s", string_cstr(path_arg));
 
     /* Handle empty string */
     if (!path_arg || string_empty(path_arg))
@@ -2993,7 +3272,7 @@ int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
     /* Find last slash */
     int last_slash_pos = string_rfind_cstr(work, "/");
     int last_backslash_pos = string_rfind_cstr(work, "\\");
-    
+
     /* Use whichever is later */
     int last_sep_pos = -1;
     if (last_slash_pos > last_backslash_pos)
@@ -3036,6 +3315,598 @@ int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
     }
 
     string_destroy(&work);
+    return 0;
+}
+
+/* ============================================================================
+ * mgsh_dirnamevar - Compute dirname and assign to a variable
+ * 
+ * Usage: mgsh_dirnamevar varname string
+ * 
+ * This is a workaround for platforms where command substitution doesn't work
+ * reliably (like UCRT). Instead of:
+ *   SCRIPT_DIR=$(dirname "$0")
+ * Use:
+ *   mgsh_dirnamevar SCRIPT_DIR "$0"
+ * 
+ * Examples:
+ *   mgsh_dirnamevar mydir /usr/bin/sort    -> sets mydir="/usr/bin"
+ *   mgsh_dirnamevar mydir stdio.h          -> sets mydir="."
+ *   mgsh_dirnamevar mydir /                -> sets mydir="/"
+ * ============================================================================
+ */
+
+int builtin_mgsh_dirnamevar(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+
+    /* Usage check */
+    if (argc != 3)
+    {
+        fprintf(stderr, "mgsh_dirnamevar: usage: mgsh_dirnamevar varname string\n");
+        return 2;
+    }
+
+    const string_t *varname_arg = string_list_at(args, 1);
+    const string_t *path_arg = string_list_at(args, 2);
+    log_debug("mgsh_dirnamevar: (%s, %s)", string_cstr(varname_arg), string_cstr(path_arg));
+
+    /* Validate variable name is not empty */
+    if (!varname_arg || string_empty(varname_arg))
+    {
+        fprintf(stderr, "mgsh_dirnamevar: variable name cannot be empty\n");
+        return 2;
+    }
+
+    /* Handle empty path string - dirname of empty is "." */
+    if (!path_arg || string_empty(path_arg))
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), ".");
+        return 0;
+    }
+
+    /* Make a working copy */
+    string_t *work = string_create_from(path_arg);
+    int len = string_length(work);
+
+    /* Remove trailing slashes */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If only slashes remain, result is "/" */
+    if (len == 1)
+    {
+        char first = string_at(work, 0);
+        if (first == '/' || first == '\\')
+        {
+            frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), "/");
+            string_destroy(&work);
+            return 0;
+        }
+    }
+
+    /* If no slashes, result is "." */
+    int has_slash_pos = string_find_first_of_cstr(work, "/\\");
+    if (has_slash_pos < 0)
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), ".");
+        string_destroy(&work);
+        return 0;
+    }
+
+    /* Find last slash */
+    int last_slash_pos = string_rfind_cstr(work, "/");
+    int last_backslash_pos = string_rfind_cstr(work, "\\");
+
+    /* Use whichever is later */
+    int last_sep_pos = -1;
+    if (last_slash_pos > last_backslash_pos)
+        last_sep_pos = last_slash_pos;
+    else if (last_backslash_pos > last_slash_pos)
+        last_sep_pos = last_backslash_pos;
+    else
+        last_sep_pos = last_slash_pos; /* Both are -1 or equal */
+
+    /* Remove everything after the last slash */
+    if (last_sep_pos >= 0)
+    {
+        string_resize(work, last_sep_pos);
+        len = last_sep_pos;
+    }
+
+    /* Remove trailing slashes again */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If we ended up with empty string or only slashes, result is "/" */
+    if (len == 0 || (len == 1 && (string_at(work, 0) == '/' || string_at(work, 0) == '\\')))
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), "/");
+    }
+    else
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), string_cstr(work));
+    }
+
+    string_destroy(&work);
+    return 0;
+}
+
+/* ============================================================================
+ * mgsh_printfvar - Format data and assign to a variable
+ * 
+ * Usage: mgsh_printfvar varname format [arguments...]
+ * 
+ * This is a workaround for platforms where command substitution doesn't work
+ * reliably (like UCRT). Instead of:
+ *   RESULT=$(printf "%s-%d" "$name" "$count")
+ * Use:
+ *   mgsh_printfvar RESULT "%s-%d" "$name" "$count"
+ * 
+ * Supports the same format specifiers as printf:
+ *   %b    - String with backslash escapes interpreted
+ *   %c    - Character
+ *   %d, %i - Signed decimal integer
+ *   %u    - Unsigned decimal integer
+ *   %o    - Unsigned octal integer
+ *   %x    - Unsigned hexadecimal (lowercase)
+ *   %X    - Unsigned hexadecimal (uppercase)
+ *   %s    - String
+ *   %%    - Literal %
+ * ============================================================================
+ */
+
+/* Helper: Process a single format specifier and append to output string */
+static int printfvar_process_format(string_t *output, const char **fmt, const char *arg, int *stop_output)
+{
+    const char *f = *fmt;
+    int width = 0;
+    int precision = -1;
+    int left_justify = 0;
+    int zero_pad = 0;
+    int has_precision = 0;
+    char buf[256];
+
+    *stop_output = 0;
+
+    /* Skip % */
+    f++;
+
+    /* Parse flags */
+    while (*f == '-' || *f == '0' || *f == ' ' || *f == '+' || *f == '#')
+    {
+        if (*f == '-') left_justify = 1;
+        if (*f == '0') zero_pad = 1;
+        f++;
+    }
+
+    /* Parse width */
+    if (*f >= '0' && *f <= '9')
+    {
+        width = printf_parse_number(&f);
+    }
+
+    /* Parse precision */
+    if (*f == '.')
+    {
+        f++;
+        has_precision = 1;
+        precision = printf_parse_number(&f);
+    }
+
+    /* Get conversion specifier */
+    char spec = *f;
+    if (spec) f++;
+
+    *fmt = f;
+
+    /* Process conversion */
+    switch (spec)
+    {
+    case 'b': /* String with backslash escapes */
+    {
+        string_t *processed = printf_process_escapes(arg, stop_output);
+        const char *processed_str = string_cstr(processed);
+        if (width > 0)
+        {
+            int len = (int)strlen(processed_str);
+            int pad = width - len;
+            if (pad > 0)
+            {
+                if (left_justify)
+                {
+                    string_append_cstr(output, processed_str);
+                    for (int i = 0; i < pad; i++)
+                        string_append_char(output, ' ');
+                }
+                else
+                {
+                    for (int i = 0; i < pad; i++)
+                        string_append_char(output, ' ');
+                    string_append_cstr(output, processed_str);
+                }
+            }
+            else
+            {
+                string_append_cstr(output, processed_str);
+            }
+        }
+        else
+        {
+            string_append_cstr(output, processed_str);
+        }
+        string_destroy(&processed);
+        break;
+    }
+
+    case 'c': /* Character */
+    {
+        int c = arg && *arg ? (unsigned char)*arg : 0;
+        if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*c", width, c);
+            else
+                snprintf(buf, sizeof(buf), "%*c", width, c);
+            string_append_cstr(output, buf);
+        }
+        else
+        {
+            string_append_char(output, (char)c);
+        }
+        break;
+    }
+
+    case 'd':
+    case 'i': /* Signed decimal */
+    {
+        long val = arg && *arg ? strtol(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*ld", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*ld", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*ld", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*ld", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*ld", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%ld", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'u': /* Unsigned decimal */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lu", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lu", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lu", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lu", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lu", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lu", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'o': /* Octal */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lo", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lo", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lo", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lo", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lo", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lo", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'x': /* Hexadecimal lowercase */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lx", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lx", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lx", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lx", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lx", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lx", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'X': /* Hexadecimal uppercase */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lX", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lX", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lX", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lX", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lX", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lX", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 's': /* String */
+    {
+        const char *str = arg ? arg : "";
+        int len = (int)strlen(str);
+
+        /* Apply precision (max chars) */
+        if (has_precision && precision < len)
+        {
+            len = precision;
+        }
+
+        if (width > 0)
+        {
+            int pad = width - len;
+            if (left_justify)
+            {
+                for (int i = 0; i < len; i++)
+                    string_append_char(output, str[i]);
+                for (int i = 0; i < pad; i++)
+                    string_append_char(output, ' ');
+            }
+            else
+            {
+                for (int i = 0; i < pad; i++)
+                    string_append_char(output, ' ');
+                for (int i = 0; i < len; i++)
+                    string_append_char(output, str[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < len; i++)
+                string_append_char(output, str[i]);
+        }
+        break;
+    }
+
+    case '%': /* Literal % */
+        string_append_char(output, '%');
+        break;
+
+    default:
+        /* Unknown specifier - append as-is */
+        string_append_char(output, '%');
+        if (spec) string_append_char(output, spec);
+        return 1; /* Error */
+    }
+
+    return 0;
+}
+
+int builtin_mgsh_printfvar(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+
+    /* Need at least variable name and format string */
+    if (argc < 3)
+    {
+        fprintf(stderr, "mgsh_printfvar: usage: mgsh_printfvar varname format [arguments...]\n");
+        return 2;
+    }
+
+    const string_t *varname_arg = string_list_at(args, 1);
+
+    /* Validate variable name is not empty */
+    if (!varname_arg || string_empty(varname_arg))
+    {
+        fprintf(stderr, "mgsh_printfvar: variable name cannot be empty\n");
+        return 2;
+    }
+
+    const char *format = string_cstr(string_list_at(args, 2));
+    int arg_index = 3; /* Start of actual arguments */
+    int stop_output = 0;
+
+    /* Create output buffer */
+    string_t *output = string_create();
+
+    /* Process format string */
+    while (!stop_output)
+    {
+        const char *f = format;
+        int format_used = 0;
+
+        while (*f && !stop_output)
+        {
+            if (*f == '%' && *(f + 1))
+            {
+                /* Get next argument (or empty string if no more args) */
+                const char *arg = "";
+                if (arg_index < argc)
+                {
+                    arg = string_cstr(string_list_at(args, arg_index));
+                    arg_index++;
+                    format_used = 1;
+                }
+                else if (format_used)
+                {
+                    /* No more arguments, use empty/zero defaults */
+                    arg = "";
+                }
+                else
+                {
+                    /* First pass through format, no arguments yet */
+                    arg = "";
+                }
+
+                int err = printfvar_process_format(output, &f, arg, &stop_output);
+                if (err)
+                {
+                    frame_set_error_printf(frame, "mgsh_printfvar: invalid format");
+                    string_destroy(&output);
+                    return 1;
+                }
+            }
+            else if (*f == '\\' && *(f + 1))
+            {
+                /* Process escape sequences in format string */
+                f++;
+                switch (*f)
+                {
+                case 'a': string_append_char(output, '\a'); break;
+                case 'b': string_append_char(output, '\b'); break;
+                case 'c': stop_output = 1; break;
+                case 'e': string_append_char(output, '\033'); break;
+                case 'f': string_append_char(output, '\f'); break;
+                case 'n': string_append_char(output, '\n'); break;
+                case 'r': string_append_char(output, '\r'); break;
+                case 't': string_append_char(output, '\t'); break;
+                case 'v': string_append_char(output, '\v'); break;
+                case '\\': string_append_char(output, '\\'); break;
+                case '0': /* Octal */
+                {
+                    int val = 0;
+                    int count = 0;
+                    f++;
+                    while (count < 3 && *f >= '0' && *f <= '7')
+                    {
+                        val = val * 8 + (*f - '0');
+                        f++;
+                        count++;
+                    }
+                    f--;
+                    string_append_char(output, (char)val);
+                    break;
+                }
+                default:
+                    string_append_char(output, *f);
+                    break;
+                }
+                f++;
+            }
+            else
+            {
+                string_append_char(output, *f);
+                f++;
+            }
+        }
+
+        /* If we used arguments, check if there are more to process */
+        if (format_used && arg_index < argc)
+        {
+            /* Reuse format string with remaining arguments */
+            continue;
+        }
+        else
+        {
+            /* Done */
+            break;
+        }
+    }
+
+    /* Assign result to variable */
+    frame_set_persistent_variable(frame, varname_arg, output);
+
+    string_destroy(&output);
     return 0;
 }
 

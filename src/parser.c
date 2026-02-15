@@ -102,6 +102,25 @@ const token_t *parser_current_token(const parser_t *parser)
     return token_list_get(parser->tokens, parser->position);
 }
 
+parser_token_info_t parser_current_token_info(const parser_t *parser)
+{
+    Expects_not_null(parser);
+    parser_token_info_t info = {0};
+    if (parser->tokens == NULL || parser->position >= token_list_size(parser->tokens))
+    {
+        info.token = NULL;
+        info.offset = 0;
+        info.valid = false;
+    }
+    else
+    {
+        info.token = token_list_get(parser->tokens, parser->position);
+        info.offset = 0;
+        info.valid = true;
+    }
+    return info;
+}
+
 token_type_t parser_current_token_type(const parser_t *parser)
 {
     const token_t *tok = parser_current_token(parser);
@@ -194,6 +213,26 @@ const token_t *parser_peek_token(const parser_t *parser, int offset)
     return token_list_get(parser->tokens, pos);
 }
 
+parser_token_info_t parser_peek_token_info(const parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    parser_token_info_t info = {0};
+    int pos = parser->position + offset;
+    if (pos < 0 || pos >= token_list_size(parser->tokens))
+    {
+        info.token = NULL;
+        info.offset = offset;
+        info.valid = false;
+    }
+    else
+    {
+        info.token = token_list_get(parser->tokens, pos);
+        info.offset = offset;
+        info.valid = true;
+    }
+    return info;
+}
+
 const token_t *parser_previous_token(const parser_t *parser)
 {
     Expects_not_null(parser);
@@ -202,6 +241,232 @@ const token_t *parser_previous_token(const parser_t *parser)
         return NULL;
     }
     return token_list_get(parser->tokens, parser->position - 1);
+}
+
+/* ============================================================================
+ * Parser token modifiers
+ * ============================================================================ */
+
+bool parser_token_try_promote_to_lbrace(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+    {
+        return false;
+    }
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+    {
+        return false;
+    }
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_lbrace(tok))
+    {
+        return true;
+    }
+    return false;
+}
+
+bool parser_token_try_promote_to_rbrace(parser_t* parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+    {
+        return false;
+    }
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+    {
+        return false;
+    }
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_rbrace(tok))
+    {
+        return true;
+    }
+    return false;
+}
+
+bool parser_token_try_promote_to_bang(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_bang(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_if(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_if(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_while(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_while(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_until(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_until(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_for(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_for(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_case(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_case(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_then(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_then(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_fi(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_fi(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_elif(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_elif(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_else(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_else(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_do(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_do(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_done(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_done(tok))
+        return true;
+    return false;
+}
+
+bool parser_token_try_promote_to_esac(parser_t *parser, int offset)
+{
+    Expects_not_null(parser);
+    int index = parser->position + offset;
+    if (index < 0 || index >= token_list_size(parser->tokens))
+        return false;
+    token_t *tok = parser->tokens->tokens[index];
+    if (tok == NULL)
+        return false;
+    if (token_get_type(tok) == TOKEN_WORD && token_try_promote_to_esac(tok))
+        return true;
+    return false;
 }
 
 /* ============================================================================
@@ -562,7 +827,13 @@ parse_status_t gparse_pipeline(parser_t *parser, gnode_t **out_node)
     Expects_not_null(out_node);
 
     *out_node = NULL;
-    token_type_t t = parser_current_token_type(parser);
+    
+    /* Try promoting "!" to TOKEN_BANG */
+    parser_token_info_t info = parser_current_token_info(parser);
+    token_type_t t = info.valid ? token_get_type(info.token) : TOKEN_EOF;
+    if (t == TOKEN_WORD && parser_token_try_promote_to_bang(parser, info.offset))
+        t = TOKEN_BANG;
+    
     if (t == TOKEN_EOF)
     {
         return PARSE_EMPTY;
@@ -757,10 +1028,26 @@ parse_status_t gparse_compound_command(parser_t *parser, gnode_t **out_node)
     Expects_not_null(out_node);
 
     *out_node = NULL;
-    const token_t *tok = parser_current_token(parser);
-    token_type_t t = token_get_type(tok);
-    if (t == TOKEN_WORD && token_try_promote_to_lbrace(tok))
-        t = TOKEN_LBRACE;
+    parser_token_info_t info = parser_current_token_info(parser);
+    Expects(info.valid);
+    token_type_t t = token_get_type(info.token);
+    
+    /* Try promoting TOKEN_WORD to reserved words for compound commands */
+    if (t == TOKEN_WORD)
+    {
+        if (parser_token_try_promote_to_lbrace(parser, info.offset))
+            t = TOKEN_LBRACE;
+        else if (parser_token_try_promote_to_if(parser, info.offset))
+            t = TOKEN_IF;
+        else if (parser_token_try_promote_to_while(parser, info.offset))
+            t = TOKEN_WHILE;
+        else if (parser_token_try_promote_to_until(parser, info.offset))
+            t = TOKEN_UNTIL;
+        else if (parser_token_try_promote_to_for(parser, info.offset))
+            t = TOKEN_FOR;
+        else if (parser_token_try_promote_to_case(parser, info.offset))
+            t = TOKEN_CASE;
+    }
 
     gnode_t *child = NULL;
     parse_status_t status;
@@ -789,6 +1076,7 @@ parse_status_t gparse_compound_command(parser_t *parser, gnode_t **out_node)
         status = gparse_until_clause(parser, &child);
         break;
     default:
+        parser_set_error(parser, "Expected compound command (if/while/for/case/{/())");
         return PARSE_ERROR;
     }
 
@@ -1061,7 +1349,7 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
     if (t == TOKEN_WORD)
     {
         /* Try to promote 'in' word to TOKEN_IN */
-        const token_t *tok = parser_current_token(parser);
+        token_t *tok = parser->tokens->tokens[parser->position];
         if (tok && token_try_promote_to_in(tok))
         {
             t = TOKEN_IN;
@@ -1069,7 +1357,10 @@ parse_status_t gparse_in_clause(parser_t *parser, gnode_t **out_node)
     }
     
     if (t != TOKEN_IN)
+    {
+        parser_set_error(parser, "Expected 'in' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_IN_NODE);
     node->payload_type = GNODE_PAYLOAD_TOKEN;  /* Just 'in' keyword uses .token */
@@ -1110,7 +1401,10 @@ parse_status_t gparse_wordlist(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_WORD)
+    {
+        parser_set_error(parser, "Expected word in wordlist");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_WORDLIST);
     node->data.list = g_list_create();
@@ -1170,7 +1464,7 @@ parse_status_t gparse_case_clause(parser_t *parser, gnode_t **out_node)
     token_type_t t = parser_current_token_type(parser);
     if (t == TOKEN_WORD)
     {
-        const token_t *tok = parser_current_token(parser);
+        token_t *tok = parser->tokens->tokens[parser->position];
         if (tok && token_try_promote_to_in(tok))
         {
             t = TOKEN_IN;
@@ -1200,6 +1494,13 @@ parse_status_t gparse_case_clause(parser_t *parser, gnode_t **out_node)
     if (status != PARSE_OK)
     {
         status = gparse_case_list_ns(parser, &list);
+    }
+
+    /* Try promoting 'esac' keyword */
+    parser_token_info_t info_esac = parser_current_token_info(parser);
+    if (info_esac.valid && token_get_type(info_esac.token) == TOKEN_WORD)
+    {
+        parser_token_try_promote_to_esac(parser, info_esac.offset);
     }
 
     /* 'esac' */
@@ -1310,6 +1611,25 @@ parse_status_t gparse_case_list(parser_t *parser, gnode_t **out_node)
     /* Loop: case_item */
     while (true)
     {
+        /* Check if we're at 'esac' - don't try to parse it as another case_item */
+        token_type_t t = parser_current_token_type(parser);
+        if (t == TOKEN_ESAC)
+            break;
+        if (t == TOKEN_WORD)
+        {
+            /* Try to see if this word is "esac" */
+            const token_t *tok = parser_current_token(parser);
+            if (tok && !token_was_quoted(tok) && token_part_count(tok) == 1)
+            {
+                const part_t *part = tok->parts->parts[0];
+                if (part_get_type(part) == PART_LITERAL && 
+                    strcmp(string_cstr(part->text), "esac") == 0)
+                {
+                    break;
+                }
+            }
+        }
+
         gnode_t *next = NULL;
         status = gparse_case_item(parser, &next);
 
@@ -1571,6 +1891,13 @@ parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node)
         return status;
     }
 
+    /* Try promoting 'then' keyword */
+    parser_token_info_t info_then = parser_current_token_info(parser);
+    if (info_then.valid && token_get_type(info_then.token) == TOKEN_WORD)
+    {
+        parser_token_try_promote_to_then(parser, info_then.offset);
+    }
+
     /* 'then' */
     if (parser_current_token_type(parser) != TOKEN_THEN)
     {
@@ -1610,6 +1937,13 @@ parse_status_t gparse_if_clause(parser_t *parser, gnode_t **out_node)
     /* Optional else_part */
     gnode_t *else_part = NULL;
     status = gparse_else_part(parser, &else_part);
+
+    /* Try promoting 'fi' keyword */
+    parser_token_info_t info_fi = parser_current_token_info(parser);
+    if (info_fi.valid && token_get_type(info_fi.token) == TOKEN_WORD)
+    {
+        parser_token_try_promote_to_fi(parser, info_fi.offset);
+    }
 
     /* 'fi' */
     if (parser_current_token_type(parser) != TOKEN_FI)
@@ -1677,6 +2011,14 @@ parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
 
     *out_node = NULL;
 
+    /* Try promoting 'elif' or 'else' keyword */
+    parser_token_info_t info = parser_current_token_info(parser);
+    if (info.valid && token_get_type(info.token) == TOKEN_WORD)
+    {
+        if (!parser_token_try_promote_to_elif(parser, info.offset))
+            parser_token_try_promote_to_else(parser, info.offset);
+    }
+
     token_type_t t = parser_current_token_type(parser);
 
     if (t == TOKEN_ELIF)
@@ -1697,6 +2039,13 @@ parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
             g_node_destroy(&node);
             g_node_destroy(&elif_tok);
             return status;
+        }
+
+        /* Try promoting 'then' keyword */
+        parser_token_info_t info_then = parser_current_token_info(parser);
+        if (info_then.valid && token_get_type(info_then.token) == TOKEN_WORD)
+        {
+            parser_token_try_promote_to_then(parser, info_then.offset);
         }
 
         /* 'then' */
@@ -1774,6 +2123,7 @@ parse_status_t gparse_else_part(parser_t *parser, gnode_t **out_node)
         return PARSE_OK;
     }
 
+    /* Neither elif nor else - not an else_part */
     return PARSE_ERROR;
 }
 
@@ -1789,7 +2139,10 @@ parse_status_t gparse_while_clause(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_WHILE)
+    {
+        parser_set_error(parser, "Expected 'while' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_WHILE_CLAUSE);
 
@@ -1841,7 +2194,10 @@ parse_status_t gparse_until_clause(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_UNTIL)
+    {
+        parser_set_error(parser, "Expected 'until' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_UNTIL_CLAUSE);
 
@@ -1896,6 +2252,22 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
     if (parser_current_token_type(parser) != TOKEN_WORD)
         return PARSE_ERROR;
 
+    /* Check that function name is not a reserved word */
+    const token_t *fname_tok = parser_current_token(parser);
+    if (fname_tok && !token_was_quoted(fname_tok) && token_part_count(fname_tok) == 1)
+    {
+        const part_t *part = fname_tok->parts->parts[0];
+        if (part_get_type(part) == PART_LITERAL)
+        {
+            const char *word = string_cstr(part->text);
+            if (token_is_reserved_word(word))
+            {
+                parser_set_error(parser, "Cannot use reserved word '%s' as function name", word);
+                return PARSE_ERROR;
+            }
+        }
+    }
+
     /* Look ahead for '(' */
     const token_t *next = parser_peek_token(parser, 1);
     if (!next || token_get_type(next) != TOKEN_LPAREN)
@@ -1930,17 +2302,52 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
     /* linebreak */
     parser_skip_newlines(parser);
 
-    /* function_body (compound_command) */
-    gnode_t *body = NULL;
-    parse_status_t status = gparse_compound_command(parser, &body);
+    /* Check if we're at EOF - need more input for function body */
+    if (parser_at_end(parser))
+    {
+        parser_set_error(parser, "Expected compound command (e.g., { ... }) after function declaration");
+        g_node_destroy(&node);
+        g_node_destroy(&fname);
+        g_node_destroy(&lparen);
+        g_node_destroy(&rparen);
+        return PARSE_INCOMPLETE;
+    }
+
+    /* function_body: compound_command [redirect_list] */
+    gnode_t *compound = NULL;
+    parse_status_t status = gparse_compound_command(parser, &compound);
 
     if (status != PARSE_OK)
     {
+        /* Once we've parsed name(), we're committed to a function definition.
+         * If compound_command fails, give a helpful error message. */
+        if (status == PARSE_ERROR)
+        {
+            parser_set_error(parser, "Expected compound command (e.g., { ... }) after function declaration");
+        }
         g_node_destroy(&node);
         g_node_destroy(&fname);
         g_node_destroy(&lparen);
         g_node_destroy(&rparen);
         return status;
+    }
+
+    /* Try optional redirect_list */
+    gnode_t *redirects = NULL;
+    parse_status_t redir_status = gparse_redirect_list(parser, &redirects);
+
+    gnode_t *body = NULL;
+    if (redir_status == PARSE_OK)
+    {
+        /* Create G_FUNCTION_BODY wrapper with compound_command and redirect_list */
+        body = g_node_create(G_FUNCTION_BODY);
+        body->data.multi.a = compound;
+        body->data.multi.b = redirects;
+    }
+    else
+    {
+        /* No redirections - use compound_command directly */
+        body = compound;
     }
 
     node->data.multi.a = fname;
@@ -1964,19 +2371,22 @@ parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
     *out_node = NULL;
 
     if (parser_current_token_type(parser) != TOKEN_LBRACE)
+    {
+        parser_set_error(parser, "Expected '{' to start brace group");
         return PARSE_ERROR;
+    }
 
     /* Make sure that the next '}' has been promoted to a TOKEN_RBRACE */
     int offset = 1;
     while (true)
     {
-        const token_t *tok = parser_peek_token(parser, offset);
-        if (tok == NULL)
+        parser_token_info_t info = parser_peek_token_info(parser, offset);
+        if (!info.valid)
             return PARSE_INCOMPLETE;
-        token_type_t t = token_get_type(tok);
+        token_type_t t = token_get_type(info.token);
         if (t == TOKEN_EOF)
             return PARSE_INCOMPLETE;
-        if ((t == TOKEN_WORD && token_try_promote_to_rbrace(tok)) || (t == TOKEN_RBRACE))
+        if ((t == TOKEN_WORD && parser_token_try_promote_to_rbrace(parser, info.offset)) || (t == TOKEN_RBRACE))
             break;
         offset++;
     }
@@ -1987,15 +2397,24 @@ parse_status_t gparse_brace_group(parser_t *parser, gnode_t **out_node)
     lbrace->data.token = token_clone(parser_current_token(parser));
     parser_advance(parser);
 
-    /* compound_list */
+    /* compound_list (optional for empty braces) */
     gnode_t *list = NULL;
     parse_status_t status = gparse_compound_list(parser, &list);
 
+    /* If compound_list fails and we're at '}', allow empty brace group */
     if (status != PARSE_OK)
     {
-        g_node_destroy(&node);
-        g_node_destroy(&lbrace);
-        return status;
+        if (parser_current_token_type(parser) == TOKEN_RBRACE)
+        {
+            /* Empty brace group { } */
+            list = NULL;
+        }
+        else
+        {
+            g_node_destroy(&node);
+            g_node_destroy(&lbrace);
+            return status;
+        }
     }
 
     /* '}' */
@@ -2040,8 +2459,18 @@ parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node)
 
     *out_node = NULL;
 
+    /* Try promoting 'do' keyword */
+    parser_token_info_t info_do = parser_current_token_info(parser);
+    if (info_do.valid && token_get_type(info_do.token) == TOKEN_WORD)
+    {
+        parser_token_try_promote_to_do(parser, info_do.offset);
+    }
+
     if (parser_current_token_type(parser) != TOKEN_DO)
+    {
+        parser_set_error(parser, "Expected 'do' keyword");
         return PARSE_ERROR;
+    }
 
     gnode_t *node = g_node_create(G_DO_GROUP);
 
@@ -2059,6 +2488,13 @@ parse_status_t gparse_do_group(parser_t *parser, gnode_t **out_node)
         g_node_destroy(&node);
         g_node_destroy(&do_tok);
         return status;
+    }
+
+    /* Try promoting 'done' keyword */
+    parser_token_info_t info_done = parser_current_token_info(parser);
+    if (info_done.valid && token_get_type(info_done.token) == TOKEN_WORD)
+    {
+        parser_token_try_promote_to_done(parser, info_done.offset);
     }
 
     /* 'done' */
@@ -2191,7 +2627,43 @@ static parse_status_t match_heredocs_in_simple_command(parser_t *parser, gnode_t
         parser_advance(parser);
     }
 
+
     return PARSE_OK;
+}
+
+/* ============================================================================
+ * Helper function: Check if the current word token is a reserved word that
+ * should stop simple command parsing.
+ * 
+ * Reserved words like "then", "fi", "do", "done", "else", "elif", "esac" should
+ * not be consumed as command names or arguments when they appear in contexts
+ * where they might be closing/continuing keywords of compound constructs.
+ * ============================================================================
+ */
+static bool is_terminating_reserved_word(const token_t *tok)
+{
+    if (!tok || token_get_type(tok) != TOKEN_WORD)
+        return false;
+    
+    /* A reserved word must be a single literal part and not quoted */
+    if (token_was_quoted(tok) || token_part_count(tok) != 1)
+        return false;
+    
+    const part_t *first_part = tok->parts->parts[0];
+    if (part_get_type(first_part) != PART_LITERAL)
+        return false;
+    
+    const char *word = string_cstr(first_part->text);
+    
+    /* These are the reserved words that can terminate or continue
+     * compound commands and should not be consumed as simple command words */
+    return (strcmp(word, "then") == 0 ||
+            strcmp(word, "fi") == 0 ||
+            strcmp(word, "do") == 0 ||
+            strcmp(word, "done") == 0 ||
+            strcmp(word, "else") == 0 ||
+            strcmp(word, "elif") == 0 ||
+            strcmp(word, "esac") == 0);
 }
 
 /* ============================================================================
@@ -2255,8 +2727,9 @@ parse_status_t gparse_simple_command(parser_t *parser, gnode_t **out_node)
         break;
     }
 
-    /* Try to parse cmd_name (WORD) */
-    if (parser_current_token_type(parser) == TOKEN_WORD)
+    /* Try to parse cmd_name (WORD) - but not if it's a reserved word */
+    if (parser_current_token_type(parser) == TOKEN_WORD &&
+        !is_terminating_reserved_word(parser_current_token(parser)))
     {
         gnode_t *name = g_node_create(G_CMD_NAME);
         name->data.token = token_clone(parser_current_token(parser));
@@ -2285,7 +2758,8 @@ parse_status_t gparse_simple_command(parser_t *parser, gnode_t **out_node)
             continue;
         }
 
-        if (t == TOKEN_WORD)
+        /* Parse WORD as cmd_suffix - but not if it's a reserved word */
+        if (t == TOKEN_WORD && !is_terminating_reserved_word(parser_current_token(parser)))
         {
             gnode_t *word = g_node_create(G_CMD_WORD);
             word->data.token = token_clone(parser_current_token(parser));

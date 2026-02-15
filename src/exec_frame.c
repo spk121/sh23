@@ -1042,7 +1042,7 @@ exec_result_t exec_in_frame(exec_frame_t *parent, exec_frame_type_t type, exec_p
  * Convenience Wrappers
  * ============================================================================ */
 
-exec_result_t exec_subshell(exec_frame_t *parent, ast_node_t *body)
+exec_result_t exec_subshell(exec_frame_t *parent, const ast_node_t *body)
 {
     exec_params_t params = {
         .body = body,
@@ -1050,8 +1050,8 @@ exec_result_t exec_subshell(exec_frame_t *parent, ast_node_t *body)
     return exec_in_frame(parent, EXEC_FRAME_SUBSHELL, &params);
 }
 
-exec_result_t exec_brace_group(exec_frame_t *parent, ast_node_t *body,
-                               exec_redirections_t *redirections)
+exec_result_t exec_brace_group(exec_frame_t *parent, const ast_node_t *body,
+                               const exec_redirections_t *redirections)
 {
     exec_params_t params = {
         .body = body,
@@ -1060,8 +1060,8 @@ exec_result_t exec_brace_group(exec_frame_t *parent, ast_node_t *body,
     return exec_in_frame(parent, EXEC_FRAME_BRACE_GROUP, &params);
 }
 
-exec_result_t exec_function(exec_frame_t *parent, ast_node_t *body, string_list_t *arguments,
-                            exec_redirections_t *redirections)
+exec_result_t exec_function(exec_frame_t *parent, const ast_node_t *body, string_list_t *arguments,
+                            const exec_redirections_t *redirections)
 {
     exec_params_t params = {
         .body = body,
@@ -1072,7 +1072,7 @@ exec_result_t exec_function(exec_frame_t *parent, ast_node_t *body, string_list_
 }
 
 exec_result_t exec_for_loop(exec_frame_t *parent, string_t *var_name,
-                            string_list_t *words, ast_node_t *body)
+                            string_list_t *words, const ast_node_t *body)
 {
     exec_params_t params = {
         .body = body,
@@ -1082,8 +1082,8 @@ exec_result_t exec_for_loop(exec_frame_t *parent, string_t *var_name,
     return exec_in_frame(parent, EXEC_FRAME_LOOP, &params);
 }
 
-exec_result_t exec_while_loop(exec_frame_t *parent, ast_node_t *condition,
-                              ast_node_t *body, bool until_mode)
+exec_result_t exec_while_loop(exec_frame_t *parent, const ast_node_t *condition,
+                              const ast_node_t *body, bool until_mode)
 {
     exec_params_t params = {
         .body = body,
@@ -1094,7 +1094,7 @@ exec_result_t exec_while_loop(exec_frame_t *parent, ast_node_t *condition,
 }
 
 exec_result_t exec_dot_script(exec_frame_t *parent, string_t *script_path,
-                              ast_node_t *body, string_list_t *arguments)
+                              const ast_node_t *body, string_list_t *arguments)
 {
     exec_params_t params = {
         .body = body,
@@ -1104,7 +1104,7 @@ exec_result_t exec_dot_script(exec_frame_t *parent, string_t *script_path,
     return exec_in_frame(parent, EXEC_FRAME_DOT_SCRIPT, &params);
 }
 
-exec_result_t exec_trap_handler(exec_frame_t *parent, ast_node_t *body)
+exec_result_t exec_trap_handler(exec_frame_t *parent, const ast_node_t *body)
 {
     exec_params_t params = {
         .body = body,
@@ -1112,7 +1112,7 @@ exec_result_t exec_trap_handler(exec_frame_t *parent, ast_node_t *body)
     return exec_in_frame(parent, EXEC_FRAME_TRAP, &params);
 }
 
-exec_result_t exec_background_job(exec_frame_t *parent, ast_node_t *body,
+exec_result_t exec_background_job(exec_frame_t *parent, const ast_node_t *body,
                                   string_list_t *command_args)
 {
     exec_params_t params = {
@@ -1132,10 +1132,10 @@ exec_result_t exec_pipeline_group(exec_frame_t *parent, ast_node_list_t *command
 }
 
 #ifdef POSIX_API
-exec_result_t exec_pipeline_cmd(exec_frame_t *parent, ast_node_t *body,
+exec_result_t exec_pipeline_cmd(exec_frame_t *parent, const ast_node_t *body,
                                 pid_t pipeline_pgid)
 #else
-exec_result_t exec_pipeline_cmd(exec_frame_t *parent, ast_node_t *body,
+exec_result_t exec_pipeline_cmd(exec_frame_t *parent, const ast_node_t *body,
                                 int pipeline_pgid)
 #endif
 {
@@ -1146,7 +1146,7 @@ exec_result_t exec_pipeline_cmd(exec_frame_t *parent, ast_node_t *body,
     return exec_in_frame(parent, EXEC_FRAME_PIPELINE_CMD, &params);
 }
 
-exec_result_t exec_eval(exec_frame_t *parent, ast_node_t *body)
+exec_result_t exec_eval(exec_frame_t *parent, const ast_node_t *body)
 {
     exec_params_t params = {
         .body = body,
@@ -1211,10 +1211,11 @@ trap_store_t *exec_frame_get_traps(exec_frame_t *frame)
     return frame->traps;
 }
 
-const string_t* exec_frame_get_variable(exec_frame_t* frame, const string_t* name)
+const string_t* exec_frame_get_variable(const exec_frame_t* frame, const string_t* name)
 {
-    if (!frame || !name)
-        return NULL;
+    Expects_not_null(frame);
+    Expects_not_null(name);
+    Expects_gt(name->length, 0);
 
     /* Check local store first if present */
     if (frame->local_variables)

@@ -55,6 +55,17 @@ string_list_t *string_list_create_from_system_env(void);
 string_list_t *string_list_create_from(const string_list_t *other);
 
 /**
+ * Create a new string list containing a slice of another list.
+ * Creates deep copies of the strings in the specified range [start, end).
+ * 
+ * @param list Source string list
+ * @param start Starting index (inclusive), clamped to [0, size]
+ * @param end Ending index (exclusive), clamped to [start, size]. Use -1 for end of list.
+ * @return New string list with copied strings from [start, end), or NULL on error
+ */
+string_list_t *string_list_create_slice(const string_list_t *list, int start, int end);
+
+/**
  * Destroys the string list and frees its memory.
  * Also destroys all strings contained in the list.
  * Sets the pointer to NULL.

@@ -1,8 +1,12 @@
+#include <ctype.h>
+
+#define ALIAS_STORE_INTERNAL
 #include "alias_store.h"
+
+#include "alias.h"
 #include "alias_array.h"
 #include "logging.h"
 #include "xalloc.h"
-#include <ctype.h>
 
 // Check if a character is valid for an alias name
 static bool is_valid_alias_char(char c)
@@ -82,7 +86,8 @@ void alias_store_destroy(alias_store_t **store)
     Expects_not_null(*store);
     Expects_not_null((*store)->aliases);
 
-    log_debug("alias_store_destroy: freeing store %p, size %zu", *store, alias_array_size((*store)->aliases));
+    log_debug("alias_store_destroy: freeing store %p, size %zu", *store,
+              alias_array_size((*store)->aliases));
     alias_array_destroy(&((*store)->aliases));
     xfree(*store);
     *store = NULL;
@@ -102,7 +107,8 @@ void alias_store_add(alias_store_t *store, const string_t *name, const string_t 
         // Replace existing alias
         alias_t *new_alias = alias_create(name, value);
         alias_array_set(store->aliases, index, new_alias);
-        log_debug("alias_store_add: replaced alias '%s' = '%s'", string_cstr(name), string_cstr(value));
+        log_debug("alias_store_add: replaced alias '%s' = '%s'", string_cstr(name),
+                  string_cstr(value));
         return;
     }
 
@@ -174,7 +180,8 @@ void alias_store_clear(alias_store_t *store)
     Expects_not_null(store);
     Expects_not_null(store->aliases);
 
-    log_debug("alias_store_clear: clearing store %p, size %zu", store, alias_array_size(store->aliases));
+    log_debug("alias_store_clear: clearing store %p, size %zu", store,
+              alias_array_size(store->aliases));
 
     alias_array_clear(store->aliases);
 }
@@ -205,7 +212,8 @@ bool alias_store_has_name_cstr(const alias_store_t *store, const char *name)
     Expects_not_null(name);
 
     int index;
-    return alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) == 0;
+    return alias_array_find_with_compare(store->aliases, name, compare_alias_name_cstr, &index) ==
+           0;
 }
 
 // Get value by name
@@ -239,4 +247,19 @@ const char *alias_store_get_value_cstr(const alias_store_t *store, const char *n
 
     alias_t *alias = alias_array_get(store->aliases, index);
     return alias_get_value_cstr(alias);
+}
+
+// Iteration
+void alias_store_foreach(const alias_store_t *store, alias_store_foreach_fn callback,
+                         void *user_data)
+{
+    Expects_not_null(store);
+    Expects_not_null(store->aliases);
+    Expects_not_null(callback);
+
+    for (int i = 0; i < alias_array_size(store->aliases); i++)
+    {
+        alias_t *alias = alias_array_get(store->aliases, i);
+        callback(alias_get_name(alias), alias_get_value(alias), user_data);
+    }
 }

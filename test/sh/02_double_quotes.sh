@@ -4,7 +4,18 @@
 # of all characters within the double-quotes, with the exception of the
 # characters backquote, dollar-sign, and backslash"
 
-. "$(dirname "$0")/../test_helpers.sh"
+. ./test_helpers.sh
+
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
 
 printf "  Testing double quote behavior...\n"
 
@@ -28,9 +39,9 @@ nl="
 # Compare by checking the actual newline character is present
 if [ "$nl" = "
 " ]; then
-    printf "    ✓ newline preserved\n"
+    printf "    PASS newline preserved\n"
 else
-    printf "    ✗ newline preserved\n"
+    printf "    FAIL newline preserved\n"
     _test_failures=$((_test_failures + 1))
 fi
 _test_count=$((_test_count + 1))
@@ -51,7 +62,7 @@ assert_eq "}" "}" "close brace preserved"
 assert_eq "," "," "comma preserved"
 
 # Whitespace preservation and no word splitting
-result=$(printf '%s' "hello   world")
+mgsh_printfvar result '%s' "hello   world" 
 assert_eq "hello   world" "$result" "multiple spaces preserved"
 
 count_words() {
@@ -61,13 +72,13 @@ result=$(count_words "one two three")
 assert_eq "1" "$result" "double-quoted string is one word"
 
 # No glob expansion in double quotes
-mkdir -p /tmp/quoting_test_$$
-touch /tmp/quoting_test_$$/file1.txt /tmp/quoting_test_$$/file2.txt
-cd /tmp/quoting_test_$$
+mkdir -p "$TMPDIR/quoting_test_$$"
+touch "$TMPDIR/quoting_test_$$/file1.txt" "$TMPDIR/quoting_test_$$/file2.txt"
+cd "$TMPDIR/quoting_test_$$"
 result="*.txt"
 assert_eq "*.txt" "$result" "glob pattern not expanded"
 cd - >/dev/null
-rm -rf /tmp/quoting_test_$$
+rm -rf "$TMPDIR/quoting_test_$$"
 
 # Dollar sign - DOES trigger expansion
 var="hello"

@@ -128,6 +128,15 @@ parse_status_t gparse_separator(parser_t *parser, gnode_t **out_node);
  */
 const token_t *parser_current_token(const parser_t *parser);
 
+typedef struct parser_token_info_t
+{
+    const token_t *token;
+    int offset;
+    bool valid; // whether the token is valid and the offset is valid (not out of bounds)
+} parser_token_info_t;
+
+parser_token_info_t parser_current_token_info(const parser_t *parser);
+
 /**
  * Get the type of the current token.
  * Returns TOKEN_EOF if at end of input.
@@ -170,11 +179,25 @@ void parser_skip_newlines(parser_t *parser);
  */
 const token_t *parser_peek_token(const parser_t *parser, int offset);
 
+parser_token_info_t parser_peek_token_info(const parser_t *parser, int offset);
+
 /**
  * Get the previous token.
  * Returns NULL if at start of input.
  */
 const token_t *parser_previous_token(const parser_t *parser);
+
+/* ============================================================================
+ * Parser token modifiers
+ * ============================================================================ */
+
+bool parser_token_try_promote_to_lbrace(parser_t *parser, int offset);
+bool parser_token_try_promote_to_rbrace(parser_t *parser, int offset);
+bool parser_token_try_promote_to_do(parser_t *parser, int offset);
+bool parser_token_try_promote_to_done(parser_t *parser, int offset);
+bool parser_token_try_promote_to_elif(parser_t *parser, int offset);
+bool parser_token_try_promote_to_else(parser_t *parser, int offset);
+bool parser_token_try_promote_to_esac(parser_t *parser, int offset);
 
 /* ============================================================================
  * Error Handling Functions

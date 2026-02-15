@@ -243,6 +243,9 @@ struct exec_t
     func_store_t *functions;
     alias_store_t *aliases;
     trap_store_t *traps;
+
+    /* Tokenizer for persistent state across interactive commands */
+    struct tokenizer_t *tokenizer;
 #if defined(POSIX_API) || defined(UCRT_API)
     fd_table_t *open_fds;
     int next_fd;

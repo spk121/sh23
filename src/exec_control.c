@@ -316,6 +316,10 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
     exec_status_t status = EXEC_OK;
     bool matched = false;
 
+    log_debug("exec_execute_case_clause: word_str='%s', case_items count=%d", 
+              word_str ? word_str : "(null)", 
+              case_items ? case_items->size : 0);
+
     // Try each case item
     if (case_items)
     {
@@ -348,6 +352,10 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
 
                     const char *pattern_str = string_cstr(expanded_pattern);
 
+                    log_debug("exec_execute_case_clause: checking pattern='%s' against word='%s'", 
+                              pattern_str ? pattern_str : "(null)", 
+                              word_str ? word_str : "(null)");
+
                     // Match pattern against word
 #ifdef POSIX_API
                     int match_result = fnmatch(pattern_str, word_str, 0);
@@ -357,6 +365,8 @@ exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node)
 #endif
 
                     string_destroy(&expanded_pattern);
+
+                    log_debug("exec_execute_case_clause: pattern_matches=%d", pattern_matches);
 
                     if (pattern_matches)
                     {

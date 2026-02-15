@@ -23,12 +23,14 @@
 #include "alias_store.h"
 #include "ast.h"
 #include "fd_table.h"
+#include "frame.h"
 #include "func_store.h"
 #include "job_store.h"
 #include "positional_params.h"
 #include "sig_act.h"
 #include "string_list.h"
 #include "string_t.h"
+#include "tokenizer.h"
 #include "trap_store.h"
 #include "variable_store.h"
 
@@ -69,7 +71,9 @@ typedef struct exec_redirection_t
         /* REDIR_TARGET_FILE */
         struct
         {
-            string_t *raw_filename; /* Unexpanded - expand at runtime */
+            bool is_expanded;
+            string_t *filename; /* Expanded filename */
+            token_t *tok; /* Original parts for expansion (if not yet expanded) */
         } file;
 
         /* REDIR_TARGET_FD */
@@ -123,12 +127,12 @@ void exec_redirections_append(exec_redirections_t *redirections, exec_redirectio
  *
  * @return 0 on success, -1 on error
  */
-int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redirections);
+int exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
 
 /**
  * Restore file descriptors to their state before redirections were applied.
  */
-void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirections);
+void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
 
 /* ============================================================================
  * Command Execution
@@ -137,7 +141,7 @@ void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirec
 /**
  * Execute a compound list (sequence of and-or lists).
  */
-exec_result_t exec_compound_list(exec_frame_t *frame, ast_node_t *list);
+exec_result_t exec_compound_list(exec_frame_t *frame, const ast_node_t *list);
 
 /**
  * Execute an and-or list (cmd1 && cmd2 || cmd3).
@@ -160,12 +164,40 @@ exec_result_t exec_simple_command(exec_frame_t *frame, ast_node_t *cmd);
 exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
 
 /**
+ * Execute an if clause.
+ */
+exec_result_t exec_if_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a while or until clause.
+ */
+exec_result_t exec_while_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a for clause.
+ */
+exec_result_t exec_for_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a function definition clause.
+ */
+exec_result_t exec_function_def_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a redirected command.
+ */
+exec_result_t exec_redirected_command(exec_frame_t *frame, ast_node_t *node);
+
+/**
+ * Execute a case clause.
+ */
+exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node);
+
+/**
  * Execute an external command (fork/exec).
  */
 exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,
                                     exec_redirections_t *redirections);
-
-exec_result_t exec_if_clause(exec_frame_t *frame, ast_node_t *node);
 
 /**
  * Execute a builtin command.
@@ -215,5 +247,25 @@ string_t *exec_get_special_param(exec_frame_t *frame, const string_t *name);
  * Check if a name is a special parameter.
  */
 bool exec_is_special_param(const string_t *name);
+
+/* ============================================================================
+ * Stream Execution Core
+ * ============================================================================ */
+
+/**
+ * Core implementation for executing shell commands from a stream.
+ * 
+ * This is the shared implementation used by both exec_execute_stream() and
+ * frame_execute_stream(). The caller provides the tokenizer and manages its
+ * lifecycle:
+ * - exec_execute_stream() uses the executor's persistent tokenizer
+ * - frame_execute_stream() creates a local tokenizer for the duration of the call
+ *
+ * @param frame     The execution frame to use for command execution
+ * @param fp        The input stream to read commands from
+ * @param tokenizer The tokenizer to use for token processing
+ * @return Execution status
+ */
+frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t *tokenizer);
 
 #endif /* EXEC_INTERNAL_H */

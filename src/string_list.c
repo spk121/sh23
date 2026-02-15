@@ -146,6 +146,38 @@ string_list_t *string_list_create_from(const string_list_t *other)
     return lst;
 }
 
+string_list_t *string_list_create_slice(const string_list_t *list, int start, int end)
+{
+    Expects_not_null(list);
+
+    /* Clamp start to valid range */
+    if (start < 0)
+        start = 0;
+    if (start > list->size)
+        start = list->size;
+
+    /* Handle end == -1 meaning "to end of list" */
+    if (end < 0)
+        end = list->size;
+
+    /* Clamp end to valid range */
+    if (end < start)
+        end = start;
+    if (end > list->size)
+        end = list->size;
+
+    /* Create new list and copy the slice */
+    string_list_t *result = string_list_create();
+    for (int i = start; i < end; i++)
+    {
+        const string_t *src_str = list->strings[i];
+        string_t *new_str = string_create_from(src_str);
+        string_list_move_push_back(result, &new_str);
+    }
+
+    return result;
+}
+
 void string_list_destroy(string_list_t **list)
 {
     if (!list || !*list)

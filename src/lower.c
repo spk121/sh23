@@ -3,6 +3,7 @@
 #include "token.h"
 #include "gnode.h"
 #include "string_t.h"
+#include <stdlib.h>
 
 // Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
 #ifdef _MSC_VER
@@ -100,26 +101,74 @@ static ast_node_t *lower_complete_commands(const gnode_t *g)
 {
     Expects_eq(g->type, G_COMPLETE_COMMANDS);
 
+    gnode_list_t *lst = g->data.list;
+
+    /* If there's only one complete_command, check if we can return it directly
+     * or if we need to wrap it */
+    if (lst->size == 1)
+    {
+        const gnode_t *gcmd = lst->nodes[0];
+        Expects_eq(gcmd->type, G_COMPLETE_COMMAND);
+        ast_node_t *result = lower_complete_command(gcmd);
+        if (!result)
+            return NULL;
+
+        /* If the result is already a COMMAND_LIST, return it directly to avoid
+         * nesting. Otherwise, wrap it in a COMMAND_LIST for consistency. */
+        if (result->type == AST_COMMAND_LIST)
+        {
+            return result;
+        }
+        else
+        {
+            /* Wrap non-list results in a COMMAND_LIST */
+            ast_node_t *cl = ast_create_command_list();
+            ast_command_list_node_append_item(cl, result);
+            ast_command_list_node_append_separator(cl, CMD_EXEC_END);
+            return cl;
+        }
+    }
+
+    /* Multiple complete_commands: wrap them all in a COMMAND_LIST */
     ast_node_t *cl = ast_create_command_list();
 
-    gnode_list_t *lst = g->data.list;
     for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *gcmd = lst->nodes[i];
         Expects_eq(gcmd->type, G_COMPLETE_COMMAND);
 
-        /* A complete_command is itself a list, but, we can't flatten here
-         * because we need to preserve the background/sequential separator
-         * over the entire complete_command.
-         */
+        /* A complete_command may return either a COMMAND_LIST or a single command.
+         * If it's a COMMAND_LIST, we need to flatten it here to avoid nesting. */
         ast_node_t *item = lower_complete_command(gcmd);
         if (!item)
         {
             ast_node_destroy(&cl);
             return NULL;
         }
-        ast_command_list_node_append_item(cl, item);
-        ast_command_list_node_append_separator(cl, CMD_EXEC_END);
+
+        if (item->type == AST_COMMAND_LIST)
+        {
+            /* Flatten: take all items from the inner list */
+            ast_node_list_t *inner_items = item->data.command_list.items;
+            cmd_separator_list_t *inner_seps = item->data.command_list.separators;
+            for (int j = 0; j < inner_items->size; j++)
+            {
+                ast_node_t *cmd = inner_items->nodes[j];
+                cmd_separator_t sep = (j < inner_seps->len) ? inner_seps->separators[j] : CMD_EXEC_END;
+                /* Transfer ownership */
+                inner_items->nodes[j] = NULL;
+                ast_command_list_node_append_item(cl, cmd);
+                ast_command_list_node_append_separator(cl, sep);
+            }
+            inner_items->size = 0;
+            ast_node_destroy(&item);
+        }
+        else
+        {
+            /* Single command: add it directly */
+            ast_command_list_node_append_item(cl, item);
+            ast_command_list_node_append_separator(cl, CMD_EXEC_END);
+        }
     }
 
     return cl;
@@ -204,6 +253,20 @@ static ast_node_t *lower_complete_command(const gnode_t *g)
             ast_node_destroy(&list_node);
             return NULL;
         }
+    }
+
+    /* Unwrap single-item command lists with default separators to avoid
+     * unnecessary nesting. This ensures "echo hello" returns a SIMPLE_COMMAND
+     * directly, not wrapped in a COMMAND_LIST. */
+    if (num_cmd_items == 1 && num_separators == 1 &&
+        list_node->data.command_list.separators->separators[0] == CMD_EXEC_END)
+    {
+        ast_node_t *single_item = list_node->data.command_list.items->nodes[0];
+        /* Extract the item and free the wrapper */
+        list_node->data.command_list.items->nodes[0] = NULL;
+        list_node->data.command_list.items->size = 0;
+        ast_node_destroy(&list_node);
+        return single_item;
     }
 
     return list_node;
@@ -669,6 +732,14 @@ static ast_node_t *lower_brace_group(const gnode_t *g)
     Expects_eq(g->type, G_BRACE_GROUP);
     /* multi.a and multi.c should be '{' and '}' */
     const gnode_t *clist = g->data.multi.b;
+
+    /* Handle empty brace group { } */
+    if (!clist)
+    {
+        ast_node_t *empty_list = ast_create_command_list();
+        return ast_create_brace_group(empty_list);
+    }
+
     ast_node_t *body = lower_compound_list(clist);
     if (!body)
         return NULL;
@@ -1048,15 +1119,56 @@ static ast_node_t *lower_case_clause(const gnode_t *g)
 {
     Expects_eq(g->type, G_CASE_CLAUSE);
 
-    const gnode_t *gword = g->data.multi.a;
-    const gnode_t *glist = g->data.multi.b; /* may be NULL */
+    /* The parser creates a nested structure:
+     * - When there's a case_list: wrapper with multi.a = inner node, multi.b = list
+     * - Inner node has: multi.a = case_tok, multi.b = word, multi.c = in_tok, multi.d = esac_tok
+     * - When there's no list: node has multi.a = case_tok, multi.b = word, ... */
 
-    EXPECT_TYPE(gword, G_WORD_NODE);
-    token_t *subject = gword->data.token;
+    const gnode_t *ginner = g->data.multi.a;
+    const gnode_t *glist = g->data.multi.b;
+    const gnode_t *gword = NULL;
+
+    if (ginner && ginner->type == G_CASE_CLAUSE)
+    {
+        /* Nested structure: unwrap to get the word */
+        gword = ginner->data.multi.b;
+    }
+    else if (ginner && ginner->type == G_WORD_NODE)
+    {
+        /* Simple structure (no list, older format): multi.a is already the word.
+         * Actually, this might be the case_tok, and the word is in multi.b */
+        if (g->data.multi.b && g->data.multi.b->type == G_WORD_NODE)
+        {
+            /* multi.a is case_tok, multi.b is word */
+            gword = g->data.multi.b;
+            glist = NULL;
+        }
+        else
+        {
+            /* Fallback - assume multi.a is the word */
+            gword = ginner;
+            glist = NULL;
+        }
+    }
+    else
+    {
+        /* Check if multi.b is the word (no list case from parser) */
+        gword = g->data.multi.b;
+        glist = NULL; /* No list in this case */
+    }
+
+    if (!gword || gword->type != G_WORD_NODE)
+    {
+        log_error("lower_case_clause: cannot find word node");
+        return NULL;
+    }
+    
+    /* Clone the token - gnode tree owns the original, AST needs its own copy */
+    token_t *subject = token_clone(gword->data.token);
 
     ast_node_t *node = ast_create_case_clause(subject);
 
-    if (glist)
+    if (glist && (glist->type == G_CASE_LIST || glist->type == G_CASE_LIST_NS))
     {
         gnode_list_t *lst = glist->data.list;
         for (int i = 0; i < lst->size; i++)
@@ -1098,20 +1210,59 @@ static ast_node_t *lower_case_item(const gnode_t *g)
 {
     Expects_eq(g->type, G_CASE_ITEM);
 
-    const gnode_t *gpatterns = g->data.multi.a;
-    const gnode_t *gbody = g->data.multi.b; /* may be NULL */
-    const gnode_t *gterm = g->data.multi.c; /* terminator node */
+    /* The parser creates a nested wrapper structure:
+     * wrapper.multi.a = inner node (with lparen, patterns, rparen, body)
+     * wrapper.multi.b = dsemi token
+     *
+     * inner node has:
+     * inner.multi.a = lparen (optional, may be NULL)
+     * inner.multi.b = patterns (G_PATTERN_LIST)
+     * inner.multi.c = rparen
+     * inner.multi.d = body (compound_list) */
+     
+    const gnode_t *inner = g->data.multi.a;
+    const gnode_t *dsemi = g->data.multi.b;
+    
+    if (!inner || inner->type != G_CASE_ITEM)
+    {
+        log_error("lower_case_item: expected inner G_CASE_ITEM node");
+        return NULL;
+    }
+    
+    const gnode_t *gpatterns = inner->data.multi.b;  /* patterns */
+    const gnode_t *gbody = inner->data.multi.d;      /* body (compound_list) */
+
+    if (!gpatterns || gpatterns->type != G_PATTERN_LIST)
+    {
+        log_error("lower_case_item: expected G_PATTERN_LIST, got %s", 
+                  gpatterns ? g_node_type_to_cstr(gpatterns->type) : "NULL");
+        return NULL;
+    }
 
     token_list_t *patterns = token_list_from_pattern_list(gpatterns);
+    if (!patterns)
+    {
+        log_error("lower_case_item: failed to create pattern list");
+        return NULL;
+    }
+    
     ast_node_t *body = NULL;
 
-    if (gbody)
+    if (gbody && gbody->type == G_COMPOUND_LIST)
+    {
         body = lower_compound_list(gbody);
+        if (!body)
+        {
+            log_error("lower_case_item: failed to lower compound_list");
+            token_list_destroy(&patterns);
+            return NULL;
+        }
+    }
 
     case_action_t action = CASE_ACTION_NONE;
-    if (gterm)
+    if (dsemi && dsemi->type == G_WORD_NODE)
     {
-        token_type_t t = token_get_type(gterm->data.token);
+        token_type_t t = token_get_type(dsemi->data.token);
         if (t == TOKEN_DSEMI)
             action = CASE_ACTION_BREAK;
         else if (t == TOKEN_SEMIAND)
@@ -1127,14 +1278,20 @@ static ast_node_t *lower_case_item(const gnode_t *g)
  * case_item_ns
  *
  * case_item_ns: pattern_list ')' [compound_list], no terminator
+ *
+ * Parser structure:
+ * node.multi.a = lparen (optional, may be NULL)
+ * node.multi.b = patterns (G_PATTERN_LIST)
+ * node.multi.c = rparen
+ * node.multi.d = body (compound_list)
  * ============================================================================
  */
 static ast_node_t *lower_case_item_ns(const gnode_t *g)
 {
     Expects_eq(g->type, G_CASE_ITEM_NS);
 
-    const gnode_t *gpatterns = g->data.multi.a;
-    const gnode_t *gbody = g->data.multi.b; /* may be NULL */
+    const gnode_t *gpatterns = g->data.multi.b;  /* patterns */
+    const gnode_t *gbody = g->data.multi.d;      /* body (compound_list) */
 
     token_list_t *patterns = token_list_from_pattern_list(gpatterns);
     ast_node_t *body = NULL;
@@ -1270,6 +1427,20 @@ static ast_node_t *lower_io_redirect(const gnode_t *g)
     {
         EXPECT_TYPE(gioloc, G_IO_LOCATION_NODE);
         fd_string = string_create_from(gioloc->data.token->io_location);
+        
+        /* If io_location is numeric and io_number wasn't already set, extract it */
+        if (io_number == -1 && fd_string && string_length(fd_string) > 0)
+        {
+            /* Try to parse as a number */
+            int endpos = 0;
+            int parsed_num = string_atoi_at(fd_string, 0, &endpos);
+            
+            /* Check if entire string was consumed (meaning it's all digits) */
+            if (endpos == (int)string_length(fd_string))
+            {
+                io_number = parsed_num;
+            }
+        }
     }
 
     redirection_type_t rtype;
@@ -1353,14 +1524,24 @@ static token_list_t *token_list_from_wordlist(const gnode_t *g)
     for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *w = lst->nodes[i];
-        EXPECT_TYPE(w, G_WORD_NODE);
+        if (!w || w->type != G_WORD_NODE)
+        {
+            log_error("token_list_from_wordlist: item %d is not G_WORD_NODE (got %s / %d)", 
+                      i, 
+                      w ? g_node_type_to_cstr(w->type) : "NULL",
+                      w ? (int)w->type : -1);
+            token_list_destroy(&tl);
+            return NULL;
+        }
         token_list_append(tl, token_clone(w->data.token));
     }
 
     return tl;
 }
 
-/* pattern_list: list of WORD_NODE in data.list */
+/* pattern_list: list of WORD_NODE in data.list 
+ * Note: The parser includes both pattern words and '|' tokens in the list,
+ * so we skip the '|' tokens (TOKEN_PIPE) when building the pattern list. */
 static token_list_t *token_list_from_pattern_list(const gnode_t *g)
 {
     Expects_eq(g->type, G_PATTERN_LIST);
@@ -1370,7 +1551,14 @@ static token_list_t *token_list_from_pattern_list(const gnode_t *g)
     for (int i = 0; i < lst->size; i++)
     {
         const gnode_t *w = lst->nodes[i];
-        EXPECT_TYPE(w, G_WORD_NODE);
+        if (w->type != G_WORD_NODE)
+            continue;
+        
+        /* Skip '|' pipe tokens - only include actual pattern words */
+        token_type_t t = token_get_type(w->data.token);
+        if (t == TOKEN_PIPE)
+            continue;
+            
         /* Clone token - respect silo boundary between gnode and AST */
         token_list_append(tl, token_clone(w->data.token));
     }

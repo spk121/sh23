@@ -4,10 +4,21 @@
 
 . "$(dirname "$0")/../test_helpers.sh"
 
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
+
 printf "  Testing quoting with pathname expansion...\n"
 
 # Setup test directory
-TEST_DIR="/tmp/glob_test_$$"
+TEST_DIR="$TMPDIR/glob_test_$$"
 mkdir -p "$TEST_DIR"
 touch "$TEST_DIR/file1.txt" "$TEST_DIR/file2.txt" "$TEST_DIR/file3.log"
 touch "$TEST_DIR/a" "$TEST_DIR/b" "$TEST_DIR/ab" "$TEST_DIR/abc"
@@ -157,11 +168,11 @@ cd - >/dev/null
 rm -rf "$TEST_DIR"
 
 # Test nullglob-like behavior (default POSIX: no match = literal)
-mkdir -p /tmp/glob_empty_$$
-cd /tmp/glob_empty_$$
+mkdir -p "$TMPDIR/glob_empty_$$"
+cd "$TMPDIR/glob_empty_$$"
 result=$(echo *.nothing)
 assert_eq "*.nothing" "$result" "unmatched glob returns literal"
 cd - >/dev/null
-rm -rf /tmp/glob_empty_$$
+rm -rf "$TMPDIR/glob_empty_$$"
 
 finish_tests

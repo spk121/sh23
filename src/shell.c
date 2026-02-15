@@ -4,8 +4,9 @@
 #include "shell.h"
 
 #include "exec.h"
-#include "exec_frame.h"
+#include "frame.h"
 #include "logging.h"
+#include "positional_params.h"
 #include "string_t.h"
 #include "xalloc.h"
 
@@ -165,6 +166,13 @@ static sh_status_t shell_execute_script_file(shell_t *sh)
     {
         exec_set_error(sh->executor, "Cannot open file: %s", string_cstr(sh->script_filename));
         return SH_RUNTIME_ERROR;
+    }
+
+    /* Set $0 to the script filename */
+    exec_frame_t *frame = sh->executor->current_frame;
+    if (frame && frame->positional_params)
+    {
+        positional_params_set_arg0(frame->positional_params, sh->script_filename);
     }
 
     exec_status_t status = exec_execute_stream(sh->executor, fp);

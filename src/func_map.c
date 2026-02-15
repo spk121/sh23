@@ -1,3 +1,4 @@
+#define FUNC_MAP_INTERNAL
 #include "func_map.h"
 #include "ast.h"
 #include "exec_redirect.h"
@@ -186,9 +187,8 @@ void func_map_clear(func_map_t *map)
     map->size = 0;
 }
 
-int32_t func_map_insert_or_assign_move(func_map_t *map,
-                                        const string_t *key,
-                                        func_map_mapped_t *mapped)
+int32_t func_map_insert_or_assign_move(func_map_t *map, const string_t *key,
+                                       func_map_mapped_t *mapped)
 {
     if (!map || !key || !mapped)
         return -1;

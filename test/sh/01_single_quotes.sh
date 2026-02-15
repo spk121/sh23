@@ -3,9 +3,12 @@
 # "Enclosing characters in single-quotes shall preserve the literal
 # value of each character within the single-quotes."
 
-echo "$(dirname "$0")/../test_helpers.sh"
 
-. "$(dirname "$0")/../test_helpers.sh"
+# mgsh_dirnamevar SCRIPT_DIR "$0"
+# echo "Script directory: $SCRIPT_DIR"
+# . "${SCRIPT_DIR}/../test_helpers.sh"
+
+. "./test_helpers.sh"
 
 # Set TMPDIR if not already set (for cross-platform support)
 if [ -z "$TMPDIR" ]; then
@@ -44,9 +47,9 @@ nl='
 # Compare by checking the actual newline character is present
 if [ "$nl" = "
 " ]; then
-    printf "    ✓ newline preserved\n"
+    printf "    PASS newline preserved\n"
 else
-    printf "    ✗ newline preserved\n"
+    printf "    FAIL newline preserved\n"
     _test_failures=$((_test_failures + 1))
 fi
 _test_count=$((_test_count + 1))

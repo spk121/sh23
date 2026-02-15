@@ -43,6 +43,12 @@ static ast_node_t* get_first_command(CTest* ctest, ast_node_t* ast)
     ast_node_t* cmd_list = ast;
     if (!cmd_list) return NULL;
 
+    /* Verify this is actually a command list before accessing the union */
+    if (cmd_list->type != AST_COMMAND_LIST) {
+        CTEST_ASSERT_EQ(ctest, cmd_list->type, AST_COMMAND_LIST, "ast is command list");
+        return NULL;
+    }
+
     CTEST_ASSERT_NOT_NULL(ctest, cmd_list->data.command_list.items, "command list has items");
     if (!cmd_list->data.command_list.items) return NULL;
 
@@ -730,6 +736,8 @@ CTEST(test_parser_nested_if)
 
     ast_node_t* outer_if = ast_node_list_get(cmd_list->data.command_list.items, 0);
     CTEST_ASSERT_EQ(ctest, outer_if->type, AST_IF_CLAUSE, "outer if clause");
+    if (outer_if->type != AST_IF_CLAUSE)
+        return;
 
     // Check that then_body contains another if
     ast_node_t* then_body = outer_if->data.if_clause.then_body;
@@ -765,6 +773,8 @@ CTEST(test_parser_nested_loops)
     ast_node_t* while_body = while_loop->data.loop_clause.body;
     CTEST_ASSERT_NOT_NULL(ctest, while_body, "while body exists");
     CTEST_ASSERT_EQ(ctest, while_body->type, AST_COMMAND_LIST, "while body is command list");
+    if (while_body->type != AST_COMMAND_LIST)
+        return;
 
     ast_node_t* for_loop = ast_node_list_get(while_body->data.command_list.items, 0);
     CTEST_ASSERT_EQ(ctest, for_loop->type, AST_FOR_CLAUSE, "for loop inside while");
@@ -889,7 +899,10 @@ int main(void)
 
     int result = ctest_run_suite(suite);
 
+    printf("About to call arena_end...\n");
+    fflush(stdout);
     arena_end();
+    printf("arena_end completed\n");
 
     return result;
 }

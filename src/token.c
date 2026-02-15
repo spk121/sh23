@@ -528,6 +528,11 @@ bool token_try_promote_to_lbrace(token_t *tok)
     return token_try_promote_to_word_str_to_token(tok, "{", TOKEN_LBRACE);
 }
 
+bool token_try_promote_to_if(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "if", TOKEN_IF);
+}
+
 bool token_try_promote_to_elif(token_t *tok)
 {
     return token_try_promote_to_word_str_to_token(tok, "elif", TOKEN_ELIF);
@@ -546,6 +551,26 @@ bool token_try_promote_to_then(token_t *tok)
 bool token_try_promote_to_fi(token_t *tok)
 {
     return token_try_promote_to_word_str_to_token(tok, "fi", TOKEN_FI);
+}
+
+bool token_try_promote_to_while(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "while", TOKEN_WHILE);
+}
+
+bool token_try_promote_to_until(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "until", TOKEN_UNTIL);
+}
+
+bool token_try_promote_to_for(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "for", TOKEN_FOR);
+}
+
+bool token_try_promote_to_case(token_t *tok)
+{
+    return token_try_promote_to_word_str_to_token(tok, "case", TOKEN_CASE);
 }
 
 bool token_try_promote_to_do(token_t *tok)

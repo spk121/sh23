@@ -1,4 +1,5 @@
 #include <string.h>
+#define ALIAS_STORE_INTERNAL
 #include "ctest.h"
 #include "alias.h"
 #include "alias_store.h"

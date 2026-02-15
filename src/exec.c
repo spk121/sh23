@@ -21,7 +21,9 @@
 #include "exec_frame.h"
 #include "exec_redirect.h"
 #include "fd_table.h"
+#include "frame.h"
 #include "func_store.h"
+#include "glob_util.h"
 #include "gnode.h"
 #include "job_store.h"
 #include "lexer.h"
@@ -303,6 +305,9 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     /* RC File handling happens when creating the top frame, aliases is empty for now*/
     e->aliases = alias_store_create();
 
+    /* Tokenizer for persistent state across interactive commands (created lazily) */
+    e->tokenizer = NULL;
+
     e->jobs = job_store_create();
     e->job_control_enabled = cfg->job_control_enabled_set ? cfg->job_control_enabled
                                                           : e->is_interactive;
@@ -458,7 +463,8 @@ void exec_destroy(exec_t **executor_ptr)
     }
 
     /* Clean up executor-owned resources */
-    string_destroy(&e->working_directory);
+    if (e->working_directory)
+        string_destroy(&e->working_directory);
     string_destroy(&e->shell_name);
     string_destroy(&e->error_msg);
 
@@ -476,6 +482,8 @@ void exec_destroy(exec_t **executor_ptr)
         func_store_destroy(&e->functions);
     if (e->aliases)
         alias_store_destroy(&e->aliases);
+    if (e->tokenizer)
+        tokenizer_destroy(&e->tokenizer);
     if (e->traps)
         trap_store_destroy(&e->traps);
     if (e->original_signals)
@@ -613,10 +621,13 @@ void exec_setup_interactive_execute(exec_t *executor)
     Expects_not_null(executor);
 
     /* Ensure we have a top-level frame */
+    if (!executor->top_frame_initialized)
+    {
+        executor->top_frame = exec_frame_create_top_level(executor);
+        executor->top_frame_initialized = true;
+    }
     if (!executor->current_frame)
     {
-        /* Create top-level frame from exec_t init data */
-        executor->top_frame = exec_frame_create_top_level(executor);
         executor->current_frame = executor->top_frame;
     }
 
@@ -790,41 +801,47 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
     return result.status;
 }
 
-exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
+/* ============================================================================
+ * Stream Execution Core
+ * ============================================================================ */
+
+/**
+ * Core implementation for executing shell commands from a stream.
+ * 
+ * This is shared between exec_execute_stream() and frame_execute_stream().
+ * The caller provides the tokenizer and manages its lifecycle.
+ */
+frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t *tokenizer)
 {
-    Expects_not_null(executor);
+    Expects_not_null(frame);
     Expects_not_null(fp);
+    Expects_not_null(tokenizer);
+    Expects_not_null(frame->executor);
+
+    exec_t *executor = frame->executor;
 
     lexer_t *lx = lexer_create();
     if (!lx)
     {
-        exec_set_error(executor, "Failed to create lexer");
-        return EXEC_ERROR;
+        frame_set_error_printf(frame, "Failed to create lexer");
+        return FRAME_EXEC_ERROR;
     }
 
-    tokenizer_t *tokenizer = tokenizer_create(executor->aliases);
-    if (!tokenizer)
-    {
-        lexer_destroy(&lx);
-        exec_set_error(executor, "Failed to create tokenizer");
-        return EXEC_ERROR;
-    }
-
-    exec_status_t final_status = EXEC_OK;
+    frame_exec_status_t final_status = FRAME_EXEC_OK;
 
 #define LINE_BUFFER_SIZE 4096
     char line_buffer[LINE_BUFFER_SIZE];
     int line_num = 0;
-    
+
     /* Token accumulation for incomplete parses */
     token_list_t *accumulated_tokens = NULL;
 
     while (fgets(line_buffer, sizeof(line_buffer), fp) != NULL)
     {
         line_num++;
-        log_debug("exec_execute_stream: Reading line %d: %.*s", line_num, 
+        log_debug("exec_stream_core: Reading line %d: %.*s", line_num, 
                   (int)strcspn(line_buffer, "\r\n"), line_buffer);
-        
+
         lexer_append_input_cstr(lx, line_buffer);
 
         token_list_t *raw_tokens = token_list_create();
@@ -832,44 +849,108 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         if (lex_status == LEX_ERROR)
         {
-            log_debug("exec_execute_stream: Lexer error at line %d", line_num);
-            exec_set_error(executor, "Lexer error: %s",
-                           lx->error_msg ? string_cstr(lx->error_msg) : "unknown");
+            log_debug("exec_stream_core: Lexer error at line %d", line_num);
+            const char *err = lexer_get_error(lx);
+            frame_set_error_printf(frame, "Lexer error: %s",
+                                 err ? err : "unknown");
             token_list_destroy(&raw_tokens);
             if (accumulated_tokens)
                 token_list_destroy(&accumulated_tokens);
-            final_status = EXEC_ERROR;
+            final_status = FRAME_EXEC_ERROR;
             break;
         }
 
         if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
         {
-            log_debug("exec_execute_stream: Lexer incomplete/heredoc at line %d", line_num);
-            token_list_destroy(&raw_tokens);
+            log_debug("exec_stream_core: Lexer incomplete/heredoc at line %d", line_num);
+
+            /* Check if any tokens were produced before the incomplete state.
+             * If so, we should accumulate them for parsing when more input arrives. */
+            if (token_list_size(raw_tokens) > 0)
+            {
+                log_debug("exec_stream_core: Lexer produced %d tokens before becoming incomplete",
+                          token_list_size(raw_tokens));
+
+                /* Process the tokens that were produced */
+                token_list_t *processed_tokens = token_list_create();
+                tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+                token_list_destroy(&raw_tokens);
+
+                if (tok_status == TOK_ERROR)
+                {
+                    log_debug("exec_stream_core: Tokenizer error on incomplete line %d", line_num);
+                    const char *err = tokenizer_get_error(tokenizer);
+                    frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
+                    token_list_destroy(&processed_tokens);
+                    if (accumulated_tokens)
+                        token_list_destroy(&accumulated_tokens);
+                    final_status = FRAME_EXEC_ERROR;
+                    break;
+                }
+
+                if (tok_status == TOK_INCOMPLETE)
+                {
+                    log_debug("exec_stream_core: Tokenizer incomplete (compound command) during lexer incomplete at line %d", line_num);
+                    /* Tokens are buffered in tokenizer, continue to next line */
+                    token_list_destroy(&processed_tokens);
+                    continue;
+                }
+
+                /* Accumulate these tokens for when the lexer completes */
+                if (accumulated_tokens == NULL)
+                {
+                    accumulated_tokens = processed_tokens;
+                }
+                else
+                {
+                    if (token_list_append_list_move(accumulated_tokens, &processed_tokens) != 0)
+                    {
+                        log_debug("exec_stream_core: Failed to append incomplete tokens");
+                        token_list_destroy(&accumulated_tokens);
+                        final_status = FRAME_EXEC_ERROR;
+                        break;
+                    }
+                }
+            }
+            else
+            {
+                token_list_destroy(&raw_tokens);
+            }
             continue;
         }
 
-        log_debug("exec_execute_stream: Lexer produced %d raw tokens at line %d", 
+        log_debug("exec_stream_core: Lexer produced %d raw tokens at line %d", 
                   token_list_size(raw_tokens), line_num);
 
         token_list_t *processed_tokens = token_list_create();
         tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
         token_list_destroy(&raw_tokens);
 
-        if (tok_status != TOK_OK)
+        if (tok_status == TOK_ERROR)
         {
-            log_debug("exec_execute_stream: Tokenizer error at line %d", line_num);
-            exec_set_error(executor, "Tokenizer error");
+            log_debug("exec_stream_core: Tokenizer error at line %d", line_num);
+            const char *err = tokenizer_get_error(tokenizer);
+            frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
             token_list_destroy(&processed_tokens);
             if (accumulated_tokens)
                 token_list_destroy(&accumulated_tokens);
-            final_status = EXEC_ERROR;
+            final_status = FRAME_EXEC_ERROR;
             break;
+        }
+
+        if (tok_status == TOK_INCOMPLETE)
+        {
+            log_debug("exec_stream_core: Tokenizer incomplete (compound command) at line %d, tokens buffered", line_num);
+            /* Tokenizer is buffering tokens for an incomplete compound command.
+             * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
+             * Continue reading more input. */
+            token_list_destroy(&processed_tokens);
+            continue;
         }
 
         if (token_list_size(processed_tokens) == 0)
         {
-            log_debug("exec_execute_stream: No tokens after processing at line %d", line_num);
+            log_debug("exec_stream_core: No tokens after processing at line %d", line_num);
             token_list_destroy(&processed_tokens);
             continue;
         }
@@ -877,28 +958,28 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         /* Accumulate tokens if we had an incomplete parse previously */
         if (accumulated_tokens)
         {
-            log_debug("exec_execute_stream: Appending %d new tokens to %d accumulated tokens",
+            log_debug("exec_stream_core: Appending %d new tokens to %d accumulated tokens",
                       token_list_size(processed_tokens), token_list_size(accumulated_tokens));
-            
+
             /* Move all tokens from processed_tokens to accumulated_tokens */
             if (token_list_append_list_move(accumulated_tokens, &processed_tokens) != 0)
             {
-                log_debug("exec_execute_stream: Failed to append tokens");
+                log_debug("exec_stream_core: Failed to append tokens");
                 token_list_destroy(&accumulated_tokens);
-                final_status = EXEC_ERROR;
+                final_status = FRAME_EXEC_ERROR;
                 break;
             }
-            
+
             /* Use the accumulated list for parsing */
             processed_tokens = accumulated_tokens;
             accumulated_tokens = NULL;
         }
 
-        log_debug("exec_execute_stream: Tokenizer produced %d processed tokens at line %d",
+        log_debug("exec_stream_core: Tokenizer produced %d processed tokens at line %d",
                   token_list_size(processed_tokens), line_num);
-        
-        /* Debug: print first few tokens */
-        for (int i = 0; i < token_list_size(processed_tokens) && i < 10; i++)
+
+        /* Debug: print all tokens */
+        for (int i = 0; i < token_list_size(processed_tokens); i++)
         {
             const token_t *t = token_list_get(processed_tokens, i);
             log_debug("  Token %d: type=%d, text='%s'", i, token_get_type(t),
@@ -907,17 +988,17 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
         gnode_t *gnode = NULL;
-        
-        log_debug("exec_execute_stream: Starting parse at line %d", line_num);
+
+        log_debug("exec_stream_core: Starting parse at line %d", line_num);
         parse_status_t parse_status = parser_parse_program(parser, &gnode);
 
         if (parse_status == PARSE_ERROR)
         {
-            log_debug("exec_execute_stream: Parse error at line %d", line_num);
+            log_debug("exec_stream_core: Parse error at line %d", line_num);
             const char *err = parser_get_error(parser);
             if (err && err[0])
             {
-                exec_set_error(executor, "Parse error at line %d: %s", line_num, err);
+                frame_set_error_printf(frame, "Parse error at line %d: %s", line_num, err);
             }
             else
             {
@@ -926,32 +1007,32 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
                 if (curr_tok)
                 {
                     string_t *tok_str = token_to_string(curr_tok);
-                    log_debug("exec_execute_stream: Current token: type=%d, line=%d, col=%d, text='%s'",
+                    log_debug("exec_stream_core: Current token: type=%d, line=%d, col=%d, text='%s'",
                               token_get_type(curr_tok),
                               token_get_first_line(curr_tok),
                               token_get_first_column(curr_tok),
                               string_cstr(tok_str));
-                    exec_set_error(executor, "Parse error at line %d, column %d near '%s'",
-                                   token_get_first_line(curr_tok),
-                                   token_get_first_column(curr_tok),
-                                   string_cstr(tok_str));
+                    frame_set_error_printf(frame, "Parse error at line %d, column %d near '%s'",
+                                         token_get_first_line(curr_tok),
+                                         token_get_first_column(curr_tok),
+                                         string_cstr(tok_str));
                     string_destroy(&tok_str);
                     token_destroy(&curr_tok);
                 }
                 else
                 {
-                    log_debug("exec_execute_stream: No current token available");
-                    exec_set_error(executor, "Parse error at line %d: no error details available", line_num);
+                    log_debug("exec_stream_core: No current token available");
+                    frame_set_error_printf(frame, "Parse error at line %d: no error details available", line_num);
                 }
             }
             parser_destroy(&parser);
-            final_status = EXEC_ERROR;
+            final_status = FRAME_EXEC_ERROR;
             break;
         }
 
         if (parse_status == PARSE_INCOMPLETE)
         {
-            log_debug("exec_execute_stream: Parse incomplete at line %d, accumulating tokens", line_num);
+            log_debug("exec_stream_core: Parse incomplete at line %d, accumulating tokens", line_num);
             if (gnode)
                 g_node_destroy(&gnode);
             /* Clone token list from parser - respect silo boundary */
@@ -962,7 +1043,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
 
         if (parse_status == PARSE_EMPTY || !gnode)
         {
-            log_debug("exec_execute_stream: Parse empty at line %d", line_num);
+            log_debug("exec_stream_core: Parse empty at line %d", line_num);
             parser_destroy(&parser);
             continue;
         }
@@ -974,19 +1055,31 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         if (!ast)
             continue;
 
-        exec_status_t exec_status = exec_execute(executor, ast);
+        /* Execute via the dispatch function */
+        exec_result_t result = exec_execute_dispatch(frame, ast);
+
+        /* Update frame's exit status */
+        if (result.has_exit_status)
+        {
+            frame->last_exit_status = result.exit_status;
+            executor->last_exit_status = result.exit_status;
+            executor->last_exit_status_set = true;
+        }
+
         ast_node_destroy(&ast);
 
-        if (exec_status != EXEC_OK)
+        if (result.status != EXEC_OK)
         {
-            final_status = exec_status;
-            if (exec_status == EXEC_ERROR)
+            final_status = (result.status == EXEC_ERROR) ? FRAME_EXEC_ERROR :
+                          (result.status == EXEC_NOT_IMPL) ? FRAME_EXEC_NOT_IMPL : 
+                          FRAME_EXEC_OK;
+            if (result.status == EXEC_ERROR)
                 break;
         }
 
         /* Only reset lexer after successful execution */
         lexer_reset(lx);
-        
+
         /* Clear accumulated tokens after successful execution */
         if (accumulated_tokens)
         {
@@ -1001,10 +1094,56 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         token_list_destroy(&accumulated_tokens);
     }
 
-    tokenizer_destroy(&tokenizer);
     lexer_destroy(&lx);
 
     return final_status;
+}
+
+exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
+{
+    Expects_not_null(executor);
+    Expects_not_null(fp);
+
+    /* Ensure we have a top-level frame */
+    if (!executor->top_frame_initialized)
+    {
+        executor->top_frame = exec_frame_create_top_level(executor);
+        executor->top_frame_initialized = true;
+    }
+    if (!executor->current_frame)
+    {
+        executor->current_frame = executor->top_frame;
+    }
+
+    /* Use the executor's persistent tokenizer (create if needed) */
+    if (!executor->tokenizer)
+    {
+        executor->tokenizer = tokenizer_create(executor->aliases);
+        if (!executor->tokenizer)
+        {
+            exec_set_error(executor, "Failed to create tokenizer");
+            return EXEC_ERROR;
+        }
+    }
+
+    frame_exec_status_t status = exec_stream_core(
+        executor->current_frame,
+        fp,
+        executor->tokenizer
+    );
+
+    /* Map frame_exec_status_t to exec_status_t */
+    switch (status)
+    {
+    case FRAME_EXEC_OK:
+        return EXEC_OK;
+    case FRAME_EXEC_ERROR:
+        return EXEC_ERROR;
+    case FRAME_EXEC_NOT_IMPL:
+        return EXEC_NOT_IMPL;
+    default:
+        return EXEC_OK;
+    }
 }
 
 /* ============================================================================
@@ -1058,10 +1197,10 @@ void exec_reap_background_jobs(exec_t *executor, bool notify)
             if (state == JOB_DONE || state == JOB_TERMINATED)
                 any_completed = true;
         }
-        else if (!WaitForSingleObject(h, 0))
+        else if (!WaitForSingleObject((HANDLE)h, (DWORD)0))
         {
             DWORD exit_code;
-            GetExitCodeProcess(h, &exit_code);
+            GetExitCodeProcess((HANDLE)h, &exit_code);
             job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
 
             // Check if job is now complete
@@ -1220,7 +1359,7 @@ bool ast_traverse(const ast_node_t *root, ast_visitor_fn visitor, void *user_dat
     return ast_traverse_helper(root, visitor, user_data);
 }
 
-exec_result_t exec_compound_list(exec_frame_t* frame, ast_node_t* list)
+exec_result_t exec_compound_list(exec_frame_t* frame, const ast_node_t* list)
 {
     Expects_not_null(frame);
     Expects_not_null(list);
@@ -2104,8 +2243,9 @@ exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node)
         return result; // No word, exit status 0
     }
 
-    // Expand the word (for now, just convert to string - full expansion would be needed)
-    string_t *word = token_to_string(word_token);
+    // Expand the word
+    string_list_t *word_list = exec_expand_word(frame->executor, word_token);
+    string_t *word = string_list_join_move(&word_list, " ");
     if (!word) {
         exec_set_error(frame->executor, "Failed to expand case word");
         result.status = EXEC_ERROR;
@@ -2135,16 +2275,22 @@ exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node)
 
         for (int j = 0; j < token_list_size(patterns); j++) {
             const token_t *pattern_token = token_list_get(patterns, j);
-            string_t *pattern = token_to_string(pattern_token);
-            
-            // Pattern matching (for now, simple string equality - full impl would use fnmatch)
+
+            // Expand the pattern
+            string_list_t *pattern_list = exec_expand_word(frame->executor, pattern_token);
+            string_t *pattern = string_list_join_move(&pattern_list, " ");
+            if (!pattern) {
+                continue;
+            }
+
+            // Pattern matching
             bool pattern_matches = false;
 #ifdef POSIX_API
             // Use fnmatch for proper pattern matching
             pattern_matches = (fnmatch(string_cstr(pattern), string_cstr(word), 0) == 0);
 #else
-            // Fallback to simple string comparison
-            pattern_matches = string_eq(pattern, word);
+            // Use glob_util_match for pattern matching on Windows
+            pattern_matches = glob_util_match(string_cstr(pattern), string_cstr(word), 0);
 #endif
             
             string_destroy(&pattern);

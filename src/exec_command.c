@@ -130,11 +130,6 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_frame_t *
         {
             const token_t *tok = token_list_get(assignments, i);
             string_t *value = expand_assignment_value(frame, tok);
-            if (!value)
-            {
-                variable_store_destroy(&temp);
-                return NULL;
-            }
 
             var_store_error_t err =
                 variable_store_add(temp, tok->assignment_name, value, true, false);
@@ -142,8 +137,8 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_frame_t *
 
             if (err != VAR_STORE_ERROR_NONE)
             {
-                variable_store_destroy(&temp);
-                return NULL;
+                log_warn("Failed to add variable '%s' to temporary variable store",
+                         string_cstr(tok->assignment_name));
             }
         }
     }
@@ -248,28 +243,11 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
     }
 
     /* Build temporary variable store. The assignments at the beginning of a simple command
-    * and the positional parameters. */
-    variable_store_t *old_vars = frame->variables;
-    variable_store_t *temp_vars =
-        exec_build_temp_store_for_simple_command(frame, node);
-    if (!temp_vars)
-    {
-        exec_set_error(executor, "failed to build temporary variable store");
-        status = EXEC_ERROR;
-        goto out_base_exp;
-    }
-
-#if 0
-    /* Check to make sure that old_vars and temp_vars have the same contents, but, don't
-     * share any pointers */
-    if( variable_store_debug_verify_independent(old_vars, temp_vars) )
-    {
-        log_debug("After creation: Temporary variable store is independent from old store");
-    }
-#endif
-
+     * and the positional parameters. */
     /* Since these varible changes shouldn't survive after the command execution, we'll swap in
      * the temporary variable store to use with the expansion step */
+    frame->saved_variables = frame->variables;
+    variable_store_t *temp_vars = exec_build_temp_store_for_simple_command(frame, node);
     frame->variables = temp_vars;
     temp_vars = NULL;
 
@@ -361,7 +339,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         /* Right now, the frame is still using the temp variable store, but we need to
          * apply them to the permanent variable store when they happen in the context of
          * special built-ins. */
-        exec_status_t assign_status = exec_apply_prefix_assignments(frame, old_vars, node);
+        exec_status_t assign_status = exec_apply_prefix_assignments(frame, frame->saved_variables, node);
         if (assign_status != EXEC_OK)
         {
             string_list_destroy(&expanded_words);
@@ -395,12 +373,18 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         const exec_redirections_t *func_redirs = func_store_get_redirections(frame->functions, func_name_str);
         string_destroy(&func_name_str);
 
+        /* Create argument list without the function name (which is at index 0).
+         * In shell semantics, when calling foo arg1 arg2, the function receives
+         * arg1 as $1, arg2 as $2, etc. The function name is NOT passed as an argument. */
+        string_list_t *func_args = string_list_create_slice(expanded_words, 1, -1);
+
         /* Execute function in a new function frame with argument scope isolation */
         exec_result_t func_result = exec_function(frame,
                                                    func_body,
-                                                   expanded_words,
-                                                   (exec_redirections_t *)func_redirs);
+                                                   func_args,
+                                                   func_redirs);
 
+        string_list_destroy(&func_args);
         cmd_exit_status = func_result.exit_status;
         goto done_execution;
     }
@@ -503,11 +487,21 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         intptr_t spawn_result = 0;
         if (frame->policy->classification.is_background)
         {
+            log_debug("Preparing to execute external background command: %s", cmd_name);
+            for (int i = 0; i < string_list_size(expanded_words); i++)
+            {
+                log_debug("\targv%d: %s", i, argv[i]);
+            }
             spawn_result = _spawnvpe(_P_NOWAIT, cmd_name, (const char *const *)argv,
                                      (const char *const *)envp);
         }
         else
         {
+            log_debug("Preparing to execute external command: %s", cmd_name);
+            for (int i = 0; i < string_list_size(expanded_words); i++)
+            {
+                log_debug("\targv%d: %s", i, argv[i]);
+            }
             spawn_result =
                 _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
         }
@@ -595,9 +589,9 @@ done_execution:
     frame->last_exit_status = cmd_exit_status;
 
 #if 0
-    /* Check to make sure that old_vars and temp_vars have the same contents, but, don't
+    /* Check to make sure that old vars and temp vars have the same contents, but, don't
      * share any pointers */
-    if (variable_store_debug_verify_independent(old_vars, frame->variables))
+    if (variable_store_debug_verify_independent(frame->saved_variables, frame->variables))
     {
         log_debug("After execution: Temporary variable store is independent from old store");
     }
@@ -640,9 +634,13 @@ out_restore_redirs:
         status = EXEC_OK;
 
 out_exp_temp:
-    /* Restore the permanent variable store */
-    variable_store_destroy(&frame->variables);
-    frame->variables = old_vars;
+    /* Restore the persistent variable store */
+    if (frame->saved_variables)
+    {
+        variable_store_destroy(&frame->variables);
+        frame->variables = frame->saved_variables;
+        frame->saved_variables = NULL;
+    }
 
 out_base_exp:
     return status;

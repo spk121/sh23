@@ -383,16 +383,21 @@ bool token_try_promote_to_bang(token_t *tok);
 
 bool token_try_promote_to_lbrace(token_t *tok);
 
+bool token_try_promote_to_bang(token_t *tok);
+bool token_try_promote_to_lbrace(token_t *tok);
+bool token_try_promote_to_if(token_t *tok);
 bool token_try_promote_to_elif(token_t *tok);
 bool token_try_promote_to_else(token_t *tok);
 bool token_try_promote_to_then(token_t *tok);
 bool token_try_promote_to_fi(token_t *tok);
-bool token_try_promote_to_else(token_t *tok);
+bool token_try_promote_to_while(token_t *tok);
+bool token_try_promote_to_until(token_t *tok);
+bool token_try_promote_to_for(token_t *tok);
+bool token_try_promote_to_case(token_t *tok);
 bool token_try_promote_to_rbrace(token_t *tok);
 bool token_try_promote_to_do(token_t *tok);
 bool token_try_promote_to_done(token_t *tok);
 bool token_try_promote_to_esac(token_t *tok);
-bool token_try_promote_to_rbrace(token_t *tok);
 bool token_try_promote_to_in(token_t *tok);
 
 /* ============================================================================

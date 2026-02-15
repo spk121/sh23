@@ -177,7 +177,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame,
 
         case REDIR_TARGET_FILE: {
             string_t *fname_str =
-                exec_expand_redirection_target(executor, r->data.redirection.target);
+                expand_redirection_target(frame, r->data.redirection.target);
             const char *fname = string_cstr(fname_str);
             int flags = 0;
             mode_t mode = 0666;
@@ -345,12 +345,9 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
     exec_t *executor = frame->executor;
     int count = (int)redirs->count;
     saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
-    if (!saved)
-    {
-        exec_set_error(executor, "Out of memory");
-        return EXEC_ERROR;
-    }
 
+    fflush(stdout);
+    fflush(stderr);
     int saved_i = 0;
 
     for (int i = 0; i < count; i++)
@@ -382,13 +379,23 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
         switch (opk)
         {
         case REDIR_TARGET_FILE: {
-            // Use the pre-prepared filename (already extracted from AST at conversion time)
-            const char *fname = string_cstr(r->target.file.raw_filename);
-            if (!fname)
+            string_t *expanded_target = NULL;
+            if (!r->target.file.is_expanded)
             {
-                exec_set_error(executor, "Failed to get redirection target");
-                xfree(saved);
-                return EXEC_ERROR;
+                expanded_target = expand_redirection_target(frame, r->target.file.tok);
+            }
+            else
+            {
+                expanded_target = string_create_from(r->target.file.filename);
+            }
+                
+            const char *fname = string_cstr(expanded_target);
+
+            /* On Windows, translate /dev/null to NULL.
+             * FIXME: do I need to handle MinGW */
+            if (strcmp(fname, "/dev/null") == 0 || strcmp(fname, "\\dev\\null") == 0)
+            {
+                fname = "NUL";
             }
 
             // Determine flags and permissions for _open
@@ -417,6 +424,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
                 xfree(saved);
+                string_destroy(&expanded_target);
                 return EXEC_ERROR;
             }
 
@@ -428,6 +436,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
                 xfree(saved);
+                string_destroy(&expanded_target);
                 return EXEC_ERROR;
             }
 
@@ -439,11 +448,13 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
                 for (int j = 0; j < saved_i; j++)
                     _close(saved[j].backup_fd);
                 xfree(saved);
+                string_destroy(&expanded_target);
                 return EXEC_ERROR;
             }
 
             // Close the temporary file descriptor
             _close(newfd);
+            string_destroy(&expanded_target);
             break;
         }
 
@@ -668,8 +679,10 @@ void exec_redirections_destroy(exec_redirections_t **redirections)
             switch (redir->target_kind)
             {
                 case REDIR_TARGET_FILE:
-                    if (redir->target.file.raw_filename)
-                        string_destroy(&redir->target.file.raw_filename);
+                    if (redir->target.file.filename)
+                        string_destroy(&redir->target.file.filename);
+                    if (redir->target.file.tok)
+                        token_destroy(&redir->target.file.tok);
                     break;
                 case REDIR_TARGET_FD:
                     if (redir->target.fd.fd_expression)
@@ -770,13 +783,21 @@ exec_redirections_t* exec_redirections_clone(const exec_redirections_t* redirs)
         switch (src->target_kind)
         {
             case REDIR_TARGET_FILE:
-                if (src->target.file.raw_filename)
+                if (src->target.file.filename)
                 {
-                    dst->target.file.raw_filename = string_create_from(src->target.file.raw_filename);
+                    dst->target.file.filename = string_create_from(src->target.file.filename);
                 }
                 else
                 {
-                    dst->target.file.raw_filename = NULL;
+                    dst->target.file.filename = NULL;
+                }
+                if (src->target.file.tok)
+                    {
+                    dst->target.file.tok = token_clone(src->target.file.tok);
+                }
+                else
+                {
+                    dst->target.file.tok = NULL;
                 }
                 break;
 
@@ -831,7 +852,7 @@ exec_redirections_t* exec_redirections_clone(const exec_redirections_t* redirs)
  * @param redirections The runtime redirection structure
  * @return 0 on success, -1 on error
  */
-int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redirections)
+int exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
 {
     if (!frame || !redirections)
         return 0; // No redirections or frame is NULL - this is OK
@@ -869,7 +890,7 @@ int exec_frame_apply_redirections(exec_frame_t *frame, exec_redirections_t *redi
  * @param frame The execution frame
  * @param redirections The runtime redirection structure (for context, not strictly needed)
  */
-void exec_restore_redirections(exec_frame_t *frame, exec_redirections_t *redirections)
+void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
 {
     (void)frame;
     (void)redirections;
@@ -947,12 +968,38 @@ exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame, const ast_n
                  */
                 if (ast_target && ast_target->parts && ast_target->parts->size > 0)
                 {
-                    /* This is a word token with parts - we'll need to expand at runtime */
-                    /* For now, just copy the first part if it's a literal */
-                    part_t *part = ast_target->parts->parts[0];
-                    if (part && part->type == PART_LITERAL && part->text)
+                    /* If all the parts are PART_LITERAL, let's construct the target.file.filename now. */
+                    bool all_literal = true;
+                    for (int p = 0; p < ast_target->parts->size; p++)
                     {
-                        runtime_redir->target.file.raw_filename = string_create_from(part->text);
+                        part_t *part = ast_target->parts->parts[p];
+                        if (!part || part->type != PART_LITERAL || !part->text)
+                        {
+                            /* Not a simple literal - we'll need to expand at runtime */
+                            all_literal = false;
+                            break;
+                        }
+                    }
+
+                    if (all_literal)
+                    {
+                        /* All parts are literal - construct the filename now */
+                        string_t *filename = string_create();
+                        for (int p = 0; p < ast_target->parts->size; p++)
+                        {
+                            part_t *part = ast_target->parts->parts[p];
+                            if (part && part->type == PART_LITERAL && part->text)
+                            {
+                                string_append(filename, part->text);
+                            }
+                        }
+                        runtime_redir->target.file.filename = filename;
+                        runtime_redir->target.file.is_expanded = true;
+                    }
+                    else
+                    {
+                        runtime_redir->target.file.tok = token_clone(ast_target);
+                        runtime_redir->target.file.is_expanded = false;
                     }
                 }
                 break;

@@ -4,6 +4,17 @@
 
 . "$(dirname "$0")/../test_helpers.sh"
 
+# Set TMPDIR if not already set (for cross-platform support)
+if [ -z "$TMPDIR" ]; then
+    if [ -n "$TEMP" ]; then
+        TMPDIR="$TEMP"
+    elif [ -n "$TMP" ]; then
+        TMPDIR="$TMP"
+    else
+        TMPDIR="/tmp"
+    fi
+fi
+
 printf "  Testing quoting with command substitution...\n"
 
 # Single quotes prevent command substitution
@@ -104,9 +115,9 @@ result=$(echo "hello world" | tr ' ' '_')
 assert_eq "hello_world" "$result" "command sub with pipe"
 
 # Command substitution with redirections
-echo "file content" > /tmp/cmdsub_test_$$
-result=$(cat < /tmp/cmdsub_test_$$)
+echo "file content" > "$TMPDIR/cmdsub_test_$$"
+result=$(cat < "$TMPDIR/cmdsub_test_$$")
 assert_eq "file content" "$result" "command sub with redirection"
-rm -f /tmp/cmdsub_test_$$
+rm -f "$TMPDIR/cmdsub_test_$$"
 
 finish_tests

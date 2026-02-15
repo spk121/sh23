@@ -21,7 +21,9 @@
  * - Parameter expansions ${...} can be nested
  */
 
+#define LEXER_INTERNAL
 #include "lexer_arith_exp.h"
+
 #include "lexer.h"
 #include "logging.h"
 #include "token.h"

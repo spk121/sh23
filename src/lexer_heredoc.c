@@ -14,13 +14,14 @@
  * - Within unquoted heredoc, backslash escapes: $ ` \ newline
  * - Double quotes are literal except within $(), ``, or ${}
  */
-
-#include "lexer_heredoc.h"
-#include "lexer.h"
-#include "token.h"
 #include <ctype.h>
 #include <string.h>
 
+#define LEXER_INTERNAL
+#include "lexer_heredoc.h"
+
+#include "lexer.h"
+#include "token.h"
 static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bool strip_tabs);
 
 #if 0

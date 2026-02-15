@@ -1,6 +1,11 @@
 #ifndef ALIAS_H
 #define ALIAS_H
 
+#ifndef ALIAS_STORE_INTERNAL
+#error                                                                                             \
+    "alias.h is an internal header. Only alias_store.c, alias.c, and alias_array.c may include it."
+#endif
+
 #include "logging.h"
 #include "string_t.h"
 

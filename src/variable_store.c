@@ -1,7 +1,8 @@
 #include <ctype.h>
+#define VARIABLE_MAP_INTERNAL
 #include "logging.h"
-#include "string_t.h"
 #include "string_list.h"
+#include "string_t.h"
 #include "variable_map.h"
 #include "variable_store.h"
 #include "xalloc.h"
@@ -103,6 +104,21 @@ static void free_cached_envp(variable_store_t *store)
         xfree(store->cached_envp);
         store->cached_envp = NULL;
     }
+}
+
+/**
+ * Internal helper: look up a variable_map_entry_t by name.
+ * This is for use within variable_store.c only. The variable_map_entry_t
+ * type is internal and not exposed in the public header.
+ */
+static const variable_map_entry_t *find_entry(const variable_store_t *store, const string_t *name)
+{
+    int32_t pos = variable_map_find(store->map, name);
+    if (pos == -1)
+    {
+        return NULL;
+    }
+    return &store->map->entries[pos];
 }
 
 variable_store_t *variable_store_create(void)
@@ -216,7 +232,7 @@ variable_store_t *variable_store_create_from_envp(char **envp)
     return store;
 }
 
-variable_store_t* variable_store_clone(const variable_store_t* src)
+variable_store_t *variable_store_clone(const variable_store_t *src)
 {
     Expects_not_null(src);
     variable_store_t *clone = variable_store_create();
@@ -224,14 +240,14 @@ variable_store_t* variable_store_clone(const variable_store_t* src)
     while (!variable_map_iterator_equal(it, variable_map_end(src->map)))
     {
         const variable_map_entry_t *entry = variable_map_iterator_deref(it);
-        variable_store_add(clone, entry->key, entry->mapped.value,
-                           entry->mapped.exported, entry->mapped.read_only);
+        variable_store_add(clone, entry->key, entry->mapped.value, entry->mapped.exported,
+                           entry->mapped.read_only);
         variable_map_iterator_increment(&it);
     }
     return clone;
 }
 
-variable_store_t* variable_store_clone_exported(const variable_store_t* src)
+variable_store_t *variable_store_clone_exported(const variable_store_t *src)
 {
     Expects_not_null(src);
     variable_store_t *clone = variable_store_create();
@@ -242,8 +258,8 @@ variable_store_t* variable_store_clone_exported(const variable_store_t* src)
         const variable_map_entry_t *entry = variable_map_iterator_deref(it);
         if (entry->mapped.exported)
         {
-            variable_store_add(clone, entry->key, entry->mapped.value,
-                               entry->mapped.exported, entry->mapped.read_only);
+            variable_store_add(clone, entry->key, entry->mapped.value, entry->mapped.exported,
+                               entry->mapped.read_only);
         }
         variable_map_iterator_increment(&it);
     }
@@ -296,7 +312,7 @@ var_store_error_t variable_store_add(variable_store_t *store, const string_t *na
     }
 
     // Check if variable exists and is read-only
-    const variable_map_entry_t *existing = variable_store_get_variable(store, name);
+    const variable_map_entry_t *existing = find_entry(store, name);
     if (existing && existing->mapped.read_only)
     {
         return VAR_STORE_ERROR_READ_ONLY;
@@ -402,31 +418,39 @@ bool variable_store_has_name_cstr(const variable_store_t *store, const char *nam
     return result;
 }
 
-
-const variable_map_entry_t *variable_store_get_variable(const variable_store_t *store,
-                                                        const string_t *name)
+bool variable_store_get_variable(const variable_store_t *store, const string_t *name,
+                                 variable_view_t *out_view)
 {
     Expects_not_null(store);
     Expects_not_null(name);
+    Expects_not_null(out_view);
 
-    int32_t pos = variable_map_find(store->map, name);
-    if (pos == -1)
+    const variable_map_entry_t *entry = find_entry(store, name);
+    if (!entry)
     {
-        return NULL;
+        out_view->name = NULL;
+        out_view->value = NULL;
+        out_view->exported = false;
+        out_view->read_only = false;
+        return false;
     }
 
-    return &store->map->entries[pos];
+    out_view->name = entry->key;
+    out_view->value = entry->mapped.value;
+    out_view->exported = entry->mapped.exported;
+    out_view->read_only = entry->mapped.read_only;
+    return true;
 }
 
-
-const variable_map_entry_t *variable_store_get_variable_cstr(const variable_store_t *store,
-                                                             const char *name)
+bool variable_store_get_variable_cstr(const variable_store_t *store, const char *name,
+                                      variable_view_t *out_view)
 {
     Expects_not_null(store);
     Expects_not_null(name);
+    Expects_not_null(out_view);
 
     string_t *name_str = string_create_from_cstr(name);
-    const variable_map_entry_t *result = variable_store_get_variable(store, name_str);
+    bool result = variable_store_get_variable(store, name_str, out_view);
     string_destroy(&name_str);
     return result;
 }
@@ -435,7 +459,7 @@ const string_t *variable_store_get_value(const variable_store_t *store, const st
 {
     Expects_not_null(store);
     Expects_not_null(name);
-    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    const variable_map_entry_t *entry = find_entry(store, name);
     return entry ? entry->mapped.value : NULL;
 }
 
@@ -456,7 +480,7 @@ bool variable_store_is_read_only(const variable_store_t *store, const string_t *
 {
     Expects_not_null(store);
     Expects_not_null(name);
-    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    const variable_map_entry_t *entry = find_entry(store, name);
     return entry ? entry->mapped.read_only : false;
 }
 
@@ -475,7 +499,7 @@ bool variable_store_is_exported(const variable_store_t *store, const string_t *n
 {
     Expects_not_null(store);
     Expects_not_null(name);
-    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    const variable_map_entry_t *entry = find_entry(store, name);
     return entry ? entry->mapped.exported : false;
 }
 
@@ -566,7 +590,7 @@ int32_t variable_store_get_value_length(const variable_store_t *store, const str
 {
     Expects_not_null(store);
     Expects_not_null(name);
-    const variable_map_entry_t *entry = variable_store_get_variable(store, name);
+    const variable_map_entry_t *entry = find_entry(store, name);
     if (!entry)
     {
         return -1;
@@ -780,7 +804,6 @@ cleanup:
     return err;
 }
 
-
 static void dbg_print_export(const string_t *var, const string_t *val, bool exported,
                              bool read_only, void *user_data)
 {
@@ -981,7 +1004,8 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
         int32_t pos_b = variable_map_find(store_b->map, key_a);
         if (pos_b == -1)
         {
-            log_error("variable_store_debug_verify_independent: key '%s' exists in store_a but not in store_b",
+            log_error("variable_store_debug_verify_independent: key '%s' exists in store_a but not "
+                      "in store_b",
                       string_cstr(key_a));
             all_ok = false;
             continue;
@@ -1001,17 +1025,19 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
         // 3. Check that keys don't have identical string_t pointers
         if (key_a == key_b)
         {
-            log_error("variable_store_debug_verify_independent: key '%s' has identical string_t pointer in both stores (%p)",
-                      string_cstr(key_a), (void*)key_a);
+            log_error("variable_store_debug_verify_independent: key '%s' has identical string_t "
+                      "pointer in both stores (%p)",
+                      string_cstr(key_a), (void *)key_a);
             all_ok = false;
         }
         else
         {
             // Check that keys don't have identical data pointers
-            if (string_data(key_a) == string_data(key_b))
+            if (string_cstr(key_a) == string_cstr(key_b))
             {
-                log_error("variable_store_debug_verify_independent: key '%s' has identical data pointer in both stores (%p)",
-                          string_cstr(key_a), (void*)string_data(key_a));
+                log_error("variable_store_debug_verify_independent: key '%s' has identical data "
+                          "pointer in both stores (%p)",
+                          string_cstr(key_a), (void *)string_cstr(key_a));
                 all_ok = false;
             }
         }
@@ -1023,7 +1049,8 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
         }
         else if (value_a == NULL || value_b == NULL)
         {
-            log_error("variable_store_debug_verify_independent: value mismatch for key '%s': one is NULL, other is not",
+            log_error("variable_store_debug_verify_independent: value mismatch for key '%s': one "
+                      "is NULL, other is not",
                       string_cstr(key_a));
             all_ok = false;
         }
@@ -1031,7 +1058,8 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
         {
             if (!string_eq(value_a, value_b))
             {
-                log_error("variable_store_debug_verify_independent: value content mismatch for key '%s': '%s' vs '%s'",
+                log_error("variable_store_debug_verify_independent: value content mismatch for key "
+                          "'%s': '%s' vs '%s'",
                           string_cstr(key_a), string_cstr(value_a), string_cstr(value_b));
                 all_ok = false;
             }
@@ -1039,36 +1067,40 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
             // 4. Check that values don't have identical string_t pointers
             if (value_a == value_b)
             {
-                log_error("variable_store_debug_verify_independent: value for key '%s' has identical string_t pointer in both stores (%p)",
-                          string_cstr(key_a), (void*)value_a);
+                log_error("variable_store_debug_verify_independent: value for key '%s' has "
+                          "identical string_t pointer in both stores (%p)",
+                          string_cstr(key_a), (void *)value_a);
                 all_ok = false;
             }
             else
             {
                 // Check that values don't have identical data pointers
-                if (string_data(value_a) == string_data(value_b))
+                if (string_cstr(value_a) == string_cstr(value_b))
                 {
-                    log_error("variable_store_debug_verify_independent: value for key '%s' has identical data pointer in both stores (%p)",
-                              string_cstr(key_a), (void*)string_data(value_a));
+                    log_error("variable_store_debug_verify_independent: value for key '%s' has "
+                              "identical data pointer in both stores (%p)",
+                              string_cstr(key_a), (void *)string_cstr(value_a));
                     all_ok = false;
                 }
             }
         }
 
         // Also check flags match
-        if (store_a->map->entries[i].mapped.exported != store_b->map->entries[pos_b].mapped.exported)
+        if (store_a->map->entries[i].mapped.exported !=
+            store_b->map->entries[pos_b].mapped.exported)
         {
-            log_warn("variable_store_debug_verify_independent: exported flag mismatch for key '%s': %d vs %d",
-                     string_cstr(key_a), 
-                     store_a->map->entries[i].mapped.exported,
+            log_warn("variable_store_debug_verify_independent: exported flag mismatch for key "
+                     "'%s': %d vs %d",
+                     string_cstr(key_a), store_a->map->entries[i].mapped.exported,
                      store_b->map->entries[pos_b].mapped.exported);
         }
 
-        if (store_a->map->entries[i].mapped.read_only != store_b->map->entries[pos_b].mapped.read_only)
+        if (store_a->map->entries[i].mapped.read_only !=
+            store_b->map->entries[pos_b].mapped.read_only)
         {
-            log_warn("variable_store_debug_verify_independent: read_only flag mismatch for key '%s': %d vs %d",
-                     string_cstr(key_a),
-                     store_a->map->entries[i].mapped.read_only,
+            log_warn("variable_store_debug_verify_independent: read_only flag mismatch for key "
+                     "'%s': %d vs %d",
+                     string_cstr(key_a), store_a->map->entries[i].mapped.read_only,
                      store_b->map->entries[pos_b].mapped.read_only);
         }
     }
@@ -1083,7 +1115,8 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
         int32_t pos_a = variable_map_find(store_a->map, key_b);
         if (pos_a == -1)
         {
-            log_error("variable_store_debug_verify_independent: key '%s' exists in store_b but not in store_a",
+            log_error("variable_store_debug_verify_independent: key '%s' exists in store_b but not "
+                      "in store_a",
                       string_cstr(key_b));
             all_ok = false;
         }
@@ -1091,7 +1124,8 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
 
     if (all_ok)
     {
-        log_debug("variable_store_debug_verify_independent: SUCCESS - stores are equal and independent (%d variables)",
+        log_debug("variable_store_debug_verify_independent: SUCCESS - stores are equal and "
+                  "independent (%d variables)",
                   store_a->map->size);
     }
     else
@@ -1101,6 +1135,3 @@ bool variable_store_debug_verify_independent(const variable_store_t *store_a,
 
     return all_ok;
 }
-
-
-

@@ -25,7 +25,30 @@ static const gnode_t* gnode_get_program_body(const gnode_t* node) {
     return NULL;
 }
 
-char *tests[100] = {
+/* DEBUGGING NOTES:
+ * 
+ * The tests added below (indices 11-13) reveal parser bugs:
+ * 
+ * 1. "if true\nthen echo yes\nfi" is parsed as G_SIMPLE_COMMAND with "if" as
+ *    the command name, NOT as G_IF_CLAUSE. The parser is not recognizing "if"
+ *    as a reserved word.
+ * 
+ * 2. "! grep test file" is parsed as G_SIMPLE_COMMAND with "!" as the command  
+ *    name, NOT as a negated G_PIPELINE. The parser is not recognizing "!" as
+ *    TOKEN_BANG.
+ * 
+ * 3. "while true\ndo echo loop\ndone" likely has the same issue as #1.
+ * 
+ * The lowering code in lower.c is correct. The parser needs to be fixed to:
+ *   - Recognize reserved words (if, then, fi, else, elif, while, until, do,
+ *     done, for, in, case, esac)
+ *   - Recognize "!" as TOKEN_BANG for pipeline negation
+ *   - Create G_IF_CLAUSE, G_WHILE_CLAUSE, G_FOR_CLAUSE, etc. nodes instead
+ *     of treating reserved words as simple command names
+ */
+
+#define NUM_TESTS 16
+char *tests[NUM_TESTS+1] = {
     "",
     "ls",
     "ls -l",
@@ -37,24 +60,38 @@ char *tests[100] = {
     "echo \\\"hello\\\"",
     "ls -1 | less",
     "cat tmp.txt > foo.txt",
+    "if true\nthen echo yes\nfi",
+    "! grep test file",
+    "while true\ndo echo loop\ndone",
+    "until false\ndo echo loop\ndone",
+    "case $x in\na ) echo a;;\nb ) echo b;;\nesac",
+    NULL
 };
 
 int main(void) {
     int test_count = 0;
 
     // Test 1: Parse a simple command "echo hello" - should return GNODE_PROGRAM with GNODE_SIMPLE_COMMAND body
-    for (test_count = 0; test_count < 10; test_count++)
+    for (test_count = 0; test_count < NUM_TESTS; test_count++)
     {
-        printf("TEST %s\n", tests[test_count]);
+        printf("TEST %d '%s'\n", test_count, tests[test_count]);
         gnode_t* node = NULL;
         parse_status_t status = parser_string_to_gnodes(tests[test_count], &node);
-        const gnode_t* body = gnode_get_program_body(node);
-        gprint(body);
+        printf("  status=%d, node=%p\n", (int)status, (void*)node);
+        if (status == PARSE_OK && node) {
+            const gnode_t* body = gnode_get_program_body(node);
+            gprint(body);
+        } else {
+            printf("  <parse failed>\n");
+        }
 
         if (node) {
             g_node_destroy(&node);
         }
     }
+    
+    printf("ok\n");
+    return 0;
 }
 
 #if 0
