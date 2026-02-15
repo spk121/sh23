@@ -2135,33 +2135,34 @@ int builtin_echo(exec_frame_t *frame, const string_list_t *args)
  * ============================================================================
  */
 
-/* Helper: Parse and process escape sequences for %b format */
-static const char *printf_process_escapes(const char *str, int *stop_output)
+/* Helper: Parse and process escape sequences for %b format 
+ * Returns a string_t that must be freed by the caller.
+ */
+static string_t *printf_process_escapes(const char *str, int *stop_output)
 {
-    static char buffer[4096];
-    char *out = buffer;
+    string_t *result = string_create();
     const char *p = str;
-    
+
     *stop_output = 0;
-    
-    while (*p && out < buffer + sizeof(buffer) - 1)
+
+    while (*p)
     {
         if (*p == '\\' && *(p + 1))
         {
             p++;
             switch (*p)
             {
-            case 'a': *out++ = '\a'; break;
-            case 'b': *out++ = '\b'; break;
-            case 'c': *stop_output = 1; *out = '\0'; return buffer; /* Stop */
+            case 'a': string_push_back(result, '\a'); break;
+            case 'b': string_push_back(result, '\b'); break;
+            case 'c': *stop_output = 1; return result; /* Stop */
             case 'e': /* Extension: ESC */
-            case 'E': *out++ = '\033'; break;
-            case 'f': *out++ = '\f'; break;
-            case 'n': *out++ = '\n'; break;
-            case 'r': *out++ = '\r'; break;
-            case 't': *out++ = '\t'; break;
-            case 'v': *out++ = '\v'; break;
-            case '\\': *out++ = '\\'; break;
+            case 'E': string_push_back(result, '\033'); break;
+            case 'f': string_push_back(result, '\f'); break;
+            case 'n': string_push_back(result, '\n'); break;
+            case 'r': string_push_back(result, '\r'); break;
+            case 't': string_push_back(result, '\t'); break;
+            case 'v': string_push_back(result, '\v'); break;
+            case '\\': string_push_back(result, '\\'); break;
             case '0': /* Octal */
             case '1': case '2': case '3':
             case '4': case '5': case '6': case '7':
@@ -2175,24 +2176,23 @@ static const char *printf_process_escapes(const char *str, int *stop_output)
                     count++;
                 }
                 p--; /* Back up for loop increment */
-                *out++ = (char)val;
+                string_push_back(result, (char)val);
                 break;
             }
             default:
                 /* Unknown escape - print literally */
-                *out++ = '\\';
-                *out++ = *p;
+                string_push_back(result, '\\');
+                string_push_back(result, *p);
                 break;
             }
             p++;
         }
         else
         {
-            *out++ = *p++;
+            string_push_back(result, *p++);
         }
     }
-    *out = '\0';
-    return buffer;
+    return result;
 }
 
 /* Helper: Parse width or precision number */
@@ -2255,31 +2255,33 @@ static int printf_process_format(const char **fmt, const char *arg, int *stop_ou
     {
     case 'b': /* String with backslash escapes */
     {
-        const char *processed = printf_process_escapes(arg, stop_output);
+        string_t *processed = printf_process_escapes(arg, stop_output);
+        const char *processed_str = string_cstr(processed);
         if (width > 0)
         {
-            int len = (int)strlen(processed);
+            int len = (int)strlen(processed_str);
             int pad = width - len;
             if (pad > 0)
             {
                 if (left_justify)
                 {
-                    printf("%s%*s", processed, pad, "");
+                    printf("%s%*s", processed_str, pad, "");
                 }
                 else
                 {
-                    printf("%*s%s", pad, "", processed);
+                    printf("%*s%s", pad, "", processed_str);
                 }
             }
             else
             {
-                printf("%s", processed);
+                printf("%s", processed_str);
             }
         }
         else
         {
-            printf("%s", processed);
+            printf("%s", processed_str);
         }
+        string_destroy(&processed);
         break;
     }
     
@@ -2491,6 +2493,9 @@ int builtin_printf(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(args);
 
     int argc = string_list_size(args);
+
+    // for (int i = 0; i < string_list_size(args); i++)
+    //     log_debug(string_cstr(string_list_at(args, i)));
     
     /* Need at least format string */
     if (argc < 2)
