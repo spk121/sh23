@@ -77,8 +77,9 @@ typedef struct exec_frame_t {
      * - EXEC_SCOPE_SHARE: Points to parent's instance, must NOT be freed
      * - EXEC_SCOPE_OWN/COPY: Owned by this frame, must be freed on pop
      */
-    variable_store_t* variables;
-    variable_store_t* local_variables;  /* Only for frames with has_locals=true */
+    variable_store_t *variables;
+    variable_store_t *saved_variables;
+    variable_store_t *local_variables;  /* Only for frames with has_locals=true */
     positional_params_t* positional_params;
     positional_params_t* saved_positional_params;  /* For dot script override restore */
     func_store_t* functions;

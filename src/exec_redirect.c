@@ -345,12 +345,9 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
     exec_t *executor = frame->executor;
     int count = (int)redirs->count;
     saved_fd_t *saved = xcalloc(count, sizeof(saved_fd_t));
-    if (!saved)
-    {
-        exec_set_error(executor, "Out of memory");
-        return EXEC_ERROR;
-    }
 
+    fflush(stdout);
+    fflush(stderr);
     int saved_i = 0;
 
     for (int i = 0; i < count; i++)

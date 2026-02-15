@@ -958,6 +958,9 @@ static string_t *expand_part(exec_frame_t *frame, const part_t *part)
  */
 static string_t *expand_parts_to_string(exec_frame_t *frame, const part_list_t *parts)
 {
+    Expects_not_null(frame);
+    Expects_not_null(parts);
+
     string_t *result = string_create();
 
     for (int i = 0; i < part_list_size(parts); i++)
@@ -1119,10 +1122,9 @@ string_t *expand_redirection_target(exec_frame_t *frame, const token_t *tok)
 
 string_t *expand_assignment_value(exec_frame_t *frame, const token_t *tok)
 {
-    if (!tok || tok->type != TOKEN_ASSIGNMENT_WORD)
-    {
-        return NULL;
-    }
+    Expects_not_null(frame);
+    Expects_not_null(tok);
+    Expects_eq(tok->type, TOKEN_ASSIGNMENT_WORD);
 
     /* Assignment values: tilde, parameter, command, arithmetic expansion
      * but NO field splitting or pathname expansion */

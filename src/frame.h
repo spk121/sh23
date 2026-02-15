@@ -126,6 +126,17 @@ var_store_error_t frame_set_variable(exec_frame_t *frame, const string_t *name,
                                      const string_t *value);
 var_store_error_t frame_set_variable_cstr(exec_frame_t *frame, const char *name, const char *value);
 
+
+/**
+ * Sets a non-temporary variable in the variable store associated with the current frame.
+ * Even if the frame normally acts on a temporary variable store to execute a simple command,
+ * this will add the variable as non-temporary.
+ */
+var_store_error_t frame_set_persistent_variable(exec_frame_t *frame, const string_t *name,
+                                                     const string_t *value);
+var_store_error_t frame_set_persistent_variable_cstr(exec_frame_t *frame, const char *name,
+                                                     const char *value);
+
 /**
  * Updates the export status of an existing variable in the variable store associated with the
  * current frame. If the variable does not exist, this will return an error code. If a variable

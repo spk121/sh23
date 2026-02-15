@@ -2302,6 +2302,17 @@ parse_status_t gparse_function_definition(parser_t *parser, gnode_t **out_node)
     /* linebreak */
     parser_skip_newlines(parser);
 
+    /* Check if we're at EOF - need more input for function body */
+    if (parser_at_end(parser))
+    {
+        parser_set_error(parser, "Expected compound command (e.g., { ... }) after function declaration");
+        g_node_destroy(&node);
+        g_node_destroy(&fname);
+        g_node_destroy(&lparen);
+        g_node_destroy(&rparen);
+        return PARSE_INCOMPLETE;
+    }
+
     /* function_body: compound_command [redirect_list] */
     gnode_t *compound = NULL;
     parse_status_t status = gparse_compound_command(parser, &compound);

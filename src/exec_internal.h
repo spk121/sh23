@@ -23,12 +23,14 @@
 #include "alias_store.h"
 #include "ast.h"
 #include "fd_table.h"
+#include "frame.h"
 #include "func_store.h"
 #include "job_store.h"
 #include "positional_params.h"
 #include "sig_act.h"
 #include "string_list.h"
 #include "string_t.h"
+#include "tokenizer.h"
 #include "trap_store.h"
 #include "variable_store.h"
 
@@ -245,5 +247,25 @@ string_t *exec_get_special_param(exec_frame_t *frame, const string_t *name);
  * Check if a name is a special parameter.
  */
 bool exec_is_special_param(const string_t *name);
+
+/* ============================================================================
+ * Stream Execution Core
+ * ============================================================================ */
+
+/**
+ * Core implementation for executing shell commands from a stream.
+ * 
+ * This is the shared implementation used by both exec_execute_stream() and
+ * frame_execute_stream(). The caller provides the tokenizer and manages its
+ * lifecycle:
+ * - exec_execute_stream() uses the executor's persistent tokenizer
+ * - frame_execute_stream() creates a local tokenizer for the duration of the call
+ *
+ * @param frame     The execution frame to use for command execution
+ * @param fp        The input stream to read commands from
+ * @param tokenizer The tokenizer to use for token processing
+ * @return Execution status
+ */
+frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t *tokenizer);
 
 #endif /* EXEC_INTERNAL_H */

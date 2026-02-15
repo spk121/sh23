@@ -720,6 +720,38 @@ add_token:
     // Determine current buffering state BEFORE processing this token
     bool should_buffer_before = (tok->compound_stack_size > 0 || token_list_size(tok->buffered_tokens) > 0);
 
+    // Special handling for function definitions: WORD ( ) compound_command
+    // When we see '(' after a WORD, check if this is a function definition
+    if (type == TOKEN_LPAREN && !should_buffer_before)
+    {
+        // Check if previous token in output is a WORD
+        int output_size = token_list_size(tok->output_tokens);
+        if (output_size > 0)
+        {
+            token_t *prev_token = token_list_get(tok->output_tokens, output_size - 1);
+            if (token_get_type(prev_token) == TOKEN_WORD)
+            {
+                // Look ahead to see if next token is RPAREN
+                if (tok->input_pos + 1 < token_list_size(tok->input_tokens))
+                {
+                    token_t *next_token = token_list_get(tok->input_tokens, tok->input_pos + 1);
+                    if (token_get_type(next_token) == TOKEN_RPAREN)
+                    {
+                        // This is a function definition pattern: word ( )
+                        // Retroactively move the WORD from output to buffer
+                        token_t *word_token = tok->output_tokens->tokens[output_size - 1];
+                        tok->output_tokens->tokens[output_size - 1] = NULL;
+                        tok->output_tokens->size--;
+                        token_list_append(tok->buffered_tokens, word_token);
+
+                        // Now we're buffering
+                        should_buffer_before = true;
+                    }
+                }
+            }
+        }
+    }
+
     // Opening keywords that start compound commands
     // Note: TOKEN_LPAREN/RPAREN are NOT tracked here because:
     // - For subshells ( ), the parser handles the complete construct
