@@ -51,7 +51,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
 
 #ifdef UCRT_API
     {"cd", BUILTIN_REGULAR, builtin_cd },
-        {"pwd", BUILTIN_REGULAR, builtin_pwd},
+    {"pwd", BUILTIN_REGULAR, builtin_pwd},
 #endif
     /* { "cd", BUILTIN_REGULAR, builtin_cd}, */
     /* { "pwd", BUILTIN_REGULAR, builtin_pwd}, */
@@ -80,6 +80,8 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "dirname", BUILTIN_REGULAR, builtin_dirname},
     { "true", BUILTIN_REGULAR, builtin_true},
     { "false", BUILTIN_REGULAR, builtin_false},
+    {"mgsh_dirnamevar", BUILTIN_REGULAR, builtin_mgsh_dirnamevar},
+    {"mgsh_printfvar", BUILTIN_REGULAR, builtin_mgsh_printfvar},
     {NULL, BUILTIN_NONE, NULL} // Sentinel
 };
 
@@ -241,8 +243,114 @@ int builtin_shift(exec_frame_t *frame, const string_list_t *args)
 
 /* ============================================================================
  * dot - run file contents in current environment
+ * 
+ * POSIX Synopsis: . filename [argument...]
+ * 
+ * The dot utility shall execute commands from filename in the current 
+ * environment. If filename does not contain a slash, the shell searches
+ * PATH for filename.
+ * 
+ * If arguments are given, they become the positional parameters for the
+ * duration of the sourced file execution.
  * ============================================================================
  */
+
+/**
+ * Helper: Check if a filename contains a path separator
+ */
+static bool dot_has_path_separator(const char *filename)
+{
+    return strchr(filename, '/') != NULL
+#ifdef UCRT_API
+           || strchr(filename, '\\') != NULL
+#endif
+        ;
+}
+
+/**
+ * Helper: Search PATH for a file and return the full path if found
+ * Returns NULL if not found. Caller must free the returned string.
+ */
+static string_t *dot_search_path(exec_frame_t *frame, const char *filename)
+{
+    string_t *path_var = frame_get_variable_cstr(frame, "PATH");
+    if (!path_var || string_empty(path_var))
+    {
+        if (path_var)
+            string_destroy(&path_var);
+        return NULL;
+    }
+
+    const char *path_str = string_cstr(path_var);
+    const char *start = path_str;
+    const char *end;
+
+#ifdef UCRT_API
+    const char path_sep = ';';
+    const char dir_sep = '\\';
+#else
+    const char path_sep = ':';
+    const char dir_sep = '/';
+#endif
+
+    while (*start)
+    {
+        /* Find end of this PATH component */
+        end = strchr(start, path_sep);
+        if (!end)
+            end = start + strlen(start);
+
+        /* Build full path: dir + separator + filename */
+        string_t *full_path = string_create();
+
+        if (end > start)
+        {
+            /* Append the PATH component character by character */
+            for (const char *p = start; p < end; p++)
+            {
+                string_append_char(full_path, *p);
+            }
+            /* Add directory separator if needed */
+            int len = string_length(full_path);
+            if (len > 0)
+            {
+                char last = string_at(full_path, len - 1);
+                if (last != '/' && last != '\\')
+                {
+                    string_append_char(full_path, dir_sep);
+                }
+            }
+        }
+        else
+        {
+            /* Empty component means current directory */
+            string_append_char(full_path, '.');
+            string_append_char(full_path, dir_sep);
+        }
+
+        string_append_cstr(full_path, filename);
+
+        /* Check if file exists and is readable */
+        FILE *test_fp = fopen(string_cstr(full_path), "r");
+        if (test_fp)
+        {
+            fclose(test_fp);
+            string_destroy(&path_var);
+            return full_path;
+        }
+
+        string_destroy(&full_path);
+
+        /* Move to next PATH component */
+        if (*end)
+            start = end + 1;
+        else
+            break;
+    }
+
+    string_destroy(&path_var);
+    return NULL;
+}
 
 int builtin_dot(exec_frame_t *frame, const string_list_t *args)
 {
@@ -251,20 +359,84 @@ int builtin_dot(exec_frame_t *frame, const string_list_t *args)
 
     getopt_reset();
 
-    if (string_list_size(args) != 2)
+    int argc = string_list_size(args);
+
+    if (argc < 2)
     {
-        frame_set_error_printf(frame, "dot: filename argument required");
+        fprintf(stderr, "dot: filename argument required\n");
         return 2; /* misuse of shell builtin */
     }
-    FILE *fp = fopen(string_cstr(string_list_at(args, 1)), "r");
+
+    const char *filename = string_cstr(string_list_at(args, 1));
+    string_t *resolved_path = NULL;
+    FILE *fp = NULL;
+
+    /* If filename contains no path separator, search PATH */
+    if (!dot_has_path_separator(filename))
+    {
+        resolved_path = dot_search_path(frame, filename);
+        if (resolved_path)
+        {
+            fp = fopen(string_cstr(resolved_path), "r");
+        }
+    }
+    else
+    {
+        /* Filename has a path, open directly */
+        fp = fopen(filename, "r");
+    }
+
     if (!fp)
     {
-        frame_set_error_printf(frame, "dot: cannot open file: %s", string_cstr(string_list_at(args, 1)));
-        return 1; /* general error */
+        char cwd[1024];
+        if (filename[0] == '.' && getcwd(cwd, sizeof(cwd)))
+            fprintf(stderr, "dot: %s: not found relative to '%s'", filename, cwd);
+        else
+            fprintf(stderr, "dot: %s: not found\n", filename);
+        if (resolved_path)
+            string_destroy(&resolved_path);
+        return 1;
     }
+
+    /* Save current positional parameters if we have new ones */
+    string_list_t *saved_params = NULL;
+    if (argc > 2)
+    {
+        saved_params = frame_get_all_positional_params(frame);
+
+        /* Build new positional parameters from args[2..] */
+        string_list_t *new_params = string_list_create();
+        for (int i = 2; i < argc; i++)
+        {
+            string_list_push_back(new_params, string_list_at(args, i));
+        }
+        frame_replace_positional_params(frame, new_params);
+        string_list_destroy(&new_params);
+    }
+
+    /* Execute the file in the current environment */
     frame_exec_status_t status = frame_execute_stream(frame, fp);
     fclose(fp);
-    return (status == FRAME_EXEC_OK) ? 0 : 1;
+
+    /* Get the exit status from the last command executed */
+    int exit_status = frame_get_last_exit_status(frame);
+
+    /* Restore positional parameters if we saved them */
+    if (saved_params)
+    {
+        frame_replace_positional_params(frame, saved_params);
+        string_list_destroy(&saved_params);
+    }
+
+    if (resolved_path)
+        string_destroy(&resolved_path);
+
+    /* Return the exit status of the last command in the sourced file,
+     * unless there was a framework error */
+    if (status == FRAME_EXEC_ERROR && exit_status == 0)
+        return 1;
+
+    return exit_status;
 }
 
 /* ============================================================================
@@ -2142,9 +2314,9 @@ static string_t *printf_process_escapes(const char *str, int *stop_output)
 {
     string_t *result = string_create();
     const char *p = str;
-
+    
     *stop_output = 0;
-
+    
     while (*p)
     {
         if (*p == '\\' && *(p + 1))
@@ -2493,7 +2665,7 @@ int builtin_printf(exec_frame_t *frame, const string_list_t *args)
     Expects_not_null(args);
 
     int argc = string_list_size(args);
-
+    
     // for (int i = 0; i < string_list_size(args); i++)
     //     log_debug(string_cstr(string_list_at(args, i)));
     
@@ -3041,11 +3213,14 @@ int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
     /* Usage check */
     if (argc != 2)
     {
-        frame_set_error_printf(frame, "dirname: usage: dirname string");
+        // frame_set_error_printf(frame, "dirname: usage: dirname string");
+        fprintf(stderr, "dirname: usage: dirname string\n");
         return 2;
     }
 
     const string_t *path_arg = string_list_at(args, 1);
+
+    log_debug("dirname: path_arg %s", string_cstr(path_arg));
 
     /* Handle empty string */
     if (!path_arg || string_empty(path_arg))
@@ -3097,7 +3272,7 @@ int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
     /* Find last slash */
     int last_slash_pos = string_rfind_cstr(work, "/");
     int last_backslash_pos = string_rfind_cstr(work, "\\");
-    
+
     /* Use whichever is later */
     int last_sep_pos = -1;
     if (last_slash_pos > last_backslash_pos)
@@ -3140,6 +3315,598 @@ int builtin_dirname(exec_frame_t *frame, const string_list_t *args)
     }
 
     string_destroy(&work);
+    return 0;
+}
+
+/* ============================================================================
+ * mgsh_dirnamevar - Compute dirname and assign to a variable
+ * 
+ * Usage: mgsh_dirnamevar varname string
+ * 
+ * This is a workaround for platforms where command substitution doesn't work
+ * reliably (like UCRT). Instead of:
+ *   SCRIPT_DIR=$(dirname "$0")
+ * Use:
+ *   mgsh_dirnamevar SCRIPT_DIR "$0"
+ * 
+ * Examples:
+ *   mgsh_dirnamevar mydir /usr/bin/sort    -> sets mydir="/usr/bin"
+ *   mgsh_dirnamevar mydir stdio.h          -> sets mydir="."
+ *   mgsh_dirnamevar mydir /                -> sets mydir="/"
+ * ============================================================================
+ */
+
+int builtin_mgsh_dirnamevar(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+
+    /* Usage check */
+    if (argc != 3)
+    {
+        fprintf(stderr, "mgsh_dirnamevar: usage: mgsh_dirnamevar varname string\n");
+        return 2;
+    }
+
+    const string_t *varname_arg = string_list_at(args, 1);
+    const string_t *path_arg = string_list_at(args, 2);
+    log_debug("mgsh_dirnamevar: (%s, %s)", string_cstr(varname_arg), string_cstr(path_arg));
+
+    /* Validate variable name is not empty */
+    if (!varname_arg || string_empty(varname_arg))
+    {
+        fprintf(stderr, "mgsh_dirnamevar: variable name cannot be empty\n");
+        return 2;
+    }
+
+    /* Handle empty path string - dirname of empty is "." */
+    if (!path_arg || string_empty(path_arg))
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), ".");
+        return 0;
+    }
+
+    /* Make a working copy */
+    string_t *work = string_create_from(path_arg);
+    int len = string_length(work);
+
+    /* Remove trailing slashes */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If only slashes remain, result is "/" */
+    if (len == 1)
+    {
+        char first = string_at(work, 0);
+        if (first == '/' || first == '\\')
+        {
+            frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), "/");
+            string_destroy(&work);
+            return 0;
+        }
+    }
+
+    /* If no slashes, result is "." */
+    int has_slash_pos = string_find_first_of_cstr(work, "/\\");
+    if (has_slash_pos < 0)
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), ".");
+        string_destroy(&work);
+        return 0;
+    }
+
+    /* Find last slash */
+    int last_slash_pos = string_rfind_cstr(work, "/");
+    int last_backslash_pos = string_rfind_cstr(work, "\\");
+
+    /* Use whichever is later */
+    int last_sep_pos = -1;
+    if (last_slash_pos > last_backslash_pos)
+        last_sep_pos = last_slash_pos;
+    else if (last_backslash_pos > last_slash_pos)
+        last_sep_pos = last_backslash_pos;
+    else
+        last_sep_pos = last_slash_pos; /* Both are -1 or equal */
+
+    /* Remove everything after the last slash */
+    if (last_sep_pos >= 0)
+    {
+        string_resize(work, last_sep_pos);
+        len = last_sep_pos;
+    }
+
+    /* Remove trailing slashes again */
+    while (len > 1)
+    {
+        char last = string_at(work, len - 1);
+        if (last == '/' || last == '\\')
+        {
+            string_pop_back(work);
+            len--;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    /* If we ended up with empty string or only slashes, result is "/" */
+    if (len == 0 || (len == 1 && (string_at(work, 0) == '/' || string_at(work, 0) == '\\')))
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), "/");
+    }
+    else
+    {
+        frame_set_persistent_variable_cstr(frame, string_cstr(varname_arg), string_cstr(work));
+    }
+
+    string_destroy(&work);
+    return 0;
+}
+
+/* ============================================================================
+ * mgsh_printfvar - Format data and assign to a variable
+ * 
+ * Usage: mgsh_printfvar varname format [arguments...]
+ * 
+ * This is a workaround for platforms where command substitution doesn't work
+ * reliably (like UCRT). Instead of:
+ *   RESULT=$(printf "%s-%d" "$name" "$count")
+ * Use:
+ *   mgsh_printfvar RESULT "%s-%d" "$name" "$count"
+ * 
+ * Supports the same format specifiers as printf:
+ *   %b    - String with backslash escapes interpreted
+ *   %c    - Character
+ *   %d, %i - Signed decimal integer
+ *   %u    - Unsigned decimal integer
+ *   %o    - Unsigned octal integer
+ *   %x    - Unsigned hexadecimal (lowercase)
+ *   %X    - Unsigned hexadecimal (uppercase)
+ *   %s    - String
+ *   %%    - Literal %
+ * ============================================================================
+ */
+
+/* Helper: Process a single format specifier and append to output string */
+static int printfvar_process_format(string_t *output, const char **fmt, const char *arg, int *stop_output)
+{
+    const char *f = *fmt;
+    int width = 0;
+    int precision = -1;
+    int left_justify = 0;
+    int zero_pad = 0;
+    int has_precision = 0;
+    char buf[256];
+
+    *stop_output = 0;
+
+    /* Skip % */
+    f++;
+
+    /* Parse flags */
+    while (*f == '-' || *f == '0' || *f == ' ' || *f == '+' || *f == '#')
+    {
+        if (*f == '-') left_justify = 1;
+        if (*f == '0') zero_pad = 1;
+        f++;
+    }
+
+    /* Parse width */
+    if (*f >= '0' && *f <= '9')
+    {
+        width = printf_parse_number(&f);
+    }
+
+    /* Parse precision */
+    if (*f == '.')
+    {
+        f++;
+        has_precision = 1;
+        precision = printf_parse_number(&f);
+    }
+
+    /* Get conversion specifier */
+    char spec = *f;
+    if (spec) f++;
+
+    *fmt = f;
+
+    /* Process conversion */
+    switch (spec)
+    {
+    case 'b': /* String with backslash escapes */
+    {
+        string_t *processed = printf_process_escapes(arg, stop_output);
+        const char *processed_str = string_cstr(processed);
+        if (width > 0)
+        {
+            int len = (int)strlen(processed_str);
+            int pad = width - len;
+            if (pad > 0)
+            {
+                if (left_justify)
+                {
+                    string_append_cstr(output, processed_str);
+                    for (int i = 0; i < pad; i++)
+                        string_append_char(output, ' ');
+                }
+                else
+                {
+                    for (int i = 0; i < pad; i++)
+                        string_append_char(output, ' ');
+                    string_append_cstr(output, processed_str);
+                }
+            }
+            else
+            {
+                string_append_cstr(output, processed_str);
+            }
+        }
+        else
+        {
+            string_append_cstr(output, processed_str);
+        }
+        string_destroy(&processed);
+        break;
+    }
+
+    case 'c': /* Character */
+    {
+        int c = arg && *arg ? (unsigned char)*arg : 0;
+        if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*c", width, c);
+            else
+                snprintf(buf, sizeof(buf), "%*c", width, c);
+            string_append_cstr(output, buf);
+        }
+        else
+        {
+            string_append_char(output, (char)c);
+        }
+        break;
+    }
+
+    case 'd':
+    case 'i': /* Signed decimal */
+    {
+        long val = arg && *arg ? strtol(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*ld", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*ld", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*ld", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*ld", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*ld", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%ld", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'u': /* Unsigned decimal */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lu", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lu", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lu", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lu", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lu", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lu", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'o': /* Octal */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lo", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lo", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lo", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lo", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lo", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lo", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'x': /* Hexadecimal lowercase */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lx", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lx", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lx", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lx", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lx", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lx", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 'X': /* Hexadecimal uppercase */
+    {
+        unsigned long val = arg && *arg ? strtoul(arg, NULL, 0) : 0;
+        if (has_precision)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*.*lX", width, precision, val);
+            else
+                snprintf(buf, sizeof(buf), "%*.*lX", width, precision, val);
+        }
+        else if (zero_pad && !left_justify && width > 0)
+        {
+            snprintf(buf, sizeof(buf), "%0*lX", width, val);
+        }
+        else if (width > 0)
+        {
+            if (left_justify)
+                snprintf(buf, sizeof(buf), "%-*lX", width, val);
+            else
+                snprintf(buf, sizeof(buf), "%*lX", width, val);
+        }
+        else
+        {
+            snprintf(buf, sizeof(buf), "%lX", val);
+        }
+        string_append_cstr(output, buf);
+        break;
+    }
+
+    case 's': /* String */
+    {
+        const char *str = arg ? arg : "";
+        int len = (int)strlen(str);
+
+        /* Apply precision (max chars) */
+        if (has_precision && precision < len)
+        {
+            len = precision;
+        }
+
+        if (width > 0)
+        {
+            int pad = width - len;
+            if (left_justify)
+            {
+                for (int i = 0; i < len; i++)
+                    string_append_char(output, str[i]);
+                for (int i = 0; i < pad; i++)
+                    string_append_char(output, ' ');
+            }
+            else
+            {
+                for (int i = 0; i < pad; i++)
+                    string_append_char(output, ' ');
+                for (int i = 0; i < len; i++)
+                    string_append_char(output, str[i]);
+            }
+        }
+        else
+        {
+            for (int i = 0; i < len; i++)
+                string_append_char(output, str[i]);
+        }
+        break;
+    }
+
+    case '%': /* Literal % */
+        string_append_char(output, '%');
+        break;
+
+    default:
+        /* Unknown specifier - append as-is */
+        string_append_char(output, '%');
+        if (spec) string_append_char(output, spec);
+        return 1; /* Error */
+    }
+
+    return 0;
+}
+
+int builtin_mgsh_printfvar(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    int argc = string_list_size(args);
+
+    /* Need at least variable name and format string */
+    if (argc < 3)
+    {
+        fprintf(stderr, "mgsh_printfvar: usage: mgsh_printfvar varname format [arguments...]\n");
+        return 2;
+    }
+
+    const string_t *varname_arg = string_list_at(args, 1);
+
+    /* Validate variable name is not empty */
+    if (!varname_arg || string_empty(varname_arg))
+    {
+        fprintf(stderr, "mgsh_printfvar: variable name cannot be empty\n");
+        return 2;
+    }
+
+    const char *format = string_cstr(string_list_at(args, 2));
+    int arg_index = 3; /* Start of actual arguments */
+    int stop_output = 0;
+
+    /* Create output buffer */
+    string_t *output = string_create();
+
+    /* Process format string */
+    while (!stop_output)
+    {
+        const char *f = format;
+        int format_used = 0;
+
+        while (*f && !stop_output)
+        {
+            if (*f == '%' && *(f + 1))
+            {
+                /* Get next argument (or empty string if no more args) */
+                const char *arg = "";
+                if (arg_index < argc)
+                {
+                    arg = string_cstr(string_list_at(args, arg_index));
+                    arg_index++;
+                    format_used = 1;
+                }
+                else if (format_used)
+                {
+                    /* No more arguments, use empty/zero defaults */
+                    arg = "";
+                }
+                else
+                {
+                    /* First pass through format, no arguments yet */
+                    arg = "";
+                }
+
+                int err = printfvar_process_format(output, &f, arg, &stop_output);
+                if (err)
+                {
+                    frame_set_error_printf(frame, "mgsh_printfvar: invalid format");
+                    string_destroy(&output);
+                    return 1;
+                }
+            }
+            else if (*f == '\\' && *(f + 1))
+            {
+                /* Process escape sequences in format string */
+                f++;
+                switch (*f)
+                {
+                case 'a': string_append_char(output, '\a'); break;
+                case 'b': string_append_char(output, '\b'); break;
+                case 'c': stop_output = 1; break;
+                case 'e': string_append_char(output, '\033'); break;
+                case 'f': string_append_char(output, '\f'); break;
+                case 'n': string_append_char(output, '\n'); break;
+                case 'r': string_append_char(output, '\r'); break;
+                case 't': string_append_char(output, '\t'); break;
+                case 'v': string_append_char(output, '\v'); break;
+                case '\\': string_append_char(output, '\\'); break;
+                case '0': /* Octal */
+                {
+                    int val = 0;
+                    int count = 0;
+                    f++;
+                    while (count < 3 && *f >= '0' && *f <= '7')
+                    {
+                        val = val * 8 + (*f - '0');
+                        f++;
+                        count++;
+                    }
+                    f--;
+                    string_append_char(output, (char)val);
+                    break;
+                }
+                default:
+                    string_append_char(output, *f);
+                    break;
+                }
+                f++;
+            }
+            else
+            {
+                string_append_char(output, *f);
+                f++;
+            }
+        }
+
+        /* If we used arguments, check if there are more to process */
+        if (format_used && arg_index < argc)
+        {
+            /* Reuse format string with remaining arguments */
+            continue;
+        }
+        else
+        {
+            /* Done */
+            break;
+        }
+    }
+
+    /* Assign result to variable */
+    frame_set_persistent_variable(frame, varname_arg, output);
+
+    string_destroy(&output);
     return 0;
 }
 
