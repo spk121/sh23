@@ -266,6 +266,8 @@ set(SH23BASE_SOURCES
     src/lib.h
     src/logging.c
     src/logging.h
+    src/pattern_removal.c
+    src/pattern_removal.h
     src/string_t.c
     src/string_t.h
     src/string_list.c
@@ -284,10 +286,12 @@ enable_strict_linking(sh23base)
 set(SH23STORE_SOURCES
     src/alias.c
     src/alias.h
-    src/alias_store.c
-    src/alias_store.h
     src/alias_array.c
     src/alias_array.h
+    src/alias_store.c
+    src/alias_store.h
+    src/ast.c
+    src/ast.h
     src/fd_table.c
     src/fd_table.h
     src/func_map.c
@@ -302,20 +306,16 @@ set(SH23STORE_SOURCES
     src/job_store.h
     src/sig_act.c
     src/sig_act.h
+    src/token.c
+    src/token.h
+    src/token_array.c
+    src/token_array.h
     src/trap_store.c
     src/trap_store.h
     src/variable_map.c
     src/variable_map.h
     src/variable_store.c
     src/variable_store.h
-    src/token.c
-    src/token.h
-    src/token_array.c
-    src/token_array.h
-    src/ast.c
-    src/ast.h
-    src/pattern_removal.c
-    src/pattern_removal.h
 )
 
 add_library(sh23store ${SH23_LIBRARY_TYPE} ${SH23STORE_SOURCES})
@@ -329,10 +329,27 @@ enable_strict_linking(sh23store)
 set(SH23LOGIC_SOURCES
     src/arithmetic.c
     src/arithmetic.h
+    src/builtins.c
+    src/builtins.h
+    src/exec.c
+    src/exec.h
+    src/exec_command.c
+    src/exec_command.h
+    #src/exec_compound.c
+    #src/exec_compound.h
+    src/exec_expander.c
+    src/exec_expander.h
+    src/exec_frame.c
+    src/exec_frame.h
+    src/exec_control.c
+    src/exec_control.h
+    src/exec_internal.h
+    src/exec_redirect.c
+    src/exec_redirect.h
+    src/frame.c
+    src/frame.h
     src/job_store.c
     src/job_store.h
-    src/lower.c
-    src/lower.h
     src/lexer.c
     src/lexer.h
     src/lexer_arith_exp.c
@@ -349,31 +366,18 @@ set(SH23LOGIC_SOURCES
     src/lexer_dquote.h
     src/lexer_param_exp.c
     src/lexer_param_exp.h
-    src/tokenizer.c
-    src/tokenizer.h
+    src/lexer_t.h
+    src/lexer_priv_t.h
+    src/lower.c
+    src/lower.h
     src/parser.c
     src/parser.h
-    src/exec.c
-    src/exec.h
-    src/exec_command.c
-    src/exec_command.h
-    #src/exec_compound.c
-    #src/exec_compound.h
-    src/exec_expander.c
-    src/exec_expander.h
-    src/exec_frame.c
-    src/exec_frame.h
-    src/exec_control.c
-    src/exec_control.h
-    src/exec_internal.h
-    src/exec_redirect.c
-    src/exec_redirect.h
-    src/shell.c
-    src/shell.h
-    src/builtins.c
-    src/builtins.h
     src/positional_params.c
     src/positional_params.h
+    src/shell.c
+    src/shell.h
+    src/tokenizer.c
+    src/tokenizer.h
 )
 
 add_library(sh23logic ${SH23_LIBRARY_TYPE} ${SH23LOGIC_SOURCES})
@@ -408,7 +412,7 @@ enable_testing()
 add_library(ctest_obj OBJECT
     test/ctest/ctest.c
     test/ctest/ctest.h
-)
+ )
 target_include_directories(ctest_obj PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/test/ctest
 )
