@@ -33,7 +33,8 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 
 # Get the directory where this script lives
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+#SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR='.'
 
 printf "${BLUE}POSIX Shell Quoting Test Suite${NC}\n"
 printf "Testing: %s %s\n" "$TEST_SHELL" "$SHELL_ARGS"
@@ -43,9 +44,9 @@ printf "========================================\n\n"
 run_test_file() {
     test_file="$1"
     test_name="$(basename "$test_file" .sh)"
-    
+
     printf "${YELLOW}Running: %s${NC}\n" "$test_name"
-    
+
     if "$TEST_SHELL" $SHELL_ARGS "$test_file"; then
         printf "${GREEN}  PASSED${NC}\n\n"
         TESTS_PASSED=$((TESTS_PASSED + 1))
@@ -57,7 +58,7 @@ run_test_file() {
 }
 
 # Run all test files in the tests directory
-for test_file in "$SCRIPT_DIR"/tests/*.sh; do
+for test_file in "$SCRIPT_DIR"/[0-9]*.sh; do
     if [ -f "$test_file" ]; then
         run_test_file "$test_file"
     fi

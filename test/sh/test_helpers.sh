@@ -2,6 +2,19 @@
 # Test helper functions for POSIX shell quoting tests
 # Source this file in test scripts: . ../test_helpers.sh
 
+# Set up cross-platform temporary directory
+# Prefer TEMP (Windows), then TMP, then fallback to /tmp
+if [ -n "$TEMP" ]; then
+    TMPDIR="$TEMP"
+elif [ -n "$TMP" ]; then
+    TMPDIR="$TMP"
+else
+    TMPDIR="/tmp"
+fi
+export TMPDIR
+
+echo "loading test helpers..."
+
 # Track test results within a test file
 _test_count=0
 _test_failures=0
@@ -14,11 +27,11 @@ assert_eq() {
     description="$3"
     _test_count=$((_test_count + 1))
 
-    if [ "$expected" = "$actual" ]; then
-        printf "    ✓ %s\n" "$description"
+    if [ "x$expected" = "x$actual" ]; then
+        printf "    PASS %s\n" "$description"
         return 0
     else
-        printf "    ✗ %s\n" "$description"
+        printf "    FAIL %s\n" "$description"
         printf "      Expected: '%s'\n" "$expected"
         printf "      Actual:   '%s'\n" "$actual"
         _test_failures=$((_test_failures + 1))

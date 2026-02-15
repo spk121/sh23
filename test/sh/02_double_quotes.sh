@@ -4,7 +4,7 @@
 # of all characters within the double-quotes, with the exception of the
 # characters backquote, dollar-sign, and backslash"
 
-. "$(dirname "$0")/../test_helpers.sh"
+. ./test_helpers.sh
 
 # Set TMPDIR if not already set (for cross-platform support)
 if [ -z "$TMPDIR" ]; then
@@ -39,9 +39,9 @@ nl="
 # Compare by checking the actual newline character is present
 if [ "$nl" = "
 " ]; then
-    printf "    ✓ newline preserved\n"
+    printf "    PASS newline preserved\n"
 else
-    printf "    ✗ newline preserved\n"
+    printf "    FAIL newline preserved\n"
     _test_failures=$((_test_failures + 1))
 fi
 _test_count=$((_test_count + 1))
@@ -62,7 +62,7 @@ assert_eq "}" "}" "close brace preserved"
 assert_eq "," "," "comma preserved"
 
 # Whitespace preservation and no word splitting
-result=$(printf '%s' "hello   world")
+mgsh_printfvar result '%s' "hello   world" 
 assert_eq "hello   world" "$result" "multiple spaces preserved"
 
 count_words() {
