@@ -189,6 +189,12 @@ var_store_error_t frame_unset_variable_cstr(exec_frame_t *frame, const char *nam
 void frame_print_exported_variables_in_export_format(exec_frame_t *frame);
 
 /**
+ * Prints all variables in the variable store associated with the current frame that are
+ * marked as read-only, in a format suitable for re-input (e.g. "readonly VAR=value").
+ */
+void frame_print_readonly_variables(exec_frame_t *frame);
+
+/**
  * Prints all variables in the variable store associated with the current frame.
  * This includes all variables, not just exported ones.
  * If reusable_format is true, the output will be in a format that can be reused as input to the

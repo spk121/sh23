@@ -545,6 +545,28 @@ void frame_print_exported_variables_in_export_format(exec_frame_t *frame)
     }
 }
 
+static void print_readonly_var_callback(const string_t *name, const string_t *value, bool exported,
+                                        bool read_only, void *user_data)
+{
+    (void)exported;
+    (void)user_data;
+
+    if (read_only)
+    {
+        printf("readonly %s=%s\n", string_cstr(name), string_cstr(value));
+    }
+}
+
+void frame_print_readonly_variables(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    if (frame->variables)
+    {
+        variable_store_for_each(frame->variables, print_readonly_var_callback, NULL);
+    }
+}
+
 /* Helper structure for sorting variables */
 typedef struct
 {

@@ -65,7 +65,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "exec", BUILTIN_SPECIAL, builtin_exec}, */
     /* { "exit", BUILTIN_SPECIAL, builtin_exit}, */
     { "export", BUILTIN_SPECIAL, builtin_export},
-    /* { "readonly", BUILTIN_SPECIAL, builtin_readonly}, */
+    { "readonly", BUILTIN_SPECIAL, builtin_readonly},
     { "return", BUILTIN_SPECIAL, builtin_return},
     {"set", BUILTIN_SPECIAL, builtin_set},
     { "shift", BUILTIN_SPECIAL, builtin_shift},
@@ -468,42 +468,6 @@ int builtin_dot(exec_frame_t *frame, const string_list_t *args)
  * ============================================================================
  */
 
-static void builtin_export_print_usage(FILE *stream)
-{
-    fprintf(stream, "Usage: export [VAR[=VALUE] ...]\n");
-    fprintf(stream, "Export shell variables to the environment.\n");
-    fprintf(stream, "With no arguments, prints all exported variables.\n");
-}
-
-static void builtin_export_variable_store_print(const string_t *name, const string_t *val, bool exported,
-                                         bool read_only, void *user_data)
-{
-    Expects_not_null(name);
-    Expects_not_null(val);
-    FILE *stream = (FILE *)user_data;
-    if (stream == NULL)
-    {
-        stream = stdout;
-    }
-    if (exported)
-    {
-        /* Quote according to POSIX shell rules so output is reinput-safe */
-        string_t *quoted = lib_quote(name, val);
-        fprintf(stream, "export %s\n", string_cstr(quoted));
-        string_destroy(&quoted);
-    }
-}
-
-static void builtin_export_variable_store_print_exported(const variable_store_t *var_store)
-{
-    Expects_not_null(var_store);
-    if (!var_store->map)
-    {
-        return; /* No variables to print */
-    }
-    variable_store_for_each(var_store, builtin_export_variable_store_print, stdout);
-}
-
 int builtin_export(exec_frame_t *frame, const string_list_t *args)
 {
     Expects_not_null(frame);
@@ -534,7 +498,6 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args)
 
         string_t *name = NULL;
         string_t *value = NULL;
-        var_store_error_t res = VAR_STORE_ERROR_NONE;
 
         /* eq_pos == 0 should never happen. */
         if (eq_pos > 0)
@@ -591,6 +554,207 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args)
     return exit_status;
 }
 
+/* ============================================================================
+ * readonly - Mark variables as read-only
+ * 
+ * POSIX Synopsis:
+ *   readonly name[=value]...
+ *   readonly -p
+ * 
+ * The readonly utility shall mark each specified variable as read-only.
+ * If a value is specified, the variable is set to that value before being
+ * marked readonly. A readonly variable cannot be unset or have its value
+ * changed.
+ * 
+ * Options:
+ *   -p    Print all readonly variables in a format that can be re-input
+ * 
+ * Returns:
+ *   0     Success
+ *   >0    An error occurred
+ * ============================================================================
+ */
+
+int builtin_readonly(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    bool print_mode = false;
+    int first_operand = 1;
+
+    /* Parse options */
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (arg[0] != '-')
+        {
+            first_operand = i;
+            break;
+        }
+
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Parse option characters */
+        for (const char *p = arg + 1; *p; p++)
+        {
+            switch (*p)
+            {
+            case 'p':
+                print_mode = true;
+                break;
+            default:
+                fprintf(stderr, "readonly: -%c: invalid option\n", *p);
+                fprintf(stderr, "readonly: usage: readonly [-p] [name[=value] ...]\n");
+                return 2;
+            }
+        }
+
+        first_operand = i + 1;
+    }
+
+    /* No arguments or -p only: print readonly variables */
+    if (first_operand >= argc)
+    {
+        frame_print_readonly_variables(frame);
+        return 0;
+    }
+
+    int exit_status = 0;
+
+    /* Process each name[=value] argument */
+    for (int i = first_operand; i < argc; i++)
+    {
+        const string_t *arg = string_list_at(args, i);
+        if (!arg || string_empty(arg))
+        {
+            frame_set_error_printf(frame, "readonly: invalid variable name '%s'", 
+                                  arg ? string_cstr(arg) : "");
+            exit_status = 1;
+            continue;
+        }
+
+        int eq_pos = string_find_cstr(arg, "=");
+
+        string_t *name = NULL;
+        string_t *value = NULL;
+
+        if (eq_pos > 0)
+        {
+            /* VAR=value */
+            name = string_substring(arg, 0, eq_pos);
+            value = string_substring(arg, eq_pos + 1, string_length(arg));
+        }
+        else if (eq_pos == 0)
+        {
+            /* =value - invalid */
+            fprintf(stderr, "readonly: '=': not a valid identifier\n");
+            exit_status = 1;
+            continue;
+        }
+        else
+        {
+            /* VAR only */
+            name = string_create_from(arg);
+            value = NULL;
+        }
+
+        /* Validate variable name */
+        const char *name_cstr = string_cstr(name);
+        bool valid_name = true;
+
+        if (string_empty(name))
+        {
+            valid_name = false;
+        }
+        else
+        {
+            for (const char *p = name_cstr; *p && valid_name; p++)
+            {
+                if (p == name_cstr)
+                {
+                    /* First character: must be letter or underscore */
+                    if (!(*p == '_' || (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')))
+                    {
+                        valid_name = false;
+                    }
+                }
+                else
+                {
+                    /* Subsequent characters: letter, digit, or underscore */
+                    if (!(*p == '_' || (*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z') ||
+                          (*p >= '0' && *p <= '9')))
+                    {
+                        valid_name = false;
+                    }
+                }
+            }
+        }
+
+        if (!valid_name)
+        {
+            fprintf(stderr, "readonly: '%s': not a valid identifier\n", name_cstr);
+            string_destroy(&name);
+            if (value)
+                string_destroy(&value);
+            exit_status = 1;
+            continue;
+        }
+
+        /* Check if variable is already readonly - can't change value if so */
+        if (value && frame_variable_is_readonly(frame, name))
+        {
+            fprintf(stderr, "readonly: %s: readonly variable\n", name_cstr);
+            string_destroy(&name);
+            string_destroy(&value);
+            exit_status = 1;
+            continue;
+        }
+
+        /* Set value if provided */
+        if (value)
+        {
+            var_store_error_t set_result = frame_set_variable(frame, name, value);
+            if (set_result != VAR_STORE_ERROR_NONE)
+            {
+                fprintf(stderr, "readonly: failed to set variable '%s'\n", name_cstr);
+                string_destroy(&name);
+                string_destroy(&value);
+                exit_status = 1;
+                continue;
+            }
+        }
+        else if (!frame_has_variable(frame, name))
+        {
+            /* Variable doesn't exist and no value provided - create with empty value */
+            string_t *empty = string_create();
+            frame_set_variable(frame, name, empty);
+            string_destroy(&empty);
+        }
+
+        /* Mark variable as readonly */
+        var_store_error_t ro_result = frame_set_variable_readonly(frame, name, true);
+        if (ro_result != VAR_STORE_ERROR_NONE)
+        {
+            fprintf(stderr, "readonly: failed to mark '%s' as readonly\n", name_cstr);
+            exit_status = 1;
+        }
+
+        string_destroy(&name);
+        if (value)
+            string_destroy(&value);
+    }
+
+    return exit_status;
+}
 
 
 /* ============================================================================
