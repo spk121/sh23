@@ -67,15 +67,31 @@ lex_status_t lexer_process_cmd_subst_paren(lexer_t *lx)
         }
         else if (c == '\\')
         {
-            lexer_advance(lx);
-            if (lexer_peek(lx) == '\n')
+            char next = lexer_peek_ahead(lx, 1);
+
+            // Backslash at EOF - need more input
+            if (next == '\0')
             {
+                return LEX_INCOMPLETE;
+            }
+
+            lexer_advance(lx); // consume backslash
+
+            if (next == '\n')
+            {
+                // Line continuation
                 lexer_advance(lx);
                 lx->line_no++;
                 lx->col_no = 1;
+                // After line continuation, check if we're at EOF
+                if (lexer_at_end(lx))
+                {
+                    return LEX_INCOMPLETE;
+                }
             }
-            else if (!lexer_at_end(lx))
+            else
             {
+                // Escaped character - consume it
                 lexer_advance(lx);
             }
             continue;
@@ -152,7 +168,15 @@ lex_status_t lexer_process_cmd_subst_backtick(lexer_t *lx)
 
             if (next == '\n')
             {
+                // Line continuation
                 lexer_advance(lx);
+                lx->line_no++;
+                lx->col_no = 1;
+                // After line continuation, check if we're at EOF
+                if (lexer_at_end(lx))
+                {
+                    return LEX_INCOMPLETE;
+                }
                 continue;
             }
 

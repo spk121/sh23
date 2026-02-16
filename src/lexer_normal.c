@@ -315,13 +315,18 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         char c = lexer_peek(lx);
         char c2 = lexer_peek_ahead(lx, 1);
 
-        // Backslash-newline splicing
+        // Backslash-newline splicing (line continuation)
         if (c == '\\' && c2 == '\n')
         {
             lx->pos += 2;
             lx->line_no++;
             lx->col_no = 1;
-            // Don't emit any token or newline
+            // After line continuation, check if we're at EOF
+            // If so, we need more input
+            if (lexer_at_end(lx))
+            {
+                return LEX_INCOMPLETE;
+            }
             continue;
         }
 
