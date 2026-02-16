@@ -4,9 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <errno.h>
 
 #include "builtins.h"
 
+#include "exec_internal.h"
 #include "frame.h"
 #include "func_store.h"
 #include "getopt.h"
@@ -23,6 +26,27 @@
 #include <direct.h>
 #include <io.h>
 #include <time.h>
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
+#include <processthreadsapi.h>   // TerminateProcess, OpenProcess, etc.
+#include <synchapi.h>            // WaitForSingleObject
+#include <handleapi.h>           // CloseHandle
+/* Constants not always available without full Windows.h */
+#ifndef INFINITE
+#define INFINITE 0xFFFFFFFF
+#endif
+#ifndef WAIT_OBJECT_0
+#define WAIT_OBJECT_0 0
+#endif
+#endif
+#ifdef POSIX_API
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <termios.h>
 #endif
 
 typedef struct builtin_implemented_function_map_t
@@ -69,13 +93,13 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "umask", BUILTIN_REGULAR, builtin_umask}, */
     /* { "ulimit", BUILTIN_REGULAR, builtin_ulimit}, */
     { "jobs", BUILTIN_REGULAR, builtin_jobs},
+    { "kill", BUILTIN_REGULAR, builtin_kill},
+    { "wait", BUILTIN_REGULAR, builtin_wait},
+    { "fg", BUILTIN_REGULAR, builtin_fg},
+    { "bg", BUILTIN_REGULAR, builtin_bg},
 #ifdef UCRT_API
     {"ls", BUILTIN_REGULAR, builtin_ls},
 #endif
-    /* { "fg", BUILTIN_REGULAR, builtin_fg}, */
-    /* { "bg", BUILTIN_REGULAR, builtin_bg}, */
-    /* { "wait", BUILTIN_REGULAR, builtin_wait}, */
-    /* { "kill", BUILTIN_REGULAR, builtin_kill}, */
     { "basename", BUILTIN_REGULAR, builtin_basename},
     { "dirname", BUILTIN_REGULAR, builtin_dirname},
     { "true", BUILTIN_REGULAR, builtin_true},
@@ -1696,6 +1720,1303 @@ int builtin_jobs(exec_frame_t *frame, const string_list_t *args)
     {
         /* No job_ids specified - show all jobs */
         frame_print_all_jobs(frame, format);
+    }
+
+    return exit_status;
+}
+
+/* ============================================================================
+ * kill - Send a signal to a job or process
+ * 
+ * POSIX Synopsis:
+ *   kill -s signal_name pid ...
+ *   kill -l [exit_status]
+ *   kill [-signal_name] pid ...
+ *   kill [-signal_number] pid ...
+ * 
+ * Options:
+ *   -l           List signal names
+ *   -s signame   Specify signal by name (e.g., TERM, KILL)
+ *   -signal      Specify signal by name or number (e.g., -TERM, -9)
+ * 
+ * Arguments:
+ *   pid          Process ID or job specification (%n, %%, etc.)
+ * 
+ * Default signal is SIGTERM.
+ * ============================================================================
+ */
+
+/* Signal name to number mapping */
+typedef struct kill_signal_map_t
+{
+    const char *name;
+    int number;
+} kill_signal_map_t;
+
+/* Standard POSIX signals */
+static const kill_signal_map_t kill_signal_table[] = {
+#ifdef SIGHUP
+    {"HUP", SIGHUP},
+    {"SIGHUP", SIGHUP},
+#endif
+#ifdef SIGINT
+    {"INT", SIGINT},
+    {"SIGINT", SIGINT},
+#endif
+#ifdef SIGQUIT
+    {"QUIT", SIGQUIT},
+    {"SIGQUIT", SIGQUIT},
+#endif
+#ifdef SIGILL
+    {"ILL", SIGILL},
+    {"SIGILL", SIGILL},
+#endif
+#ifdef SIGTRAP
+    {"TRAP", SIGTRAP},
+    {"SIGTRAP", SIGTRAP},
+#endif
+#ifdef SIGABRT
+    {"ABRT", SIGABRT},
+    {"SIGABRT", SIGABRT},
+#endif
+#ifdef SIGFPE
+    {"FPE", SIGFPE},
+    {"SIGFPE", SIGFPE},
+#endif
+#ifdef SIGKILL
+    {"KILL", SIGKILL},
+    {"SIGKILL", SIGKILL},
+#endif
+#ifdef SIGBUS
+    {"BUS", SIGBUS},
+    {"SIGBUS", SIGBUS},
+#endif
+#ifdef SIGSEGV
+    {"SEGV", SIGSEGV},
+    {"SIGSEGV", SIGSEGV},
+#endif
+#ifdef SIGSYS
+    {"SYS", SIGSYS},
+    {"SIGSYS", SIGSYS},
+#endif
+#ifdef SIGPIPE
+    {"PIPE", SIGPIPE},
+    {"SIGPIPE", SIGPIPE},
+#endif
+#ifdef SIGALRM
+    {"ALRM", SIGALRM},
+    {"SIGALRM", SIGALRM},
+#endif
+#ifdef SIGTERM
+    {"TERM", SIGTERM},
+    {"SIGTERM", SIGTERM},
+#endif
+#ifdef SIGUSR1
+    {"USR1", SIGUSR1},
+    {"SIGUSR1", SIGUSR1},
+#endif
+#ifdef SIGUSR2
+    {"USR2", SIGUSR2},
+    {"SIGUSR2", SIGUSR2},
+#endif
+#ifdef SIGCHLD
+    {"CHLD", SIGCHLD},
+    {"SIGCHLD", SIGCHLD},
+#endif
+#ifdef SIGCONT
+    {"CONT", SIGCONT},
+    {"SIGCONT", SIGCONT},
+#endif
+#ifdef SIGSTOP
+    {"STOP", SIGSTOP},
+    {"SIGSTOP", SIGSTOP},
+#endif
+#ifdef SIGTSTP
+    {"TSTP", SIGTSTP},
+    {"SIGTSTP", SIGTSTP},
+#endif
+#ifdef SIGTTIN
+    {"TTIN", SIGTTIN},
+    {"SIGTTIN", SIGTTIN},
+#endif
+#ifdef SIGTTOU
+    {"TTOU", SIGTTOU},
+    {"SIGTTOU", SIGTTOU},
+#endif
+#ifdef SIGURG
+    {"URG", SIGURG},
+    {"SIGURG", SIGURG},
+#endif
+#ifdef SIGXCPU
+    {"XCPU", SIGXCPU},
+    {"SIGXCPU", SIGXCPU},
+#endif
+#ifdef SIGXFSZ
+    {"XFSZ", SIGXFSZ},
+    {"SIGXFSZ", SIGXFSZ},
+#endif
+#ifdef SIGVTALRM
+    {"VTALRM", SIGVTALRM},
+    {"SIGVTALRM", SIGVTALRM},
+#endif
+#ifdef SIGPROF
+    {"PROF", SIGPROF},
+    {"SIGPROF", SIGPROF},
+#endif
+#ifdef SIGWINCH
+    {"WINCH", SIGWINCH},
+    {"SIGWINCH", SIGWINCH},
+#endif
+#ifdef SIGIO
+    {"IO", SIGIO},
+    {"SIGIO", SIGIO},
+#endif
+    {NULL, 0}
+};
+
+/**
+ * Convert signal name to number.
+ * Returns -1 if not found.
+ */
+static int kill_signal_name_to_number(const char *name)
+{
+    /* Check for numeric signal */
+    char *endptr;
+    long val = strtol(name, &endptr, 10);
+    if (*endptr == '\0' && val >= 0 && val < NSIG)
+    {
+        return (int)val;
+    }
+
+    /* Look up by name */
+    for (const kill_signal_map_t *p = kill_signal_table; p->name != NULL; p++)
+    {
+        if (ascii_strcasecmp(name, p->name) == 0)
+        {
+            return p->number;
+        }
+    }
+
+    return -1;
+}
+
+/**
+ * Convert signal number to name (without SIG prefix).
+ * Returns NULL if not found.
+ */
+static const char *kill_signal_number_to_name(int signum)
+{
+    for (const kill_signal_map_t *p = kill_signal_table; p->name != NULL; p++)
+    {
+        if (p->number == signum && strncmp(p->name, "SIG", 3) != 0)
+        {
+            return p->name;
+        }
+    }
+    return NULL;
+}
+
+/**
+ * Print list of signal names.
+ */
+static void kill_list_signals(void)
+{
+    int col = 0;
+    for (const kill_signal_map_t *p = kill_signal_table; p->name != NULL; p++)
+    {
+        /* Only print short names (without SIG prefix) */
+        if (strncmp(p->name, "SIG", 3) != 0)
+        {
+            printf("%2d) %-10s", p->number, p->name);
+            col++;
+            if (col >= 5)
+            {
+                printf("\n");
+                col = 0;
+            }
+        }
+    }
+    if (col > 0)
+    {
+        printf("\n");
+    }
+}
+
+/**
+ * Convert exit status to signal name (for -l option with argument).
+ */
+static void kill_list_signal_for_status(int status)
+{
+    /* If status > 128, it's 128 + signal_number */
+    int signum = (status > 128) ? (status - 128) : status;
+    const char *name = kill_signal_number_to_name(signum);
+    if (name)
+    {
+        printf("%s\n", name);
+    }
+    else
+    {
+        printf("%d\n", signum);
+    }
+}
+
+/**
+ * Send a signal to a process.
+ * Returns 0 on success, non-zero on failure.
+ */
+static int kill_send_signal(exec_frame_t *frame, int signum, intptr_t pid, const char *target_str)
+{
+#ifdef POSIX_API
+    (void)frame;
+    if (kill((pid_t)pid, signum) != 0)
+    {
+        fprintf(stderr, "kill: (%ld) - %s\n", (long)pid, strerror(errno));
+        return 1;
+    }
+    return 0;
+#elifdef UCRT_API
+    /* On Windows, we can only terminate processes, not send arbitrary signals */
+    if (signum == SIGTERM
+#ifdef SIGKILL
+        || signum == SIGKILL
+#endif
+#ifdef SIGINT
+        || signum == SIGINT
+#endif
+    )
+    {
+        /* Search for process handle in job store using iterator */
+        if (frame && frame->executor && frame->executor->jobs)
+        {
+            job_process_iterator_t iter = job_store_active_processes_begin(frame->executor->jobs);
+            while (job_store_active_processes_next(&iter))
+            {
+                if (job_store_iter_get_pid(&iter) == pid)
+                {
+                    uintptr_t handle = (uintptr_t)job_store_iter_get_handle(&iter);
+                    if (handle != 0)
+                    {
+                        if (TerminateProcess((HANDLE)handle, 1))
+                        {
+                            /* Update job state */
+                            job_store_iter_set_state(&iter, JOB_TERMINATED, 128 + signum);
+                            return 0;
+                        }
+                        else
+                        {
+                            fprintf(stderr, "kill: (%ld) - failed to terminate process\n", (long)pid);
+                            return 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        /* Process not found in job store - try to open it directly */
+        HANDLE hProcess = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+        if (hProcess != NULL)
+        {
+            BOOL result = TerminateProcess(hProcess, 1);
+            CloseHandle(hProcess);
+            if (result)
+            {
+                return 0;
+            }
+        }
+
+        fprintf(stderr, "kill: (%ld) - No such process or access denied\n", (long)pid);
+        return 1;
+    }
+    else
+    {
+        fprintf(stderr, "kill: signal %d not supported on this platform\n", signum);
+        return 1;
+    }
+#else
+    (void)frame;
+    (void)signum;
+    (void)pid;
+    (void)target_str;
+    fprintf(stderr, "kill: not supported on this platform\n");
+    return 1;
+#endif
+}
+
+/**
+ * Send a signal to all processes in a job.
+ * Returns 0 on success, non-zero on failure.
+ */
+static int kill_send_to_job(exec_frame_t *frame, int signum, int job_id, const char *target_str)
+{
+    if (!frame || !frame->executor || !frame->executor->jobs)
+    {
+        fprintf(stderr, "kill: %s: no such job\n", target_str);
+        return 1;
+    }
+
+    job_t *job = job_store_find(frame->executor->jobs, job_id);
+    if (!job)
+    {
+        fprintf(stderr, "kill: %s: no such job\n", target_str);
+        return 1;
+    }
+
+#ifdef POSIX_API
+    /* Send signal to the process group */
+    if (kill(-job->pgid, signum) != 0)
+    {
+        fprintf(stderr, "kill: %s - %s\n", target_str, strerror(errno));
+        return 1;
+    }
+    return 0;
+#elifdef UCRT_API
+    /* On Windows, iterate through processes in the job using the iterator */
+    if (signum != SIGTERM
+#ifdef SIGKILL
+        && signum != SIGKILL
+#endif
+#ifdef SIGINT
+        && signum != SIGINT
+#endif
+    )
+    {
+        fprintf(stderr, "kill: signal %d not supported on this platform\n", signum);
+        return 1;
+    }
+
+    int errors = 0;
+    int terminated = 0;
+
+    /* Use iterator to find processes belonging to this job */
+    job_process_iterator_t iter = job_store_active_processes_begin(frame->executor->jobs);
+    while (job_store_active_processes_next(&iter))
+    {
+        if (job_store_iter_get_job_id(&iter) == job_id)
+        {
+            uintptr_t handle = (uintptr_t)job_store_iter_get_handle(&iter);
+            intptr_t pid = job_store_iter_get_pid(&iter);
+
+            if (handle != 0)
+            {
+                if (TerminateProcess((HANDLE)handle, 1))
+                {
+                    job_store_iter_set_state(&iter, JOB_TERMINATED, 128 + signum);
+                    terminated++;
+                }
+                else
+                {
+                    fprintf(stderr, "kill: %s (pid %ld) - failed to terminate process\n", 
+                            target_str, (long)pid);
+                    errors++;
+                }
+            }
+            else
+            {
+                fprintf(stderr, "kill: %s (pid %ld) - no handle available\n", 
+                        target_str, (long)pid);
+                errors++;
+            }
+        }
+    }
+
+    if (terminated == 0 && errors == 0)
+    {
+        fprintf(stderr, "kill: %s: no active processes in job\n", target_str);
+        return 1;
+    }
+
+    return errors > 0 ? 1 : 0;
+#else
+    /* Send to each process in the job */
+    int errors = 0;
+    size_t proc_count = job_process_count(job);
+    for (size_t i = 0; i < proc_count; i++)
+    {
+        intptr_t pid = job_get_process_pid(job, i);
+        if (pid > 0)
+        {
+            errors += kill_send_signal(frame, signum, pid, target_str);
+        }
+    }
+    return errors > 0 ? 1 : 0;
+#endif
+}
+
+int builtin_kill(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+
+    if (argc < 2)
+    {
+        fprintf(stderr, "kill: usage: kill [-s sigspec | -sigspec] pid | jobspec ...\n");
+        fprintf(stderr, "       kill -l [sigspec]\n");
+        return 2;
+    }
+
+    int signal_num = SIGTERM;  /* Default signal */
+    int first_operand = 1;
+    bool list_signals = false;
+    int exit_status = 0;
+
+    /* Parse options */
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        /* Check for -l (list signals) */
+        if (strcmp(arg, "-l") == 0 || strcmp(arg, "-L") == 0)
+        {
+            list_signals = true;
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Check for -s signame */
+        if (strcmp(arg, "-s") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "kill: -s requires an argument\n");
+                return 2;
+            }
+            const char *signame = string_cstr(string_list_at(args, i + 1));
+            signal_num = kill_signal_name_to_number(signame);
+            if (signal_num < 0)
+            {
+                fprintf(stderr, "kill: %s: invalid signal specification\n", signame);
+                return 2;
+            }
+            i++;  /* Skip the signal name */
+            first_operand = i + 1;
+            continue;
+        }
+
+        /* Check for -- (end of options) */
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Check for -SIGNAL or -NUMBER */
+        if (arg[0] == '-' && arg[1] != '\0')
+        {
+            /* Could be -9, -TERM, -SIGTERM, etc. */
+            const char *sigspec = arg + 1;
+            int sig = kill_signal_name_to_number(sigspec);
+            if (sig >= 0)
+            {
+                signal_num = sig;
+                first_operand = i + 1;
+                continue;
+            }
+            else
+            {
+                /* Not a valid signal, treat as start of operands */
+                first_operand = i;
+                break;
+            }
+        }
+
+        /* Not an option, start of operands */
+        first_operand = i;
+        break;
+    }
+
+    /* Handle -l option */
+    if (list_signals)
+    {
+        if (first_operand < argc)
+        {
+            /* -l with argument: convert exit status to signal name */
+            for (int i = first_operand; i < argc; i++)
+            {
+                const string_t *arg_str = string_list_at(args, i);
+                int endpos = 0;
+                long val = string_atol_at(arg_str, 0, &endpos);
+                if (endpos != string_length(arg_str))
+                {
+                    /* Try as signal name */
+                    int sig = kill_signal_name_to_number(string_cstr(arg_str));
+                    if (sig >= 0)
+                    {
+                        printf("%d\n", sig);
+                    }
+                    else
+                    {
+                        fprintf(stderr, "kill: %s: invalid signal specification\n", 
+                                string_cstr(arg_str));
+                        exit_status = 1;
+                    }
+                }
+                else
+                {
+                    kill_list_signal_for_status((int)val);
+                }
+            }
+        }
+        else
+        {
+            /* -l without argument: list all signals */
+            kill_list_signals();
+        }
+        return exit_status;
+    }
+
+    /* Need at least one pid/jobspec */
+    if (first_operand >= argc)
+    {
+        fprintf(stderr, "kill: usage: kill [-s sigspec | -sigspec] pid | jobspec ...\n");
+        return 2;
+    }
+
+    /* Process each target */
+    for (int i = first_operand; i < argc; i++)
+    {
+        const string_t *arg_str = string_list_at(args, i);
+        const char *target = string_cstr(arg_str);
+
+        /* Check if it's a job specification */
+        if (target[0] == '%')
+        {
+            int job_id = frame_parse_job_id(frame, arg_str);
+            if (job_id < 0)
+            {
+                fprintf(stderr, "kill: %s: no such job\n", target);
+                exit_status = 1;
+                continue;
+            }
+            exit_status |= kill_send_to_job(frame, signal_num, job_id, target);
+        }
+        else
+        {
+            /* Parse as PID */
+            int endpos = 0;
+            long pid = string_atol_at(arg_str, 0, &endpos);
+            if (endpos != string_length(arg_str))
+            {
+                fprintf(stderr, "kill: %s: arguments must be process or job IDs\n", target);
+                exit_status = 1;
+                continue;
+            }
+            exit_status |= kill_send_signal(frame, signal_num, (intptr_t)pid, target);
+        }
+    }
+
+    return exit_status;
+}
+
+/* ============================================================================
+ * wait - Wait for background jobs to complete
+ * 
+ * POSIX Synopsis:
+ *   wait [job_id...]
+ *   wait [pid...]
+ * 
+ * If no operands are given, waits for all currently active child processes.
+ * If one or more job_id or pid operands are given, waits for those specific
+ * jobs/processes.
+ * 
+ * Returns:
+ *   - Exit status of the last process waited for
+ *   - 0 if no children to wait for
+ *   - 127 if a specified job/pid doesn't exist
+ * ============================================================================
+ */
+
+/**
+ * Wait for a specific job to complete.
+ * Returns the exit status of the job, or -1 on error.
+ */
+static int wait_for_job(exec_frame_t *frame, int job_id, const char *target_str)
+{
+    if (!frame || !frame->executor || !frame->executor->jobs)
+    {
+        fprintf(stderr, "wait: %s: no such job\n", target_str);
+        return 127;
+    }
+
+    job_t *job = job_store_find(frame->executor->jobs, job_id);
+    if (!job)
+    {
+        fprintf(stderr, "wait: %s: no such job\n", target_str);
+        return 127;
+    }
+
+    /* If job is already completed, return its exit status */
+    if (job_is_completed(job))
+    {
+        /* Get exit status from first process (or last, depending on convention) */
+        if (job->processes)
+        {
+            return job->processes->exit_status;
+        }
+        return 0;
+    }
+
+#ifdef POSIX_API
+    /* Wait for the process group */
+    int status;
+    pid_t result;
+
+    /* Wait for any process in the job's process group */
+    while ((result = waitpid(-job->pgid, &status, 0)) > 0 || 
+           (result == -1 && errno == EINTR))
+    {
+        if (result > 0)
+        {
+            /* Update the process state */
+            if (WIFEXITED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result, 
+                                           JOB_DONE, WEXITSTATUS(status));
+            }
+            else if (WIFSIGNALED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result,
+                                           JOB_TERMINATED, WTERMSIG(status));
+            }
+        }
+
+        /* Check if job is now complete */
+        if (job_is_completed(job))
+        {
+            break;
+        }
+    }
+
+    /* Return the exit status of the first process */
+    if (job->processes)
+    {
+        return job->processes->exit_status;
+    }
+    return 0;
+
+#elifdef UCRT_API
+    /* On Windows, wait for all processes in the job using their handles */
+    int last_exit_status = 0;
+
+    /* Use iterator to find and wait for processes belonging to this job */
+    job_process_iterator_t iter = job_store_active_processes_begin(frame->executor->jobs);
+    while (job_store_active_processes_next(&iter))
+    {
+        if (job_store_iter_get_job_id(&iter) == job_id)
+        {
+            uintptr_t handle = (uintptr_t)job_store_iter_get_handle(&iter);
+
+            if (handle != 0)
+            {
+                /* Wait for this process */
+                DWORD wait_result = WaitForSingleObject((HANDLE)handle, INFINITE);
+
+                if (wait_result == WAIT_OBJECT_0)
+                {
+                    /* Process completed, get exit code */
+                    DWORD exit_code = 0;
+                    if (GetExitCodeProcess((HANDLE)handle, &exit_code))
+                    {
+                        last_exit_status = (int)exit_code;
+                        job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
+                    }
+                    else
+                    {
+                        job_store_iter_set_state(&iter, JOB_DONE, 0);
+                    }
+                }
+                else
+                {
+                    /* Wait failed */
+                    job_store_iter_set_state(&iter, JOB_TERMINATED, 1);
+                    last_exit_status = 1;
+                }
+            }
+        }
+    }
+
+    return last_exit_status;
+
+#else
+    (void)target_str;
+    fprintf(stderr, "wait: not supported on this platform\n");
+    return 127;
+#endif
+}
+
+/**
+ * Wait for a specific PID.
+ * Returns the exit status, or 127 if PID not found.
+ */
+static int wait_for_pid(exec_frame_t *frame, intptr_t pid, const char *target_str)
+{
+#ifdef POSIX_API
+    int status;
+    pid_t result = waitpid((pid_t)pid, &status, 0);
+
+    if (result == -1)
+    {
+        if (errno == ECHILD)
+        {
+            fprintf(stderr, "wait: pid %ld is not a child of this shell\n", (long)pid);
+        }
+        else
+        {
+            fprintf(stderr, "wait: %s: %s\n", target_str, strerror(errno));
+        }
+        return 127;
+    }
+
+    /* Update job store if this process is tracked */
+    if (frame && frame->executor && frame->executor->jobs)
+    {
+        if (WIFEXITED(status))
+        {
+            job_store_set_process_state(frame->executor->jobs, (pid_t)pid,
+                                       JOB_DONE, WEXITSTATUS(status));
+            return WEXITSTATUS(status);
+        }
+        else if (WIFSIGNALED(status))
+        {
+            job_store_set_process_state(frame->executor->jobs, (pid_t)pid,
+                                       JOB_TERMINATED, WTERMSIG(status));
+            return 128 + WTERMSIG(status);
+        }
+    }
+
+    return 0;
+
+#elifdef UCRT_API
+    /* Search for the PID in the job store to get its handle */
+    if (frame && frame->executor && frame->executor->jobs)
+    {
+        job_process_iterator_t iter = job_store_active_processes_begin(frame->executor->jobs);
+        while (job_store_active_processes_next(&iter))
+        {
+            if (job_store_iter_get_pid(&iter) == pid)
+            {
+                uintptr_t handle = (uintptr_t)job_store_iter_get_handle(&iter);
+
+                if (handle != 0)
+                {
+                    DWORD wait_result = WaitForSingleObject((HANDLE)handle, INFINITE);
+
+                    if (wait_result == WAIT_OBJECT_0)
+                    {
+                        DWORD exit_code = 0;
+                        GetExitCodeProcess((HANDLE)handle, &exit_code);
+                        job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
+                        return (int)exit_code;
+                    }
+                    else
+                    {
+                        job_store_iter_set_state(&iter, JOB_TERMINATED, 1);
+                        return 1;
+                    }
+                }
+            }
+        }
+    }
+
+    fprintf(stderr, "wait: pid %ld is not a child of this shell\n", (long)pid);
+    return 127;
+
+#else
+    (void)frame;
+    (void)pid;
+    (void)target_str;
+    fprintf(stderr, "wait: not supported on this platform\n");
+    return 127;
+#endif
+}
+
+/**
+ * Wait for all background jobs.
+ * Returns the exit status of the last job waited for, or 0 if none.
+ */
+static int wait_for_all(exec_frame_t *frame)
+{
+    if (!frame || !frame->executor || !frame->executor->jobs)
+    {
+        return 0;
+    }
+
+    int last_exit_status = 0;
+
+#ifdef POSIX_API
+    int status;
+    pid_t result;
+
+    /* Wait for all child processes */
+    while ((result = waitpid(-1, &status, 0)) > 0 || 
+           (result == -1 && errno == EINTR))
+    {
+        if (result > 0)
+        {
+            if (WIFEXITED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result,
+                                           JOB_DONE, WEXITSTATUS(status));
+                last_exit_status = WEXITSTATUS(status);
+            }
+            else if (WIFSIGNALED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result,
+                                           JOB_TERMINATED, WTERMSIG(status));
+                last_exit_status = 128 + WTERMSIG(status);
+            }
+        }
+    }
+
+#elifdef UCRT_API
+    /* Collect all active process handles and wait for them */
+    #define MAX_WAIT_HANDLES 64
+    HANDLE handles[MAX_WAIT_HANDLES];
+    job_process_iterator_t iters[MAX_WAIT_HANDLES];
+    int handle_count = 0;
+
+    /* First pass: collect handles */
+    job_process_iterator_t iter = job_store_active_processes_begin(frame->executor->jobs);
+    while (job_store_active_processes_next(&iter) && handle_count < MAX_WAIT_HANDLES)
+    {
+        uintptr_t handle = (uintptr_t)job_store_iter_get_handle(&iter);
+        if (handle != 0)
+        {
+            handles[handle_count] = (HANDLE)handle;
+            iters[handle_count] = iter;
+            handle_count++;
+        }
+    }
+
+    /* Wait for each process */
+    for (int i = 0; i < handle_count; i++)
+    {
+        DWORD wait_result = WaitForSingleObject(handles[i], INFINITE);
+
+        if (wait_result == WAIT_OBJECT_0)
+        {
+            DWORD exit_code = 0;
+            GetExitCodeProcess(handles[i], &exit_code);
+            job_store_iter_set_state(&iters[i], JOB_DONE, (int)exit_code);
+            last_exit_status = (int)exit_code;
+        }
+        else
+        {
+            job_store_iter_set_state(&iters[i], JOB_TERMINATED, 1);
+            last_exit_status = 1;
+        }
+    }
+    #undef MAX_WAIT_HANDLES
+#endif
+
+    return last_exit_status;
+}
+
+int builtin_wait(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    int exit_status = 0;
+
+    /* No arguments: wait for all background jobs */
+    if (argc == 1)
+    {
+        return wait_for_all(frame);
+    }
+
+    /* Parse options (wait has no standard options, but handle -- for consistency) */
+    int first_operand = 1;
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* If it starts with - but isn't --, it might be an invalid option or a negative number */
+        if (arg[0] == '-' && arg[1] != '\0' && arg[1] != '-')
+        {
+            /* Check if it's a valid negative number (unlikely for PIDs, but possible) */
+            char *endptr;
+            strtol(arg, &endptr, 10);
+            if (*endptr != '\0')
+            {
+                fprintf(stderr, "wait: %s: invalid option\n", arg);
+                return 2;
+            }
+        }
+
+        first_operand = i;
+        break;
+    }
+
+    /* Process each job_id or pid */
+    for (int i = first_operand; i < argc; i++)
+    {
+        const string_t *arg_str = string_list_at(args, i);
+        const char *target = string_cstr(arg_str);
+
+        /* Check if it's a job specification */
+        if (target[0] == '%')
+        {
+            int job_id = frame_parse_job_id(frame, arg_str);
+            if (job_id < 0)
+            {
+                fprintf(stderr, "wait: %s: no such job\n", target);
+                exit_status = 127;
+                continue;
+            }
+            int result = wait_for_job(frame, job_id, target);
+            exit_status = result;
+        }
+        else
+        {
+            /* Parse as PID */
+            int endpos = 0;
+            long pid = string_atol_at(arg_str, 0, &endpos);
+            if (endpos != string_length(arg_str))
+            {
+                fprintf(stderr, "wait: %s: not a valid pid or job specification\n", target);
+                exit_status = 127;
+                continue;
+            }
+            int result = wait_for_pid(frame, (intptr_t)pid, target);
+            exit_status = result;
+        }
+    }
+
+    return exit_status;
+}
+
+/* ============================================================================
+ * fg - Bring job to foreground
+ * 
+ * POSIX Synopsis:
+ *   fg [job_id]
+ * 
+ * Moves the specified job (or current job if none specified) to the foreground,
+ * making it the current job. The job is continued if it was stopped.
+ * 
+ * Returns:
+ *   - Exit status of the foreground job
+ *   - 1 if job_id does not exist
+ * ============================================================================
+ */
+
+int builtin_fg(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    if (!frame->executor || !frame->executor->jobs)
+    {
+        fprintf(stderr, "fg: no job control\n");
+        return 1;
+    }
+
+    /* Check if there are any jobs */
+    if (!frame_has_jobs(frame))
+    {
+        fprintf(stderr, "fg: no current job\n");
+        return 1;
+    }
+
+    int argc = string_list_size(args);
+    int job_id = -1;
+
+    /* Parse optional job_id argument */
+    if (argc > 2)
+    {
+        fprintf(stderr, "fg: too many arguments\n");
+        return 2;
+    }
+
+    if (argc == 2)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        job_id = frame_parse_job_id(frame, arg_str);
+        if (job_id < 0)
+        {
+            fprintf(stderr, "fg: %s: no such job\n", string_cstr(arg_str));
+            return 1;
+        }
+    }
+    else
+    {
+        /* No argument: use current job */
+        job_t *current = job_store_get_current(frame->executor->jobs);
+        if (!current)
+        {
+            fprintf(stderr, "fg: no current job\n");
+            return 1;
+        }
+        job_id = current->job_id;
+    }
+
+    job_t *job = job_store_find(frame->executor->jobs, job_id);
+    if (!job)
+    {
+        fprintf(stderr, "fg: job %d not found\n", job_id);
+        return 1;
+    }
+
+    /* Print the job's command line */
+    if (job->command_line)
+    {
+        printf("%s\n", string_cstr(job->command_line));
+    }
+
+#ifdef POSIX_API
+    /* Give the job's process group control of the terminal */
+    if (isatty(STDIN_FILENO))
+    {
+        tcsetpgrp(STDIN_FILENO, job->pgid);
+    }
+
+    /* Send SIGCONT if the job was stopped */
+    if (job->state == JOB_STOPPED)
+    {
+        if (kill(-job->pgid, SIGCONT) < 0)
+        {
+            fprintf(stderr, "fg: failed to continue job: %s\n", strerror(errno));
+            return 1;
+        }
+        job_store_set_state(frame->executor->jobs, job_id, JOB_RUNNING);
+    }
+
+    /* Wait for the job to complete or stop */
+    int status;
+    pid_t result;
+    int exit_status = 0;
+
+    while ((result = waitpid(-job->pgid, &status, WUNTRACED)) > 0 ||
+           (result == -1 && errno == EINTR))
+    {
+        if (result > 0)
+        {
+            if (WIFEXITED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result,
+                                           JOB_DONE, WEXITSTATUS(status));
+                exit_status = WEXITSTATUS(status);
+            }
+            else if (WIFSIGNALED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result,
+                                           JOB_TERMINATED, WTERMSIG(status));
+                exit_status = 128 + WTERMSIG(status);
+            }
+            else if (WIFSTOPPED(status))
+            {
+                job_store_set_process_state(frame->executor->jobs, result,
+                                           JOB_STOPPED, WSTOPSIG(status));
+                /* Job was stopped, print notification */
+                fprintf(stderr, "\n[%d]+  Stopped                 %s\n", 
+                        job_id, job->command_line ? string_cstr(job->command_line) : "");
+                exit_status = 128 + WSTOPSIG(status);
+                break;
+            }
+        }
+
+        /* Check if job is complete */
+        if (job_is_completed(job))
+        {
+            break;
+        }
+    }
+
+    /* Return terminal control to the shell */
+    if (isatty(STDIN_FILENO) && frame->executor->pgid_valid)
+    {
+        tcsetpgrp(STDIN_FILENO, frame->executor->pgid);
+    }
+
+    return exit_status;
+
+#elifdef UCRT_API
+    /* Windows doesn't have true foreground/background job control */
+    /* We can wait for the job, but can't give it terminal control */
+
+    if (job->state == JOB_STOPPED)
+    {
+        fprintf(stderr, "fg: resuming stopped jobs not supported on this platform\n");
+        return 1;
+    }
+
+    /* Wait for the job to complete */
+    int last_exit_status = 0;
+    job_process_iterator_t iter = job_store_active_processes_begin(frame->executor->jobs);
+    while (job_store_active_processes_next(&iter))
+    {
+        if (job_store_iter_get_job_id(&iter) == job_id)
+        {
+            uintptr_t handle = (uintptr_t)job_store_iter_get_handle(&iter);
+            if (handle != 0)
+            {
+                DWORD wait_result = WaitForSingleObject((HANDLE)handle, INFINITE);
+                if (wait_result == WAIT_OBJECT_0)
+                {
+                    DWORD exit_code = 0;
+                    GetExitCodeProcess((HANDLE)handle, &exit_code);
+                    job_store_iter_set_state(&iter, JOB_DONE, (int)exit_code);
+                    last_exit_status = (int)exit_code;
+                }
+                else
+                {
+                    job_store_iter_set_state(&iter, JOB_TERMINATED, 1);
+                    last_exit_status = 1;
+                }
+            }
+        }
+    }
+
+    return last_exit_status;
+
+#else
+    fprintf(stderr, "fg: job control not supported on this platform\n");
+    return 1;
+#endif
+}
+
+/* ============================================================================
+ * bg - Resume job in background
+ * 
+ * POSIX Synopsis:
+ *   bg [job_id ...]
+ * 
+ * Resumes the specified stopped job(s) in the background. If no job is 
+ * specified, the current job is resumed.
+ * 
+ * Returns:
+ *   - 0 on success
+ *   - 1 if job_id does not exist or job is not stopped
+ * ============================================================================
+ */
+
+int builtin_bg(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    if (!frame->executor || !frame->executor->jobs)
+    {
+        fprintf(stderr, "bg: no job control\n");
+        return 1;
+    }
+
+    /* Check if there are any jobs */
+    if (!frame_has_jobs(frame))
+    {
+        fprintf(stderr, "bg: no current job\n");
+        return 1;
+    }
+
+    int argc = string_list_size(args);
+    int exit_status = 0;
+
+    if (argc == 1)
+    {
+        /* No arguments: use current job */
+        job_t *current = job_store_get_current(frame->executor->jobs);
+        if (!current)
+        {
+            fprintf(stderr, "bg: no current job\n");
+            return 1;
+        }
+
+        if (current->state != JOB_STOPPED)
+        {
+            fprintf(stderr, "bg: job %d is not stopped\n", current->job_id);
+            return 1;
+        }
+
+#ifdef POSIX_API
+        /* Send SIGCONT to resume the job */
+        if (kill(-current->pgid, SIGCONT) < 0)
+        {
+            fprintf(stderr, "bg: failed to continue job: %s\n", strerror(errno));
+            return 1;
+        }
+        job_store_set_state(frame->executor->jobs, current->job_id, JOB_RUNNING);
+
+        /* Print the job info */
+        printf("[%d]+ %s &\n", current->job_id,
+               current->command_line ? string_cstr(current->command_line) : "");
+#elifdef UCRT_API
+        fprintf(stderr, "bg: resuming stopped jobs not supported on this platform\n");
+        return 1;
+#else
+        fprintf(stderr, "bg: job control not supported on this platform\n");
+        return 1;
+#endif
+    }
+    else
+    {
+        /* Process each job_id argument */
+        for (int i = 1; i < argc; i++)
+        {
+            const string_t *arg_str = string_list_at(args, i);
+            int job_id = frame_parse_job_id(frame, arg_str);
+
+            if (job_id < 0)
+            {
+                fprintf(stderr, "bg: %s: no such job\n", string_cstr(arg_str));
+                exit_status = 1;
+                continue;
+            }
+
+            job_t *job = job_store_find(frame->executor->jobs, job_id);
+            if (!job)
+            {
+                fprintf(stderr, "bg: %s: no such job\n", string_cstr(arg_str));
+                exit_status = 1;
+                continue;
+            }
+
+            if (job->state != JOB_STOPPED)
+            {
+                fprintf(stderr, "bg: job %d is not stopped\n", job_id);
+                exit_status = 1;
+                continue;
+            }
+
+#ifdef POSIX_API
+            /* Send SIGCONT to resume the job */
+            if (kill(-job->pgid, SIGCONT) < 0)
+            {
+                fprintf(stderr, "bg: %s: failed to continue job: %s\n", 
+                        string_cstr(arg_str), strerror(errno));
+                exit_status = 1;
+                continue;
+            }
+            job_store_set_state(frame->executor->jobs, job_id, JOB_RUNNING);
+
+            /* Print the job info */
+            printf("[%d]%c %s &\n", job_id,
+                   (job == job_store_get_current(frame->executor->jobs)) ? '+' : '-',
+                   job->command_line ? string_cstr(job->command_line) : "");
+#elifdef UCRT_API
+            fprintf(stderr, "bg: resuming stopped jobs not supported on this platform\n");
+            exit_status = 1;
+#else
+            fprintf(stderr, "bg: job control not supported on this platform\n");
+            exit_status = 1;
+#endif
+        }
     }
 
     return exit_status;
