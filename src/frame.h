@@ -438,6 +438,82 @@ bool frame_trap_name_is_unsupported(const char *name);
  */
 void frame_run_exit_traps(const trap_store_t *store, exec_frame_t *frame);
 
+// NEW API: aliases
+
+/**
+ * Callback type for iterating over aliases.
+ * @param name The alias name
+ * @param value The alias value (the replacement text)
+ * @param context User-provided context pointer
+ */
+typedef void (*frame_alias_callback_t)(const string_t *name, const string_t *value, void *context);
+
+/**
+ * Check if an alias exists in the frame's alias store.
+ * @param frame The execution frame
+ * @param name The alias name to check
+ * @return True if the alias exists
+ */
+bool frame_has_alias(const exec_frame_t *frame, const string_t *name);
+bool frame_has_alias_cstr(const exec_frame_t *frame, const char *name);
+
+/**
+ * Get the value of an alias.
+ * @param frame The execution frame
+ * @param name The alias name
+ * @return The alias value, or NULL if not found. The returned pointer is valid
+ *         only until the next mutating operation on the alias store.
+ */
+const string_t *frame_get_alias(const exec_frame_t *frame, const string_t *name);
+const char *frame_get_alias_cstr(const exec_frame_t *frame, const char *name);
+
+/**
+ * Set or update an alias.
+ * @param frame The execution frame
+ * @param name The alias name (will be deep-copied)
+ * @param value The alias value (will be deep-copied)
+ * @return True on success, false if no alias store available
+ */
+bool frame_set_alias(exec_frame_t *frame, const string_t *name, const string_t *value);
+bool frame_set_alias_cstr(exec_frame_t *frame, const char *name, const char *value);
+
+/**
+ * Remove an alias.
+ * @param frame The execution frame
+ * @param name The alias name to remove
+ * @return True if the alias was found and removed, false otherwise
+ */
+bool frame_remove_alias(exec_frame_t *frame, const string_t *name);
+bool frame_remove_alias_cstr(exec_frame_t *frame, const char *name);
+
+/**
+ * Get the number of aliases in the frame's alias store.
+ * @param frame The execution frame
+ * @return The number of aliases, or 0 if no alias store available
+ */
+int frame_alias_count(const exec_frame_t *frame);
+
+/**
+ * Iterate over all aliases and call the callback for each.
+ * @param frame The execution frame
+ * @param callback The callback function to call for each alias
+ * @param context User-provided context pointer passed to callback
+ */
+void frame_for_each_alias(const exec_frame_t *frame, frame_alias_callback_t callback, void *context);
+
+/**
+ * Remove all aliases from the frame's alias store.
+ * @param frame The execution frame
+ */
+void frame_clear_all_aliases(exec_frame_t *frame);
+
+/**
+ * Check if a string is a valid alias name.
+ * @param name The name to validate
+ * @return True if the name is valid for use as an alias
+ */
+bool frame_alias_name_is_valid(const char *name);
+
 // NEW API: background jobs
 void frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
 void frame_print_background_jobs(exec_frame_t *frame);

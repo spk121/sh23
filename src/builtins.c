@@ -84,8 +84,8 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     /* { "test", BUILTIN_REGULAR, builtin_test}, */
     { "[", BUILTIN_REGULAR, builtin_bracket},
     /* { "read", BUILTIN_REGULAR, builtin_read}, */
-    /* { "alias", BUILTIN_REGULAR, builtin_alias}, */
-    /* { "unalias", BUILTIN_REGULAR, builtin_unalias}, */
+    { "alias", BUILTIN_REGULAR, builtin_alias},
+    { "unalias", BUILTIN_REGULAR, builtin_unalias},
     /* { "type", BUILTIN_REGULAR, builtin_type}, */
     /* { "command", BUILTIN_REGULAR, builtin_command}, */
     /* { "getopts", BUILTIN_REGULAR, builtin_getopts}, */
@@ -1648,6 +1648,273 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
     if (err_count > 0)
         return 1;
     return 0;
+}
+
+/* ============================================================================
+ * alias - Define or display aliases
+ * 
+ * POSIX Synopsis:
+ *   alias [alias-name[=string] ...]
+ * 
+ * Without arguments, alias writes a list of aliases in the form:
+ *   alias name='value'
+ * 
+ * With arguments, aliases are defined:
+ *   alias name         - Prints the alias definition for name
+ *   alias name=value   - Defines an alias for name
+ * 
+ * Options:
+ *   -p    Print all aliases in a reusable format (extension, same as no args)
+ * 
+ * Returns:
+ *   0     Success
+ *   >0    One or more alias names not found (for lookup) or invalid
+ * ============================================================================
+ */
+
+/**
+ * Callback for printing aliases in "alias name='value'" format
+ */
+static void alias_print_callback(const string_t *name, const string_t *value, void *context)
+{
+    (void)context;
+
+    /* Escape single quotes in the value string */
+    const char *val_str = string_cstr(value);
+    printf("alias %s='", string_cstr(name));
+    for (const char *p = val_str; *p; p++)
+    {
+        if (*p == '\'')
+        {
+            /* End single quote, add escaped quote, start new single quote */
+            printf("'\\''");
+        }
+        else
+        {
+            putchar(*p);
+        }
+    }
+    printf("'\n");
+}
+
+int builtin_alias(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    bool print_all = false;
+    int first_operand = 1;
+
+    /* Parse options */
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (arg[0] != '-')
+        {
+            first_operand = i;
+            break;
+        }
+
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Parse option characters */
+        for (const char *p = arg + 1; *p; p++)
+        {
+            switch (*p)
+            {
+            case 'p':
+                print_all = true;
+                break;
+            default:
+                fprintf(stderr, "alias: -%c: invalid option\n", *p);
+                fprintf(stderr, "alias: usage: alias [-p] [name[=value] ...]\n");
+                return 2;
+            }
+        }
+
+        first_operand = i + 1;
+    }
+
+    /* No arguments or -p: print all aliases */
+    if (first_operand >= argc || print_all)
+    {
+        frame_for_each_alias(frame, alias_print_callback, NULL);
+
+        /* If -p was given without other args, we're done */
+        if (first_operand >= argc)
+            return 0;
+    }
+
+    int exit_status = 0;
+
+    /* Process each argument */
+    for (int i = first_operand; i < argc; i++)
+    {
+        const string_t *arg = string_list_at(args, i);
+        const char *arg_str = string_cstr(arg);
+
+        /* Check if this is a definition (contains '=') */
+        int eq_pos = string_find_cstr(arg, "=");
+
+        if (eq_pos > 0)
+        {
+            /* This is a definition: name=value */
+            string_t *name = string_substring(arg, 0, eq_pos);
+            string_t *value = string_substring(arg, eq_pos + 1, string_length(arg));
+
+            /* Validate alias name */
+            if (!frame_alias_name_is_valid(string_cstr(name)))
+            {
+                fprintf(stderr, "alias: '%s': invalid alias name\n", string_cstr(name));
+                string_destroy(&name);
+                string_destroy(&value);
+                exit_status = 1;
+                continue;
+            }
+
+            /* Set the alias */
+            if (!frame_set_alias(frame, name, value))
+            {
+                fprintf(stderr, "alias: failed to set alias '%s'\n", string_cstr(name));
+                exit_status = 1;
+            }
+
+            string_destroy(&name);
+            string_destroy(&value);
+        }
+        else if (eq_pos == 0)
+        {
+            /* '=' at start - invalid */
+            fprintf(stderr, "alias: '=': invalid alias name\n");
+            exit_status = 1;
+        }
+        else
+        {
+            /* No '=' - print the alias if it exists */
+            if (!frame_alias_name_is_valid(arg_str))
+            {
+                fprintf(stderr, "alias: '%s': invalid alias name\n", arg_str);
+                exit_status = 1;
+                continue;
+            }
+
+            const string_t *value = frame_get_alias(frame, arg);
+            if (value)
+            {
+                alias_print_callback(arg, value, NULL);
+            }
+            else
+            {
+                fprintf(stderr, "alias: %s: not found\n", arg_str);
+                exit_status = 1;
+            }
+        }
+    }
+
+    return exit_status;
+}
+
+/* ============================================================================
+ * unalias - Remove alias definitions
+ * 
+ * POSIX Synopsis:
+ *   unalias alias-name...
+ *   unalias -a
+ * 
+ * Removes the specified aliases. The -a option removes all aliases.
+ * 
+ * Options:
+ *   -a    Remove all aliases
+ * 
+ * Returns:
+ *   0     Success
+ *   >0    One or more alias names not found
+ * ============================================================================
+ */
+
+int builtin_unalias(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    bool remove_all = false;
+    int first_operand = 1;
+
+    /* Parse options */
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (arg[0] != '-')
+        {
+            first_operand = i;
+            break;
+        }
+
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Parse option characters */
+        for (const char *p = arg + 1; *p; p++)
+        {
+            switch (*p)
+            {
+            case 'a':
+                remove_all = true;
+                break;
+            default:
+                fprintf(stderr, "unalias: -%c: invalid option\n", *p);
+                fprintf(stderr, "unalias: usage: unalias [-a] name...\n");
+                return 2;
+            }
+        }
+
+        first_operand = i + 1;
+    }
+
+    /* Handle -a: remove all aliases */
+    if (remove_all)
+    {
+        frame_clear_all_aliases(frame);
+        return 0;
+    }
+
+    /* Need at least one alias name */
+    if (first_operand >= argc)
+    {
+        fprintf(stderr, "unalias: usage: unalias [-a] name...\n");
+        return 2;
+    }
+
+    int exit_status = 0;
+
+    /* Remove each specified alias */
+    for (int i = first_operand; i < argc; i++)
+    {
+        const string_t *name = string_list_at(args, i);
+
+        if (!frame_remove_alias(frame, name))
+        {
+            fprintf(stderr, "unalias: %s: not found\n", string_cstr(name));
+            exit_status = 1;
+        }
+    }
+
+    return exit_status;
 }
 
 /* ============================================================================

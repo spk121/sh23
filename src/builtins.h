@@ -105,6 +105,9 @@ int builtin_fg(exec_frame_t *frame, const string_list_t *args);
 int builtin_bg(exec_frame_t *frame, const string_list_t *args);
 int builtin_ls(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_alias(exec_frame_t *frame, const string_list_t *args);
+int builtin_unalias(exec_frame_t *frame, const string_list_t *args);
+
 int builtin_basename(exec_frame_t *frame, const string_list_t *args);
 int builtin_dirname(exec_frame_t *frame, const string_list_t *args);
 int builtin_mgsh_dirnamevar(exec_frame_t *frame, const string_list_t *args);

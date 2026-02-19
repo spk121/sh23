@@ -1330,6 +1330,173 @@ bool frame_trap_name_is_unsupported(const char *name)
 }
 
 /* ============================================================================
+ * Aliases
+ * ============================================================================ */
+
+/* Helper: Get alias store from frame */
+static alias_store_t *get_alias_store(exec_frame_t *frame)
+{
+    if (frame->aliases)
+        return frame->aliases;
+    if (frame->executor && frame->executor->aliases)
+        return frame->executor->aliases;
+    return NULL;
+}
+
+/* Helper: Get alias store from frame (const version) */
+static const alias_store_t *get_alias_store_const(const exec_frame_t *frame)
+{
+    if (frame->aliases)
+        return frame->aliases;
+    if (frame->executor && frame->executor->aliases)
+        return frame->executor->aliases;
+    return NULL;
+}
+
+bool frame_has_alias(const exec_frame_t *frame, const string_t *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_has_name(aliases, name);
+}
+
+bool frame_has_alias_cstr(const exec_frame_t *frame, const char *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_has_name_cstr(aliases, name);
+}
+
+const string_t *frame_get_alias(const exec_frame_t *frame, const string_t *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return NULL;
+
+    return alias_store_get_value(aliases, name);
+}
+
+const char *frame_get_alias_cstr(const exec_frame_t *frame, const char *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return NULL;
+
+    return alias_store_get_value_cstr(aliases, name);
+}
+
+bool frame_set_alias(exec_frame_t *frame, const string_t *name, const string_t *value)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+    Expects_not_null(value);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    alias_store_add(aliases, name, value);
+    return true;
+}
+
+bool frame_set_alias_cstr(exec_frame_t *frame, const char *name, const char *value)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+    Expects_not_null(value);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    alias_store_add_cstr(aliases, name, value);
+    return true;
+}
+
+bool frame_remove_alias(exec_frame_t *frame, const string_t *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_remove(aliases, name);
+}
+
+bool frame_remove_alias_cstr(exec_frame_t *frame, const char *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_remove_cstr(aliases, name);
+}
+
+int frame_alias_count(const exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return 0;
+
+    return alias_store_size(aliases);
+}
+
+void frame_for_each_alias(const exec_frame_t *frame, frame_alias_callback_t callback, void *context)
+{
+    Expects_not_null(frame);
+    Expects_not_null(callback);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return;
+
+    /* The alias_store_foreach callback signature matches frame_alias_callback_t */
+    alias_store_foreach(aliases, (alias_store_foreach_fn)callback, context);
+}
+
+void frame_clear_all_aliases(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return;
+
+    alias_store_clear(aliases);
+}
+
+bool frame_alias_name_is_valid(const char *name)
+{
+    if (!name)
+        return false;
+
+    return alias_name_is_valid(name);
+}
+
+/* ============================================================================
  * Background Jobs
  * ============================================================================ */
 
