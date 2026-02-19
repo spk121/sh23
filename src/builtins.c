@@ -69,7 +69,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "return", BUILTIN_SPECIAL, builtin_return},
     {"set", BUILTIN_SPECIAL, builtin_set},
     { "shift", BUILTIN_SPECIAL, builtin_shift},
-    /* { "times", BUILTIN_SPECIAL, builtin_times}, */
+    { "times", BUILTIN_SPECIAL, builtin_times},
     { "trap", BUILTIN_SPECIAL, builtin_trap},
     { "unset", BUILTIN_SPECIAL, builtin_unset},
 
@@ -1147,6 +1147,161 @@ int builtin_trap(exec_frame_t *frame, const string_list_t *args)
 
     return exit_status;
 }
+
+
+/* ============================================================================
+ * times - Print accumulated user and system times
+ * 
+ * POSIX Synopsis:
+ *   times
+ * 
+ * The times utility shall write the accumulated user and system times for
+ * the shell and for all of its child processes, in the following format:
+ *   user_shell system_shell
+ *   user_children system_children
+ * 
+ * Times are printed in minutes and seconds, formatted as %dm%fs.
+ * 
+ * Options:
+ *   None
+ * 
+ * Returns:
+ *   0     Always succeeds
+ * ============================================================================
+ */
+
+/**
+ * Helper: Format time in minutes and seconds
+ * Outputs format: "XmY.YYYs" (minutes, decimal seconds)
+ */
+static void times_format_time(double seconds, char *buf, size_t buf_size)
+{
+    if (seconds < 0.0)
+        seconds = 0.0;
+
+    int minutes = (int)(seconds / 60.0);
+    double secs = seconds - (minutes * 60.0);
+
+    snprintf(buf, buf_size, "%dm%.3fs", minutes, secs);
+}
+
+#ifdef POSIX_API
+#include <sys/times.h>
+
+int builtin_times(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+
+    struct tms time_buf;
+    char user_buf[32], sys_buf[32];
+
+    /* Get clock ticks per second for conversion */
+    long ticks_per_sec = sysconf(_SC_CLK_TCK);
+    if (ticks_per_sec <= 0)
+    {
+        ticks_per_sec = 100; /* Fallback to common default */
+    }
+
+    /* Get accumulated times */
+    if (times(&time_buf) == (clock_t)-1)
+    {
+        /* Error, but POSIX says times always returns 0 */
+        fprintf(stderr, "times: failed to get process times\n");
+        return 0;
+    }
+
+    /* Shell user and system time */
+    double shell_user = (double)time_buf.tms_utime / ticks_per_sec;
+    double shell_sys = (double)time_buf.tms_stime / ticks_per_sec;
+
+    /* Children user and system time */
+    double child_user = (double)time_buf.tms_cutime / ticks_per_sec;
+    double child_sys = (double)time_buf.tms_cstime / ticks_per_sec;
+
+    /* Print shell times */
+    times_format_time(shell_user, user_buf, sizeof(user_buf));
+    times_format_time(shell_sys, sys_buf, sizeof(sys_buf));
+    printf("%s %s\n", user_buf, sys_buf);
+
+    /* Print children times */
+    times_format_time(child_user, user_buf, sizeof(user_buf));
+    times_format_time(child_sys, sys_buf, sizeof(sys_buf));
+    printf("%s %s\n", user_buf, sys_buf);
+
+    return 0;
+}
+
+#elif defined(UCRT_API)
+
+int builtin_times(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+
+    char time_buf[32];
+
+    /*
+     * UCRT doesn't provide POSIX times() or easy access to user/system time
+     * separation. We use clock() to get an approximation of CPU time used.
+     * 
+     * Note: clock() returns processor time, which may not accurately reflect
+     * real user/system breakdown. Child process times are not available
+     * through standard UCRT.
+     */
+
+    clock_t cpu_time = clock();
+    double cpu_seconds = 0.0;
+
+    if (cpu_time != (clock_t)-1)
+    {
+        cpu_seconds = (double)cpu_time / CLOCKS_PER_SEC;
+    }
+
+    /* Print shell times (all attributed to user time, no system time available) */
+    times_format_time(cpu_seconds, time_buf, sizeof(time_buf));
+    printf("%s 0m0.000s\n", time_buf);
+
+    /* Print children times (not available via standard UCRT) */
+    printf("0m0.000s 0m0.000s\n");
+
+    return 0;
+}
+
+#else
+/* ISO C fallback - minimal implementation using clock() */
+
+int builtin_times(exec_frame_t *frame, const string_list_t *args)
+{
+    (void)frame;
+    (void)args;
+
+    char time_buf[32];
+
+    /*
+     * ISO C provides only clock() for processor time approximation.
+     * We cannot separate user/system time or get child process times.
+     */
+
+    clock_t cpu_time = clock();
+    double cpu_seconds = 0.0;
+
+    if (cpu_time != (clock_t)-1)
+    {
+        cpu_seconds = (double)cpu_time / CLOCKS_PER_SEC;
+    }
+
+    /* Print shell times (best effort with available data) */
+    times_format_time(cpu_seconds, time_buf, sizeof(time_buf));
+    printf("%s 0m0.000s\n", time_buf);
+
+    /* Print children times (not available in ISO C) */
+    printf("0m0.000s 0m0.000s\n");
+
+    return 0;
+}
+
+#endif
 
 
 /* ============================================================================
