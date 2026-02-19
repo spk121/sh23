@@ -55,14 +55,18 @@ static token_type_t match_operator(const lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
+    for (int tlen = 3; tlen >= 1; tlen--)
     {
-        const char *op = normal_mode_operators[i];
-        if (op[0] == '\0')
-            continue; // skip uninitialized
-        if (check_operator_at_position(lx, op))
+        for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
         {
-            return (token_type_t)i;
+            const char *op = normal_mode_operators[i];
+            if (strlen(op) != tlen)
+                continue; // skip operators of different length
+            
+            if (check_operator_at_position(lx, op))
+            {
+                return (token_type_t)i;
+            }
         }
     }
     return TOKEN_EOF; // no match
@@ -318,9 +322,8 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         // Backslash-newline splicing (line continuation)
         if (c == '\\' && c2 == '\n')
         {
-            lx->pos += 2;
-            lx->line_no++;
-            lx->col_no = 1;
+            lexer_advance(lx); // consume backslash
+            lexer_advance(lx); // consume newline
             // After line continuation, check if we're at EOF
             // If so, we need more input
             if (lexer_at_end(lx))
@@ -512,6 +515,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
             // Otherwise treat as word character
             lexer_start_word(lx);
             lexer_append_literal_char_to_word(lx, lexer_advance(lx));
+            continue;
         }
 
         lexer_set_error(lx, "Unexpected character '%c'", c);
