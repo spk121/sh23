@@ -6,6 +6,7 @@
 #include "ast.h"
 // #include "exec_command.h"
 #include "exec_expander.h"
+#include "exec_frame.h"
 #include "positional_params.h"
 #include "string_t.h"
 #include "string_list.h"
@@ -352,6 +353,20 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root);
  * @return EXEC_OK on success, EXEC_ERROR on error
  */
 exec_status_t exec_execute_stream(exec_t *executor, FILE *fp);
+
+/**
+ * Execute a complete command string.
+ *
+ * This function executes a self-contained command string, such as a trap
+ * handler action or the argument to eval. Unlike exec_execute_stream(),
+ * this function expects the command to be complete and will treat incomplete
+ * input (unclosed quotes, missing keywords) as an error.
+ *
+ * @param frame The execution frame to use
+ * @param command The complete command string to execute
+ * @return exec_result_t with execution status and exit code
+ */
+exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
 
 /**
  * Execute a command list.

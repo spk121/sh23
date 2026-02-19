@@ -806,6 +806,433 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
  * ============================================================================ */
 
 /**
+ * Result of processing a single string/line of input.
+ */
+typedef enum {
+    EXEC_STRING_OK,           /* Successfully executed one or more commands */
+    EXEC_STRING_INCOMPLETE,   /* Need more input to complete lexing/parsing */
+    EXEC_STRING_EMPTY,        /* No commands to execute (empty input or comments) */
+    EXEC_STRING_ERROR         /* Error occurred */
+} exec_string_status_t;
+
+/**
+ * Context structure for exec_string_core to maintain state between calls.
+ */
+typedef struct {
+    lexer_t *lexer;
+    token_list_t *accumulated_tokens;
+    int line_num;
+} exec_string_ctx_t;
+
+/**
+ * Initialize the string execution context.
+ */
+static exec_string_ctx_t *exec_string_ctx_create(void)
+{
+    exec_string_ctx_t *ctx = xcalloc(1, sizeof(exec_string_ctx_t));
+    ctx->lexer = lexer_create();
+    ctx->accumulated_tokens = NULL;
+    ctx->line_num = 0;
+    return ctx;
+}
+
+/**
+ * Destroy the string execution context.
+ */
+static void exec_string_ctx_destroy(exec_string_ctx_t **ctx_ptr)
+{
+    if (!ctx_ptr || !*ctx_ptr)
+        return;
+
+    exec_string_ctx_t *ctx = *ctx_ptr;
+
+    if (ctx->lexer)
+        lexer_destroy(&ctx->lexer);
+    if (ctx->accumulated_tokens)
+        token_list_destroy(&ctx->accumulated_tokens);
+
+    xfree(ctx);
+    *ctx_ptr = NULL;
+}
+
+/**
+ * Reset the context after successful execution.
+ */
+static void exec_string_ctx_reset(exec_string_ctx_t *ctx)
+{
+    if (ctx->lexer)
+        lexer_reset(ctx->lexer);
+    if (ctx->accumulated_tokens)
+    {
+        token_list_destroy(&ctx->accumulated_tokens);
+        ctx->accumulated_tokens = NULL;
+    }
+}
+
+/**
+ * Core implementation for executing shell commands from a string.
+ *
+ * This function processes a single chunk of input (typically one line),
+ * handling lexing, tokenization, parsing, and execution. It maintains
+ * state in the provided context for handling multi-line constructs.
+ *
+ * @param frame The execution frame
+ * @param input The input string to process
+ * @param tokenizer The tokenizer for alias expansion and token processing
+ * @param ctx The execution context (maintains lexer and accumulated tokens)
+ * @return Status indicating success, need for more input, or error
+ */
+static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *input,
+                                             tokenizer_t *tokenizer, exec_string_ctx_t *ctx)
+{
+    Expects_not_null(frame);
+    Expects_not_null(input);
+    Expects_not_null(tokenizer);
+    Expects_not_null(ctx);
+    Expects_not_null(ctx->lexer);
+    Expects_not_null(frame->executor);
+
+    exec_t *executor = frame->executor;
+    lexer_t *lx = ctx->lexer;
+
+    ctx->line_num++;
+    log_debug("exec_string_core: Processing line %d: %.*s", ctx->line_num,
+              (int)strcspn(input, "\r\n"), input);
+
+    lexer_append_input_cstr(lx, input);
+
+    token_list_t *raw_tokens = token_list_create();
+    lex_status_t lex_status = lexer_tokenize(lx, raw_tokens, NULL);
+
+    if (lex_status == LEX_ERROR)
+    {
+        log_debug("exec_string_core: Lexer error at line %d", ctx->line_num);
+        const char *err = lexer_get_error(lx);
+        frame_set_error_printf(frame, "Lexer error: %s", err ? err : "unknown");
+        token_list_destroy(&raw_tokens);
+        return EXEC_STRING_ERROR;
+    }
+
+    if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
+    {
+        log_debug("exec_string_core: Lexer incomplete/heredoc at line %d", ctx->line_num);
+
+        /* Check if any tokens were produced before the incomplete state.
+         * If so, we should accumulate them for parsing when more input arrives. */
+        if (token_list_size(raw_tokens) > 0)
+        {
+            log_debug("exec_string_core: Lexer produced %d tokens before becoming incomplete",
+                      token_list_size(raw_tokens));
+
+            /* Process the tokens that were produced */
+            token_list_t *processed_tokens = token_list_create();
+            tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+            token_list_destroy(&raw_tokens);
+
+            if (tok_status == TOK_ERROR)
+            {
+                log_debug("exec_string_core: Tokenizer error on incomplete line %d", ctx->line_num);
+                const char *err = tokenizer_get_error(tokenizer);
+                frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
+                token_list_destroy(&processed_tokens);
+                return EXEC_STRING_ERROR;
+            }
+
+            if (tok_status == TOK_INCOMPLETE)
+            {
+                log_debug("exec_string_core: Tokenizer incomplete (compound command) during lexer incomplete at line %d", ctx->line_num);
+                /* Tokens are buffered in tokenizer, continue to next line */
+                token_list_destroy(&processed_tokens);
+                return EXEC_STRING_INCOMPLETE;
+            }
+
+            /* Accumulate these tokens for when the lexer completes */
+            if (ctx->accumulated_tokens == NULL)
+            {
+                ctx->accumulated_tokens = processed_tokens;
+            }
+            else
+            {
+                if (token_list_append_list_move(ctx->accumulated_tokens, &processed_tokens) != 0)
+                {
+                    log_debug("exec_string_core: Failed to append incomplete tokens");
+                    return EXEC_STRING_ERROR;
+                }
+            }
+        }
+        else
+        {
+            token_list_destroy(&raw_tokens);
+        }
+        return EXEC_STRING_INCOMPLETE;
+    }
+
+    log_debug("exec_string_core: Lexer produced %d raw tokens at line %d",
+              token_list_size(raw_tokens), ctx->line_num);
+
+    token_list_t *processed_tokens = token_list_create();
+    tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+    token_list_destroy(&raw_tokens);
+
+    if (tok_status == TOK_ERROR)
+    {
+        log_debug("exec_string_core: Tokenizer error at line %d", ctx->line_num);
+        const char *err = tokenizer_get_error(tokenizer);
+        frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
+        token_list_destroy(&processed_tokens);
+        return EXEC_STRING_ERROR;
+    }
+
+    if (tok_status == TOK_INCOMPLETE)
+    {
+        log_debug("exec_string_core: Tokenizer incomplete (compound command) at line %d, tokens buffered", ctx->line_num);
+        /* Tokenizer is buffering tokens for an incomplete compound command.
+         * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
+         * Continue reading more input. */
+        token_list_destroy(&processed_tokens);
+        return EXEC_STRING_INCOMPLETE;
+    }
+
+    if (token_list_size(processed_tokens) == 0)
+    {
+        log_debug("exec_string_core: No tokens after processing at line %d", ctx->line_num);
+        token_list_destroy(&processed_tokens);
+        return EXEC_STRING_EMPTY;
+    }
+
+    /* Accumulate tokens if we had an incomplete parse previously */
+    if (ctx->accumulated_tokens)
+    {
+        log_debug("exec_string_core: Appending %d new tokens to %d accumulated tokens",
+                  token_list_size(processed_tokens), token_list_size(ctx->accumulated_tokens));
+
+        /* Move all tokens from processed_tokens to accumulated_tokens */
+        if (token_list_append_list_move(ctx->accumulated_tokens, &processed_tokens) != 0)
+        {
+            log_debug("exec_string_core: Failed to append tokens");
+            return EXEC_STRING_ERROR;
+        }
+
+        /* Use the accumulated list for parsing */
+        processed_tokens = ctx->accumulated_tokens;
+        ctx->accumulated_tokens = NULL;
+    }
+
+    log_debug("exec_string_core: Tokenizer produced %d processed tokens at line %d",
+              token_list_size(processed_tokens), ctx->line_num);
+
+    /* Debug: print all tokens */
+    for (int i = 0; i < token_list_size(processed_tokens); i++)
+    {
+        const token_t *t = token_list_get(processed_tokens, i);
+        log_debug("  Token %d: type=%d, text='%s'", i, token_get_type(t),
+                  string_cstr(token_to_string(t)));
+    }
+
+    parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
+    gnode_t *gnode = NULL;
+
+    log_debug("exec_string_core: Starting parse at line %d", ctx->line_num);
+    parse_status_t parse_status = parser_parse_program(parser, &gnode);
+
+    if (parse_status == PARSE_ERROR)
+    {
+        log_debug("exec_string_core: Parse error at line %d", ctx->line_num);
+        const char *err = parser_get_error(parser);
+        if (err && err[0])
+        {
+            frame_set_error_printf(frame, "Parse error at line %d: %s", ctx->line_num, err);
+        }
+        else
+        {
+            /* Parser returned error but didn't set error message */
+            token_t *curr_tok = token_clone(parser_current_token(parser));
+            if (curr_tok)
+            {
+                string_t *tok_str = token_to_string(curr_tok);
+                log_debug("exec_string_core: Current token: type=%d, line=%d, col=%d, text='%s'",
+                          token_get_type(curr_tok),
+                          token_get_first_line(curr_tok),
+                          token_get_first_column(curr_tok),
+                          string_cstr(tok_str));
+                frame_set_error_printf(frame, "Parse error at line %d, column %d near '%s'",
+                                       token_get_first_line(curr_tok),
+                                       token_get_first_column(curr_tok),
+                                       string_cstr(tok_str));
+                string_destroy(&tok_str);
+                token_destroy(&curr_tok);
+            }
+            else
+            {
+                log_debug("exec_string_core: No current token available");
+                frame_set_error_printf(frame, "Parse error at line %d: no error details available", ctx->line_num);
+            }
+        }
+        parser_destroy(&parser);
+        return EXEC_STRING_ERROR;
+    }
+
+    if (parse_status == PARSE_INCOMPLETE)
+    {
+        log_debug("exec_string_core: Parse incomplete at line %d, accumulating tokens", ctx->line_num);
+        if (gnode)
+            g_node_destroy(&gnode);
+        /* Clone token list from parser - respect silo boundary */
+        ctx->accumulated_tokens = token_list_clone(parser->tokens);
+        parser_destroy(&parser);
+        return EXEC_STRING_INCOMPLETE;
+    }
+
+    if (parse_status == PARSE_EMPTY || !gnode)
+    {
+        log_debug("exec_string_core: Parse empty at line %d", ctx->line_num);
+        parser_destroy(&parser);
+        return EXEC_STRING_EMPTY;
+    }
+
+    ast_node_t *ast = ast_lower(gnode);
+    g_node_destroy(&gnode);
+    parser_destroy(&parser);
+
+    if (!ast)
+    {
+        return EXEC_STRING_EMPTY;
+    }
+
+    /* Execute via the dispatch function */
+    exec_result_t result = exec_execute_dispatch(frame, ast);
+
+    /* Update frame's exit status */
+    if (result.has_exit_status)
+    {
+        frame->last_exit_status = result.exit_status;
+        executor->last_exit_status = result.exit_status;
+        executor->last_exit_status_set = true;
+    }
+
+    ast_node_destroy(&ast);
+
+    if (result.status == EXEC_ERROR)
+    {
+        return EXEC_STRING_ERROR;
+    }
+
+    /* Reset context after successful execution */
+    exec_string_ctx_reset(ctx);
+
+    return EXEC_STRING_OK;
+}
+
+/**
+ * Execute a complete command string.
+ *
+ * This is a simplified wrapper around exec_string_core() for cases where the
+ * input string is expected to be a complete, self-contained command that does
+ * not require continuation. This is useful for:
+ * - Trap handlers (the action string stored with trap)
+ * - eval builtin
+ * - Any case where you have a complete command as a string
+ *
+ * If the command string is incomplete (e.g., unclosed quotes, missing 'done'),
+ * this function treats it as an error rather than requesting more input.
+ *
+ * @param frame The execution frame
+ * @param command The complete command string to execute
+ * @return exec_result_t with execution status and exit code
+ */
+exec_result_t exec_command_string(exec_frame_t *frame, const char *command)
+{
+    Expects_not_null(frame);
+    Expects_not_null(frame->executor);
+
+    exec_result_t result = {
+        .status = EXEC_OK,
+        .has_exit_status = true,
+        .exit_status = 0,
+        .flow = EXEC_FLOW_NORMAL,
+        .flow_depth = 0
+    };
+
+    /* Handle empty or NULL command */
+    if (!command || !*command)
+    {
+        return result;
+    }
+
+    exec_t *executor = frame->executor;
+
+    /* Create a temporary tokenizer for this command */
+    tokenizer_t *tokenizer = tokenizer_create(executor->aliases);
+    if (!tokenizer)
+    {
+        frame_set_error_printf(frame, "Failed to create tokenizer for command string");
+        result.status = EXEC_ERROR;
+        result.exit_status = 1;
+        return result;
+    }
+
+    /* Create execution context */
+    exec_string_ctx_t *ctx = exec_string_ctx_create();
+    if (!ctx || !ctx->lexer)
+    {
+        frame_set_error_printf(frame, "Failed to create execution context");
+        if (ctx)
+            exec_string_ctx_destroy(&ctx);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 1;
+        return result;
+    }
+
+    /* Ensure command ends with newline for proper parsing */
+    string_t *cmd_with_newline = string_create_from_cstr(command);
+    int len = string_length(cmd_with_newline);
+    if (len == 0 || string_at(cmd_with_newline, len - 1) != '\n')
+    {
+        string_append_char(cmd_with_newline, '\n');
+    }
+
+    /* Execute the command string */
+    exec_string_status_t status = exec_string_core(frame, string_cstr(cmd_with_newline),
+                                                   tokenizer, ctx);
+
+    string_destroy(&cmd_with_newline);
+
+    /* Map status to result */
+    switch (status)
+    {
+    case EXEC_STRING_OK:
+        result.status = EXEC_OK;
+        result.exit_status = frame->last_exit_status;
+        break;
+
+    case EXEC_STRING_EMPTY:
+        /* Empty command is not an error, just return success with status 0 */
+        result.status = EXEC_OK;
+        result.exit_status = 0;
+        break;
+
+    case EXEC_STRING_INCOMPLETE:
+        /* For a "complete" command string, incomplete is an error */
+        frame_set_error_printf(frame, "Incomplete command: unexpected end of input");
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        break;
+
+    case EXEC_STRING_ERROR:
+        result.status = EXEC_ERROR;
+        result.exit_status = frame->last_exit_status ? frame->last_exit_status : 1;
+        break;
+    }
+
+    /* Clean up */
+    exec_string_ctx_destroy(&ctx);
+    tokenizer_destroy(&tokenizer);
+
+    return result;
+}
+
+/**
  * Core implementation for executing shell commands from a stream.
  * 
  * This is shared between exec_execute_stream() and frame_execute_stream().
@@ -818,12 +1245,12 @@ frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t 
     Expects_not_null(tokenizer);
     Expects_not_null(frame->executor);
 
-    exec_t *executor = frame->executor;
-
-    lexer_t *lx = lexer_create();
-    if (!lx)
+    exec_string_ctx_t *ctx = exec_string_ctx_create();
+    if (!ctx || !ctx->lexer)
     {
-        frame_set_error_printf(frame, "Failed to create lexer");
+        frame_set_error_printf(frame, "Failed to create execution context");
+        if (ctx)
+            exec_string_ctx_destroy(&ctx);
         return FRAME_EXEC_ERROR;
     }
 
@@ -831,270 +1258,34 @@ frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t 
 
 #define LINE_BUFFER_SIZE 4096
     char line_buffer[LINE_BUFFER_SIZE];
-    int line_num = 0;
-
-    /* Token accumulation for incomplete parses */
-    token_list_t *accumulated_tokens = NULL;
 
     while (fgets(line_buffer, sizeof(line_buffer), fp) != NULL)
     {
-        line_num++;
-        log_debug("exec_stream_core: Reading line %d: %.*s", line_num, 
-                  (int)strcspn(line_buffer, "\r\n"), line_buffer);
+        exec_string_status_t status = exec_string_core(frame, line_buffer, tokenizer, ctx);
 
-        lexer_append_input_cstr(lx, line_buffer);
-
-        token_list_t *raw_tokens = token_list_create();
-        lex_status_t lex_status = lexer_tokenize(lx, raw_tokens, NULL);
-
-        if (lex_status == LEX_ERROR)
+        switch (status)
         {
-            log_debug("exec_stream_core: Lexer error at line %d", line_num);
-            const char *err = lexer_get_error(lx);
-            frame_set_error_printf(frame, "Lexer error: %s",
-                                 err ? err : "unknown");
-            token_list_destroy(&raw_tokens);
-            if (accumulated_tokens)
-                token_list_destroy(&accumulated_tokens);
-            final_status = FRAME_EXEC_ERROR;
+        case EXEC_STRING_OK:
+            /* Successfully executed, continue to next line */
             break;
-        }
 
-        if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
-        {
-            log_debug("exec_stream_core: Lexer incomplete/heredoc at line %d", line_num);
-
-            /* Check if any tokens were produced before the incomplete state.
-             * If so, we should accumulate them for parsing when more input arrives. */
-            if (token_list_size(raw_tokens) > 0)
-            {
-                log_debug("exec_stream_core: Lexer produced %d tokens before becoming incomplete",
-                          token_list_size(raw_tokens));
-
-                /* Process the tokens that were produced */
-                token_list_t *processed_tokens = token_list_create();
-                tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
-                token_list_destroy(&raw_tokens);
-
-                if (tok_status == TOK_ERROR)
-                {
-                    log_debug("exec_stream_core: Tokenizer error on incomplete line %d", line_num);
-                    const char *err = tokenizer_get_error(tokenizer);
-                    frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
-                    token_list_destroy(&processed_tokens);
-                    if (accumulated_tokens)
-                        token_list_destroy(&accumulated_tokens);
-                    final_status = FRAME_EXEC_ERROR;
-                    break;
-                }
-
-                if (tok_status == TOK_INCOMPLETE)
-                {
-                    log_debug("exec_stream_core: Tokenizer incomplete (compound command) during lexer incomplete at line %d", line_num);
-                    /* Tokens are buffered in tokenizer, continue to next line */
-                    token_list_destroy(&processed_tokens);
-                    continue;
-                }
-
-                /* Accumulate these tokens for when the lexer completes */
-                if (accumulated_tokens == NULL)
-                {
-                    accumulated_tokens = processed_tokens;
-                }
-                else
-                {
-                    if (token_list_append_list_move(accumulated_tokens, &processed_tokens) != 0)
-                    {
-                        log_debug("exec_stream_core: Failed to append incomplete tokens");
-                        token_list_destroy(&accumulated_tokens);
-                        final_status = FRAME_EXEC_ERROR;
-                        break;
-                    }
-                }
-            }
-            else
-            {
-                token_list_destroy(&raw_tokens);
-            }
-            continue;
-        }
-
-        log_debug("exec_stream_core: Lexer produced %d raw tokens at line %d", 
-                  token_list_size(raw_tokens), line_num);
-
-        token_list_t *processed_tokens = token_list_create();
-        tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
-        token_list_destroy(&raw_tokens);
-
-        if (tok_status == TOK_ERROR)
-        {
-            log_debug("exec_stream_core: Tokenizer error at line %d", line_num);
-            const char *err = tokenizer_get_error(tokenizer);
-            frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
-            token_list_destroy(&processed_tokens);
-            if (accumulated_tokens)
-                token_list_destroy(&accumulated_tokens);
-            final_status = FRAME_EXEC_ERROR;
+        case EXEC_STRING_INCOMPLETE:
+            /* Need more input, continue reading */
             break;
-        }
 
-        if (tok_status == TOK_INCOMPLETE)
-        {
-            log_debug("exec_stream_core: Tokenizer incomplete (compound command) at line %d, tokens buffered", line_num);
-            /* Tokenizer is buffering tokens for an incomplete compound command.
-             * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
-             * Continue reading more input. */
-            token_list_destroy(&processed_tokens);
-            continue;
-        }
-
-        if (token_list_size(processed_tokens) == 0)
-        {
-            log_debug("exec_stream_core: No tokens after processing at line %d", line_num);
-            token_list_destroy(&processed_tokens);
-            continue;
-        }
-
-        /* Accumulate tokens if we had an incomplete parse previously */
-        if (accumulated_tokens)
-        {
-            log_debug("exec_stream_core: Appending %d new tokens to %d accumulated tokens",
-                      token_list_size(processed_tokens), token_list_size(accumulated_tokens));
-
-            /* Move all tokens from processed_tokens to accumulated_tokens */
-            if (token_list_append_list_move(accumulated_tokens, &processed_tokens) != 0)
-            {
-                log_debug("exec_stream_core: Failed to append tokens");
-                token_list_destroy(&accumulated_tokens);
-                final_status = FRAME_EXEC_ERROR;
-                break;
-            }
-
-            /* Use the accumulated list for parsing */
-            processed_tokens = accumulated_tokens;
-            accumulated_tokens = NULL;
-        }
-
-        log_debug("exec_stream_core: Tokenizer produced %d processed tokens at line %d",
-                  token_list_size(processed_tokens), line_num);
-
-        /* Debug: print all tokens */
-        for (int i = 0; i < token_list_size(processed_tokens); i++)
-        {
-            const token_t *t = token_list_get(processed_tokens, i);
-            log_debug("  Token %d: type=%d, text='%s'", i, token_get_type(t),
-                      string_cstr(token_to_string(t)));
-        }
-
-        parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
-        gnode_t *gnode = NULL;
-
-        log_debug("exec_stream_core: Starting parse at line %d", line_num);
-        parse_status_t parse_status = parser_parse_program(parser, &gnode);
-
-        if (parse_status == PARSE_ERROR)
-        {
-            log_debug("exec_stream_core: Parse error at line %d", line_num);
-            const char *err = parser_get_error(parser);
-            if (err && err[0])
-            {
-                frame_set_error_printf(frame, "Parse error at line %d: %s", line_num, err);
-            }
-            else
-            {
-                /* Parser returned error but didn't set error message */
-                token_t *curr_tok = token_clone(parser_current_token(parser));
-                if (curr_tok)
-                {
-                    string_t *tok_str = token_to_string(curr_tok);
-                    log_debug("exec_stream_core: Current token: type=%d, line=%d, col=%d, text='%s'",
-                              token_get_type(curr_tok),
-                              token_get_first_line(curr_tok),
-                              token_get_first_column(curr_tok),
-                              string_cstr(tok_str));
-                    frame_set_error_printf(frame, "Parse error at line %d, column %d near '%s'",
-                                         token_get_first_line(curr_tok),
-                                         token_get_first_column(curr_tok),
-                                         string_cstr(tok_str));
-                    string_destroy(&tok_str);
-                    token_destroy(&curr_tok);
-                }
-                else
-                {
-                    log_debug("exec_stream_core: No current token available");
-                    frame_set_error_printf(frame, "Parse error at line %d: no error details available", line_num);
-                }
-            }
-            parser_destroy(&parser);
-            final_status = FRAME_EXEC_ERROR;
+        case EXEC_STRING_EMPTY:
+            /* No commands to execute, continue */
             break;
-        }
 
-        if (parse_status == PARSE_INCOMPLETE)
-        {
-            log_debug("exec_stream_core: Parse incomplete at line %d, accumulating tokens", line_num);
-            if (gnode)
-                g_node_destroy(&gnode);
-            /* Clone token list from parser - respect silo boundary */
-            accumulated_tokens = token_list_clone(parser->tokens);
-            parser_destroy(&parser);
-            continue;
-        }
-
-        if (parse_status == PARSE_EMPTY || !gnode)
-        {
-            log_debug("exec_stream_core: Parse empty at line %d", line_num);
-            parser_destroy(&parser);
-            continue;
-        }
-
-        ast_node_t *ast = ast_lower(gnode);
-        g_node_destroy(&gnode);
-        parser_destroy(&parser);
-
-        if (!ast)
-            continue;
-
-        /* Execute via the dispatch function */
-        exec_result_t result = exec_execute_dispatch(frame, ast);
-
-        /* Update frame's exit status */
-        if (result.has_exit_status)
-        {
-            frame->last_exit_status = result.exit_status;
-            executor->last_exit_status = result.exit_status;
-            executor->last_exit_status_set = true;
-        }
-
-        ast_node_destroy(&ast);
-
-        if (result.status != EXEC_OK)
-        {
-            final_status = (result.status == EXEC_ERROR) ? FRAME_EXEC_ERROR :
-                          (result.status == EXEC_NOT_IMPL) ? FRAME_EXEC_NOT_IMPL : 
-                          FRAME_EXEC_OK;
-            if (result.status == EXEC_ERROR)
-                break;
-        }
-
-        /* Only reset lexer after successful execution */
-        lexer_reset(lx);
-
-        /* Clear accumulated tokens after successful execution */
-        if (accumulated_tokens)
-        {
-            token_list_destroy(&accumulated_tokens);
-            accumulated_tokens = NULL;
+        case EXEC_STRING_ERROR:
+            /* Error occurred, stop processing */
+            final_status = FRAME_EXEC_ERROR;
+            goto cleanup;
         }
     }
 
-    /* Clean up any remaining accumulated tokens */
-    if (accumulated_tokens)
-    {
-        token_list_destroy(&accumulated_tokens);
-    }
-
-    lexer_destroy(&lx);
+cleanup:
+    exec_string_ctx_destroy(&ctx);
 
     return final_status;
 }
@@ -1131,6 +1322,44 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
         fp,
         executor->tokenizer
     );
+
+    if (status == FRAME_EXEC_OK)
+    {
+        /* Process any pending trap handlers */
+        for (int signo = 1; signo < NSIG; signo++)
+        {
+            if (executor->trap_pending[signo])
+            {
+                executor->trap_pending[signo] = 0;
+
+                /* Get trap action from current trap store */
+                const trap_action_t *trap_action = trap_store_get(executor->traps, signo);
+                if (!trap_action || !trap_action->action)
+                    continue;
+
+                /* Save exit status - POSIX says $? should be preserved across trap execution */
+                int saved_exit_status = executor->last_exit_status;
+
+                /* Push EXEC_FRAME_TRAP and execute the trap action string */
+                exec_frame_t *trap_frame =
+                    exec_frame_push(executor->current_frame, EXEC_FRAME_TRAP, executor, NULL);
+
+                exec_result_t trap_result = exec_command_string(trap_frame,
+                                                                string_cstr(trap_action->action));
+
+                exec_frame_pop(executor);
+
+                /* Restore exit status */
+                executor->last_exit_status = saved_exit_status;
+
+                if (trap_result.status == EXEC_ERROR)
+                {
+                    status = FRAME_EXEC_ERROR;
+                    break;
+                }
+            }
+        }
+    }
 
     /* Map frame_exec_status_t to exec_status_t */
     switch (status)
