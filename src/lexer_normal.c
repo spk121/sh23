@@ -176,16 +176,15 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
                 lexer_set_error(lx, "unterminated double-quoted heredoc delimiter");
                 return false;
             }
-            // Inside double quotes: backslash escapes only ", $, `, \, and newline
+            // Backslash escapes are not processed in heredoc delimiters.
+            // The only processing is quote removal. And backslash/newline.
             if (c == '\\')
             {
                 char next = lexer_peek_ahead(lx, 1);
-                if (next == '"' || next == '$' || next == '`' || next == '\\' || next == '\n')
+                if (next == '\n')
                 {
                     lexer_advance(lx); // skip backslash
-                    if (next != '\n')
-                        string_append_char(out_delimiter, next);
-                    lexer_advance(lx);
+                    lexer_advance(lx); // skip newline
                     continue;
                 }
             }
@@ -212,8 +211,6 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
                 // Backslash-newline is removed
                 lexer_advance(lx);
                 lexer_advance(lx);
-                lx->line_no++;
-                lx->col_no = 1;
                 continue;
             }
             if (next != '\0')
