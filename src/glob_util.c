@@ -4,10 +4,10 @@
 
 #include "glob_util.h"
 #include "logging.h"
-#include "string_t.h"
 #include "string_list.h"
-#include <string.h>
+#include "string_t.h"
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef POSIX_API
 #include <fnmatch.h>
@@ -15,8 +15,8 @@
 #endif
 
 #ifdef UCRT_API
-#include <io.h>
 #include <errno.h>
+#include <io.h>
 #endif
 
 /* ============================================================================
@@ -37,10 +37,10 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
     if (flags & GLOB_UTIL_NOESCAPE)
         fn_flags |= FNM_NOESCAPE;
 
-    #ifdef FNM_CASEFOLD
+#ifdef FNM_CASEFOLD
     if (flags & GLOB_UTIL_CASEFOLD)
         fn_flags |= FNM_CASEFOLD;
-    #endif
+#endif
 
     return fnmatch(pattern, string, fn_flags) == 0;
 }
@@ -120,7 +120,19 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
         }
         else if (*p == '*')
         {
-            // Remember this position for backtracking
+            // Handle GLOB_UTIL_PERIOD: * doesn't match a leading '.'
+            // A '.' is "leading" at the start of the string, or after '/' when
+            // GLOB_UTIL_PATHNAME is also set.
+            if ((flags & GLOB_UTIL_PERIOD) && *s == '.')
+            {
+                int is_leading = (s == string);
+                if (!is_leading && (flags & GLOB_UTIL_PATHNAME) && s > string && s[-1] == '/')
+                    is_leading = 1;
+                if (is_leading)
+                    return false;
+            }
+
+            // Remember this position for backtracking.
             // Note: With GLOB_UTIL_PATHNAME, * matches zero or more non-/ characters.
             // This is enforced in the backtracking logic, not here.
             star_pattern = p++;
@@ -219,11 +231,23 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
             if (matched == negate)
                 goto backtrack; // Character class didn't match
 
+            // Handle GLOB_UTIL_PERIOD: [...] doesn't match a leading '.'
+            // A '.' is "leading" at the start of the string, or after '/' when
+            // GLOB_UTIL_PATHNAME is also set.
+            if ((flags & GLOB_UTIL_PERIOD) && *s == '.')
+            {
+                int is_leading = (s == string);
+                if (!is_leading && (flags & GLOB_UTIL_PATHNAME) && s > string && s[-1] == '/')
+                    is_leading = 1;
+                if (is_leading)
+                    goto backtrack;
+            }
+
             s++;
         }
         else
         {
-backtrack:
+        backtrack:
             // Mismatch - try backtracking to the last '*'
             if (star_pattern)
             {
@@ -309,9 +333,9 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
          */
         if (ret != 0)
         {
-            wordfree(&we);  // safe to call even on failure
+            wordfree(&we); // safe to call even on failure
         }
-        return NULL;  // treat errors and no matches the same: keep literal
+        return NULL; // treat errors and no matches the same: keep literal
     }
 
     /* Success and at least one match */
@@ -414,8 +438,7 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
 #endif
 
-string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags,
-                                        const char *base_dir)
+string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags, const char *base_dir)
 {
     // For now, ignore flags and base_dir - future enhancement
     (void)flags;
