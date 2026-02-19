@@ -1212,6 +1212,123 @@ void frame_run_exit_traps(const trap_store_t *store, exec_frame_t *frame)
     trap_store_run_exit_trap(store, frame);
 }
 
+/* Helper: Get trap store from frame */
+static trap_store_t *get_trap_store(exec_frame_t *frame)
+{
+    if (frame->traps)
+        return frame->traps;
+    if (frame->executor && frame->executor->traps)
+        return frame->executor->traps;
+    return NULL;
+}
+
+/* Callback adapter for frame_for_each_set_trap */
+typedef struct {
+    frame_trap_callback_t callback;
+    void *context;
+} frame_trap_callback_adapter_t;
+
+static void trap_callback_adapter(int signal_number, const trap_action_t *trap, void *context)
+{
+    frame_trap_callback_adapter_t *adapter = (frame_trap_callback_adapter_t *)context;
+    adapter->callback(signal_number, trap->action, trap->is_ignored, adapter->context);
+}
+
+void frame_for_each_set_trap(exec_frame_t *frame, frame_trap_callback_t callback, void *context)
+{
+    Expects_not_null(frame);
+    Expects_not_null(callback);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return;
+
+    frame_trap_callback_adapter_t adapter = { .callback = callback, .context = context };
+    trap_store_for_each_set_trap(traps, trap_callback_adapter, &adapter);
+}
+
+const string_t *frame_get_trap(exec_frame_t *frame, int signal_number, bool *out_is_ignored)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+    {
+        if (out_is_ignored)
+            *out_is_ignored = false;
+        return NULL;
+    }
+
+    const trap_action_t *trap = trap_store_get(traps, signal_number);
+    if (!trap)
+    {
+        if (out_is_ignored)
+            *out_is_ignored = false;
+        return NULL;
+    }
+
+    if (out_is_ignored)
+        *out_is_ignored = trap->is_ignored;
+
+    return trap->action;
+}
+
+const string_t *frame_get_exit_trap(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return NULL;
+
+    return trap_store_get_exit(traps);
+}
+
+bool frame_set_trap(exec_frame_t *frame, int signal_number, const string_t *action,
+                    bool is_ignored, bool is_reset)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return false;
+
+    return trap_store_set(traps, signal_number, (string_t *)action, is_ignored, is_reset);
+}
+
+bool frame_set_exit_trap(exec_frame_t *frame, const string_t *action,
+                         bool is_ignored, bool is_reset)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return false;
+
+    return trap_store_set_exit(traps, (string_t *)action, is_ignored, is_reset);
+}
+
+int frame_trap_name_to_number(const char *name)
+{
+    if (!name)
+        return -1;
+
+    return trap_signal_name_to_number(name);
+}
+
+const char *frame_trap_number_to_name(int signal_number)
+{
+    return trap_signal_number_to_name(signal_number);
+}
+
+bool frame_trap_name_is_unsupported(const char *name)
+{
+    if (!name)
+        return false;
+
+    return trap_signal_name_is_unsupported(name);
+}
+
 /* ============================================================================
  * Background Jobs
  * ============================================================================ */

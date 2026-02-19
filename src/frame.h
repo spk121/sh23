@@ -349,6 +349,87 @@ exec_frame_t* frame_find_return_target(exec_frame_t* frame);
 void frame_set_pending_control_flow(exec_frame_t *frame, frame_control_flow_t flow, int depth);
 
 // NEW API: traps
+
+/**
+ * Callback type for iterating over set traps.
+ * @param signal_number The signal number (0 for EXIT)
+ * @param action The trap action string (NULL if trap is ignored)
+ * @param is_ignored True if the trap is set to ignore the signal
+ * @param context User-provided context pointer
+ */
+typedef void (*frame_trap_callback_t)(int signal_number, const string_t *action,
+                                      bool is_ignored, void *context);
+
+/**
+ * Iterate over all set traps and call the callback for each.
+ * This includes the EXIT trap (signal 0) if set.
+ * @param frame The execution frame
+ * @param callback The callback function to call for each trap
+ * @param context User-provided context pointer passed to callback
+ */
+void frame_for_each_set_trap(exec_frame_t *frame, frame_trap_callback_t callback, void *context);
+
+/**
+ * Get the trap action for a signal.
+ * @param frame The execution frame
+ * @param signal_number The signal number
+ * @param out_is_ignored If non-NULL, set to true if signal is set to ignore
+ * @return The trap action string, or NULL if no trap is set
+ */
+const string_t *frame_get_trap(exec_frame_t *frame, int signal_number, bool *out_is_ignored);
+
+/**
+ * Get the EXIT trap action.
+ * @param frame The execution frame
+ * @return The EXIT trap action string, or NULL if no EXIT trap is set
+ */
+const string_t *frame_get_exit_trap(exec_frame_t *frame);
+
+/**
+ * Set a trap for a signal.
+ * @param frame The execution frame
+ * @param signal_number The signal number
+ * @param action The trap action string (NULL for reset to default)
+ * @param is_ignored True to ignore the signal (action should be NULL)
+ * @param is_reset True to reset to default (action should be NULL)
+ * @return True on success, false on failure
+ */
+bool frame_set_trap(exec_frame_t *frame, int signal_number, const string_t *action,
+                    bool is_ignored, bool is_reset);
+
+/**
+ * Set the EXIT trap.
+ * @param frame The execution frame
+ * @param action The trap action string (NULL for reset)
+ * @param is_ignored True to ignore EXIT (action should be NULL)
+ * @param is_reset True to reset to default (action should be NULL)
+ * @return True on success, false on failure
+ */
+bool frame_set_exit_trap(exec_frame_t *frame, const string_t *action,
+                         bool is_ignored, bool is_reset);
+
+/**
+ * Convert a signal name to its number.
+ * Accepts names with or without "SIG" prefix (e.g., "INT", "SIGINT", "EXIT").
+ * @param name The signal name
+ * @return The signal number, or -1 if not recognized
+ */
+int frame_trap_name_to_number(const char *name);
+
+/**
+ * Convert a signal number to its name (without "SIG" prefix).
+ * @param signal_number The signal number (0 for EXIT)
+ * @return The signal name (e.g., "INT", "EXIT"), or "INVALID" if not valid
+ */
+const char *frame_trap_number_to_name(int signal_number);
+
+/**
+ * Check if a signal name is valid but unsupported on the current platform.
+ * @param name The signal name
+ * @return True if the name is valid but unsupported
+ */
+bool frame_trap_name_is_unsupported(const char *name);
+
 /**
  * Runs any exit traps that are stored in the given trap store, using the context of the given
  * frame. This should be called when a frame is exiting, to ensure that any traps that were set to

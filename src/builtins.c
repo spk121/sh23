@@ -70,7 +70,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     {"set", BUILTIN_SPECIAL, builtin_set},
     { "shift", BUILTIN_SPECIAL, builtin_shift},
     /* { "times", BUILTIN_SPECIAL, builtin_times}, */
-    /* { "trap", BUILTIN_SPECIAL, builtin_trap}, */
+    { "trap", BUILTIN_SPECIAL, builtin_trap},
     { "unset", BUILTIN_SPECIAL, builtin_unset},
 
 #ifdef UCRT_API
@@ -752,6 +752,398 @@ int builtin_readonly(exec_frame_t *frame, const string_list_t *args)
         if (value)
             string_destroy(&value);
     }
+
+    return exit_status;
+}
+
+
+/* ============================================================================
+ * trap - Set or display signal handlers
+ * 
+ * POSIX Synopsis:
+ *   trap [action condition ...]
+ *   trap
+ * 
+ * The trap utility shall control the execution of commands when the shell
+ * receives signals or other conditions.
+ * 
+ * If action is absent or is '-', each condition shall be reset to its
+ * default value. If action is null (''), the shell shall ignore each
+ * specified condition if it arises.
+ * 
+ * Options:
+ *   -l    List signal names (extension)
+ *   -p    Print trap commands for the named signals
+ * 
+ * Special conditions:
+ *   EXIT (or 0)    - Executed when the shell exits
+ *   ERR           - Executed when a command fails (bash extension)
+ *   DEBUG         - Executed before each command (bash extension)
+ *   RETURN        - Executed when a function or sourced script returns
+ * 
+ * Returns:
+ *   0     Success
+ *   >0    An error occurred
+ * ============================================================================
+ */
+
+/**
+ * Callback for printing traps in "trap -- 'action' SIGNAL" format
+ */
+static void trap_print_callback(int signal_number, const string_t *action, bool is_ignored, void *context)
+{
+    (void)context;
+
+    const char *sig_name = frame_trap_number_to_name(signal_number);
+
+    if (is_ignored)
+    {
+        printf("trap -- '' %s\n", sig_name);
+    }
+    else if (action && !string_empty(action))
+    {
+        /* Escape single quotes in the action string */
+        const char *action_str = string_cstr(action);
+        printf("trap -- '");
+        for (const char *p = action_str; *p; p++)
+        {
+            if (*p == '\'')
+            {
+                /* End single quote, add escaped quote, start new single quote */
+                printf("'\\''");
+            }
+            else
+            {
+                putchar(*p);
+            }
+        }
+        printf("' %s\n", sig_name);
+    }
+}
+
+/**
+ * Parse a signal specification (name or number)
+ * Returns signal number or -1 on error
+ */
+static int trap_parse_signal_spec(const char *spec)
+{
+    if (!spec || !*spec)
+        return -1;
+
+    /* Check for numeric signal */
+    char *endptr;
+    long val = strtol(spec, &endptr, 10);
+    if (*endptr == '\0')
+    {
+        /* Numeric specification */
+        if (val < 0 || val >= NSIG)
+            return -1;
+        return (int)val;
+    }
+
+    /* Try as signal name */
+    return frame_trap_name_to_number(spec);
+}
+
+int builtin_trap(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    bool list_signals = false;
+    bool print_traps = false;
+    int first_operand = 1;
+
+    /* Parse options */
+    for (int i = 1; i < argc; i++)
+    {
+        const char *arg = string_cstr(string_list_at(args, i));
+
+        if (arg[0] != '-')
+        {
+            first_operand = i;
+            break;
+        }
+
+        if (strcmp(arg, "--") == 0)
+        {
+            first_operand = i + 1;
+            break;
+        }
+
+        /* Check for special case: "-" as action (reset to default) */
+        if (strcmp(arg, "-") == 0 && i == 1)
+        {
+            first_operand = i;
+            break;
+        }
+
+        /* Parse option characters */
+        for (const char *p = arg + 1; *p; p++)
+        {
+            switch (*p)
+            {
+            case 'l':
+                list_signals = true;
+                break;
+            case 'p':
+                print_traps = true;
+                break;
+            default:
+                fprintf(stderr, "trap: -%c: invalid option\n", *p);
+                fprintf(stderr, "trap: usage: trap [-lp] [[arg] signal_spec ...]\n");
+                return 2;
+            }
+        }
+
+        first_operand = i + 1;
+    }
+
+    /* Handle -l option: list signal names */
+    if (list_signals)
+    {
+        /* Print common signal names */
+        printf("EXIT\n");
+#ifdef SIGHUP
+        printf("HUP\n");
+#endif
+#ifdef SIGINT
+        printf("INT\n");
+#endif
+#ifdef SIGQUIT
+        printf("QUIT\n");
+#endif
+#ifdef SIGILL
+        printf("ILL\n");
+#endif
+#ifdef SIGTRAP
+        printf("TRAP\n");
+#endif
+#ifdef SIGABRT
+        printf("ABRT\n");
+#endif
+#ifdef SIGFPE
+        printf("FPE\n");
+#endif
+#ifdef SIGKILL
+        printf("KILL\n");
+#endif
+#ifdef SIGBUS
+        printf("BUS\n");
+#endif
+#ifdef SIGSEGV
+        printf("SEGV\n");
+#endif
+#ifdef SIGSYS
+        printf("SYS\n");
+#endif
+#ifdef SIGPIPE
+        printf("PIPE\n");
+#endif
+#ifdef SIGALRM
+        printf("ALRM\n");
+#endif
+#ifdef SIGTERM
+        printf("TERM\n");
+#endif
+#ifdef SIGUSR1
+        printf("USR1\n");
+#endif
+#ifdef SIGUSR2
+        printf("USR2\n");
+#endif
+#ifdef SIGCHLD
+        printf("CHLD\n");
+#endif
+#ifdef SIGCONT
+        printf("CONT\n");
+#endif
+#ifdef SIGSTOP
+        printf("STOP\n");
+#endif
+#ifdef SIGTSTP
+        printf("TSTP\n");
+#endif
+#ifdef SIGTTIN
+        printf("TTIN\n");
+#endif
+#ifdef SIGTTOU
+        printf("TTOU\n");
+#endif
+        return 0;
+    }
+
+    /* No arguments: print all traps */
+    if (first_operand >= argc)
+    {
+        frame_for_each_set_trap(frame, trap_print_callback, NULL);
+        return 0;
+    }
+
+    /* Handle -p option: print traps for specific signals */
+    if (print_traps)
+    {
+        int exit_status = 0;
+
+        for (int i = first_operand; i < argc; i++)
+        {
+            const char *spec = string_cstr(string_list_at(args, i));
+            int signo = trap_parse_signal_spec(spec);
+
+            if (signo < 0)
+            {
+                fprintf(stderr, "trap: %s: invalid signal specification\n", spec);
+                exit_status = 1;
+                continue;
+            }
+
+            if (signo == 0)
+            {
+                /* EXIT trap */
+                const string_t *exit_action = frame_get_exit_trap(frame);
+                if (exit_action)
+                {
+                    printf("trap -- '");
+                    const char *action = string_cstr(exit_action);
+                    for (const char *p = action; *p; p++)
+                    {
+                        if (*p == '\'')
+                            printf("'\\''");
+                        else
+                            putchar(*p);
+                    }
+                    printf("' EXIT\n");
+                }
+            }
+            else
+            {
+                bool is_ignored;
+                const string_t *trap_action = frame_get_trap(frame, signo, &is_ignored);
+                if (trap_action || is_ignored)
+                {
+                    trap_print_callback(signo, trap_action, is_ignored, NULL);
+                }
+            }
+        }
+        return exit_status;
+    }
+
+    /* Parse action and signals */
+    const char *action_str = string_cstr(string_list_at(args, first_operand));
+    bool is_reset = false;
+    bool is_ignore = false;
+    string_t *action = NULL;
+    int signal_start = first_operand + 1;
+
+    /* Check for special action values */
+    if (strcmp(action_str, "-") == 0)
+    {
+        /* Reset to default */
+        is_reset = true;
+    }
+    else if (action_str[0] == '\0')
+    {
+        /* Empty string = ignore signal */
+        is_ignore = true;
+    }
+    else
+    {
+        /* Check if first argument looks like a signal name/number */
+        /* If there's only one operand, it could be a signal (print trap) */
+        /* If first operand is a valid signal and there are more operands, first is action */
+
+        int test_signo = trap_parse_signal_spec(action_str);
+
+        if (test_signo >= 0 && signal_start >= argc)
+        {
+            /* Single argument that's a valid signal - print that trap */
+            if (test_signo == 0)
+            {
+                const string_t *exit_action = frame_get_exit_trap(frame);
+                if (exit_action)
+                {
+                    printf("trap -- '");
+                    const char *act = string_cstr(exit_action);
+                    for (const char *p = act; *p; p++)
+                    {
+                        if (*p == '\'')
+                            printf("'\\''");
+                        else
+                            putchar(*p);
+                    }
+                    printf("' EXIT\n");
+                }
+            }
+            else
+            {
+                bool is_ignored;
+                const string_t *trap_action = frame_get_trap(frame, test_signo, &is_ignored);
+                if (trap_action || is_ignored)
+                {
+                    trap_print_callback(test_signo, trap_action, is_ignored, NULL);
+                }
+            }
+            return 0;
+        }
+
+        /* First argument is the action command */
+        action = string_create_from_cstr(action_str);
+    }
+
+    /* Process each signal specification */
+    if (signal_start >= argc)
+    {
+        fprintf(stderr, "trap: usage: trap [-lp] [[arg] signal_spec ...]\n");
+        if (action)
+            string_destroy(&action);
+        return 2;
+    }
+
+    int exit_status = 0;
+
+    for (int i = signal_start; i < argc; i++)
+    {
+        const char *spec = string_cstr(string_list_at(args, i));
+        int signo = trap_parse_signal_spec(spec);
+
+        if (signo < 0)
+        {
+            fprintf(stderr, "trap: %s: invalid signal specification\n", spec);
+            exit_status = 1;
+            continue;
+        }
+
+        /* Check if signal is valid but unsupported */
+        if (signo > 0 && frame_trap_name_is_unsupported(frame_trap_number_to_name(signo)))
+        {
+            fprintf(stderr, "trap: %s: signal not supported on this platform\n", spec);
+            exit_status = 1;
+            continue;
+        }
+
+        bool success;
+        if (signo == 0)
+        {
+            /* EXIT trap */
+            success = frame_set_exit_trap(frame, action, is_ignore, is_reset);
+        }
+        else
+        {
+            success = frame_set_trap(frame, signo, action, is_ignore, is_reset);
+        }
+
+        if (!success)
+        {
+            fprintf(stderr, "trap: failed to set trap for %s\n", spec);
+            exit_status = 1;
+        }
+    }
+
+    if (action)
+        string_destroy(&action);
 
     return exit_status;
 }

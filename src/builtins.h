@@ -63,6 +63,8 @@ int builtin_export(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_readonly(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_trap(exec_frame_t *frame, const string_list_t *args);
+
 int builtin_return(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_break(exec_frame_t *frame, const string_list_t *args);
