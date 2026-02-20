@@ -11,7 +11,7 @@
 #define LEXER_INTERNAL
 #include "lexer_squote.h"
 
-#include "lexer.h"
+#include "lexer_t.h"
 #include "token.h"
 
 /**
@@ -30,7 +30,9 @@ static void lexer_append_squote_char_to_word(lexer_t *lx, char c)
     if (part_count > 0)
     {
         part_t *last_part = token_get_part(lx->current_token, part_count - 1);
-        if (part_get_type(last_part) == PART_LITERAL && part_was_single_quoted(last_part))
+        if (part_get_type(last_part) == PART_LITERAL
+            && part_was_single_quoted(last_part)
+            && !part_was_double_quoted(last_part))
         {
             // Append to existing single-quoted literal part
             token_append_char_to_last_literal_part(lx->current_token, c);

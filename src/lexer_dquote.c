@@ -132,8 +132,6 @@ lex_status_t lexer_process_dquote(lexer_t *lx)
                 {
                     // Line continuation: backslash-newline is removed entirely
                     lexer_advance(lx); // consume newline
-                    lx->line_no++;
-                    lx->col_no = 1;
                     // After line continuation, check if we're at EOF
                     // If so, we need more input (still inside double quotes)
                     if (lexer_at_end(lx))
@@ -161,7 +159,8 @@ lex_status_t lexer_process_dquote(lexer_t *lx)
 
         if (c == '`')
         {
-            // Command substitution with backticks
+            // Command substitution with backticks.
+            // The policy is that we consume the backticks here and then switch to the new mode.
             lexer_advance(lx);
             lexer_push_mode(lx, LEX_CMD_SUBST_BACKTICK);
             return LEX_INCOMPLETE;
@@ -215,8 +214,8 @@ lex_status_t lexer_process_dquote(lexer_t *lx)
                 // Just a literal $ (not followed by valid expansion start)
                 lexer_append_dquote_char_to_word(lx, c);
                 lexer_advance(lx);
+                continue;
             }
-            continue;
         }
 
         // All other characters are literal inside double quotes
