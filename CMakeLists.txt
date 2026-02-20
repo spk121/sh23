@@ -134,7 +134,7 @@ if(MSVC)
 else()
     # Common warnings for GCC and Clang
     add_compile_options(
-        -std=c23
+        -std=c2x
         -Wall
         -Wextra
         -Wpedantic
