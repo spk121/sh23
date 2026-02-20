@@ -1,30 +1,32 @@
 #ifndef EXECUTOR_H
 #define EXECUTOR_H
 
+#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
+
 #include "alias_store.h"
 #include "ast.h"
 // #include "exec_command.h"
 #include "exec_expander.h"
 #include "exec_frame.h"
+#include "func_store.h"
+#include "job_store.h"
 #include "positional_params.h"
+#include "sig_act.h"
 #include "string_t.h"
 #include "string_list.h"
+#include "trap_store.h"
 #include "variable_store.h"
 
 #ifdef POSIX_API
 #include <sys/types.h>
 #include <sys/resource.h>
 #endif
-#include "func_store.h"
-#include "sig_act.h"
-#include "job_store.h"
+
 #if defined(POSIX_API) || defined(UCRT_API)
 #include "fd_table.h"
 #endif
-#include "trap_store.h"
-#include <stdbool.h>
-
 
 #ifdef POSIX_API
 #define EXEC_SYSTEM_RC_PATH "/etc/mgshrc"
