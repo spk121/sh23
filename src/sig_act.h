@@ -24,9 +24,10 @@
 #include <stddef.h>
 
 /* Use sigaction only where it is actually available (non-Windows POSIX). */
-#if defined(POSIX_API) && !defined(_WIN32) && !defined(__MINGW32__) && !defined(__MSYS__)
-#define SIG_ACT_USE_SIGACTION 1
-#include <signal.h>
+#if defined(POSIX_API) && !defined(_WIN32) && !defined(__MINGW32__) && !defined(__MSYS__) &&          \
+    !defined(_MSC_VER)
+/* Most Unix-likes + real POSIX environments */
+#define SIG_ACT_USE_SIGACTION
 #endif
 
 // Signal disposition tracking for restoration after traps
