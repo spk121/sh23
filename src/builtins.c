@@ -1,11 +1,11 @@
 ﻿#define _CRT_SECURE_NO_WARNINGS
 
+#include <errno.h>
+#include <signal.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
-#include <errno.h>
 
 #include "builtins.h"
 
@@ -17,7 +17,6 @@
 #include "job_store.h"
 #include "lib.h"
 #include "logging.h"
-#include "positional_params.h"
 #include "string_list.h"
 #include "string_t.h"
 #include "variable_store.h"
@@ -62,8 +61,8 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "continue", BUILTIN_SPECIAL, builtin_continue},
     { ".", BUILTIN_SPECIAL, builtin_dot},
     { "eval", BUILTIN_SPECIAL, builtin_eval},
-    /* { "exec", BUILTIN_SPECIAL, builtin_exec}, */
-    /* { "exit", BUILTIN_SPECIAL, builtin_exit}, */
+    { "exec", BUILTIN_SPECIAL, builtin_exec},
+    { "exit", BUILTIN_SPECIAL, builtin_exit},
     { "export", BUILTIN_SPECIAL, builtin_export},
     { "readonly", BUILTIN_SPECIAL, builtin_readonly},
     { "return", BUILTIN_SPECIAL, builtin_return},
@@ -537,6 +536,133 @@ int builtin_eval(exec_frame_t *frame, const string_list_t *args)
     if (status == FRAME_EXEC_ERROR && exit_status == 0)
         return 1;
 
+    return exit_status;
+}
+
+/* ============================================================================
+ * exec - Replace the shell with a command or apply redirections
+ *
+ * POSIX Synopsis:
+ *   exec [command [argument ...]]
+ *
+ * If arguments are given, replace the shell with the given command.
+ * If no arguments, apply any redirections and do not execute a command.
+ * If exec fails, print an error and return 127.
+ * On success, does not return.
+ * ============================================================================
+ */
+int builtin_exec(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+
+    // If no arguments, just apply redirections (handled by shell parser/executor)
+    if (argc == 1)
+    {
+        // No-op: redirections are already applied by the shell before calling builtin
+        return 0;
+    }
+
+#ifdef POSIX_API
+    // Build argv for execvp
+    char **argv = xmalloc((argc) * sizeof(char *));
+    for (int i = 1; i < argc; ++i)
+    {
+        argv[i - 1] = (char *)string_cstr(string_list_at(args, i));
+    }
+    argv[argc - 1] = NULL;
+
+    execvp(argv[0], argv);
+    // If execvp returns, it failed
+    fprintf(stderr, "exec: %s: %s\n", argv[0], strerror(errno));
+    xfree(argv);
+    return 127;
+#elif defined(UCRT_API)
+    // Build argv for _execvp
+    char **argv = xmalloc((argc) * sizeof(char *));
+    for (int i = 1; i < argc; ++i)
+    {
+        argv[i - 1] = (char *)string_cstr(string_list_at(args, i));
+    }
+    argv[argc - 1] = NULL;
+
+    _execvp(argv[0], argv);
+    // If _execvp returns, it failed
+    fprintf(stderr, "exec: %s: %s\n", argv[0], strerror(errno));
+    xfree(argv);
+    return 127;
+#else
+    (void)frame;
+    (void)args;
+    fprintf(stderr, "exec: not supported on this platform\n");
+    return 127;
+#endif
+}
+
+/* ============================================================================
+ * exit - Exit the shell or current function/subshell
+ * ============================================================================
+ */
+int builtin_exit(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int exit_status = frame_get_last_exit_status(frame);
+
+    // Parse optional exit status argument
+    if (string_list_size(args) > 1)
+    {
+        const string_t *arg_str = string_list_at(args, 1);
+        int endpos = 0;
+        long val = string_atol_at(arg_str, 0, &endpos);
+
+        if (endpos != string_length(arg_str))
+        {
+            frame_set_error_printf(frame, "exit: numeric argument required");
+            return 2;
+        }
+        exit_status = (int)(val & 0xFF);
+    }
+
+    if (string_list_size(args) > 2)
+    {
+        frame_set_error_printf(frame, "exit: too many arguments");
+        return 1;
+    }
+
+    // Run EXIT trap if set
+    frame_run_exit_traps(frame->traps, frame);
+
+    // Reap background jobs
+    if (frame->executor)
+        exec_reap_background_jobs(frame->executor, true);
+
+    // If this is the top-level frame, terminate the process
+    if (!frame->parent)
+    {
+#ifdef POSIX_API
+        _exit(exit_status);
+#elif defined(UCRT_API)
+        _exit(exit_status);
+#else
+        exit(exit_status);
+#endif
+    }
+    else
+    {
+        // If not top-level, set pending control flow to return and propagate status
+        frame_set_pending_control_flow(frame, FRAME_FLOW_RETURN, 0);
+        frame->last_exit_status = exit_status;
+    }
+
+    // Not reached if top-level
     return exit_status;
 }
 

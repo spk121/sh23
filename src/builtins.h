@@ -75,6 +75,10 @@ int builtin_break(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_continue(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_exec(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_exit(exec_frame_t *frame, const string_list_t *args);
+
 int builtin_shift(exec_frame_t *frame, const string_list_t *args);
 
 /**
