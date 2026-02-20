@@ -15,8 +15,12 @@
 #ifndef SIG_ACT_H
 #define SIG_ACT_H
 
+// FIXME: We need to set platform-specific feature macros *before* including
+// <signal.h> to ensure we get the right definitions. And this has to happen
+// for all files that include <signal.h>.
+
 // #ifdef POSIX_API
-#define _POSIX_C_SOURCE 202401L
+// #define _POSIX_C_SOURCE 202401L
 // #endif
 
 #include <signal.h>
@@ -27,7 +31,9 @@
 #if defined(POSIX_API) && !defined(_WIN32) && !defined(__MINGW32__) && !defined(__MSYS__) &&          \
     !defined(_MSC_VER)
 /* Most Unix-likes + real POSIX environments */
-#define SIG_ACT_USE_SIGACTION
+
+// Disabled for now until we fix the <signal.h> macro problem
+// #define SIG_ACT_USE_SIGACTION
 #endif
 
 // Signal disposition tracking for restoration after traps
