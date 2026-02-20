@@ -43,6 +43,14 @@
 #define EXEC_RC_IN_CURRENT_DIRECTORY
 #endif
 
+#ifndef NSIG
+#ifdef _NSIG
+#define NSIG _NSIG
+#else
+#define NSIG 64 /* A common value for NSIG when not defined by the system */
+#endif
+#endif
+
 /* ============================================================================
  * Executor State (Singleton)
  * ============================================================================ */
@@ -286,6 +294,8 @@ typedef struct exec_t exec_t;
  * Executor Context
  * ============================================================================ */
 
+#ifndef EXEC_RESULT_T_DEFINED
+#define EXEC_RESULT_T_DEFINED
 typedef enum exec_status_t
 {
     EXEC_OK = 0,
@@ -297,6 +307,7 @@ typedef enum exec_status_t
     EXEC_RETURN,          ///< return statement executed
     EXEC_EXIT,            ///< exit statement executed
 } exec_status_t;
+#endif
 
 /* ============================================================================
  * Executor Configuration Functions

@@ -37,6 +37,8 @@ typedef struct trap_store_t trap_store_t;
 
 // FIXME: this is duplicated from exec.h; we need to break out some common types into a shared
 // header
+#ifndef EXEC_RESULT_T_DEFINED
+#define EXEC_RESULT_T_DEFINED
 typedef enum exec_status_t
 {
     EXEC_OK = 0,
@@ -48,6 +50,8 @@ typedef enum exec_status_t
     EXEC_RETURN,   ///< return statement executed
     EXEC_EXIT,     ///< exit statement executed
 } exec_status_t;
+#endif
+
 
 /* ============================================================================
  * Control Flow State
