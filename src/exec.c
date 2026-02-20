@@ -1233,6 +1233,181 @@ exec_result_t exec_command_string(exec_frame_t *frame, const char *command)
 }
 
 /**
+ * Parse a command string into an AST without executing it.
+ * This is used by eval to separate parsing from execution.
+ */
+exec_result_t exec_parse_string(exec_frame_t *frame, const char *command, ast_node_t **out_ast)
+{
+    Expects_not_null(frame);
+    Expects_not_null(out_ast);
+
+    exec_result_t result = {
+        .status = EXEC_OK,
+        .has_exit_status = true,
+        .exit_status = 0,
+        .flow = EXEC_FLOW_NORMAL,
+        .flow_depth = 0
+    };
+
+    *out_ast = NULL;
+
+    /* Handle empty or NULL command */
+    if (!command || !*command)
+    {
+        return result;
+    }
+
+    exec_t *executor = frame->executor;
+
+    /* Create a temporary tokenizer for parsing */
+    tokenizer_t *tokenizer = tokenizer_create(executor->aliases);
+    if (!tokenizer)
+    {
+        frame_set_error_printf(frame, "Failed to create tokenizer for parsing");
+        result.status = EXEC_ERROR;
+        result.exit_status = 1;
+        return result;
+    }
+
+    /* Create lexer */
+    lexer_t *lexer = lexer_create();
+    if (!lexer)
+    {
+        frame_set_error_printf(frame, "Failed to create lexer for parsing");
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 1;
+        return result;
+    }
+
+    /* Ensure command ends with newline for proper parsing */
+    string_t *cmd_with_newline = string_create_from_cstr(command);
+    int len = string_length(cmd_with_newline);
+    if (len == 0 || string_at(cmd_with_newline, len - 1) != '\n')
+    {
+        string_append_char(cmd_with_newline, '\n');
+    }
+
+    /* Lex the input */
+    lexer_append_input_cstr(lexer, string_cstr(cmd_with_newline));
+    string_destroy(&cmd_with_newline);
+
+    token_list_t *raw_tokens = token_list_create();
+    lex_status_t lex_status = lexer_tokenize(lexer, raw_tokens, NULL);
+
+    if (lex_status == LEX_ERROR)
+    {
+        const char *err = lexer_get_error(lexer);
+        frame_set_error_printf(frame, "Lexer error: %s", err ? err : "unknown");
+        token_list_destroy(&raw_tokens);
+        lexer_destroy(&lexer);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        return result;
+    }
+
+    if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
+    {
+        frame_set_error_printf(frame, "Incomplete command: unexpected end of input");
+        token_list_destroy(&raw_tokens);
+        lexer_destroy(&lexer);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        return result;
+    }
+
+    /* Process tokens */
+    token_list_t *processed_tokens = token_list_create();
+    tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+    token_list_destroy(&raw_tokens);
+    lexer_destroy(&lexer);
+
+    if (tok_status == TOK_ERROR)
+    {
+        const char *err = tokenizer_get_error(tokenizer);
+        frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
+        token_list_destroy(&processed_tokens);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        return result;
+    }
+
+    if (tok_status == TOK_INCOMPLETE)
+    {
+        frame_set_error_printf(frame, "Incomplete command: unexpected end of input");
+        token_list_destroy(&processed_tokens);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        return result;
+    }
+
+    if (token_list_size(processed_tokens) == 0)
+    {
+        /* Empty command */
+        token_list_destroy(&processed_tokens);
+        tokenizer_destroy(&tokenizer);
+        return result;
+    }
+
+    /* Parse tokens */
+    parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
+    gnode_t *gnode = NULL;
+
+    parse_status_t parse_status = parser_parse_program(parser, &gnode);
+
+    if (parse_status == PARSE_ERROR)
+    {
+        const char *err = parser_get_error(parser);
+        if (err && err[0])
+        {
+            frame_set_error_printf(frame, "Parse error: %s", err);
+        }
+        else
+        {
+            frame_set_error_printf(frame, "Parse error");
+        }
+        parser_destroy(&parser);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        return result;
+    }
+
+    if (parse_status == PARSE_INCOMPLETE)
+    {
+        frame_set_error_printf(frame, "Incomplete command: unexpected end of input");
+        if (gnode)
+            g_node_destroy(&gnode);
+        parser_destroy(&parser);
+        tokenizer_destroy(&tokenizer);
+        result.status = EXEC_ERROR;
+        result.exit_status = 2;
+        return result;
+    }
+
+    if (parse_status == PARSE_EMPTY || !gnode)
+    {
+        /* Empty command */
+        parser_destroy(&parser);
+        tokenizer_destroy(&tokenizer);
+        return result;
+    }
+
+    /* Lower parse tree to AST */
+    ast_node_t *ast = ast_lower(gnode);
+    g_node_destroy(&gnode);
+    parser_destroy(&parser);
+    tokenizer_destroy(&tokenizer);
+
+    *out_ast = ast;
+    return result;
+}
+
+/**
  * Core implementation for executing shell commands from a stream.
  * 
  * This is shared between exec_execute_stream() and frame_execute_stream().

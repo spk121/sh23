@@ -268,4 +268,34 @@ bool exec_is_special_param(const string_t *name);
  */
 frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t *tokenizer);
 
+/**
+ * Execute a complete command string.
+ *
+ * This function executes a string as shell commands. It is useful for:
+ * - Trap handlers (the action string stored with trap)
+ * - eval builtin
+ * - Any case where you have a complete command as a string
+ *
+ * If the command string is incomplete (e.g., unclosed quotes, missing 'done'),
+ * this function treats it as an error rather than requesting more input.
+ *
+ * @param frame The execution frame
+ * @param command The complete command string to execute
+ * @return exec_result_t with execution status and exit code
+ */
+exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
+
+/**
+ * Parse a command string into an AST.
+ *
+ * This function parses a command string without executing it. The returned
+ * AST can be passed to exec_eval() or other execution functions.
+ *
+ * @param frame The execution frame (used for alias expansion)
+ * @param command The complete command string to parse
+ * @param out_ast Output parameter for the parsed AST (caller must destroy)
+ * @return exec_result_t with status indicating parse success/failure
+ */
+exec_result_t exec_parse_string(exec_frame_t *frame, const char *command, ast_node_t **out_ast);
+
 #endif /* EXEC_INTERNAL_H */

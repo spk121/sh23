@@ -61,7 +61,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { ":", BUILTIN_SPECIAL, builtin_colon},
     { "continue", BUILTIN_SPECIAL, builtin_continue},
     { ".", BUILTIN_SPECIAL, builtin_dot},
-    /* { "eval", BUILTIN_SPECIAL, builtin_eval}, */
+    { "eval", BUILTIN_SPECIAL, builtin_eval},
     /* { "exec", BUILTIN_SPECIAL, builtin_exec}, */
     /* { "exit", BUILTIN_SPECIAL, builtin_exit}, */
     { "export", BUILTIN_SPECIAL, builtin_export},
@@ -457,6 +457,83 @@ int builtin_dot(exec_frame_t *frame, const string_list_t *args)
 
     /* Return the exit status of the last command in the sourced file,
      * unless there was a framework error */
+    if (status == FRAME_EXEC_ERROR && exit_status == 0)
+        return 1;
+
+    return exit_status;
+}
+
+/* ============================================================================
+ * eval - Construct command by concatenating arguments
+ * 
+ * POSIX Synopsis:
+ *   eval [argument ...]
+ * 
+ * The eval utility shall construct a command by concatenating arguments
+ * together, separating each with a <space> character. The constructed
+ * command shall be read and executed by the shell.
+ * 
+ * If there are no arguments, or only null arguments, eval shall return
+ * a zero exit status.
+ * 
+ * Options:
+ *   None
+ * 
+ * Returns:
+ *   If there are no arguments, or only null arguments, the exit status
+ *   shall be zero. Otherwise, eval shall return the exit status of the
+ *   command it executes.
+ * ============================================================================
+ */
+
+int builtin_eval(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+
+    /* No arguments: return success */
+    if (argc < 2)
+    {
+        return 0;
+    }
+
+    /* Concatenate all arguments with spaces */
+    string_t *command = string_create();
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (i > 1)
+        {
+            string_append_char(command, ' ');
+        }
+        const string_t *arg = string_list_at(args, i);
+        if (arg)
+        {
+            string_append(command, arg);
+        }
+    }
+
+    /* If the result is empty, return success */
+    if (string_empty(command))
+    {
+        string_destroy(&command);
+        return 0;
+    }
+
+    /* Execute the constructed command in an EXEC_FRAME_EVAL frame
+     * This ensures proper control flow handling (return, break, continue
+     * pass through to enclosing contexts) */
+    frame_exec_status_t status = frame_execute_eval_string(frame, string_cstr(command));
+    string_destroy(&command);
+
+    /* Get the exit status from the executed command */
+    int exit_status = frame_get_last_exit_status(frame);
+
+    /* If execution failed but exit status is 0, return 1 */
     if (status == FRAME_EXEC_ERROR && exit_status == 0)
         return 1;
 

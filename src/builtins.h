@@ -59,6 +59,8 @@ int builtin_colon(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_dot(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_eval(exec_frame_t *frame, const string_list_t *args);
+
 int builtin_export(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_readonly(exec_frame_t *frame, const string_list_t *args);

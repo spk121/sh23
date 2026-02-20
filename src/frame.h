@@ -579,4 +579,25 @@ bool frame_has_jobs(const exec_frame_t* frame);
  */
 frame_exec_status_t frame_execute_stream(exec_frame_t *frame, FILE *fp);
 
+/**
+ * Execute commands from a string in the context of the given frame.
+ * Parses and executes the string as shell commands.
+ * 
+ * @param frame The execution frame context
+ * @param command The command string to execute
+ * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ */
+frame_exec_status_t frame_execute_string(exec_frame_t *frame, const char *command);
+
+/**
+ * Execute an eval command string in the context of the given frame.
+ * Creates an EXEC_FRAME_EVAL frame for proper control flow handling
+ * (return, break, continue pass through to enclosing contexts).
+ * 
+ * @param frame The execution frame context
+ * @param command The command string to execute
+ * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ */
+frame_exec_status_t frame_execute_eval_string(exec_frame_t *frame, const char *command);
+
 #endif

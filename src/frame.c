@@ -1848,4 +1848,57 @@ bool frame_has_jobs(const exec_frame_t* frame)
     return store->jobs != NULL;
 }
 
+/* ============================================================================
+ * Stream/String Execution
+ * ============================================================================ */
+
+frame_exec_status_t frame_execute_string(exec_frame_t *frame, const char *command)
+{
+    Expects_not_null(frame);
+
+    if (!command || !*command)
+        return FRAME_EXEC_OK;
+
+    exec_result_t result = exec_command_string(frame, command);
+
+    if (result.status == EXEC_ERROR)
+        return FRAME_EXEC_ERROR;
+
+    return FRAME_EXEC_OK;
+}
+
+frame_exec_status_t frame_execute_eval_string(exec_frame_t *frame, const char *command)
+{
+    Expects_not_null(frame);
+
+    if (!command || !*command)
+        return FRAME_EXEC_OK;
+
+    /* Parse the command string into an AST */
+    ast_node_t *ast = NULL;
+    exec_result_t parse_result = exec_parse_string(frame, command, &ast);
+
+    if (parse_result.status == EXEC_ERROR)
+    {
+        if (ast)
+            ast_node_destroy(&ast);
+        return FRAME_EXEC_ERROR;
+    }
+
+    /* Empty command is success */
+    if (!ast)
+        return FRAME_EXEC_OK;
+
+    /* Execute via exec_eval which uses EXEC_FRAME_EVAL */
+    exec_result_t result = exec_eval(frame, ast);
+    ast_node_destroy(&ast);
+
+    /* Update frame's exit status */
+    frame->last_exit_status = result.exit_status;
+
+    if (result.status == EXEC_ERROR)
+        return FRAME_EXEC_ERROR;
+
+    return FRAME_EXEC_OK;
+}
 
