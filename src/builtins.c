@@ -25,6 +25,8 @@
 #include <direct.h>
 #include <io.h>
 #include <time.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #if defined(_WIN64)
 #define _AMD64_
 #elif defined(_WIN32)
@@ -411,11 +413,30 @@ int builtin_dot(exec_frame_t *frame, const string_list_t *args)
 
     if (!fp)
     {
+#ifdef POSIX_API
+        if (errno == EACCES)
+        {
+            fprintf(stderr, "dot: %s: permission denied\n", filename);
+            if (resolved_path)
+                string_destroy(&resolved_path);
+            return 1;
+        }
+#endif
+#ifdef POSIX_API
         char cwd[1024];
         if (filename[0] == '.' && getcwd(cwd, sizeof(cwd)))
             fprintf(stderr, "dot: %s: not found relative to '%s'", filename, cwd);
         else
             fprintf(stderr, "dot: %s: not found\n", filename);
+#elifdef UCRT_API
+        char cwd[1024];
+        if (filename[0] == '.' && _getcwd(cwd, sizeof(cwd)))
+            fprintf(stderr, "dot: %s: not found relative to '%s'", filename, cwd);
+        else
+            fprintf(stderr, "dot: %s: not found\n", filename);
+#else
+        fprintf(stderr, "dot: %s: not found\n", filename);
+#endif
         if (resolved_path)
             string_destroy(&resolved_path);
         return 1;
@@ -2222,528 +2243,426 @@ int builtin_getopts(exec_frame_t *frame, const string_list_t *args)
  * cd - Change the shell working directory
  * ============================================================================
  */
-#if defined(POSIX_API)
-int builtin_cd(exec_frame_t *frame, const string_list_t *args)
-{
-    Expects_not_null(frame);
-    Expects_not_null(args);
-
-    getopt_reset();
-
-    int flag_err = 0;
-    int c;
-
-    string_t *opts = string_create_from_cstr("LP");
-
-    while ((c = getopt_string(args, opts)) != -1)
-    {
-        switch (c)
-        {
-        case 'L':
-        case 'P':
-            /* -L and -P options are accepted but currently ignored */
-            break;
-        case '?':
-            fprintf(stderr, "cd: unrecognized option: '-%c'\n", optopt);
-            flag_err++;
-            break;
-        }
-    }
-    string_destroy(&opts);
-
-    if (flag_err)
-    {
-        fprintf(stderr, "usage: cd [-L|-P] [directory]\n");
-        return 2;
-    }
-
-    const char *target_dir = NULL;
-
-    int remaining = string_list_size(args) - optind;
-
-    if (remaining > 1)
-    {
-        fprintf(stderr, "cd: too many arguments\n");
-        return 1;
-    }
-
-    if (remaining == 0)
-    {
-        /* No argument: go to HOME */
-        string_t *home = frame_get_variable_cstr(frame, "HOME");
-        if (!home || string_empty(home))
-        {
-            if (home)
-                string_destroy(&home);
-            /* Try environment variable as fallback */
-            const char *env_home = getenv("HOME");
-            if (!env_home || env_home[0] == '\0')
-            {
-                fprintf(stderr, "cd: HOME not set\n");
-                return 1;
-            }
-            target_dir = env_home;
-        }
-        else
-        {
-            target_dir = string_cstr(home);
-        }
-        
-        /* Get current directory before changing (for OLDPWD) */
-        char *old_cwd = getcwd(NULL, 0);
-        if (!old_cwd)
-        {
-            if (home && !string_empty(home))
-                string_destroy(&home);
-            fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-            return 1;
-        }
-
-        /* Attempt to change directory */
-        if (chdir(target_dir) != 0)
-        {
-            int saved_errno = errno;
-            free(old_cwd);
-            if (home && !string_empty(home))
-                string_destroy(&home);
-
-            switch (saved_errno)
-            {
-            case ENOENT:
-                fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-                break;
-            case EACCES:
-                fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-                break;
-            case ENOTDIR:
-                fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-                break;
-            default:
-                fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-                break;
-            }
-            return 1;
-        }
-
-        /* Get new current directory (resolved path) */
-        char *new_cwd = getcwd(NULL, 0);
-        if (!new_cwd)
-        {
-            fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-            /* Continue anyway - the chdir succeeded */
-            new_cwd = xstrdup(target_dir);
-        }
-
-        /* Update OLDPWD and PWD using frame API */
-        frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-        frame_set_variable_cstr(frame, "PWD", new_cwd);
-
-        free(old_cwd);
-        free(new_cwd);
-        if (home && !string_empty(home))
-            string_destroy(&home);
-
-        return 0;
-    }
-    else
-    {
-        const string_t *arg = string_list_at(args, optind);
-        const char *arg_cstr = string_cstr(arg);
-
-        if (strcmp(arg_cstr, "-") == 0)
-        {
-            /* cd - : go to OLDPWD */
-            string_t *oldpwd = frame_get_variable_cstr(frame, "OLDPWD");
-            if (!oldpwd || string_empty(oldpwd))
-            {
-                if (oldpwd)
-                    string_destroy(&oldpwd);
-                fprintf(stderr, "cd: OLDPWD not set\n");
-                return 1;
-            }
-            target_dir = string_cstr(oldpwd);
-            /* Print the directory when using cd - */
-            printf("%s\n", target_dir);
-            
-            /* Get current directory before changing (for OLDPWD) */
-            char *old_cwd = getcwd(NULL, 0);
-            if (!old_cwd)
-            {
-                string_destroy(&oldpwd);
-                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-                return 1;
-            }
-
-            /* Attempt to change directory */
-            if (chdir(target_dir) != 0)
-            {
-                int saved_errno = errno;
-                free(old_cwd);
-                string_destroy(&oldpwd);
-
-                switch (saved_errno)
-                {
-                case ENOENT:
-                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-                    break;
-                case EACCES:
-                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-                    break;
-                case ENOTDIR:
-                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-                    break;
-                default:
-                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-                    break;
-                }
-                return 1;
-            }
-
-            /* Get new current directory (resolved path) */
-            char *new_cwd = getcwd(NULL, 0);
-            if (!new_cwd)
-            {
-                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-                /* Continue anyway - the chdir succeeded */
-                new_cwd = xstrdup(target_dir);
-            }
-
-            /* Update OLDPWD and PWD using frame API */
-            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-            frame_set_variable_cstr(frame, "PWD", new_cwd);
-
-            free(old_cwd);
-            free(new_cwd);
-            string_destroy(&oldpwd);
-
-            return 0;
-        }
-        else
-        {
-            target_dir = arg_cstr;
-            
-            /* Get current directory before changing (for OLDPWD) */
-            char *old_cwd = getcwd(NULL, 0);
-            if (!old_cwd)
-            {
-                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-                return 1;
-            }
-
-            /* Attempt to change directory */
-            if (chdir(target_dir) != 0)
-            {
-                int saved_errno = errno;
-                free(old_cwd);
-
-                switch (saved_errno)
-                {
-                case ENOENT:
-                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-                    break;
-                case EACCES:
-                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-                    break;
-                case ENOTDIR:
-                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-                    break;
-                default:
-                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-                    break;
-                }
-                return 1;
-            }
-
-            /* Get new current directory (resolved path) */
-            char *new_cwd = getcwd(NULL, 0);
-            if (!new_cwd)
-            {
-                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-                /* Continue anyway - the chdir succeeded */
-                new_cwd = xstrdup(target_dir);
-            }
-
-            /* Update OLDPWD and PWD using frame API */
-            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-            frame_set_variable_cstr(frame, "PWD", new_cwd);
-
-            free(old_cwd);
-            free(new_cwd);
-
-            return 0;
-        }
-    }
-}
-#elif defined(UCRT_API)
-int builtin_cd(exec_frame_t *frame, const string_list_t *args)
-{
-    Expects_not_null(frame);
-    Expects_not_null(args);
-
-    getopt_reset();
-
-    int flag_err = 0;
-    int c;
-
-    string_t *opts = string_create_from_cstr("LP");
-
-    while ((c = getopt_string(args, opts)) != -1)
-    {
-        switch (c)
-        {
-        case 'L':
-        case 'P':
-            /* Accepted but ignored on Windows - no symlink distinction */
-            break;
-        case '?':
-            fprintf(stderr, "cd: unrecognized option: '-%c'\n", optopt);
-            flag_err++;
-            break;
-        }
-    }
-    string_destroy(&opts);
-
-    if (flag_err)
-    {
-        fprintf(stderr, "usage: cd [-L|-P] [directory]\n");
-        return 2;
-    }
-
-    const char *target_dir = NULL;
-
-    int remaining = string_list_size(args) - optind;
-
-    if (remaining > 1)
-    {
-        fprintf(stderr, "cd: too many arguments\n");
-        return 1;
-    }
-
-    if (remaining == 0)
-    {
-        /* No argument: go to HOME or USERPROFILE */
-        string_t *home = frame_get_variable_cstr(frame, "HOME");
-        if (!home || string_empty(home))
-        {
-            if (home)
-                string_destroy(&home);
-            home = frame_get_variable_cstr(frame, "USERPROFILE");
-        }
-        if (!home || string_empty(home))
-        {
-            if (home)
-                string_destroy(&home);
-            /* Try environment variables as fallback */
-            const char *env_home = getenv("HOME");
-            if (!env_home || env_home[0] == '\0')
-            {
-                env_home = getenv("USERPROFILE");
-            }
-            if (!env_home || env_home[0] == '\0')
-            {
-                fprintf(stderr, "cd: HOME not set\n");
-                return 1;
-            }
-            target_dir = env_home;
-        }
-        else
-        {
-            target_dir = string_cstr(home);
-        }
-        
-        /* Get current directory before changing (for OLDPWD) */
-        char *old_cwd = _getcwd(NULL, 0);
-        if (!old_cwd)
-        {
-            if (home && !string_empty(home))
-                string_destroy(&home);
-            fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-            return 1;
-        }
-
-        /* Attempt to change directory */
-        if (_chdir(target_dir) != 0)
-        {
-            int saved_errno = errno;
-            free(old_cwd);
-            if (home && !string_empty(home))
-                string_destroy(&home);
-
-            switch (saved_errno)
-            {
-            case ENOENT:
-                fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-                break;
-            case EACCES:
-                fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-                break;
-            case ENOTDIR:
-                fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-                break;
-            default:
-                fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-                break;
-            }
-            return 1;
-        }
-
-        /* Get new current directory (resolved path) */
-        char *new_cwd = _getcwd(NULL, 0);
-        if (!new_cwd)
-        {
-            fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-            /* Continue anyway - the chdir succeeded */
-            new_cwd = xstrdup(target_dir);
-        }
-
-        /* Update OLDPWD and PWD using frame API */
-        frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-        frame_set_variable_cstr(frame, "PWD", new_cwd);
-
-        free(old_cwd);
-        free(new_cwd);
-        if (home && !string_empty(home))
-            string_destroy(&home);
-
-        return 0;
-    }
-    else
-    {
-        const string_t *arg = string_list_at(args, optind);
-        const char *arg_cstr = string_cstr(arg);
-
-        if (strcmp(arg_cstr, "-") == 0)
-        {
-            /* cd - : go to OLDPWD */
-            string_t *oldpwd = frame_get_variable_cstr(frame, "OLDPWD");
-            if (!oldpwd || string_empty(oldpwd))
-            {
-                if (oldpwd)
-                    string_destroy(&oldpwd);
-                fprintf(stderr, "cd: OLDPWD not set\n");
-                return 1;
-            }
-            target_dir = string_cstr(oldpwd);
-            /* Print the directory when using cd - */
-            printf("%s\n", target_dir);
-            
-            /* Get current directory before changing (for OLDPWD) */
-            char *old_cwd = _getcwd(NULL, 0);
-            if (!old_cwd)
-            {
-                string_destroy(&oldpwd);
-                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-                return 1;
-            }
-
-            /* Attempt to change directory */
-            if (_chdir(target_dir) != 0)
-            {
-                int saved_errno = errno;
-                free(old_cwd);
-                string_destroy(&oldpwd);
-
-                switch (saved_errno)
-                {
-                case ENOENT:
-                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-                    break;
-                case EACCES:
-                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-                    break;
-                case ENOTDIR:
-                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-                    break;
-                default:
-                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-                    break;
-                }
-                return 1;
-            }
-
-            /* Get new current directory (resolved path) */
-            char *new_cwd = _getcwd(NULL, 0);
-            if (!new_cwd)
-            {
-                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-                /* Continue anyway - the chdir succeeded */
-                new_cwd = xstrdup(target_dir);
-            }
-
-            /* Update OLDPWD and PWD using frame API */
-            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-            frame_set_variable_cstr(frame, "PWD", new_cwd);
-
-            free(old_cwd);
-            free(new_cwd);
-            string_destroy(&oldpwd);
-
-            return 0;
-        }
-        else
-        {
-            target_dir = arg_cstr;
-            
-            /* Get current directory before changing (for OLDPWD) */
-            char *old_cwd = _getcwd(NULL, 0);
-            if (!old_cwd)
-            {
-                fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
-                return 1;
-            }
-
-            /* Attempt to change directory */
-            if (_chdir(target_dir) != 0)
-            {
-                int saved_errno = errno;
-                free(old_cwd);
-
-                switch (saved_errno)
-                {
-                case ENOENT:
-                    fprintf(stderr, "cd: %s: No such file or directory\n", target_dir);
-                    break;
-                case EACCES:
-                    fprintf(stderr, "cd: %s: Permission denied\n", target_dir);
-                    break;
-                case ENOTDIR:
-                    fprintf(stderr, "cd: %s: Not a directory\n", target_dir);
-                    break;
-                default:
-                    fprintf(stderr, "cd: %s: %s\n", target_dir, strerror(saved_errno));
-                    break;
-                }
-                return 1;
-            }
-
-            /* Get new current directory (resolved path) */
-            char *new_cwd = _getcwd(NULL, 0);
-            if (!new_cwd)
-            {
-                fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
-                /* Continue anyway - the chdir succeeded */
-                new_cwd = xstrdup(target_dir);
-            }
-
-            /* Update OLDPWD and PWD using frame API */
-            frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-            frame_set_variable_cstr(frame, "PWD", new_cwd);
-
-            free(old_cwd);
-            free(new_cwd);
-
-            return 0;
-        }
-    }
-}
+#ifdef UCRT_API
+#define SECOND_HOME_VAR "USERPROFILE"
 #else
+#define SECOND_HOME_VAR NULL
+#endif
+
+static string_t *resolve_home(exec_frame_t *frame)
+{
+    const char *vars[] = {"HOME", SECOND_HOME_VAR};
+    for (int i = 0; i < 2; i++)
+    {
+        if (!vars[i])
+            continue;
+        if (frame_has_variable_cstr(frame, vars[i]))
+        {
+            return frame_get_variable_cstr(frame, vars[i]);
+        }
+        const char *env = getenv(vars[i]);
+        if (env && env[0] != '\0')
+            return string_create_from_cstr(env);
+    }
+    fprintf(stderr, "cd: HOME not set\n");
+    return NULL;
+}
+
+#if defined(POSIX_API)
+  #define CHDIR chdir
+  #define GETCWD getcwd
+  #define STAT stat
+  #define STAT_T struct stat
+#elifdef UCRT_API
+  #define CHDIR _chdir
+  #define GETCWD _getcwd
+  #define STAT _stat
+  #define STAT_T struct _stat
+  #ifndef PATH_MAX
+    #define PATH_MAX 1024
+  #endif
+  #ifndef S_ISDIR
+    #define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+  #endif
+#else
+  #define PATH_MAX 1024
+#endif
+
+#if defined(POSIX_API) || defined(UCRT_API)
+
+/**
+ * Canonicalize a path per POSIX cd step 8:
+ * - Remove dot components
+ * - Resolve dot-dot against preceding component (logically, not via symlinks)
+ * - Normalize slashes
+ * Writes result into buf (size PATH_MAX). Returns buf on success, NULL on error.
+ */
+static char *cd_canonicalize(const char *path, char *buf)
+{
+    // Work in a mutable buffer
+    char tmp[PATH_MAX];
+    if (snprintf(tmp, sizeof(tmp), "%s", path) >= PATH_MAX)
+    {
+        fprintf(stderr, "cd: path too long\n");
+        return NULL;
+    }
+
+    // Output stack: store component offsets into buf
+    char *parts[PATH_MAX / 2];
+    int nparts = 0;
+    bool rooted = (tmp[0] == '/');
+
+    char *p = tmp;
+    while (*p)
+    {
+        // Skip slashes
+        while (*p == '/')
+            p++;
+        if (!*p)
+            break;
+
+        // Find end of component
+        char *start = p;
+        while (*p && *p != '/')
+            p++;
+        char saved = *p;
+        *p = '\0';
+
+        if (strcmp(start, ".") == 0)
+        {
+            // Drop dot
+        }
+        else if (strcmp(start, "..") == 0)
+        {
+            if (nparts > 0)
+                nparts--;
+            else if (!rooted)
+            {
+                // Can't go above relative root — keep it
+                parts[nparts++] = start;
+            }
+        }
+        else
+        {
+            parts[nparts++] = start;
+        }
+
+        *p = saved;
+    }
+
+    // Reassemble
+    char *out = buf;
+    char *end = buf + PATH_MAX;
+    if (rooted)
+        *out++ = '/';
+    for (int i = 0; i < nparts; i++)
+    {
+        if (i > 0)
+        {
+            if (out >= end - 1)
+            {
+                fprintf(stderr, "cd: path too long\n");
+                return NULL;
+            }
+            *out++ = '/';
+        }
+        size_t len = strlen(parts[i]);
+        if (out + len >= end)
+        {
+            fprintf(stderr, "cd: path too long\n");
+            return NULL;
+        }
+        memcpy(out, parts[i], len);
+        out += len;
+    }
+    if (out == buf)
+        *out++ = '.';
+    *out = '\0';
+    return buf;
+}
+
+/**
+ * Perform the actual chdir + PWD/OLDPWD update.
+ * target    - the resolved path to cd into
+ * print_dir - if true, print the new directory to stdout (cd - case)
+ * flag_P    - if true, set PWD via getcwd (physical), else use logical curpath
+ * flag_e    - if true and -P and getcwd fails, return 1 instead of 0
+ */
+static int cd_do_chdir(exec_frame_t *frame, const char *target, bool print_dir, bool flag_P,
+                       bool flag_e)
+{
+    char *old_cwd = GETCWD(NULL, 0);
+    if (!old_cwd)
+    {
+        fprintf(stderr, "cd: cannot determine current directory: %s\n", strerror(errno));
+        return 1;
+    }
+
+    if (CHDIR(target) != 0)
+    {
+        int saved_errno = errno;
+        free(old_cwd);
+        switch (saved_errno)
+        {
+        case ENOENT:
+            fprintf(stderr, "cd: %s: No such file or directory\n", target);
+            break;
+        case EACCES:
+            fprintf(stderr, "cd: %s: Permission denied\n", target);
+            break;
+        case ENOTDIR:
+            fprintf(stderr, "cd: %s: Not a directory\n", target);
+            break;
+        default:
+            fprintf(stderr, "cd: %s: %s\n", target, strerror(saved_errno));
+            break;
+        }
+        return 1;
+    }
+
+    // Determine new PWD
+    char *new_cwd = NULL;
+    int exit_status = 0;
+
+    if (flag_P)
+    {
+        new_cwd = GETCWD(NULL, 0);
+        if (!new_cwd)
+        {
+            fprintf(stderr, "cd: warning: cannot determine new directory: %s\n", strerror(errno));
+            if (flag_e)
+            {
+                free(old_cwd);
+                return 1;
+            }
+            exit_status = 0; // -P without -e: succeed anyway
+            new_cwd = xstrdup(target);
+        }
+    }
+    else
+    {
+        // -L (default): use the logical curpath (target as we computed it)
+        new_cwd = xstrdup(target);
+    }
+
+    if (print_dir)
+        printf("%s\n", new_cwd);
+
+    frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
+    frame_set_variable_cstr(frame, "PWD", new_cwd);
+    free(old_cwd);
+    free(new_cwd);
+    return exit_status;
+}
+
+#endif // POSIX_API || UCRT_API
+
 int builtin_cd(exec_frame_t *frame, const string_list_t *args)
 {
-    (void)frame;
-    (void)args;
-    fprintf(stderr, "cd: not supported on this platform\n");
-    return 2;
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    bool flag_L = true; // default
+    bool flag_P = false;
+    bool flag_e = false;
+    int flag_err = 0;
+    int c;
+
+    string_t *opts = string_create_from_cstr("LPe");
+    while ((c = getopt_string(args, opts)) != -1)
+    {
+        switch (c)
+        {
+        case 'L':
+            flag_L = true;
+            flag_P = false;
+            break;
+        case 'P':
+            flag_P = true;
+            flag_L = false;
+            break;
+        case 'e':
+            flag_e = true;
+            break;
+        case '?':
+            fprintf(stderr, "cd: unrecognized option: '-%c'\n", optopt);
+            flag_err++;
+            break;
+        }
+    }
+    string_destroy(&opts);
+
+    // -e is only meaningful with -P; ignore it otherwise (per spec)
+    if (!flag_P)
+        flag_e = false;
+
+    if (flag_err)
+    {
+        fprintf(stderr, "usage: cd [-L|-P [-e]] [directory]\n");
+        return 2;
+    }
+
+#if !defined(POSIX_API) && !defined(UCRT_API)
+    fprintf(stderr, "cd: directory change not supported on this platform\n");
+    return 1;
+#else
+
+    int remaining = string_list_size(args) - optind;
+    if (remaining > 1)
+    {
+        fprintf(stderr, "cd: too many arguments\n");
+        return 1;
+    }
+
+    // Resolve the target directory string (curpath)
+    char curpath[PATH_MAX];
+    bool print_dir = false;
+
+    if (remaining == 0)
+    {
+        // No argument: use HOME
+        string_t *home = resolve_home(frame);
+        if (!home)
+            return 1;
+        if (snprintf(curpath, sizeof(curpath), "%s", string_cstr(home)) >= PATH_MAX)
+        {
+            fprintf(stderr, "cd: HOME path too long\n");
+            string_destroy(&home);
+            return 1;
+        }
+        string_destroy(&home);
+    }
+    else
+    {
+        const char *arg = string_cstr(string_list_at(args, optind));
+
+        if (arg[0] == '\0')
+        {
+            fprintf(stderr, "cd: empty directory argument\n");
+            return 1;
+        }
+
+        if (strcmp(arg, "-") == 0)
+        {
+            // cd - : go to OLDPWD and print it
+            string_t *oldpwd = frame_get_variable_cstr(frame, "OLDPWD");
+            if (!oldpwd || string_empty(oldpwd))
+            {
+                if (oldpwd)
+                    string_destroy(&oldpwd);
+                fprintf(stderr, "cd: OLDPWD not set\n");
+                return 1;
+            }
+            if (snprintf(curpath, sizeof(curpath), "%s", string_cstr(oldpwd)) >= PATH_MAX)
+            {
+                string_destroy(&oldpwd);
+                fprintf(stderr, "cd: OLDPWD path too long\n");
+                return 1;
+            }
+            string_destroy(&oldpwd);
+            print_dir = true;
+        }
+        else if (arg[0] == '/' || arg[0] == '.' || strchr(arg, '/'))
+        {
+            // Absolute path, or starts with . / .., or contains /: skip CDPATH
+            if (snprintf(curpath, sizeof(curpath), "%s", arg) >= PATH_MAX)
+            {
+                fprintf(stderr, "cd: path too long\n");
+                return 1;
+            }
+        }
+        else
+        {
+            // Search CDPATH (per POSIX step 5)
+            bool found = false;
+            string_t *cdpath_var = frame_get_variable_cstr(frame, "CDPATH");
+            const char *cdpath =
+                (cdpath_var && !string_empty(cdpath_var)) ? string_cstr(cdpath_var) : "";
+
+            // Iterate colon-separated entries; empty entry means "."
+            const char *cp = cdpath;
+            do
+            {
+                const char *colon = strchr(cp, ':');
+                size_t entry_len = colon ? (size_t)(colon - cp) : strlen(cp);
+
+                char candidate[PATH_MAX];
+                int n;
+                if (entry_len == 0)
+                    n = snprintf(candidate, sizeof(candidate), "./%s", arg);
+                else
+                    n = snprintf(candidate, sizeof(candidate), "%.*s/%s", (int)entry_len, cp, arg);
+
+                if (n < PATH_MAX)
+                {
+                    STAT_T st;
+                    if (STAT(candidate, &st) == 0 && S_ISDIR(st.st_mode))
+                    {
+                        memcpy(curpath, candidate, n + 1);
+                        // Per POSIX: print dir when CDPATH match is non-empty entry
+                        if (entry_len > 0)
+                            print_dir = true;
+                        found = true;
+                        break;
+                    }
+                }
+                cp = colon ? colon + 1 : NULL;
+            } while (cp);
+
+            if (cdpath_var)
+                string_destroy(&cdpath_var);
+
+            if (!found)
+            {
+                // No CDPATH match: use arg directly
+                if (snprintf(curpath, sizeof(curpath), "%s", arg) >= PATH_MAX)
+                {
+                    fprintf(stderr, "cd: path too long\n");
+                    return 1;
+                }
+            }
+        }
+    }
+
+    // Steps 7-8: build absolute logical path and canonicalize (for -L)
+    if (!flag_P && curpath[0] != '/')
+    {
+        // Prepend PWD
+        string_t *pwd_var = frame_get_variable_cstr(frame, "PWD");
+        const char *pwd = (pwd_var && !string_empty(pwd_var)) ? string_cstr(pwd_var) : ".";
+        char abs[PATH_MAX];
+        if (snprintf(abs, sizeof(abs), "%s/%s", pwd, curpath) >= PATH_MAX)
+        {
+            if (pwd_var)
+                string_destroy(&pwd_var);
+            fprintf(stderr, "cd: path too long\n");
+            return 1;
+        }
+        if (pwd_var)
+            string_destroy(&pwd_var);
+        memcpy(curpath, abs, strlen(abs) + 1);
+    }
+
+    // Canonicalize (remove . and .. components)
+    char canonical[PATH_MAX];
+    if (!cd_canonicalize(curpath, canonical))
+        return 1;
+
+    return cd_do_chdir(frame, canonical, print_dir, flag_P, flag_e);
+
+#endif // POSIX_API || UCRT_API
 }
+
+#if defined(POSIX_API) || defined(UCRT_API)
+  #undef CHDIR
+  #undef GETCWD
+  #undef STAT
+  #undef STAT_T   
+#endif
+#if !defined(POSIX_API) && !defined(UCRT_API)
+  #undef PATH_MAX
 #endif
 
 /* ============================================================================
