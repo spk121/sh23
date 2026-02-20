@@ -1002,9 +1002,6 @@ static const exec_frame_policy_t EXEC_FRAME_POLICIES[EXEC_FRAME_TYPE_COUNT] = {
     /* =========================================================================
      * EXEC_FRAME_PIPELINE_CMD
      * =========================================================================
-    /* =========================================================================
-     * EXEC_FRAME_PIPELINE_CMD
-     * =========================================================================
      * A command within a pipeline: cmd1 | cmd2 | cmd3
      * Each command (except possibly the last, shell-dependent) runs in a
      * subshell. First command starts process group, others join it.

@@ -1,4 +1,6 @@
 #include <ctype.h>
+#include <limits.h>
+
 #define VARIABLE_MAP_INTERNAL
 #include "logging.h"
 #include "string_list.h"

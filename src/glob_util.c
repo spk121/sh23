@@ -4,10 +4,9 @@
 
 #include "glob_util.h"
 #include "logging.h"
-#include "string_t.h"
 #include "string_list.h"
+#include "string_t.h"
 #include <string.h>
-#include <stdlib.h>
 
 #ifdef POSIX_API
 #include <fnmatch.h>
@@ -15,8 +14,8 @@
 #endif
 
 #ifdef UCRT_API
-#include <io.h>
 #include <errno.h>
+#include <io.h>
 #endif
 
 /* ============================================================================
@@ -37,10 +36,10 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
     if (flags & GLOB_UTIL_NOESCAPE)
         fn_flags |= FNM_NOESCAPE;
 
-    #ifdef FNM_CASEFOLD
+#ifdef FNM_CASEFOLD
     if (flags & GLOB_UTIL_CASEFOLD)
         fn_flags |= FNM_CASEFOLD;
-    #endif
+#endif
 
     return fnmatch(pattern, string, fn_flags) == 0;
 }
@@ -120,9 +119,28 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
         }
         else if (*p == '*')
         {
-            // Remember this position for backtracking
-            // Note: With GLOB_UTIL_PATHNAME, * matches zero or more non-/ characters.
-            // This is enforced in the backtracking logic, not here.
+            // Handle GLOB_UTIL_PERIOD: * doesn't match a leading '.'
+            // A '.' is "leading" at the start of the string, or after '/' when
+            // GLOB_UTIL_PATHNAME is also set.
+            if ((flags & GLOB_UTIL_PERIOD) && *s == '.')
+            {
+                int is_leading = (s == string);
+                if (!is_leading && (flags & GLOB_UTIL_PATHNAME) && s > string && s[-1] == '/')
+                    is_leading = 1;
+                if (is_leading)
+                    return false;
+            }
+
+            // Handle GLOB_UTIL_PATHNAME: * doesn't match '/'.
+            // If s is already at '/', the * can only match zero characters here —
+            // but the '/' itself must be matched by a literal '/' in the pattern.
+            // Don't record a backtrack point that would let * consume the '/';
+            // instead fall through to the literal-match branch which will fail and
+            // backtrack to any earlier '*', or return false if there is none.
+            if ((flags & GLOB_UTIL_PATHNAME) && *s == '/')
+                goto backtrack;
+
+            // Remember this position for backtracking.
             star_pattern = p++;
             star_string = s;
         }
@@ -219,11 +237,23 @@ bool glob_util_match(const char *pattern, const char *string, int flags)
             if (matched == negate)
                 goto backtrack; // Character class didn't match
 
+            // Handle GLOB_UTIL_PERIOD: [...] doesn't match a leading '.'
+            // A '.' is "leading" at the start of the string, or after '/' when
+            // GLOB_UTIL_PATHNAME is also set.
+            if ((flags & GLOB_UTIL_PERIOD) && *s == '.')
+            {
+                int is_leading = (s == string);
+                if (!is_leading && (flags & GLOB_UTIL_PATHNAME) && s > string && s[-1] == '/')
+                    is_leading = 1;
+                if (is_leading)
+                    goto backtrack;
+            }
+
             s++;
         }
         else
         {
-backtrack:
+        backtrack:
             // Mismatch - try backtracking to the last '*'
             if (star_pattern)
             {
@@ -309,9 +339,9 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
          */
         if (ret != 0)
         {
-            wordfree(&we);  // safe to call even on failure
+            wordfree(&we); // safe to call even on failure
         }
-        return NULL;  // treat errors and no matches the same: keep literal
+        return NULL; // treat errors and no matches the same: keep literal
     }
 
     /* Success and at least one match */
@@ -319,15 +349,20 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
     for (size_t i = 0; i < we.we_wordc; i++)
     {
-        // Filter out . and .. entries
-        const char *path = we.we_wordv[i];
-        const char *name = strrchr(path, '/');
-        name = name ? name + 1 : path;
+        string_t *expanded = string_create_from_cstr(we.we_wordv[i]);
 
-        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+        // Filter out . and .. entries by examining the final path component.
+        // name_start is the index just after the last '/', or 0 if no slash present.
+        int sep = string_find_last_of_cstr(expanded, "/");
+        int name_start = (sep >= 0) ? sep + 1 : 0;
+
+        if (string_compare_cstr_substring(expanded, name_start, -1, ".", 0, -1) == 0 ||
+            string_compare_cstr_substring(expanded, name_start, -1, "..", 0, -1) == 0)
+        {
+            string_destroy(&expanded);
             continue;
+        }
 
-        string_t *expanded = string_create_from_cstr(path);
         string_list_move_push_back(result, &expanded);
     }
 
@@ -374,6 +409,16 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
     // Create result list
     string_list_t *result = string_list_create();
 
+    // Extract the directory prefix from the pattern so we can reconstruct full
+    // paths.  _findfirst/_findnext only return the bare filename in fd.name,
+    // but callers expect paths in the same form as the POSIX wordexp() version
+    // (e.g. pattern "src/*.c" -> results like "src/file.c", not "file.c").
+    // string_find_last_of_cstr returns the index of the last separator, or -1.
+    int sep_idx = string_find_last_of_cstr(pattern, "/\\");
+    // dir_prefix is the leading "dir/" portion (inclusive of the separator),
+    // or an empty string when sep_idx == -1 (sep_idx + 1 == 0 -> empty range).
+    string_t *dir_prefix = string_create_from_range(pattern, 0, sep_idx + 1);
+
     // Add all matching files
     do
     {
@@ -381,12 +426,16 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
         if (strcmp(fd.name, ".") == 0 || strcmp(fd.name, "..") == 0)
             continue;
 
-        // Add the matched filename to the result list
-        string_t *filename = string_create_from_cstr(fd.name);
-        string_list_move_push_back(result, &filename);
+        // Reconstruct the full path by appending the bare filename to the prefix.
+        string_t *filepath = string_create_from(dir_prefix);
+        string_append_cstr(filepath, fd.name);
+
+        string_list_move_push_back(result, &filepath);
         log_debug("glob_util_expand_path: matched '%s'", fd.name);
 
     } while (_findnext(handle, &fd) == 0);
+
+    string_destroy(&dir_prefix);
 
     _findclose(handle);
 
@@ -414,8 +463,7 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
 #endif
 
-string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags,
-                                        const char *base_dir)
+string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags, const char *base_dir)
 {
     // For now, ignore flags and base_dir - future enhancement
     (void)flags;

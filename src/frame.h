@@ -13,7 +13,28 @@ typedef struct trap_store_t trap_store_t;
 typedef struct word_token_t word_token_t;
 typedef struct ast_node_t ast_node_t;
 
-typedef enum expand_flags_t expand_flags_t;
+typedef enum frame_expand_flags_t
+{
+    FRAME_EXPAND_NONE = 0,
+    FRAME_EXPAND_TILDE = (1 << 0),
+    FRAME_EXPAND_PARAMETER = (1 << 1),
+    FRAME_EXPAND_COMMAND_SUBST = (1 << 2),
+    FRAME_EXPAND_ARITHMETIC = (1 << 3),
+    FRAME_EXPAND_FIELD_SPLIT = (1 << 4),
+    FRAME_EXPAND_PATHNAME = (1 << 5),
+    
+    /* Common combinations */
+    FRAME_EXPAND_ALL = (FRAME_EXPAND_TILDE | FRAME_EXPAND_PARAMETER
+        | FRAME_EXPAND_COMMAND_SUBST | FRAME_EXPAND_ARITHMETIC
+        | FRAME_EXPAND_FIELD_SPLIT | FRAME_EXPAND_PATHNAME),
+
+     /* For assignments and redirections: no field splitting or globbing */
+     FRAME_EXPAND_NO_SPLIT_GLOB =
+         (FRAME_EXPAND_TILDE | FRAME_EXPAND_PARAMETER | FRAME_EXPAND_COMMAND_SUBST | FRAME_EXPAND_ARITHMETIC),
+
+     /* For here-documents: parameter, command, arithmetic only */
+     FRAME_EXPAND_HEREDOC = (FRAME_EXPAND_PARAMETER | FRAME_EXPAND_COMMAND_SUBST | FRAME_EXPAND_ARITHMETIC)
+} frame_expand_flags_t;
 
 /**
  * Execution status codes for frame operations.
@@ -189,6 +210,12 @@ var_store_error_t frame_unset_variable_cstr(exec_frame_t *frame, const char *nam
 void frame_print_exported_variables_in_export_format(exec_frame_t *frame);
 
 /**
+ * Prints all variables in the variable store associated with the current frame that are
+ * marked as read-only, in a format suitable for re-input (e.g. "readonly VAR=value").
+ */
+void frame_print_readonly_variables(exec_frame_t *frame);
+
+/**
  * Prints all variables in the variable store associated with the current frame.
  * This includes all variables, not just exported ones.
  * If reusable_format is true, the output will be in a format that can be reused as input to the
@@ -206,7 +233,8 @@ void frame_print_variables(exec_frame_t *frame, bool reusable_format);
  * Returns a newly allocated string with the expanded result. Caller is responsible for freeing the
  * returned string.
  */
-string_t *frame_expand_string(exec_frame_t *frame, const string_t *text, expand_flags_t flags);
+string_t *frame_expand_string(exec_frame_t *frame, const string_t *text,
+                              frame_expand_flags_t flags);
 
 /**
  * Expands the given word token into a list of words using the variable store and other context of
@@ -343,6 +371,87 @@ exec_frame_t* frame_find_return_target(exec_frame_t* frame);
 void frame_set_pending_control_flow(exec_frame_t *frame, frame_control_flow_t flow, int depth);
 
 // NEW API: traps
+
+/**
+ * Callback type for iterating over set traps.
+ * @param signal_number The signal number (0 for EXIT)
+ * @param action The trap action string (NULL if trap is ignored)
+ * @param is_ignored True if the trap is set to ignore the signal
+ * @param context User-provided context pointer
+ */
+typedef void (*frame_trap_callback_t)(int signal_number, const string_t *action,
+                                      bool is_ignored, void *context);
+
+/**
+ * Iterate over all set traps and call the callback for each.
+ * This includes the EXIT trap (signal 0) if set.
+ * @param frame The execution frame
+ * @param callback The callback function to call for each trap
+ * @param context User-provided context pointer passed to callback
+ */
+void frame_for_each_set_trap(exec_frame_t *frame, frame_trap_callback_t callback, void *context);
+
+/**
+ * Get the trap action for a signal.
+ * @param frame The execution frame
+ * @param signal_number The signal number
+ * @param out_is_ignored If non-NULL, set to true if signal is set to ignore
+ * @return The trap action string, or NULL if no trap is set
+ */
+const string_t *frame_get_trap(exec_frame_t *frame, int signal_number, bool *out_is_ignored);
+
+/**
+ * Get the EXIT trap action.
+ * @param frame The execution frame
+ * @return The EXIT trap action string, or NULL if no EXIT trap is set
+ */
+const string_t *frame_get_exit_trap(exec_frame_t *frame);
+
+/**
+ * Set a trap for a signal.
+ * @param frame The execution frame
+ * @param signal_number The signal number
+ * @param action The trap action string (NULL for reset to default)
+ * @param is_ignored True to ignore the signal (action should be NULL)
+ * @param is_reset True to reset to default (action should be NULL)
+ * @return True on success, false on failure
+ */
+bool frame_set_trap(exec_frame_t *frame, int signal_number, const string_t *action,
+                    bool is_ignored, bool is_reset);
+
+/**
+ * Set the EXIT trap.
+ * @param frame The execution frame
+ * @param action The trap action string (NULL for reset)
+ * @param is_ignored True to ignore EXIT (action should be NULL)
+ * @param is_reset True to reset to default (action should be NULL)
+ * @return True on success, false on failure
+ */
+bool frame_set_exit_trap(exec_frame_t *frame, const string_t *action,
+                         bool is_ignored, bool is_reset);
+
+/**
+ * Convert a signal name to its number.
+ * Accepts names with or without "SIG" prefix (e.g., "INT", "SIGINT", "EXIT").
+ * @param name The signal name
+ * @return The signal number, or -1 if not recognized
+ */
+int frame_trap_name_to_number(const char *name);
+
+/**
+ * Convert a signal number to its name (without "SIG" prefix).
+ * @param signal_number The signal number (0 for EXIT)
+ * @return The signal name (e.g., "INT", "EXIT"), or "INVALID" if not valid
+ */
+const char *frame_trap_number_to_name(int signal_number);
+
+/**
+ * Check if a signal name is valid but unsupported on the current platform.
+ * @param name The signal name
+ * @return True if the name is valid but unsupported
+ */
+bool frame_trap_name_is_unsupported(const char *name);
+
 /**
  * Runs any exit traps that are stored in the given trap store, using the context of the given
  * frame. This should be called when a frame is exiting, to ensure that any traps that were set to
@@ -350,6 +459,82 @@ void frame_set_pending_control_flow(exec_frame_t *frame, frame_control_flow_t fl
  * store.
  */
 void frame_run_exit_traps(const trap_store_t *store, exec_frame_t *frame);
+
+// NEW API: aliases
+
+/**
+ * Callback type for iterating over aliases.
+ * @param name The alias name
+ * @param value The alias value (the replacement text)
+ * @param context User-provided context pointer
+ */
+typedef void (*frame_alias_callback_t)(const string_t *name, const string_t *value, void *context);
+
+/**
+ * Check if an alias exists in the frame's alias store.
+ * @param frame The execution frame
+ * @param name The alias name to check
+ * @return True if the alias exists
+ */
+bool frame_has_alias(const exec_frame_t *frame, const string_t *name);
+bool frame_has_alias_cstr(const exec_frame_t *frame, const char *name);
+
+/**
+ * Get the value of an alias.
+ * @param frame The execution frame
+ * @param name The alias name
+ * @return The alias value, or NULL if not found. The returned pointer is valid
+ *         only until the next mutating operation on the alias store.
+ */
+const string_t *frame_get_alias(const exec_frame_t *frame, const string_t *name);
+const char *frame_get_alias_cstr(const exec_frame_t *frame, const char *name);
+
+/**
+ * Set or update an alias.
+ * @param frame The execution frame
+ * @param name The alias name (will be deep-copied)
+ * @param value The alias value (will be deep-copied)
+ * @return True on success, false if no alias store available
+ */
+bool frame_set_alias(exec_frame_t *frame, const string_t *name, const string_t *value);
+bool frame_set_alias_cstr(exec_frame_t *frame, const char *name, const char *value);
+
+/**
+ * Remove an alias.
+ * @param frame The execution frame
+ * @param name The alias name to remove
+ * @return True if the alias was found and removed, false otherwise
+ */
+bool frame_remove_alias(exec_frame_t *frame, const string_t *name);
+bool frame_remove_alias_cstr(exec_frame_t *frame, const char *name);
+
+/**
+ * Get the number of aliases in the frame's alias store.
+ * @param frame The execution frame
+ * @return The number of aliases, or 0 if no alias store available
+ */
+int frame_alias_count(const exec_frame_t *frame);
+
+/**
+ * Iterate over all aliases and call the callback for each.
+ * @param frame The execution frame
+ * @param callback The callback function to call for each alias
+ * @param context User-provided context pointer passed to callback
+ */
+void frame_for_each_alias(const exec_frame_t *frame, frame_alias_callback_t callback, void *context);
+
+/**
+ * Remove all aliases from the frame's alias store.
+ * @param frame The execution frame
+ */
+void frame_clear_all_aliases(exec_frame_t *frame);
+
+/**
+ * Check if a string is a valid alias name.
+ * @param name The name to validate
+ * @return True if the name is valid for use as an alias
+ */
+bool frame_alias_name_is_valid(const char *name);
 
 // NEW API: background jobs
 void frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
@@ -415,5 +600,26 @@ bool frame_has_jobs(const exec_frame_t* frame);
  * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
  */
 frame_exec_status_t frame_execute_stream(exec_frame_t *frame, FILE *fp);
+
+/**
+ * Execute commands from a string in the context of the given frame.
+ * Parses and executes the string as shell commands.
+ * 
+ * @param frame The execution frame context
+ * @param command The command string to execute
+ * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ */
+frame_exec_status_t frame_execute_string(exec_frame_t *frame, const char *command);
+
+/**
+ * Execute an eval command string in the context of the given frame.
+ * Creates an EXEC_FRAME_EVAL frame for proper control flow handling
+ * (return, break, continue pass through to enclosing contexts).
+ * 
+ * @param frame The execution frame context
+ * @param command The command string to execute
+ * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ */
+frame_exec_status_t frame_execute_eval_string(exec_frame_t *frame, const char *command);
 
 #endif
