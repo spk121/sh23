@@ -1522,7 +1522,7 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)
                 exec_result_t trap_result = exec_command_string(trap_frame,
                                                                 string_cstr(trap_action->action));
 
-                exec_frame_pop(executor);
+                exec_frame_pop(&executor->current_frame);
 
                 /* Restore exit status */
                 executor->last_exit_status = saved_exit_status;
