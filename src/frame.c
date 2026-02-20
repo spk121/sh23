@@ -693,12 +693,30 @@ void frame_print_variables(exec_frame_t *frame, bool reusable_format)
  * Word and String Expansion
  * ============================================================================ */
 
-string_t *frame_expand_string(exec_frame_t *frame, const string_t *text, expand_flags_t flags)
+static expand_flags_t convert_frame_expand_flags(frame_expand_flags_t frame_flags)
+{
+    expand_flags_t flags = EXPAND_NONE;
+    if (frame_flags & FRAME_EXPAND_TILDE)
+        flags |= EXPAND_TILDE;
+    if (frame_flags & FRAME_EXPAND_PARAMETER)
+        flags |= EXPAND_PARAMETER;
+    if (frame_flags & FRAME_EXPAND_COMMAND_SUBST)
+        flags |= EXPAND_COMMAND_SUBST;
+    if (frame_flags & FRAME_EXPAND_ARITHMETIC)
+        flags |= EXPAND_ARITHMETIC;
+    if (frame_flags & FRAME_EXPAND_FIELD_SPLIT)
+        flags |= EXPAND_FIELD_SPLIT;
+    if (frame_flags & FRAME_EXPAND_PATHNAME)
+        flags |= EXPAND_PATHNAME;
+    return flags;
+}
+
+string_t *frame_expand_string(exec_frame_t *frame, const string_t *text, frame_expand_flags_t flags)
 {
     Expects_not_null(frame);
     Expects_not_null(text);
 
-    return expand_string(frame, text, flags);
+    return expand_string(frame, text, convert_frame_expand_flags(flags));
 }
 
 string_list_t *frame_expand_word_token(exec_frame_t *frame, const token_t *tok)

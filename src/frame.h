@@ -13,7 +13,28 @@ typedef struct trap_store_t trap_store_t;
 typedef struct word_token_t word_token_t;
 typedef struct ast_node_t ast_node_t;
 
-typedef enum expand_flags_t expand_flags_t;
+typedef enum frame_expand_flags_t
+{
+    FRAME_EXPAND_NONE = 0,
+    FRAME_EXPAND_TILDE = (1 << 0),
+    FRAME_EXPAND_PARAMETER = (1 << 1),
+    FRAME_EXPAND_COMMAND_SUBST = (1 << 2),
+    FRAME_EXPAND_ARITHMETIC = (1 << 3),
+    FRAME_EXPAND_FIELD_SPLIT = (1 << 4),
+    FRAME_EXPAND_PATHNAME = (1 << 5),
+    
+    /* Common combinations */
+    FRAME_EXPAND_ALL = (FRAME_EXPAND_TILDE | FRAME_EXPAND_PARAMETER
+        | FRAME_EXPAND_COMMAND_SUBST | FRAME_EXPAND_ARITHMETIC
+        | FRAME_EXPAND_FIELD_SPLIT | FRAME_EXPAND_PATHNAME),
+
+     /* For assignments and redirections: no field splitting or globbing */
+     FRAME_EXPAND_NO_SPLIT_GLOB =
+         (FRAME_EXPAND_TILDE | FRAME_EXPAND_PARAMETER | FRAME_EXPAND_COMMAND_SUBST | FRAME_EXPAND_ARITHMETIC),
+
+     /* For here-documents: parameter, command, arithmetic only */
+     FRAME_EXPAND_HEREDOC = (FRAME_EXPAND_PARAMETER | FRAME_EXPAND_COMMAND_SUBST | FRAME_EXPAND_ARITHMETIC)
+} frame_expand_flags_t;
 
 /**
  * Execution status codes for frame operations.
@@ -212,7 +233,8 @@ void frame_print_variables(exec_frame_t *frame, bool reusable_format);
  * Returns a newly allocated string with the expanded result. Caller is responsible for freeing the
  * returned string.
  */
-string_t *frame_expand_string(exec_frame_t *frame, const string_t *text, expand_flags_t flags);
+string_t *frame_expand_string(exec_frame_t *frame, const string_t *text,
+                              frame_expand_flags_t flags);
 
 /**
  * Expands the given word token into a list of words using the variable store and other context of
