@@ -72,7 +72,13 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
                 // EOF after single ) — need more input
                 string_destroy(&expr_text);
                 string_clear(lx->operator_buffer);
-                return LEX_INCOMPLETE;
+
+                // TODO: is it worth handling this LEX_INCOMPLETE edge case, when normally
+                // we expect input to be line-buffered?
+                // return LEX_INCOMPLETE;
+
+                lexer_set_error(lx, "Missing closing parentheses in arithmetic expansion");
+                return LEX_ERROR;
             }
             else
             {
