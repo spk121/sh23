@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "builtins.h"
 
@@ -21,10 +22,10 @@
 #include "string_t.h"
 #include "variable_store.h"
 #include "xalloc.h"
+
 #ifdef UCRT_API
 #include <direct.h>
 #include <io.h>
-#include <time.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #if defined(_WIN64)
@@ -43,6 +44,7 @@
 #define WAIT_OBJECT_0 0
 #endif
 #endif
+
 #ifdef POSIX_API
 #include <sys/types.h>
 #include <sys/wait.h>
