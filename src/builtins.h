@@ -109,6 +109,8 @@ int builtin_kill(exec_frame_t *frame, const string_list_t *args);
 int builtin_wait(exec_frame_t *frame, const string_list_t *args);
 int builtin_fg(exec_frame_t *frame, const string_list_t *args);
 int builtin_bg(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_getopts(exec_frame_t *frame, const string_list_t *args);
 int builtin_ls(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_alias(exec_frame_t *frame, const string_list_t *args);

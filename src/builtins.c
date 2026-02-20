@@ -87,7 +87,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     { "unalias", BUILTIN_REGULAR, builtin_unalias},
     /* { "type", BUILTIN_REGULAR, builtin_type}, */
     /* { "command", BUILTIN_REGULAR, builtin_command}, */
-    /* { "getopts", BUILTIN_REGULAR, builtin_getopts}, */
+    { "getopts", BUILTIN_REGULAR, builtin_getopts},
     /* { "hash", BUILTIN_REGULAR, builtin_hash}, */
     /* { "umask", BUILTIN_REGULAR, builtin_umask}, */
     /* { "ulimit", BUILTIN_REGULAR, builtin_ulimit}, */
@@ -2118,6 +2118,104 @@ int builtin_unalias(exec_frame_t *frame, const string_list_t *args)
     }
 
     return exit_status;
+}
+
+/* ============================================================================
+ * getopts - Parse shell options
+ *
+ * POSIX Synopsis:
+ *   getopts optstring name [args ...]
+ *
+ * Parses options from the shell positional parameters (or provided args),
+ * sets the variable named by 'name' to the found option, and sets OPTARG/OPTIND.
+ * Returns 0 if an option was found, 1 if no more options, 2 on error.
+ * ============================================================================
+ */
+int builtin_getopts(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    if (argc < 3)
+    {
+        frame_set_error_printf(frame, "getopts: usage: getopts optstring name [args ...]");
+        return 2;
+    }
+
+    const string_t *optstring = string_list_at(args, 1);
+    const string_t *name = string_list_at(args, 2);
+    if (!optstring || string_empty(optstring) || !name || string_empty(name))
+    {
+        frame_set_error_printf(frame, "getopts: invalid optstring or name");
+        return 2;
+    }
+
+    // Use provided args if present, else use shell positional parameters
+    string_list_t *opt_args = NULL;
+    if (argc > 3)
+    {
+        // args[3..] are the arguments to parse
+        opt_args = string_list_create();
+        for (int i = 3; i < argc; ++i)
+        {
+            string_list_push_back(opt_args, string_list_at(args, i));
+        }
+    }
+    else
+    {
+        // Use shell positional parameters (excluding $0)
+        opt_args = frame_get_all_positional_params(frame);
+    }
+
+    // Call getopt_string
+    int c = getopt_string(opt_args, optstring);
+
+    // Set OPTIND and OPTARG variables
+    extern int optind;
+    extern char *optarg;
+    char indbuf[16];
+    snprintf(indbuf, sizeof(indbuf), "%d", optind);
+    frame_set_variable_cstr(frame, "OPTIND", indbuf);
+    if (optarg)
+        frame_set_variable_cstr(frame, "OPTARG", optarg);
+    else
+        frame_set_variable_cstr(frame, "OPTARG", "");
+
+    // Set the variable named by 'name' to the found option
+    char optbuf[2] = {0, 0};
+    if (c == -1)
+    {
+        // End of options
+        frame_set_variable_cstr(frame, string_cstr(name), "--");
+        if (argc > 3)
+            string_list_destroy(&opt_args);
+        else
+            string_list_destroy(&opt_args);
+        return 1;
+    }
+    else if (c == '?')
+    {
+        // Error
+        frame_set_variable_cstr(frame, string_cstr(name), "?");
+        if (argc > 3)
+            string_list_destroy(&opt_args);
+        else
+            string_list_destroy(&opt_args);
+        return 2;
+    }
+    else
+    {
+        optbuf[0] = (char)c;
+        frame_set_variable_cstr(frame, string_cstr(name), optbuf);
+        if (argc > 3)
+            string_list_destroy(&opt_args);
+        else
+            string_list_destroy(&opt_args);
+        return 0;
+    }
 }
 
 /* ============================================================================
