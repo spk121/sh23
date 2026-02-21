@@ -2266,7 +2266,6 @@ static string_t *resolve_home(exec_frame_t *frame)
         if (env && env[0] != '\0')
             return string_create_from_cstr(env);
     }
-    fprintf(stderr, "cd: HOME not set\n");
     return NULL;
 }
 
@@ -2293,94 +2292,57 @@ static string_t *resolve_home(exec_frame_t *frame)
 #if defined(POSIX_API) || defined(UCRT_API)
 
 /**
- * Canonicalize a path per POSIX cd step 8:
- * - Remove dot components
- * - Resolve dot-dot against preceding component (logically, not via symlinks)
- * - Normalize slashes
- * Writes result into buf (size PATH_MAX). Returns buf on success, NULL on error.
+ * Canonicalize a path using string_t and string_list_t.
+ * Removes dot components, resolves dot-dot, normalizes slashes.
+ * Returns a new string_t* (caller must destroy).
  */
-static char *cd_canonicalize(const char *path, char *buf)
+#define SLASHES "/\\"
+string_t *cd_canonicalize_string(const string_t *path)
 {
-    // Work in a mutable buffer
-    char tmp[PATH_MAX];
-    if (snprintf(tmp, sizeof(tmp), "%s", path) >= PATH_MAX)
+    if (!path || string_empty(path))
+        return string_create_from_cstr(".");
+
+    bool rooted = (string_front(path) == '/' || string_front(path) == '\\');
+
+    string_list_t *raw = string_list_create_from_string_split_cstr(path, SLASHES);
+    string_list_t *parts = string_list_create();
+
+    for (int i = 0; i < string_list_size(raw); i++)
     {
-        fprintf(stderr, "cd: path too long\n");
-        return NULL;
-    }
+        const string_t *comp = string_list_at(raw, i);
 
-    // Output stack: store component offsets into buf
-    char *parts[PATH_MAX / 2];
-    int nparts = 0;
-    bool rooted = (tmp[0] == '/');
-
-    char *p = tmp;
-    while (*p)
-    {
-        // Skip slashes
-        while (*p == '/')
-            p++;
-        if (!*p)
-            break;
-
-        // Find end of component
-        char *start = p;
-        while (*p && *p != '/')
-            p++;
-        char saved = *p;
-        *p = '\0';
-
-        if (strcmp(start, ".") == 0)
+        if (string_empty(comp) || string_eq_cstr(comp, "."))
         {
-            // Drop dot
+            // skip
         }
-        else if (strcmp(start, "..") == 0)
+        else if (string_eq_cstr(comp, ".."))
         {
-            if (nparts > 0)
-                nparts--;
+            int size = string_list_size(parts);
+            if (size > 0 && !string_eq_cstr(string_list_at(parts, size - 1), ".."))
+                string_list_erase(parts, size - 1);
             else if (!rooted)
             {
-                // Can't go above relative root — keep it
-                parts[nparts++] = start;
+                string_t *dotdot = string_create_from_cstr("..");
+                string_list_move_push_back(parts, &dotdot);
             }
+            // else: at rooted root, silently discard
         }
         else
         {
-            parts[nparts++] = start;
+            string_t *copy = string_create_from(comp);
+            string_list_move_push_back(parts, &copy);
         }
-
-        *p = saved;
     }
 
-    // Reassemble
-    char *out = buf;
-    char *end = buf + PATH_MAX;
+    string_t *out = string_list_join(parts, "/");
     if (rooted)
-        *out++ = '/';
-    for (int i = 0; i < nparts; i++)
-    {
-        if (i > 0)
-        {
-            if (out >= end - 1)
-            {
-                fprintf(stderr, "cd: path too long\n");
-                return NULL;
-            }
-            *out++ = '/';
-        }
-        size_t len = strlen(parts[i]);
-        if (out + len >= end)
-        {
-            fprintf(stderr, "cd: path too long\n");
-            return NULL;
-        }
-        memcpy(out, parts[i], len);
-        out += len;
-    }
-    if (out == buf)
-        *out++ = '.';
-    *out = '\0';
-    return buf;
+        string_insert_cstr(out, 0, "/");
+    if (string_empty(out))
+        string_set_cstr(out, rooted ? "/" : ".");
+
+    string_list_destroy(&raw);
+    string_list_destroy(&parts);
+    return out;
 }
 
 /**
@@ -2390,8 +2352,10 @@ static char *cd_canonicalize(const char *path, char *buf)
  * flag_P    - if true, set PWD via getcwd (physical), else use logical curpath
  * flag_e    - if true and -P and getcwd fails, return 1 instead of 0
  */
-static int cd_do_chdir(exec_frame_t *frame, const char *target, bool print_dir, bool flag_P,
-                       bool flag_e)
+static int cd_do_chdir(exec_frame_t *frame,
+                       const string_t *logical_path, // for -L PWD
+                       const string_t *chdir_target, // what we actually chdir()
+                       bool print_dir, bool flag_P, bool flag_e)
 {
     char *old_cwd = GETCWD(NULL, 0);
     if (!old_cwd)
@@ -2400,23 +2364,23 @@ static int cd_do_chdir(exec_frame_t *frame, const char *target, bool print_dir, 
         return 1;
     }
 
-    if (CHDIR(target) != 0)
+    if (CHDIR(string_cstr(chdir_target)) != 0)
     {
         int saved_errno = errno;
         free(old_cwd);
         switch (saved_errno)
         {
         case ENOENT:
-            fprintf(stderr, "cd: %s: No such file or directory\n", target);
+            fprintf(stderr, "cd: %s: No such file or directory\n", string_cstr(chdir_target));
             break;
         case EACCES:
-            fprintf(stderr, "cd: %s: Permission denied\n", target);
+            fprintf(stderr, "cd: %s: Permission denied\n", string_cstr(chdir_target));
             break;
         case ENOTDIR:
-            fprintf(stderr, "cd: %s: Not a directory\n", target);
+            fprintf(stderr, "cd: %s: Not a directory\n", string_cstr(chdir_target));
             break;
         default:
-            fprintf(stderr, "cd: %s: %s\n", target, strerror(saved_errno));
+            fprintf(stderr, "cd: %s: %s\n", string_cstr(chdir_target), strerror(saved_errno));
             break;
         }
         return 1;
@@ -2438,20 +2402,20 @@ static int cd_do_chdir(exec_frame_t *frame, const char *target, bool print_dir, 
                 return 1;
             }
             exit_status = 0; // -P without -e: succeed anyway
-            new_cwd = xstrdup(target);
+            new_cwd = xstrdup(string_cstr(chdir_target));
         }
     }
     else
     {
         // -L (default): use the logical curpath (target as we computed it)
-        new_cwd = xstrdup(target);
+        new_cwd = xstrdup(string_cstr(logical_path));
     }
 
     if (print_dir)
         printf("%s\n", new_cwd);
 
-    frame_set_variable_cstr(frame, "OLDPWD", old_cwd);
-    frame_set_variable_cstr(frame, "PWD", new_cwd);
+    frame_set_persistent_variable_cstr(frame, "OLDPWD", old_cwd);
+    frame_set_persistent_variable_cstr(frame, "PWD", new_cwd);
     free(old_cwd);
     free(new_cwd);
     return exit_status;
@@ -2466,7 +2430,7 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
 
     getopt_reset();
 
-    bool flag_L = true; // default
+    bool flag_L = true;
     bool flag_P = false;
     bool flag_e = false;
     int flag_err = 0;
@@ -2496,7 +2460,6 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
     }
     string_destroy(&opts);
 
-    // -e is only meaningful with -P; ignore it otherwise (per spec)
     if (!flag_P)
         flag_e = false;
 
@@ -2518,149 +2481,177 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
         return 1;
     }
 
-    // Resolve the target directory string (curpath)
-    char curpath[PATH_MAX];
+    string_t *curpath = NULL;
     bool print_dir = false;
 
     if (remaining == 0)
     {
-        // No argument: use HOME
-        string_t *home = resolve_home(frame);
-        if (!home)
-            return 1;
-        if (snprintf(curpath, sizeof(curpath), "%s", string_cstr(home)) >= PATH_MAX)
+        curpath = resolve_home(frame);
+        if (!curpath)
         {
-            fprintf(stderr, "cd: HOME path too long\n");
-            string_destroy(&home);
+            fprintf(stderr, "cd: HOME not set\n");
             return 1;
         }
-        string_destroy(&home);
     }
     else
     {
-        const char *arg = string_cstr(string_list_at(args, optind));
+        const string_t *arg = string_list_at(args, optind);
 
-        if (arg[0] == '\0')
+        if (string_empty(arg))
         {
             fprintf(stderr, "cd: empty directory argument\n");
             return 1;
         }
 
-        if (strcmp(arg, "-") == 0)
+        if (string_eq_cstr(arg, "-"))
         {
-            // cd - : go to OLDPWD and print it
-            string_t *oldpwd = frame_get_variable_cstr(frame, "OLDPWD");
-            if (!oldpwd || string_empty(oldpwd))
+            if (!frame_has_variable_cstr(frame, "OLDPWD"))
             {
-                if (oldpwd)
-                    string_destroy(&oldpwd);
                 fprintf(stderr, "cd: OLDPWD not set\n");
                 return 1;
             }
-            if (snprintf(curpath, sizeof(curpath), "%s", string_cstr(oldpwd)) >= PATH_MAX)
+            curpath = frame_get_variable_cstr(frame, "OLDPWD");
+            if (string_empty(curpath))
             {
-                string_destroy(&oldpwd);
-                fprintf(stderr, "cd: OLDPWD path too long\n");
+                string_destroy(&curpath);
+                fprintf(stderr, "cd: OLDPWD is empty\n");
                 return 1;
             }
-            string_destroy(&oldpwd);
             print_dir = true;
         }
-        else if (arg[0] == '/' || arg[0] == '.' || strchr(arg, '/'))
+        else if (string_starts_with_cstr(arg, "/")
+#ifdef UCRT_API
+                 || string_starts_with_cstr(arg, "\\")
+#endif
+                 || string_starts_with_cstr(arg, ".") || string_contains_cstr(arg, "/"))
         {
-            // Absolute path, or starts with . / .., or contains /: skip CDPATH
-            if (snprintf(curpath, sizeof(curpath), "%s", arg) >= PATH_MAX)
-            {
-                fprintf(stderr, "cd: path too long\n");
-                return 1;
-            }
+            // Absolute, or explicitly relative (./ or ../), or contains /: skip CDPATH
+            curpath = string_create_from(arg);
         }
         else
         {
-            // Search CDPATH (per POSIX step 5)
+            // Search CDPATH
             bool found = false;
-            string_t *cdpath_var = frame_get_variable_cstr(frame, "CDPATH");
-            const char *cdpath =
-                (cdpath_var && !string_empty(cdpath_var)) ? string_cstr(cdpath_var) : "";
-
-            // Iterate colon-separated entries; empty entry means "."
-            const char *cp = cdpath;
-            do
+            if (frame_has_variable_cstr(frame, "CDPATH"))
             {
-                const char *colon = strchr(cp, ':');
-                size_t entry_len = colon ? (size_t)(colon - cp) : strlen(cp);
+#ifdef UCRT_API
+                const char sep = ';';
+#else
+                const char sep = ':';
+#endif
+                string_t *cdpath = frame_get_variable_cstr(frame, "CDPATH");
+                string_list_t *cdpath_entries =
+                    string_list_create_from_string_split_char(cdpath, sep);
+                string_destroy(&cdpath);
 
-                char candidate[PATH_MAX];
-                int n;
-                if (entry_len == 0)
-                    n = snprintf(candidate, sizeof(candidate), "./%s", arg);
-                else
-                    n = snprintf(candidate, sizeof(candidate), "%.*s/%s", (int)entry_len, cp, arg);
-
-                if (n < PATH_MAX)
+                for (int i = 0; i < string_list_size(cdpath_entries); i++)
                 {
-                    STAT_T st;
-                    if (STAT(candidate, &st) == 0 && S_ISDIR(st.st_mode))
+                    const string_t *entry = string_list_at(cdpath_entries, i);
+                    string_t *candidate;
+                    if (string_empty(entry))
                     {
-                        memcpy(curpath, candidate, n + 1);
-                        // Per POSIX: print dir when CDPATH match is non-empty entry
-                        if (entry_len > 0)
-                            print_dir = true;
+                        candidate = string_create_from_cstr("./");
+                        string_append(candidate, arg);
+                    }
+                    else
+                    {
+                        candidate = string_create_from(entry);
+                        string_append_cstr(candidate, "/");
+                        string_append(candidate, arg);
+                    }
+                    STAT_T st;
+                    if (STAT(string_cstr(candidate), &st) == 0 && S_ISDIR(st.st_mode))
+                    {
+                        if (string_length(candidate) >= PATH_MAX)
+                        {
+                            fprintf(stderr, "cd: path too long\n");
+                            string_destroy(&candidate);
+                            string_list_destroy(&cdpath_entries);
+                            return 1;
+                        }
                         found = true;
+                        curpath = candidate;
+                        print_dir = !string_empty(entry);
                         break;
                     }
+                    string_destroy(&candidate);
                 }
-                cp = colon ? colon + 1 : NULL;
-            } while (cp);
-
-            if (cdpath_var)
-                string_destroy(&cdpath_var);
+                string_list_destroy(&cdpath_entries);
+            }
 
             if (!found)
-            {
-                // No CDPATH match: use arg directly
-                if (snprintf(curpath, sizeof(curpath), "%s", arg) >= PATH_MAX)
-                {
-                    fprintf(stderr, "cd: path too long\n");
-                    return 1;
-                }
-            }
+                curpath = string_create_from(arg);
         }
     }
 
-    // Steps 7-8: build absolute logical path and canonicalize (for -L)
-    if (!flag_P && curpath[0] != '/'
+    // Steps 7-8: prepend PWD if curpath is not absolute, to get a full
+    // logical path for canonicalization
+    if (!flag_P && !string_starts_with_cstr(curpath, "/")
 #ifdef UCRT_API
-        && curpath[0] != '\\'
+        && !string_starts_with_cstr(curpath, "\\")
 #endif
-        && strncmp(curpath, ".", 1) != 0 &&
-        strncmp(curpath, "..", 2) != 0)
+    )
     {
-        // Only prepend PWD if not absolute or relative (., ..)
-        string_t *pwd_var = frame_get_variable_cstr(frame, "PWD");
-        const char *pwd = (pwd_var && !string_empty(pwd_var)) ? string_cstr(pwd_var) : ".";
-        char abs[PATH_MAX];
-        if (snprintf(abs, sizeof(abs), "%s/%s", pwd, curpath) >= PATH_MAX)
+        string_t *pwd;
+        if (frame_has_variable_cstr(frame, "PWD"))
         {
-            if (pwd_var)
-                string_destroy(&pwd_var);
-            fprintf(stderr, "cd: path too long\n");
+            pwd = frame_get_variable_cstr(frame, "PWD");
+            if (string_empty(pwd))
+                string_set_cstr(pwd, ".");
+        }
+        else
+        {
+            pwd = string_create_from_cstr(".");
+        }
+        string_t *abs = string_create_from(pwd);
+        string_destroy(&pwd);
+        string_append_cstr(abs, "/");
+        string_append(abs, curpath);
+        string_consume(curpath, &abs);
+    }
+
+    string_t *target;
+    int result;
+    if (flag_P)
+    {
+#ifdef POSIX_API
+        char physical[PATH_MAX];
+        if (!realpath(string_cstr(curpath), physical))
+        {
+            fprintf(stderr, "cd: cannot resolve path '%s': %s\n", string_cstr(curpath),
+                    strerror(errno));
+            string_destroy(&curpath);
             return 1;
         }
-        if (pwd_var)
-            string_destroy(&pwd_var);
-        memcpy(curpath, abs, strlen(abs) + 1);
+#elifdef UCRT_API
+        char physical[PATH_MAX];
+        if (!_fullpath(physical, string_cstr(curpath), PATH_MAX))
+        {
+            fprintf(stderr, "cd: cannot resolve path '%s': %s\n", string_cstr(curpath),
+                    strerror(errno));
+            string_destroy(&curpath);
+            return 1;
+        }
+#endif
+        target = string_create_from_cstr(physical);
+        result = cd_do_chdir(frame, curpath, target, print_dir, flag_P, flag_e);
+    }
+    else
+    {
+        target = cd_canonicalize_string(curpath);
+        if (!target)
+        {
+            string_destroy(&curpath);
+            return 1;
+        }
+        result = cd_do_chdir(frame, target, target, print_dir, flag_P, flag_e);
     }
 
-    // Canonicalize (remove . and .. components)
-    char canonical[PATH_MAX];
-    if (!cd_canonicalize(curpath, canonical))
-        return 1;
-
-    return cd_do_chdir(frame, canonical, print_dir, flag_P, flag_e);
-
-#endif // POSIX_API || UCRT_API
+    string_destroy(&curpath);
+    string_destroy(&target);
+    return result;
 }
+#endif // POSIX_API || UCRT_API
 
 #if defined(POSIX_API) || defined(UCRT_API)
   #undef CHDIR
