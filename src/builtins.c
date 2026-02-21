@@ -2629,9 +2629,14 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
     }
 
     // Steps 7-8: build absolute logical path and canonicalize (for -L)
-    if (!flag_P && curpath[0] != '/')
+    if (!flag_P && curpath[0] != '/'
+#ifdef UCRT_API
+        && curpath[0] != '\\'
+#endif
+        && strncmp(curpath, ".", 1) != 0 &&
+        strncmp(curpath, "..", 2) != 0)
     {
-        // Prepend PWD
+        // Only prepend PWD if not absolute or relative (., ..)
         string_t *pwd_var = frame_get_variable_cstr(frame, "PWD");
         const char *pwd = (pwd_var && !string_empty(pwd_var)) ? string_cstr(pwd_var) : ".";
         char abs[PATH_MAX];
