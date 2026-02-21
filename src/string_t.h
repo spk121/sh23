@@ -352,12 +352,20 @@ void string_append_substring(string_t *str, const string_t *other, int begin, in
  * If 'cstr' is NULL or empty, does nothing.
  */
 void string_append_cstr(string_t *str, const char *cstr);
+
+/*
+ * Appends the Unicode code point 'cp' as UTF-8 to the end of 'str'.
+ * Returns the number of bytes written (1–4), or 0 if the code point is invalid.
+ */
+int string_append_utf8(string_t *str, uint32_t cp);
+
 /*
  * Appends 'count' instances of the character 'ch' to the end of 'str'.
  * If 'count' is zero or negative, does nothing.
  * If 'ch' is '\0', does nothing.
  */
 void string_append_n_chars(string_t *str, int count, char ch);
+
 /*
  * Appends the data buffer of length 'len' to the end of 'str'.
  * The data buffer need not be null-terminated.
@@ -367,12 +375,14 @@ void string_append_n_chars(string_t *str, int count, char ch);
  * N.B.: If 'data' contains null bytes, the string will be truncated at the first null byte.
  */
 void string_append_data(string_t *str, const char *data, int len);
+
 /*
  * An alias for string_push_back(). Appends the character 'c' to the end of 'str'.
  */
 static inline void string_append_char(string_t *str, char c) {
     string_push_back(str, c);
 }
+
 /*
  * Replaces 'len' characters in 'str' starting at position 'pos' with the contents of 'other'.
  * The position 'pos' is clamped to 0 and the string length.
@@ -382,6 +392,7 @@ static inline void string_append_char(string_t *str, char c) {
  * If 'other' is NULL or empty, this effectively erases the specified range.
  */
 void string_replace(string_t *str, int pos, int len, const string_t *other);
+
 /*
  * Replaces 'len' characters in 'str' starting at position 'pos' with the substring of 'other'
  * from 'begin2' (inclusive) to 'end2' (exclusive).

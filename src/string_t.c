@@ -6,6 +6,7 @@
 #include "string_t.h"
 #include "xalloc.h"
 
+
 // ============================================================================
 // Internal helper functions for small string optimization
 // ============================================================================
@@ -834,6 +835,52 @@ void string_append_data(string_t *str, const char *data, int len)
     memcpy(str->data + str->length, data, actual_len);
     str->length += actual_len;
     str->data[str->length] = '\0';
+}
+
+int string_append_utf8(string_t *str, uint32_t cp)
+{
+    char buf[4];
+    int len;
+
+    if (cp <= 0x7F)
+    {
+        buf[0] = (char)cp;
+        len = 1;
+    }
+    else if (cp <= 0x7FF)
+    {
+        buf[0] = (char)(0xC0 | (cp >> 6));
+        buf[1] = (char)(0x80 | (cp & 0x3F));
+        len = 2;
+    }
+    else if (cp >= 0xD800 && cp <= 0xDFFF)
+    {
+        /* UTF-16 surrogate halves are not valid Unicode scalar values. */
+        return 0;
+    }
+    else if (cp <= 0xFFFF)
+    {
+        buf[0] = (char)(0xE0 | (cp >> 12));
+        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[2] = (char)(0x80 | (cp & 0x3F));
+        len = 3;
+    }
+    else if (cp <= 0x10FFFF)
+    {
+        buf[0] = (char)(0xF0 | (cp >> 18));
+        buf[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        buf[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        buf[3] = (char)(0x80 | (cp & 0x3F));
+        len = 4;
+    }
+    else
+    {
+        /* Above U+10FFFF — not a valid Unicode code point. */
+        return 0;
+    }
+
+    string_append_data(str, buf, len);
+    return len;
 }
 
 void string_replace(string_t *str, int pos, int len, const string_t *other)
