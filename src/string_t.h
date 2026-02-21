@@ -671,7 +671,10 @@ string_t *string_substring(const string_t *str, int begin, int end);
  * If both strings are empty, returns true.
  */
 bool string_eq(const string_t *str1, const string_t *str2);
-/*
+
+bool string_eq_cstr(const string_t *str, const char *cstr);
+
+    /*
  * Returns if the contents of 'str1' and 'str2' are not equal.
  */
 bool string_ne(const string_t *str1, const string_t *str2);

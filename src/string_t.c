@@ -1578,9 +1578,10 @@ int string_compare_at(const string_t *str1, int pos1, const string_t *str2, int 
 
 int string_compare_cstr(const string_t *str, const char *cstr)
 {
-    const char *buf1 = (str == NULL) ? "" : str->data;
-    const char *buf2 = (cstr == NULL) ? "" : cstr;
-    return strcmp(buf1, buf2);
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(cstr);
+    return strcmp(str->data, cstr);
 }
 
 int string_compare_cstr_at(const string_t *str, int pos1, const char *cstr, int pos2)
@@ -1777,6 +1778,15 @@ string_t *string_substring(const string_t *str, int begin, int end)
 bool string_eq(const string_t *str1, const string_t *str2)
 {
     return string_compare(str1, str2) == 0;
+}
+
+bool string_eq_cstr(const string_t *str, const char *cstr)
+{
+    Expects_not_null(str);
+    Expects_not_null(str->data);
+    Expects_not_null(cstr);
+
+    return string_compare_cstr(str, cstr) == 0;
 }
 
 bool string_ne(const string_t *str1, const string_t *str2)
