@@ -232,22 +232,17 @@ extern void exec_reap_background_jobs(exec_t *executor, bool notify);
 static sh_status_t shell_execute_interactive(shell_t *sh)
 {
     Expects_not_null(sh);
+    extern char *frame_render_ps1(const exec_frame_t *frame);
 
-    const char *ps1 = shell_get_ps1(sh);
-    string_t *ps1_str = string_create_from_cstr(ps1);
-    string_t *expanded_ps1_str = expand_string(sh->executor->current_frame,
-        ps1_str, EXPAND_ALL);
-    if (expanded_ps1_str)
-    {
-        ps1 = string_cstr(expanded_ps1_str);
-    }
-    string_destroy(&ps1_str);
+    char *ps1_prompt = frame_render_ps1(sh->executor->current_frame);
+    if (!ps1_prompt)
+        ps1_prompt = "$ ";
 
     // Simple REPL: read line, execute, repeat
     // For now we execute each complete line - no PS2 multi-line support yet
     char line_buffer[4096];
 
-    fprintf(stdout, "%s", ps1);
+    fprintf(stdout, "%s", ps1_prompt);
     fflush(stdout);
 
     exec_reap_background_jobs(sh->executor, true);
@@ -264,7 +259,7 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
         if (!tmp)
         {
             fprintf(stderr, "Failed to create temp file for command\n");
-            fprintf(stdout, "%s", ps1);
+            fprintf(stdout, "%s", ps1_prompt);
             fflush(stdout);
             continue;
         }
@@ -274,7 +269,7 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
         {
             fclose(tmp);
             fprintf(stderr, "Failed to write command to temp file\n");
-            fprintf(stdout, "%s", ps1);
+            fprintf(stdout, "%s", ps1_prompt);
             fflush(stdout);
             continue;
         }
@@ -299,11 +294,15 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
         exec_reap_background_jobs(sh->executor, true);
 
         // Print next prompt
-        fprintf(stdout, "%s", ps1);
+        free(ps1_prompt);
+        ps1_prompt = frame_render_ps1(sh->executor->current_frame);
+        if (!ps1_prompt)
+            ps1_prompt = "$ ";
+        fprintf(stdout, "%s", ps1_prompt);
         fflush(stdout);
     }
 
-    string_destroy(&expanded_ps1_str);
+    free(ps1_prompt);
     return SH_OK;
 }
 
