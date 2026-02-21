@@ -575,6 +575,301 @@ const char *exec_get_ps1(const exec_t *executor)
     return "$ ";
 }
 
+/* Forward declarations — defined after frame_render_ps1 below. */
+static const char *ps1_lookup_variable(const exec_frame_t *frame, const char *name);
+
+/**
+ * Render the PS1 prompt string.
+ *
+ * POSIX (XBD 8.1, XCU 2.5.3) requires that PS1 undergo parameter expansion
+ * before being displayed. This implementation performs $VAR / ${VAR}
+ * substitution on the raw PS1 value. The special parameters $$ and $? are
+ * also expanded, as they are ordinary special parameters defined by POSIX
+ * and routinely used in prompts.
+ *
+ * As a non-POSIX extension, the following backslash escape sequences are
+ * also recognised and expanded before parameter substitution:
+ *
+ *   \n          Newline
+ *   \r          Carriage return
+ *   \t          Horizontal tab
+ *   \\          Backslash
+ *   \xhh        Unicode code point U+00hh encoded as UTF-8 (exactly 2 hex digits)
+ *   \uhhhh      Unicode code point U+hhhh encoded as UTF-8 (exactly 4 hex digits)
+ *   \Uhhhhhhhh  Unicode code point encoded as UTF-8 (exactly 6 hex digits, full range)
+ *
+ * An unrecognised escape sequence is passed through literally (backslash
+ * and following character both emitted) so that typos are visible.
+ *
+ * Returns a newly heap-allocated C string. The caller is responsible for
+ * freeing it.
+ */
+char *frame_render_ps1(const exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    /* -------------------------------------------------------------------------
+     * 1. Retrieve the raw PS1 value.
+     *
+     * Check the frame's variable store first (covers local overrides), then
+     * fall back to the executor-level store (covers the normal case where the
+     * top frame owns all variables). If PS1 is unset or empty, use the POSIX
+     * default of "$ ".
+     * -------------------------------------------------------------------------
+     */
+    const char *ps1_raw = NULL;
+    if (frame->variables)
+    {
+        const char *v = variable_store_get_value_cstr(frame->variables, "PS1");
+        if (v && *v)
+            ps1_raw = v;
+    }
+    if (!ps1_raw && frame->executor && frame->executor->variables)
+    {
+        const char *v = variable_store_get_value_cstr(frame->executor->variables, "PS1");
+        if (v && *v)
+            ps1_raw = v;
+    }
+    if (!ps1_raw)
+        ps1_raw = "$ ";
+
+    /* -------------------------------------------------------------------------
+     * 2. Expand parameter references in the PS1 string.
+     *
+     * Walk the raw string character by character. On '$', attempt to parse a
+     * parameter reference and substitute its value. Everything else is copied
+     * verbatim. No quoting, no field splitting, no globbing — strict POSIX
+     * prompt expansion only.
+     * -------------------------------------------------------------------------
+     */
+    string_t *out = string_create();
+    if (!out)
+        return NULL;
+
+    const char *p = ps1_raw;
+    while (*p)
+    {
+        /* ------------------------------------------------------------------
+         * Backslash escape sequences (non-POSIX extension).
+         * Processed before '$' so that e.g. "\\$HOME" emits a literal
+         * backslash then expands HOME, not a literal backslash-dollar-HOME.
+         * ------------------------------------------------------------------ */
+        if (*p == '\\')
+        {
+            p++; /* consume '\\' */
+            switch (*p)
+            {
+            case 'n':
+                string_append_char(out, '\n');
+                p++;
+                break;
+            case 'r':
+                string_append_char(out, '\r');
+                p++;
+                break;
+            case 't':
+                string_append_char(out, '\t');
+                p++;
+                break;
+            case '\\':
+                string_append_char(out, '\\');
+                p++;
+                break;
+
+            case 'x': {
+                /* \xhh — exactly 2 hex digits, emitted as a UTF-8 byte.
+                 * We interpret the value as a Unicode code point in the
+                 * range U+0000..U+00FF (Latin-1 supplement), which maps
+                 * trivially to its UTF-8 representation.  Fewer than 2
+                 * valid hex digits: copy the escape literally. */
+                p++; /* consume 'x' */
+                char hi = *p, lo = p[1];
+                if (isxdigit((unsigned char)hi) && isxdigit((unsigned char)lo))
+                {
+                    char hex[3] = {hi, lo, '\0'};
+                    uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
+                    string_append_utf8(out, cp);
+                    p += 2;
+                }
+                else
+                {
+                    /* Not a valid escape — emit literally. */
+                    string_append_cstr(out, "\\x");
+                }
+                break;
+            }
+
+            case 'u': {
+                /* \uhhhh — exactly 4 hex digits, BMP Unicode code point. */
+                p++; /* consume 'u' */
+                char hex[5];
+                int n = 0;
+                while (n < 4 && isxdigit((unsigned char)p[n]))
+                    hex[n] = p[n], n++;
+                if (n == 4)
+                {
+                    hex[4] = '\0';
+                    uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
+                    string_append_utf8(out, cp);
+                    p += 4;
+                }
+                else
+                {
+                    string_append_cstr(out, "\\u");
+                }
+                break;
+            }
+
+            case 'U': {
+                /* \Uhhhhhh — exactly 6 hex digits, full Unicode range.
+                 * (Unicode only needs 5.5 hex digits to cover U+10FFFF,
+                 * but 6 gives a clean fixed-width field and matches common
+                 * shell practice for emoji, e.g. \U01F600.) */
+                p++; /* consume 'U' */
+                char hex[7];
+                int n = 0;
+                while (n < 6 && isxdigit((unsigned char)p[n]))
+                    hex[n] = p[n], n++;
+                if (n == 6)
+                {
+                    hex[6] = '\0';
+                    uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
+                    string_append_utf8(out, cp);
+                    p += 6;
+                }
+                else
+                {
+                    string_append_cstr(out, "\\U");
+                }
+                break;
+            }
+
+            case '\0':
+                /* Trailing backslash at end of string — emit literally. */
+                string_append_char(out, '\\');
+                break;
+
+            default:
+                /* Unrecognised escape — emit literally so the user sees
+                 * what they typed and can diagnose typos. */
+                string_append_char(out, '\\');
+                string_append_char(out, *p);
+                p++;
+                break;
+            }
+            continue;
+        }
+
+        if (*p != '$')
+        {
+            /* Ordinary character — copy verbatim. */
+            string_append_char(out, *p++);
+            continue;
+        }
+
+        /* '$' found — identify the parameter reference. */
+        p++; /* consume '$' */
+
+        if (*p == '{')
+        {
+            /* ${VAR} form */
+            p++; /* consume '{' */
+            const char *name_start = p;
+            while (*p && *p != '}')
+                p++;
+            int name_len = (int)(p - name_start);
+            if (*p == '}')
+                p++; /* consume '}' */
+
+            if (name_len > 0)
+            {
+                char name[256];
+                if (name_len < (int)sizeof(name))
+                {
+                    memcpy(name, name_start, name_len);
+                    name[name_len] = '\0';
+                    const char *val = ps1_lookup_variable(frame, name);
+                    if (val)
+                        string_append_cstr(out, val);
+                }
+                /* Names that are too long are silently dropped per POSIX
+                 * (undefined behaviour for extremely long names). */
+            }
+        }
+        else if (*p == '?')
+        {
+            /* $? — last exit status */
+            p++;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%d", frame->last_exit_status);
+            string_append_cstr(out, buf);
+        }
+        else if (*p == '$')
+        {
+            /* $$ — shell PID */
+            p++;
+            if (frame->executor && frame->executor->shell_pid_valid)
+            {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%d", (int)frame->executor->shell_pid);
+                string_append_cstr(out, buf);
+            }
+        }
+        else if (*p == '_' || isalpha((unsigned char)*p))
+        {
+            /* $VAR — unbraced name */
+            const char *name_start = p;
+            while (*p == '_' || isalnum((unsigned char)*p))
+                p++;
+            int name_len = (int)(p - name_start);
+
+            char name[256];
+            if (name_len < (int)sizeof(name))
+            {
+                memcpy(name, name_start, name_len);
+                name[name_len] = '\0';
+                const char *val = ps1_lookup_variable(frame, name);
+                if (val)
+                    string_append_cstr(out, val);
+            }
+        }
+        else
+        {
+            /* Bare '$' not followed by a recognised parameter — copy literally.
+             * POSIX leaves the result unspecified; copying verbatim is the most
+             * conservative and user-friendly choice. */
+            string_append_char(out, '$');
+            /* Do not advance p — the character after '$' will be handled by
+             * the next iteration of the loop. */
+        }
+    }
+
+    return string_release(&out);
+}
+
+/**
+ * Look up a variable for PS1 expansion.
+ * Checks the frame's variable store first, then the executor-level store.
+ * Returns the C string value, or NULL if not set.
+ */
+static const char *ps1_lookup_variable(const exec_frame_t *frame, const char *name)
+{
+    if (frame->variables)
+    {
+        const char *v = variable_store_get_value_cstr(frame->variables, name);
+        if (v)
+            return v;
+    }
+    if (frame->executor && frame->executor->variables)
+    {
+        const char *v = variable_store_get_value_cstr(frame->executor->variables, name);
+        if (v)
+            return v;
+    }
+    return NULL;
+}
+
+
 const char *exec_get_ps2(const exec_t *executor)
 {
     Expects_not_null(executor);
