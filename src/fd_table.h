@@ -19,6 +19,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+
 #include "string_t.h"
 
 /**
@@ -42,7 +43,7 @@ typedef struct fd_entry_t
     fd_flags_t flags; ///< Flags for this FD
     bool is_open;     ///< Whether this FD is currently open
     char padding[3];
-    string_t *path;   ///< Path if opened from file (NULL otherwise, takes ownership)
+    string_t *path; ///< Path if opened from file (NULL otherwise, takes ownership)
 } fd_entry_t;
 
 /**

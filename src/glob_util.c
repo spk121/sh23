@@ -2,10 +2,6 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-#include "glob_util.h"
-#include "logging.h"
-#include "string_list.h"
-#include "string_t.h"
 #include <string.h>
 
 #ifdef POSIX_API
@@ -17,6 +13,13 @@
 #include <errno.h>
 #include <io.h>
 #endif
+
+#include "glob_util.h"
+
+#include "logging.h"
+#include "string_list.h"
+#include "string_t.h"
+
 
 /* ============================================================================
  * Pattern Matching Implementation

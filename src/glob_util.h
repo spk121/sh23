@@ -2,8 +2,9 @@
 #define GLOB_UTIL_H
 
 #include <stdbool.h>
-#include "string_t.h"
+
 #include "string_list.h"
+#include "string_t.h"
 
 /* ============================================================================
  * Pattern Matching (fnmatch-like API)
@@ -12,12 +13,13 @@
 /**
  * Pattern matching flags (compatible with POSIX fnmatch flags where applicable).
  */
-typedef enum {
+typedef enum
+{
     GLOB_UTIL_NONE = 0,
-    GLOB_UTIL_PATHNAME = (1 << 0),   /**< Slash must be matched explicitly */
-    GLOB_UTIL_PERIOD = (1 << 1),     /**< Leading period must be matched explicitly */
-    GLOB_UTIL_NOESCAPE = (1 << 2),   /**< Backslash treated as ordinary character */
-    GLOB_UTIL_CASEFOLD = (1 << 3)    /**< Case-insensitive matching (extension) */
+    GLOB_UTIL_PATHNAME = (1 << 0), /**< Slash must be matched explicitly */
+    GLOB_UTIL_PERIOD = (1 << 1),   /**< Leading period must be matched explicitly */
+    GLOB_UTIL_NOESCAPE = (1 << 2), /**< Backslash treated as ordinary character */
+    GLOB_UTIL_CASEFOLD = (1 << 3)  /**< Case-insensitive matching (extension) */
 } glob_util_flags_t;
 
 /**
@@ -98,7 +100,6 @@ string_list_t *glob_util_expand_path(const string_t *pattern);
  * Note: Currently base_dir is not implemented and should be passed as NULL.
  * Future enhancement will support searching in specific directories.
  */
-string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags,
-                                        const char *base_dir);
+string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags, const char *base_dir);
 
 #endif /* GLOB_UTIL_H */
