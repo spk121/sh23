@@ -58,6 +58,11 @@ typedef struct fd_table_t
     int padding;
 } fd_table_t;
 
+// Stub declarations for linker errors
+#include "string_t.h"
+string_t *fd_table_generate_saved_fd_name(int backup, int fd, fd_flags_t flags);
+fd_table_t *fd_table_get_global(void);
+
 /*
  * ============================================================================
  * Lifecycle Management
@@ -100,6 +105,15 @@ void fd_table_destroy(fd_table_t **table);
  */
 
 /**
+ * A helper function to generate a name string for an FD based on its number and flags.
+ * Caller frees.
+ * 
+ */
+string_t *fd_table_generate_name(int fd, fd_flags_t flags);
+string_t *fd_table_generate_name_ex(int new_fd, int orig_fd, fd_flags_t flags);
+string_t *fd_table_generate_heredoc_name(int target_fd);
+
+/**
  * @brief Add or update an entry in the FD table
  *
  * If an entry for the given FD already exists, it will be updated.
@@ -108,10 +122,10 @@ void fd_table_destroy(fd_table_t **table);
  * @param table The FD table
  * @param fd File descriptor number
  * @param flags Flags to associate with this FD
- * @param path Optional path (takes ownership, may be NULL)
+ * @param path Path associated with this FD (copies, does not take ownership)
  * @return true on success, false on allocation failure
  */
-bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, string_t *path);
+bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, const string_t *path);
 
 /**
  * @brief Mark an FD as a saved copy of another FD
@@ -259,6 +273,12 @@ bool fd_table_clear_flag(fd_table_t *table, int fd, fd_flags_t flag);
  */
 int *fd_table_get_fds_with_flag(const fd_table_t *table, fd_flags_t flag, size_t *out_count);
 
+
+int *fd_table_get_saved_fds(const fd_table_t *table, size_t *saved_count);
+
+int fd_table_get_original_fd(const fd_table_t *table, int saved_fd);
+
+
 /**
  * @brief Count entries in the FD table
  *
@@ -275,4 +295,28 @@ size_t fd_table_count(const fd_table_t *table);
  */
 int fd_table_get_highest_fd(const fd_table_t *table);
 
+
+typedef bool (*fd_table_foreach_cb)(const fd_entry_t *entry, void *user_data);
+
+/**
+ * This function applies a callback to each active entry of the fd table.
+ * @param table 
+ * @param callback 
+ * @param user_data 
+ */
+void fd_table_foreach(const fd_table_t *table, fd_table_foreach_cb callback, void *user_data);
+
+/**
+ * @brief Dump the contents of the FD table to stderr (for debugging)
+ *
+ * Prints a human-readable table of all tracked file descriptors,
+ * including their state, flags, paths, and original FD (if saved).
+ * Uses fd_table_foreach() internally.
+ *
+ * @param table The FD table to dump
+ * @param prefix Optional string to prepend to each line (may be NULL)
+ */
+void fd_table_dump(const fd_table_t *table, const char *prefix);
+
 #endif /* FD_TABLE_H */
+
