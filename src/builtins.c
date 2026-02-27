@@ -130,6 +130,7 @@ builtin_implemented_function_map_t builtin_implemented_functions[] = {
     {"false", BUILTIN_REGULAR, builtin_false},
     {"mgsh_dirnamevar", BUILTIN_REGULAR, builtin_mgsh_dirnamevar},
     {"mgsh_printfvar", BUILTIN_REGULAR, builtin_mgsh_printfvar},
+    {"mgsh_cat", BUILTIN_REGULAR, builtin_mgsh_cat},
     {NULL, BUILTIN_NONE, NULL} // Sentinel
 };
 
@@ -6418,6 +6419,45 @@ int builtin_mgsh_printfvar(exec_frame_t *frame, const string_list_t *args)
     string_destroy(&output);
     return 0;
 }
+
+/* ==========================================================================
+ * mgsh_cat - Print contents of a file line by line
+ * Usage: mgsh_cat filename
+ * ==========================================================================
+ */
+int builtin_mgsh_cat(exec_frame_t *frame, const string_list_t *args)
+{
+    Expects_not_null(frame);
+    Expects_not_null(args);
+
+    getopt_reset();
+
+    int argc = string_list_size(args);
+    if (argc != 2)
+    {
+        fprintf(stderr, "mgsh_cat: usage: mgsh_cat filename\n");
+        return 2;
+    }
+
+    const string_t *filename_arg = string_list_at(args, 1);
+    const char *filename = string_cstr(filename_arg);
+
+    FILE *fp = fopen(filename, "r");
+    if (!fp)
+    {
+        fprintf(stderr, "mgsh_cat: cannot open '%s': %s\n", filename, strerror(errno));
+        return 1;
+    }
+
+    char buf[4096];
+    while (fgets(buf, sizeof(buf), fp))
+    {
+        fputs(buf, stdout);
+    }
+    fclose(fp);
+    return 0;
+}
+
 
 /* ============================================================================
  * true / false - Return success or failure
