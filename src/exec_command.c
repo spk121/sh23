@@ -39,10 +39,9 @@
 #define _X86_
 #endif
 #include <handleapi.h>
-#include <processthreadsapi.h>
 #include <process.h>
+#include <processthreadsapi.h>
 #endif
-
 
 /* ============================================================================
  * Helper Functions
@@ -91,15 +90,24 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
         char flags[16] = {0};
         int idx = 0;
 
-        if (frame->opt_flags->allexport) flags[idx++] = 'a';
-        if (frame->opt_flags->errexit) flags[idx++] = 'e';
-        if (frame->opt_flags->noclobber) flags[idx++] = 'C';
-        if (frame->opt_flags->noglob) flags[idx++] = 'f';
-        if (frame->opt_flags->noexec) flags[idx++] = 'n';
-        if (frame->opt_flags->nounset) flags[idx++] = 'u';
-        if (frame->opt_flags->verbose) flags[idx++] = 'v';
-        if (frame->opt_flags->xtrace) flags[idx++] = 'x';
-        if (ex->is_interactive) flags[idx++] = 'i';
+        if (frame->opt_flags->allexport)
+            flags[idx++] = 'a';
+        if (frame->opt_flags->errexit)
+            flags[idx++] = 'e';
+        if (frame->opt_flags->noclobber)
+            flags[idx++] = 'C';
+        if (frame->opt_flags->noglob)
+            flags[idx++] = 'f';
+        if (frame->opt_flags->noexec)
+            flags[idx++] = 'n';
+        if (frame->opt_flags->nounset)
+            flags[idx++] = 'u';
+        if (frame->opt_flags->verbose)
+            flags[idx++] = 'v';
+        if (frame->opt_flags->xtrace)
+            flags[idx++] = 'x';
+        if (ex->is_interactive)
+            flags[idx++] = 'i';
 
         flags[idx] = '\0';
         variable_store_add_cstr(store, "-", flags, false, false);
@@ -155,7 +163,9 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_frame_t *
  * So we apply the assignments to both the temp store and the shell's main store.
  *
  */
-static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame, variable_store_t *main_store, const ast_node_t *node)
+static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame,
+                                                   variable_store_t *main_store,
+                                                   const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
@@ -170,8 +180,8 @@ static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame, variable
     {
         const token_t *tok = token_list_get(assignments, i);
         string_t *value = expand_assignment_value(frame, tok);
-        var_store_error_t err = variable_store_add(frame->variables, tok->assignment_name, value,
-                                                    false, false);
+        var_store_error_t err =
+            variable_store_add(frame->variables, tok->assignment_name, value, false, false);
 
         if (err != VAR_STORE_ERROR_NONE)
         {
@@ -313,13 +323,11 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             string_list_t *func_args = string_list_create_slice(expanded_words, 1, -1);
 
 #if defined(POSIX_API)
-            exec_status_t redir_st =
-                exec_apply_redirections_posix(frame, runtime_redirs, &saved_fds, &saved_count);
+            exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
 #elif defined(UCRT_API)
             exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
 #else
-            exec_status_t redir_st =
-                exec_apply_redirections_iso_c(frame, runtime_redirs, &saved_fds, &saved_count);
+            exec_status_t redir_st = EXEC_OK; /* ISO C: no redirections */
 #endif
             if (redir_st != EXEC_OK)
             {
@@ -328,17 +336,15 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                 goto done_execution;
             }
 
-            exec_result_t func_result = exec_function(frame, func_body, func_args, NULL);
+            exec_result_t func_result = exec_function(frame, func_body, func_args, func_redirs);
             cmd_exit_status = func_result.exit_status;
 
             string_list_destroy(&func_args);
 
 #if defined(POSIX_API)
-            exec_restore_redirections_posix(frame, saved_fds, saved_count);
+            exec_restore_redirections_posix(frame);
 #elif defined(UCRT_API)
             exec_restore_redirections_ucrt_c(frame);
-#else
-            exec_restore_redirections_iso_c(frame, saved_fds, saved_count);
 #endif
             goto done_execution;
         }
@@ -352,13 +358,11 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             if (builtin_fn != NULL)
             {
 #if defined(POSIX_API)
-                exec_status_t redir_st =
-                    exec_apply_redirections_posix(frame, runtime_redirs, &saved_fds, &saved_count);
+                exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
 #elif defined(UCRT_API)
                 exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
 #else
-                exec_status_t redir_st =
-                    exec_apply_redirections_iso_c(frame, runtime_redirs, &saved_fds, &saved_count);
+                exec_status_t redir_st = EXEC_OK; /* ISO C: no redirections */
 #endif
                 if (redir_st != EXEC_OK)
                 {
@@ -369,11 +373,9 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                 cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
 #if defined(POSIX_API)
-                exec_restore_redirections_posix(frame, saved_fds, saved_count);
+                exec_restore_redirections_posix(frame);
 #elif defined(UCRT_API)
                 exec_restore_redirections_ucrt_c(frame);
-#else
-                exec_restore_redirections_iso_c(frame, saved_fds, saved_count);
 #endif
 
                 goto done_execution;
@@ -389,13 +391,11 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             if (builtin_fn != NULL)
             {
 #if defined(POSIX_API)
-                exec_status_t redir_st =
-                    exec_apply_redirections_posix(frame, runtime_redirs);
+                exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
 #elif defined(UCRT_API)
                 exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
 #else
-                exec_status_t redir_st =
-                    exec_apply_redirections_iso_c(frame, runtime_redirs);
+                exec_status_t redir_st = EXEC_OK; /* ISO C: no redirections */
 #endif
                 if (redir_st != EXEC_OK)
                 {
@@ -406,11 +406,9 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                 cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
 #if defined(POSIX_API)
-                exec_restore_redirections_posix(frame, saved_fds, saved_count);
+                exec_restore_redirections_posix(frame);
 #elif defined(UCRT_API)
                 exec_restore_redirections_ucrt_c(frame);
-#else
-                exec_restore_redirections_iso_c(frame, saved_fds, saved_count);
 #endif
 
                 goto done_execution;
@@ -456,10 +454,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         else if (pid == 0) /* child */
         {
             /* Apply redirections in child */
-            saved_fd_t *saved_fds = NULL;
-            int saved_count = 0;
-            exec_status_t redir_st =
-                exec_apply_redirections_posix(frame, runtime_redirs, &saved_fds, &saved_count);
+            exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
             if (redir_st != EXEC_OK)
             {
                 _exit(127);
@@ -503,7 +498,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
 
         for (int i = 0; argv[i]; i++)
-        xfree(argv[i]);
+            xfree(argv[i]);
         xfree(argv);
 #elif defined(UCRT_API)
         int argc = string_list_size(expanded_words);
@@ -531,14 +526,16 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             if (runtime_redirs && runtime_redirs->count > 0)
             {
-                log_warn("Redirections for background commands are not supported on UCRT; ignoring redirections.");
+                log_warn("Redirections for background commands are not supported on UCRT; ignoring "
+                         "redirections.");
             }
             log_debug("Preparing to execute external background command: %s", cmd_name);
             for (int i = 0; i < string_list_size(expanded_words); i++)
             {
                 log_debug("\targv%d: %s", i, argv[i]);
             }
-            spawn_result = _spawnvpe(_P_NOWAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
+            spawn_result = _spawnvpe(_P_NOWAIT, cmd_name, (const char *const *)argv,
+                                     (const char *const *)envp);
         }
         else
         {
@@ -559,7 +556,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             {
                 log_debug("\targv%d: %s", i, argv[i]);
             }
-            spawn_result = _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
+            spawn_result =
+                _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
             if (runtime_redirs && runtime_redirs->count > 0)
             {
                 exec_restore_redirections_ucrt_c(frame);
@@ -589,7 +587,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                     int job_id = job_store_add(frame->executor->jobs, cmdline, true);
                     if (job_id >= 0 && pid > 0)
                     {
-                        job_store_add_process(frame->executor->jobs, job_id, pid, (unsigned long)spawn_result, cmdline);
+                        job_store_add_process(frame->executor->jobs, job_id, pid,
+                                              (unsigned long)spawn_result, cmdline);
                     }
                     string_destroy(&cmdline);
                 }
@@ -598,7 +597,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
 
         for (int i = 0; argv[i]; i++)
-        xfree(argv[i]);
+            xfree(argv[i]);
         xfree(argv);
         if (cmd_exit_status == 127 && !exec_get_error(executor))
         {
@@ -611,16 +610,6 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             exec_set_error(executor, "empty command name");
             cmd_exit_status = 127;
-            goto done_execution;
-        }
-
-        saved_fd_t *saved_fds = NULL;
-        int saved_count = 0;
-
-        exec_status_t redir_st = exec_apply_redirections_iso_c(frame, runtime_redirs, &saved_fds, &saved_count);
-        if (redir_st != EXEC_OK)
-        {
-            status = redir_st;
             goto done_execution;
         }
 
@@ -644,9 +633,6 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
         string_destroy(&cmdline);
 
-        exec_restore_redirections_iso_c(saved_fds, saved_count);
-        xfree(saved_fds);
-
         if (rc == -1)
         {
             exec_set_error(executor, "system() failed: %s", strerror(errno));
@@ -663,123 +649,122 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
 #endif
 
-done_execution:
-    frame->last_exit_status = cmd_exit_status;
+    done_execution:
+        frame->last_exit_status = cmd_exit_status;
 
-    /* Update $_ with last argument */
-    if (string_list_size(expanded_words) > 1)
-    {
-        const string_t *last_arg =
-            string_list_at(expanded_words, string_list_size(expanded_words) - 1);
-        if (!executor->last_argument)
-            executor->last_argument = string_create();
-        string_set(executor->last_argument, last_arg);
-        executor->last_argument_set = true;
-    }
-
-out_cleanup_words:
-    string_list_destroy(&expanded_words);
-
-out_destroy_redirs:
-    exec_redirections_destroy(&runtime_redirs);
-
-out_restore_vars:
-    /* Restore original variable store */
-    variable_store_destroy(&frame->variables);
-    frame->variables = frame->saved_variables;
-    frame->saved_variables = NULL;
-
-    return status;
-}
-
-
-/* ============================================================================
- * Function Definition
- * ============================================================================ */
-
-exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node)
-{
-    Expects_not_null(executor);
-    Expects_not_null(node);
-    Expects_eq(node->type, AST_FUNCTION_DEF);
-
-    const string_t *name = node->data.function_def.name;
-
-    if (!executor->functions)
-    {
-        exec_set_error(executor, "function store is not initialized");
-        exec_set_exit_status(executor, 1);
-        return EXEC_ERROR;
-    }
-
-    func_store_error_t err = func_store_add(executor->functions, name, node);
-
-    if (err != FUNC_STORE_ERROR_NONE)
-    {
-        switch (err)
+        /* Update $_ with last argument */
+        if (string_list_size(expanded_words) > 1)
         {
-        case FUNC_STORE_ERROR_EMPTY_NAME:
-            exec_set_error(executor, "empty function name");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_NAME_TOO_LONG:
-            exec_set_error(executor, "function name too long");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_NAME_INVALID_CHARACTER:
-        case FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT:
-            exec_set_error(executor, "invalid function name");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_STORAGE_FAILURE:
-            exec_set_error(executor, "failed to store function definition");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_NOT_FOUND:
-        default:
-            exec_set_error(executor, "internal function store error");
-            exec_set_exit_status(executor, 1);
-            break;
+            const string_t *last_arg =
+                string_list_at(expanded_words, string_list_size(expanded_words) - 1);
+            if (!executor->last_argument)
+                executor->last_argument = string_create();
+            string_set(executor->last_argument, last_arg);
+            executor->last_argument_set = true;
         }
 
-        return EXEC_ERROR;
-    }
+    out_cleanup_words:
+        string_list_destroy(&expanded_words);
 
-    exec_clear_error(executor);
-    exec_set_exit_status(executor, 0);
-    return EXEC_OK_INTERNAL_FUNCTION_STORED;
-}
-
-/* ============================================================================
- * Redirected Command Wrapper
- * ============================================================================ */
-
-exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const ast_node_t *node)
-{
-    Expects_not_null(frame);
-    Expects_not_null(node);
-    Expects_eq(node->type, AST_REDIRECTED_COMMAND);
-
-    exec_t *executor = frame->executor;
-
-    const ast_node_t *inner = node->data.redirected_command.command;
-    const ast_node_list_t *ast_redirs = node->data.redirected_command.redirections;
-
-    /* Convert AST redirections to runtime structure */
-    exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
-
-    /* Apply redirections based on platform */
-#ifdef POSIX_API
-    exec_status_t st = exec_apply_redirections_posix(frame, runtime_redirs);
-    if (st != EXEC_OK)
-    {
+    out_destroy_redirs:
         exec_redirections_destroy(&runtime_redirs);
-        return st;
+
+    out_restore_vars:
+        /* Restore original variable store */
+        variable_store_destroy(&frame->variables);
+        frame->variables = frame->saved_variables;
+        frame->saved_variables = NULL;
+
+        return status;
     }
+
+    /* ============================================================================
+     * Function Definition
+     * ============================================================================ */
+
+    exec_status_t exec_execute_function_def(exec_t * executor, const ast_node_t *node)
+    {
+        Expects_not_null(executor);
+        Expects_not_null(node);
+        Expects_eq(node->type, AST_FUNCTION_DEF);
+
+        const string_t *name = node->data.function_def.name;
+
+        if (!executor->functions)
+        {
+            exec_set_error(executor, "function store is not initialized");
+            exec_set_exit_status(executor, 1);
+            return EXEC_ERROR;
+        }
+
+        func_store_error_t err = func_store_add(executor->functions, name, node);
+
+        if (err != FUNC_STORE_ERROR_NONE)
+        {
+            switch (err)
+            {
+            case FUNC_STORE_ERROR_EMPTY_NAME:
+                exec_set_error(executor, "empty function name");
+                exec_set_exit_status(executor, 1);
+                break;
+
+            case FUNC_STORE_ERROR_NAME_TOO_LONG:
+                exec_set_error(executor, "function name too long");
+                exec_set_exit_status(executor, 1);
+                break;
+
+            case FUNC_STORE_ERROR_NAME_INVALID_CHARACTER:
+            case FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT:
+                exec_set_error(executor, "invalid function name");
+                exec_set_exit_status(executor, 1);
+                break;
+
+            case FUNC_STORE_ERROR_STORAGE_FAILURE:
+                exec_set_error(executor, "failed to store function definition");
+                exec_set_exit_status(executor, 1);
+                break;
+
+            case FUNC_STORE_ERROR_NOT_FOUND:
+            default:
+                exec_set_error(executor, "internal function store error");
+                exec_set_exit_status(executor, 1);
+                break;
+            }
+
+            return EXEC_ERROR;
+        }
+
+        exec_clear_error(executor);
+        exec_set_exit_status(executor, 0);
+        return EXEC_OK_INTERNAL_FUNCTION_STORED;
+    }
+
+    /* ============================================================================
+     * Redirected Command Wrapper
+     * ============================================================================ */
+
+    exec_status_t exec_execute_redirected_command(exec_frame_t * frame, const ast_node_t *node)
+    {
+        Expects_not_null(frame);
+        Expects_not_null(node);
+        Expects_eq(node->type, AST_REDIRECTED_COMMAND);
+
+        exec_t *executor = frame->executor;
+
+        const ast_node_t *inner = node->data.redirected_command.command;
+        const ast_node_list_t *ast_redirs = node->data.redirected_command.redirections;
+
+        /* Convert AST redirections to runtime structure */
+        exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
+
+        /* Apply redirections based on platform */
+#ifdef POSIX_API
+        exec_status_t st = exec_apply_redirections_posix(frame, runtime_redirs);
+        if (st != EXEC_OK)
+        {
+            exec_redirections_destroy(&runtime_redirs);
+            return st;
+        }
 #elifdef UCRT_API
     exec_status_t st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
     if (st != EXEC_OK)
@@ -788,24 +773,24 @@ exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const ast_nod
         return st;
     }
 #else
-    /* ISO_C: No redirections supported */
-    if (runtime_redirs && runtime_redirs->count > 0)
-    {
-        exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
-        exec_redirections_destroy(&runtime_redirs);
-        return EXEC_ERROR;
-    }
-    exec_status_t st = EXEC_OK;
+        /* ISO_C: No redirections supported */
+        if (runtime_redirs && runtime_redirs->count > 0)
+        {
+            exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
+            exec_redirections_destroy(&runtime_redirs);
+            return EXEC_ERROR;
+        }
+        exec_status_t st = EXEC_OK;
 #endif
 
-    st = exec_execute(executor, inner);
+        st = exec_execute(executor, inner);
 
 #if defined(POSIX_API)
-    exec_restore_redirections_posix(saved_fds, saved_count);
+        exec_restore_redirections_posix(frame);
 #elif defined(UCRT_API)
     exec_restore_redirections_ucrt_c(frame);
 #endif
 
-    exec_redirections_destroy(&runtime_redirs);
-    return st;
-}
+        exec_redirections_destroy(&runtime_redirs);
+        return st;
+    }
