@@ -791,18 +791,28 @@ static exec_result_t execute_frame_body(exec_frame_t *frame, exec_params_t *para
     {
         dup2(params->stdin_pipe_fd, STDIN_FILENO);
         close(params->stdin_pipe_fd);
+
+        // Track: STDIN is now a pipe-redirected FD
+        string_t *name = fd_table_generate_name_ex(STDIN_FILENO, params->stdin_pipe_fd, FD_REDIRECTED);
+        fd_table_add(frame->open_fds, STDIN_FILENO, FD_REDIRECTED, name);
+        string_destroy(&name);
     }
     if (params->stdout_pipe_fd >= 0)
     {
         dup2(params->stdout_pipe_fd, STDOUT_FILENO);
         close(params->stdout_pipe_fd);
+
+        // Track: STDOUT is now a pipe-redirected FD
+        string_t *name = fd_table_generate_name_ex(STDOUT_FILENO, params->stdout_pipe_fd, FD_REDIRECTED);
+        fd_table_add(frame->open_fds, STDOUT_FILENO, FD_REDIRECTED, name);
+        string_destroy(&name);
     }
-    /* Close all other pipe FDs in this child process */
     if (params->pipe_fds_to_close)
     {
         for (int i = 0; i < params->pipe_fds_count; i++)
         {
             close(params->pipe_fds_to_close[i]);
+            fd_table_mark_closed(frame->open_fds, params->pipe_fds_to_close[i]);
         }
     }
 #endif
