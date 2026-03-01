@@ -152,6 +152,17 @@ bool fd_table_mark_saved(fd_table_t *table, int saved_fd, int original_fd);
 bool fd_table_mark_closed(fd_table_t *table, int fd);
 
 /**
+ * @brief Mark an FD as open in the table
+ *
+ * Sets is_open to true for the given FD. Does not actually open the FD.
+ *
+ * @param table The FD table
+ * @param fd File descriptor number
+ * @return true if FD was found and marked open, false if not found
+ */
+bool fd_table_mark_open(fd_table_t *table, int fd);
+
+/**
  * @brief Remove an entry from the FD table
  *
  * Removes the entry and frees associated resources (like path string).

@@ -81,6 +81,7 @@ typedef struct exec_redirection_t
         {
             int fixed_fd;            /* Literal fd number, or -1 */
             string_t *fd_expression; /* If fd comes from expansion */
+            token_t *fd_token;       /* Full token for variable-derived FDs */
         } fd;
 
         /* REDIR_TARGET_HEREDOC */
@@ -113,7 +114,7 @@ typedef struct exec_redirections_t
 
 exec_redirections_t *exec_redirections_create(void);
 void exec_redirections_destroy(exec_redirections_t **redirections);
-void exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
+bool exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
 
 
 /* ============================================================================

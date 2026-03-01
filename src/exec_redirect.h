@@ -19,7 +19,6 @@
  */
 #ifdef POSIX_API
 exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redirections_t *redirs);
-void exec_restore_redirections_posix(exec_frame_t *frame);
 #elifdef UCRT_API
 exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
                                              const exec_redirections_t *redirs);
@@ -33,7 +32,6 @@ void exec_restore_redirections_ucrt_c(exec_frame_t *frame);
  * standard device paths (/dev/stdin etc.) since ISO C has no dup().
  */
 exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redirections_t *redirs);
-void exec_restore_redirections_iso_c(exec_frame_t *frame);
 #endif
 
 /**
@@ -49,5 +47,7 @@ exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame,
  * @return New cloned structure, or NULL if source was NULL or allocation failed
  */
 exec_redirections_t *exec_redirections_clone(const exec_redirections_t *redirs);
+
+bool exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
 
 #endif

@@ -757,40 +757,15 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         /* Convert AST redirections to runtime structure */
         exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
 
-        /* Apply redirections based on platform */
-#ifdef POSIX_API
-        exec_status_t st = exec_apply_redirections_posix(frame, runtime_redirs);
-        if (st != EXEC_OK)
+        int st = exec_frame_apply_redirections(frame, runtime_redirs);
+        if (st != 0)
         {
             exec_redirections_destroy(&runtime_redirs);
             return st;
         }
-#elifdef UCRT_API
-    exec_status_t st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
-    if (st != EXEC_OK)
-    {
-        exec_redirections_destroy(&runtime_redirs);
-        return st;
-    }
-#else
-        /* ISO_C: No redirections supported */
-        if (runtime_redirs && runtime_redirs->count > 0)
-        {
-            exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
-            exec_redirections_destroy(&runtime_redirs);
-            return EXEC_ERROR;
-        }
-        exec_status_t st = EXEC_OK;
-#endif
 
         st = exec_execute(executor, inner);
-
-#if defined(POSIX_API)
-        exec_restore_redirections_posix(frame);
-#elif defined(UCRT_API)
-    exec_restore_redirections_ucrt_c(frame);
-#endif
-
+        exec_restore_redirections(frame, runtime_redirs);
         exec_redirections_destroy(&runtime_redirs);
         return st;
     }

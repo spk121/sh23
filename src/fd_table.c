@@ -26,12 +26,6 @@ static const char *fd_flags_to_string(fd_flags_t flags);
  * ============================================================================
  */
 
-string_t *fd_table_generate_saved_fd_name(int backup, int fd, fd_flags_t flags)
-{
-    // Stub: return a simple string
-    return string_create_from_cstr("saved_fd");
-}
-
 fd_table_t *fd_table_get_global(void)
 {
     // Stub: return NULL or a static instance if needed
@@ -87,8 +81,7 @@ static bool ensure_capacity(fd_table_t *table)
  */
 static void clear_entry(fd_entry_t *entry)
 {
-    if (entry->path)
-        string_clear(entry->path);
+    // Do not clear or destroy entry->path here; caller is responsible for freeing.
     entry->fd = -1;
     entry->original_fd = -1;
     entry->flags = FD_NONE;
@@ -261,7 +254,9 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, const string_t *p
          * it to -1 on every FD_SAVED update caused the restore path to lose
          * the original-fd mapping, leaving the redirected descriptor live
          * forever (Bug 1). */
-        log_debug("fd_table_add: fd=%d path='%s' updated flags=%s", fd, string_cstr(path), fd_flags_to_string(flags));
+        char *flags_str = xstrdup(fd_flags_to_string(flags));
+        log_debug("fd_table_add: fd=%d path='%s' updated flags=%s", fd, string_cstr(path), flags_str);
+        xfree(flags_str);
         return true;
     }
 
@@ -338,6 +333,17 @@ bool fd_table_mark_closed(fd_table_t *table, int fd)
 
     table->entries[idx].is_open = false;
     log_debug("fd_table_mark_closed: fd=%d marked as closed", fd);
+    return true;
+}
+
+bool fd_table_mark_open(fd_table_t *table, int fd)
+{
+    Expects_not_null(table);
+    int idx = find_entry_index(table, fd);
+    if (idx < 0)
+        return false;
+    table->entries[idx].is_open = true;
+    log_debug("fd_table_mark_open: fd=%d marked as open", fd);
     return true;
 }
 
@@ -487,8 +493,11 @@ bool fd_table_set_flag(fd_table_t *table, int fd, fd_flags_t flag)
     }
 
     table->entries[idx].flags = (fd_flags_t)(table->entries[idx].flags | flag);
-    log_debug("fd_table_set_flag: fd=%d set flag=%s resulting_flags=%s", fd, fd_flags_to_string(flag),
-              fd_flags_to_string(table->entries[idx].flags));
+    char *flag_str = xstrdup(fd_flags_to_string(flag));
+    char *resulting_str = xstrdup(fd_flags_to_string(table->entries[idx].flags));
+    log_debug("fd_table_set_flag: fd=%d set flag=%s resulting_flags=%s", fd, flag_str, resulting_str);
+    xfree(flag_str);
+    xfree(resulting_str);
     return true;
 }
 
