@@ -148,7 +148,7 @@ void fd_table_destroy(fd_table_t **table)
     fd_table_t *t = *table;
 
     /* Clear all entries */
-    for (int i = 0; i < t->count; i++)
+    for (size_t i = 0; i < t->count; i++)
     {
         clear_entry(&t->entries[i]);
         if (t->entries[i].path)
@@ -512,8 +512,11 @@ bool fd_table_clear_flag(fd_table_t *table, int fd, fd_flags_t flag)
     }
 
     table->entries[idx].flags = (fd_flags_t)(table->entries[idx].flags & ~flag);
-    log_debug("fd_table_clear_flag: fd=%d cleared flag=%s remaining_flags=%s", fd, fd_flags_to_string(flag),
-              fd_flags_to_string(table->entries[idx].flags));
+    char *flag_str = xstrdup(fd_flags_to_string(flag));
+    char *remaining_str = xstrdup(fd_flags_to_string(table->entries[idx].flags));
+    log_debug("fd_table_clear_flag: fd=%d cleared flag=%s remaining_flags=%s", fd, flag_str, remaining_str);
+    xfree(flag_str);
+    xfree(remaining_str);
     return true;
 }
 

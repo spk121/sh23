@@ -472,9 +472,34 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
             /* Exec */
             execve(cmd_name, argv, envp);
-            execvp(cmd_name, argv); /* fallback if no path */
+#if defined(HAVE_EXECVPE)
+            execvpe(cmd_name, argv, envp); /* fallback: PATH lookup with custom env */
+#else
+            /* Manual PATH search fallback if execvpe is not available */
+            const char *path_env = NULL;
+            for (char *const *ep = envp; ep && *ep; ++ep) {
+                if (strncmp(*ep, "PATH=", 5) == 0) {
+                    path_env = *ep + 5;
+                    break;
+                }
+            }
+            if (path_env && strchr(cmd_name, '/') == NULL) {
+                char *path = xstrdup(path_env);
+                char *saveptr = NULL;
+                char *dir = strtok_r(path, ":", &saveptr);
+                while (dir) {
+                    char fullpath[PATH_MAX];
+                    snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd_name);
+                    execve(fullpath, argv, envp);
+                    dir = strtok_r(NULL, ":", &saveptr);
+                }
+                xfree(path);
+            } else {
+                execve(cmd_name, argv, envp);
+            }
             perror(cmd_name);
             _exit(127);
+#endif
         }
         else /* parent */
         {
@@ -755,14 +780,17 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         const ast_node_list_t *ast_redirs = node->data.redirected_command.redirections;
 
         /* Convert AST redirections to runtime structure */
-        exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
+    exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
+    if (!runtime_redirs) {
+        return EXEC_ERROR;
+    }
 
-        int st = exec_frame_apply_redirections(frame, runtime_redirs);
-        if (st != 0)
-        {
-            exec_redirections_destroy(&runtime_redirs);
-            return st;
-        }
+    int st = exec_frame_apply_redirections(frame, runtime_redirs);
+    if (st != 0)
+    {
+        exec_redirections_destroy(&runtime_redirs);
+        return EXEC_ERROR;
+    }
 
         st = exec_execute(executor, inner);
         exec_restore_redirections(frame, runtime_redirs);

@@ -12,6 +12,9 @@
 #ifndef FD_SETSIZE
 #define FD_SETSIZE 64
 #endif
+#ifndef MAX_PATH
+#define MAX_PATH 260
+#endif
 #endif
 
 #include "ast.h"
@@ -55,11 +58,8 @@ static parse_fd_result_t parse_fd_number(const char *str)
     if (str == NULL || *str == '\0')
         return result;
 
-    /* Skip leading whitespace */
-    while (*str == ' ' || *str == '\t')
-        str++;
-
-    if (*str == '\0')
+    /* Reject leading whitespace (POSIX: io_number must be adjacent to operator) */
+    if (*str == ' ' || *str == '\t')
         return result;
 
     /* Special case: plain "-" → close the target fd */
@@ -83,8 +83,10 @@ static parse_fd_result_t parse_fd_number(const char *str)
         return result;
 
     /* Allow optional leading '+' */
-    if (*str == '+')
+    if (*str == '+') {
+        log_warn("parse_fd_number: FD string has leading '+': '%s'", str);
         str++;
+    }
 
     if (*str == '\0' || !(*str >= '0' && *str <= '9'))
         return result;
@@ -189,11 +191,11 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             if (r->target.fd.fd_expression)
                 fd_str = r->target.fd.fd_expression;
             else if (r->target.fd.fixed_fd >= 0) {
-                // We need a string representation for parse_fd_number
-                // Use a static buffer
                 char fd_buf[32];
                 snprintf(fd_buf, sizeof(fd_buf), "%d", r->target.fd.fixed_fd);
                 fd_str = string_create_from_cstr(fd_buf);
+            } else if (r->target.fd.fd_token) {
+                fd_str = expand_redirection_target(frame, r->target.fd.fd_token);
             }
             if (fd_str) {
                 parse_fd_result_t src = parse_fd_number(string_cstr(fd_str));
@@ -201,7 +203,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                     will_redirect[src.fd] = true;
                 }
                 // Only free if we allocated
-                if (r->target.fd.fixed_fd >= 0 && !r->target.fd.fd_expression)
+                if ((r->target.fd.fixed_fd >= 0 && !r->target.fd.fd_expression) || r->target.fd.fd_token)
                     string_destroy(&fd_str);
             }
         }
@@ -259,7 +261,11 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
         switch (r->target_kind)
         {
         case REDIR_TARGET_FILE: {
-            string_t *fname_str = expand_redirection_target(frame, r->target.file.tok);
+            string_t *fname_str = NULL;
+            if (!r->target.file.is_expanded)
+                fname_str = expand_redirection_target(frame, r->target.file.tok);
+            else
+                fname_str = string_create_from(r->target.file.filename);
             if (!fname_str)
             {
                 exec_set_error(executor, "Failed to expand file target");
@@ -275,7 +281,10 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 flags = O_RDONLY;
                 break;
             case REDIR_WRITE:
-                flags = O_WRONLY | O_CREAT | O_TRUNC;
+                if (frame->opt_flags && frame->opt_flags->noclobber)
+                    flags = O_WRONLY | O_CREAT | O_EXCL;
+                else
+                    flags = O_WRONLY | O_CREAT | O_TRUNC;
                 break;
             case REDIR_APPEND:
                 flags = O_WRONLY | O_CREAT | O_APPEND;
@@ -333,6 +342,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 char fd_buf[32];
                 snprintf(fd_buf, sizeof(fd_buf), "%d", r->target.fd.fixed_fd);
                 fd_str = string_create_from_cstr(fd_buf);
+            } else if (r->target.fd.fd_token) {
+                fd_str = expand_redirection_target(frame, r->target.fd.fd_token);
             }
             if (!fd_str)
             {
@@ -417,11 +428,11 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
 
         case REDIR_TARGET_BUFFER: {
             string_t *content_str = NULL;
-            if (r->target.heredoc.buffer)
+            if (r->target.heredoc.content)
             {
-                content_str = r->target.heredoc.buffer_needs_expansion
-                                  ? exec_expand_heredoc(executor, r->target.heredoc.buffer, false)
-                                  : string_create_from(r->target.heredoc.buffer);
+                content_str = r->target.heredoc.needs_expansion
+                                  ? exec_expand_heredoc(executor, r->target.heredoc.content, false)
+                                  : string_create_from(r->target.heredoc.content);
                 if (!content_str)
                 {
                     exec_set_error(executor, "Failed to process heredoc");
@@ -431,6 +442,10 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             const char *content = content_str ? string_cstr(content_str) : "";
             size_t content_len = content_str ? string_length(content_str) : 0;
 
+            // Design parameter: 4096-byte heredoc threshold
+            // If heredoc content exceeds 4096 bytes, use temp file fallback instead of pipe.
+            // This threshold is conservative: Linux pipes are usually 64KB, but may be as low as 4KB.
+            // UCRT _pipe allows buffer size requests, but the OS may not honor it, and the writer must fit all data before dup2.
             if (content_len > 4096) {
                 // Use temp file fallback for large heredocs
                 char tmpname[] = "/tmp/mgsh_heredoc_XXXXXX";
@@ -692,6 +707,29 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
         int fd = redirection_default_fd(r);
         if (fd >= 0 && fd < FD_SETSIZE)
             will_redirect[fd] = true;
+
+        // Also backup source FD for move redirections (n>&m-)
+        if (r->target_kind == REDIR_TARGET_FD) {
+            string_t *fd_str = NULL;
+            if (r->target.fd.fd_expression)
+                fd_str = r->target.fd.fd_expression;
+            else if (r->target.fd.fixed_fd >= 0) {
+                char fd_buf[32];
+                snprintf(fd_buf, sizeof(fd_buf), "%d", r->target.fd.fixed_fd);
+                fd_str = string_create_from_cstr(fd_buf);
+            } else if (r->target.fd.fd_token) {
+                fd_str = expand_redirection_target(frame, r->target.fd.fd_token);
+            }
+            if (fd_str) {
+                parse_fd_result_t src = parse_fd_number(string_cstr(fd_str));
+                if (src.success && src.close_after_use && src.fd >= 0 && src.fd < FD_SETSIZE) {
+                    will_redirect[src.fd] = true;
+                }
+                // Only free if we allocated
+                if ((r->target.fd.fixed_fd >= 0 && !r->target.fd.fd_expression) || r->target.fd.fd_token)
+                    string_destroy(&fd_str);
+            }
+        }
     }
 
     for (int fd = 0; fd < FD_SETSIZE; fd++)
@@ -767,7 +805,10 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 flags = _O_RDONLY | _O_BINARY;
                 break;
             case REDIR_WRITE:
-                flags = _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY;
+                if (frame->opt_flags && frame->opt_flags->noclobber)
+                    flags = _O_WRONLY | _O_CREAT | _O_EXCL | _O_BINARY;
+                else
+                    flags = _O_WRONLY | _O_CREAT | _O_TRUNC | _O_BINARY;
                 break;
             case REDIR_APPEND:
                 flags = _O_WRONLY | _O_CREAT | _O_APPEND | _O_BINARY;
@@ -834,6 +875,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 char fd_buf[32];
                 snprintf(fd_buf, sizeof(fd_buf), "%d", r->target.fd.fixed_fd);
                 fd_str = string_create_from_cstr(fd_buf);
+            } else if (r->target.fd.fd_token) {
+                fd_str = expand_redirection_target(frame, r->target.fd.fd_token);
             }
 
             if (!fd_str)
@@ -934,25 +977,35 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
             const char *content = content_str ? string_cstr(content_str) : "";
             size_t content_len = strlen(content);
 
-            if (content_len > 65536) {
+            if (content_len > 4096) {
                 // Use temp file fallback for large heredocs
-                char tmpname[64] = "mgsh_heredoc_XXXXXX";
-                int tmpfd = _mktemp_s(tmpname, sizeof(tmpname));
-                if (tmpfd != 0) {
-                    exec_set_error(executor, "_mktemp_s() failed for heredoc");
+                char temp_path[MAX_PATH];
+                char temp_file[MAX_PATH];
+                uint32_t path_len = GetTempPathA(MAX_PATH, temp_path);
+                if (path_len == 0 || path_len > MAX_PATH - 1) {
+                    exec_set_error(executor, "GetTempPathA() failed for heredoc");
                     string_destroy(&content_str);
                     goto error_restore;
                 }
-                tmpfd = _open(tmpname, _O_RDWR | _O_CREAT | _O_BINARY, _S_IREAD | _S_IWRITE);
-                if (tmpfd < 0) {
-                    exec_set_error(executor, "_open() failed for heredoc temp file: %s", strerror(errno));
+                // Use non-zero uUnique so GetTempFileNameA only generates a name, does not create the file
+                uint32_t uRet = GetTempFileNameA(temp_path, "mgsh", 1, temp_file);
+                if (uRet == 0) {
+                    exec_set_error(executor, "GetTempFileNameA() failed for heredoc");
+                    string_destroy(&content_str);
+                    goto error_restore;
+                }
+                int tmpfd = -1;
+                errno_t err = _sopen_s(&tmpfd, temp_file, _O_RDWR | _O_CREAT | _O_EXCL | _O_BINARY, _SH_DENYNO, _S_IREAD | _S_IWRITE);
+                if (err != 0 || tmpfd < 0) {
+                    exec_set_error(executor, "_sopen_s() failed for heredoc temp file: %s", strerror(errno));
+                    DeleteFileA(temp_file);
                     string_destroy(&content_str);
                     goto error_restore;
                 }
                 if (_write(tmpfd, content, (unsigned int)content_len) != (int)content_len) {
                     exec_set_error(executor, "write to heredoc temp file failed: %s", strerror(errno));
                     _close(tmpfd);
-                    _unlink(tmpname);
+                    DeleteFileA(temp_file);
                     string_destroy(&content_str);
                     goto error_restore;
                 }
@@ -960,12 +1013,12 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 if (_dup2(tmpfd, fd) < 0) {
                     exec_set_error(executor, "_dup2(%d, %d) for heredoc temp file failed: %s", tmpfd, fd, strerror(errno));
                     _close(tmpfd);
-                    _unlink(tmpname);
+                    DeleteFileA(temp_file);
                     string_destroy(&content_str);
                     goto error_restore;
                 }
                 _close(tmpfd);
-                _unlink(tmpname);
+                DeleteFileA(temp_file);
                 string_destroy(&content_str);
                 if (fds) {
                     string_t *heredoc_name = fd_table_generate_name(fd, FD_REDIRECTED);
@@ -1048,7 +1101,7 @@ void exec_restore_redirections_ucrt_c(exec_frame_t *frame)
          * fd_table_get_original_fd() returns -1 when the entry is absent or
          * was never set up with fd_table_mark_saved(). _dup2(backup, -1)
          * always fails, and fd_table_remove(fds, -1) silently no-ops, leaving
-         * the backup fd open and tracked forever.  Close and evict it cleanly
+         * the backup fd open and tracked forever. Close and evict it cleanly
          * so we at least don't leak the OS handle. */
         if (orig_fd < 0)
         {
@@ -1080,6 +1133,10 @@ void exec_restore_redirections_ucrt_c(exec_frame_t *frame)
         {
             log_warn("restore(ucrt): _dup2(%d, %d) failed: %s", backup_fd, orig_fd,
                      strerror(errno));
+        }
+        else
+        {
+            fd_table_mark_open(fds, orig_fd);
         }
 
         log_debug("restore(ucrt): _close(%d) backup fd", backup_fd);
@@ -1256,9 +1313,13 @@ void exec_restore_redirections_iso_c(exec_frame_t *frame)
 
 void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
 {
-    (void)frame;
     (void)redirections;
-    // No-op stub for linker
+#ifdef POSIX_API
+    exec_restore_redirections_posix(frame);
+#elif defined(UCRT_API)
+    exec_restore_redirections_ucrt_c(frame);
+#endif
+    // ISO C: no restore possible
 }
 
 /* ============================================================================
@@ -1308,6 +1369,8 @@ void exec_redirections_destroy(exec_redirections_t **redirections)
             case REDIR_TARGET_FD:
                 if (redir->target.fd.fd_expression)
                     string_destroy(&redir->target.fd.fd_expression);
+                if (redir->target.fd.fd_token)
+                    token_destroy(&redir->target.fd.fd_token);
                 break;
             case REDIR_TARGET_BUFFER:
                 if (redir->target.heredoc.content)
@@ -1431,6 +1494,14 @@ exec_redirections_t *exec_redirections_clone(const exec_redirections_t *redirs)
             else
             {
                 dst->target.fd.fd_expression = NULL;
+            }
+            if (src->target.fd.fd_token)
+            {
+                dst->target.fd.fd_token = token_clone(src->target.fd.fd_token);
+            }
+            else
+            {
+                dst->target.fd.fd_token = NULL;
             }
             break;
 
@@ -1649,6 +1720,7 @@ exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame,
         }
 
         exec_redirections_append(redirs, runtime_redir);
+        xfree(runtime_redir);
     }
 
     return redirs;
