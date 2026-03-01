@@ -18,9 +18,9 @@
 /* Growth factor when resizing the array */
 #define GROWTH_FACTOR 2
 
-static const char *fd_flags_to_string(fd_flags_t flags);
+static const char *fd_flags_to_string(fd_flags_t flags, char *buffer, size_t bufsize);
 
-    /*
+/*
  * ============================================================================
  * Internal Helper Functions
  * ============================================================================
@@ -254,9 +254,9 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, const string_t *p
          * it to -1 on every FD_SAVED update caused the restore path to lose
          * the original-fd mapping, leaving the redirected descriptor live
          * forever (Bug 1). */
-        char *flags_str = xstrdup(fd_flags_to_string(flags));
-        log_debug("fd_table_add: fd=%d path='%s' updated flags=%s", fd, string_cstr(path), flags_str);
-        xfree(flags_str);
+        char flags_buf[64];
+        log_debug("fd_table_add: fd=%d path='%s' updated flags=%s", fd, string_cstr(path),
+                  fd_flags_to_string(flags, flags_buf, sizeof(flags_buf)));
         return true;
     }
 
@@ -278,7 +278,9 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, const string_t *p
     {
         table->highest_fd = fd;
     }
-    log_debug("fd_table_add: fd=%d path='%s' new entry flags=%s", fd, string_cstr(path), fd_flags_to_string(flags));
+    char flags_buf2[64];
+    log_debug("fd_table_add: fd=%d path='%s' new entry flags=%s", fd, string_cstr(path),
+              fd_flags_to_string(flags, flags_buf2, sizeof(flags_buf2)));
     return true;
 }
 
@@ -493,11 +495,10 @@ bool fd_table_set_flag(fd_table_t *table, int fd, fd_flags_t flag)
     }
 
     table->entries[idx].flags = (fd_flags_t)(table->entries[idx].flags | flag);
-    char *flag_str = xstrdup(fd_flags_to_string(flag));
-    char *resulting_str = xstrdup(fd_flags_to_string(table->entries[idx].flags));
-    log_debug("fd_table_set_flag: fd=%d set flag=%s resulting_flags=%s", fd, flag_str, resulting_str);
-    xfree(flag_str);
-    xfree(resulting_str);
+    char flag_buf[64], result_buf[64];
+    log_debug("fd_table_set_flag: fd=%d set flag=%s resulting_flags=%s", fd,
+              fd_flags_to_string(flag, flag_buf, sizeof(flag_buf)),
+              fd_flags_to_string(table->entries[idx].flags, result_buf, sizeof(result_buf)));
     return true;
 }
 
@@ -512,11 +513,10 @@ bool fd_table_clear_flag(fd_table_t *table, int fd, fd_flags_t flag)
     }
 
     table->entries[idx].flags = (fd_flags_t)(table->entries[idx].flags & ~flag);
-    char *flag_str = xstrdup(fd_flags_to_string(flag));
-    char *remaining_str = xstrdup(fd_flags_to_string(table->entries[idx].flags));
-    log_debug("fd_table_clear_flag: fd=%d cleared flag=%s remaining_flags=%s", fd, flag_str, remaining_str);
-    xfree(flag_str);
-    xfree(remaining_str);
+    char flag_buf[64], remain_buf[64];
+    log_debug("fd_table_clear_flag: fd=%d cleared flag=%s remaining_flags=%s", fd,
+              fd_flags_to_string(flag, flag_buf, sizeof(flag_buf)),
+              fd_flags_to_string(table->entries[idx].flags, remain_buf, sizeof(remain_buf)));
     return true;
 }
 
@@ -649,28 +649,27 @@ void fd_table_dump(const fd_table_t *table, const char *prefix)
     fd_table_foreach(table, fd_table_dump_cb, &ctx);
 }
 
-static const char *fd_flags_to_string(fd_flags_t flags)
+static const char *fd_flags_to_string(fd_flags_t flags, char *buffer, size_t bufsize)
 {
     if (flags == FD_NONE)
     {
         return "none";
     }
-    static char buffer[64];
     buffer[0] = '\0';
     bool first = true;
     if (flags & FD_CLOEXEC)
     {
-        strcat(buffer, "CLOEXEC");
+        strncat(buffer, "CLOEXEC", bufsize - strlen(buffer) - 1);
         first = false;
     }
     if (flags & FD_REDIRECTED)
     {
-        strcat(buffer, first ? "REDIR" : "|REDIR");
+        strncat(buffer, first ? "REDIR" : "|REDIR", bufsize - strlen(buffer) - 1);
         first = false;
     }
     if (flags & FD_SAVED)
     {
-        strcat(buffer, first ? "SAVED" : "|SAVED");
+        strncat(buffer, first ? "SAVED" : "|SAVED", bufsize - strlen(buffer) - 1);
         first = false;
     }
     return buffer;

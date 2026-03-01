@@ -19,6 +19,7 @@
  */
 #ifdef POSIX_API
 exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redirections_t *redirs);
+void exec_restore_redirections_posix(exec_frame_t *frame);
 #elifdef UCRT_API
 exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
                                              const exec_redirections_t *redirs);
@@ -32,7 +33,15 @@ void exec_restore_redirections_ucrt_c(exec_frame_t *frame);
  * standard device paths (/dev/stdin etc.) since ISO C has no dup().
  */
 exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redirections_t *redirs);
+void exec_restore_redirections_iso_c(exec_frame_t *frame);
 #endif
+
+/**
+ * Platform-agnostic wrappers that dispatch to the correct platform variant.
+ * exec_frame_apply_redirections() returns 0 on success, -1 on error.
+ */
+int exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
+void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
 
 /**
  * Convert AST redirection nodes to runtime exec_redirections_t structure.
