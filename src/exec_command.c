@@ -322,13 +322,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
             string_list_t *func_args = string_list_create_slice(expanded_words, 1, -1);
 
-#if defined(POSIX_API)
-            exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
-#elif defined(UCRT_API)
-            exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
-#else
-            exec_status_t redir_st = EXEC_OK; /* ISO C: no redirections */
-#endif
+            exec_status_t redir_st =
+                (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
             if (redir_st != EXEC_OK)
             {
                 status = redir_st;
@@ -341,11 +336,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
             string_list_destroy(&func_args);
 
-#if defined(POSIX_API)
-            exec_restore_redirections_posix(frame);
-#elif defined(UCRT_API)
-            exec_restore_redirections_ucrt_c(frame);
-#endif
+            exec_restore_redirections(frame, runtime_redirs);
             goto done_execution;
         }
 
@@ -357,13 +348,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
             if (builtin_fn != NULL)
             {
-#if defined(POSIX_API)
-                exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
-#elif defined(UCRT_API)
-                exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
-#else
-                exec_status_t redir_st = EXEC_OK; /* ISO C: no redirections */
-#endif
+                exec_status_t redir_st =
+                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
                 if (redir_st != EXEC_OK)
                 {
                     status = redir_st;
@@ -372,17 +358,13 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
                 cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
-#if defined(POSIX_API)
-                exec_restore_redirections_posix(frame);
-#elif defined(UCRT_API)
-                exec_restore_redirections_ucrt_c(frame);
-#endif
+                exec_restore_redirections(frame, runtime_redirs);
 
                 goto done_execution;
             }
         }
 
-        /* Special builtin (non-assignment case) */
+        /* Special builtins (non-assignment case) */
         if (builtin_class == BUILTIN_SPECIAL)
         {
             is_internal = true;
@@ -390,13 +372,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
             if (builtin_fn != NULL)
             {
-#if defined(POSIX_API)
-                exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
-#elif defined(UCRT_API)
-                exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
-#else
-                exec_status_t redir_st = EXEC_OK; /* ISO C: no redirections */
-#endif
+                exec_status_t redir_st =
+                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
                 if (redir_st != EXEC_OK)
                 {
                     status = redir_st;
@@ -405,11 +382,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
                 cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
-#if defined(POSIX_API)
-                exec_restore_redirections_posix(frame);
-#elif defined(UCRT_API)
-                exec_restore_redirections_ucrt_c(frame);
-#endif
+                exec_restore_redirections(frame, runtime_redirs);
 
                 goto done_execution;
             }
@@ -477,24 +450,30 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 #else
             /* Manual PATH search fallback if execvpe is not available */
             const char *path_env = NULL;
-            for (char *const *ep = envp; ep && *ep; ++ep) {
-                if (strncmp(*ep, "PATH=", 5) == 0) {
+            for (char *const *ep = envp; ep && *ep; ++ep)
+            {
+                if (strncmp(*ep, "PATH=", 5) == 0)
+                {
                     path_env = *ep + 5;
                     break;
                 }
             }
-            if (path_env && strchr(cmd_name, '/') == NULL) {
+            if (path_env && strchr(cmd_name, '/') == NULL)
+            {
                 char *path = xstrdup(path_env);
                 char *saveptr = NULL;
                 char *dir = strtok_r(path, ":", &saveptr);
-                while (dir) {
+                while (dir)
+                {
                     char fullpath[PATH_MAX];
                     snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd_name);
                     execve(fullpath, argv, envp);
                     dir = strtok_r(NULL, ":", &saveptr);
                 }
                 xfree(path);
-            } else {
+            }
+            else
+            {
                 execve(cmd_name, argv, envp);
             }
             perror(cmd_name);
@@ -566,7 +545,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             if (runtime_redirs && runtime_redirs->count > 0)
             {
-                exec_status_t redir_st = exec_apply_redirections_ucrt_c(frame, runtime_redirs);
+                exec_status_t redir_st =
+                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
                 if (redir_st != EXEC_OK)
                 {
                     for (int i = 0; argv[i]; i++)
@@ -585,7 +565,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                 _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
             if (runtime_redirs && runtime_redirs->count > 0)
             {
-                exec_restore_redirections_ucrt_c(frame);
+                exec_restore_redirections(frame, runtime_redirs);
             }
         }
         if (spawn_result == -1)
@@ -780,17 +760,18 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         const ast_node_list_t *ast_redirs = node->data.redirected_command.redirections;
 
         /* Convert AST redirections to runtime structure */
-    exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
-    if (!runtime_redirs) {
-        return EXEC_ERROR;
-    }
+        exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
+        if (!runtime_redirs)
+        {
+            return EXEC_ERROR;
+        }
 
-    int st = exec_frame_apply_redirections(frame, runtime_redirs);
-    if (st != 0)
-    {
-        exec_redirections_destroy(&runtime_redirs);
-        return EXEC_ERROR;
-    }
+        int st = exec_frame_apply_redirections(frame, runtime_redirs);
+        if (st != 0)
+        {
+            exec_redirections_destroy(&runtime_redirs);
+            return EXEC_ERROR;
+        }
 
         st = exec_execute(executor, inner);
         exec_restore_redirections(frame, runtime_redirs);
