@@ -341,8 +341,6 @@ set(SH23LOGIC_SOURCES
     src/exec_expander.h
     src/exec_frame.c
     src/exec_frame.h
-    src/exec_control.c
-    src/exec_control.h
     src/exec_internal.h
     src/exec_redirect.c
     src/exec_redirect.h
