@@ -1149,7 +1149,7 @@ func_store_error_t frame_unset_function_cstr(exec_frame_t *frame, const char *na
     return result;
 }
 
-exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
+frame_exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
                                   const string_list_t *args)
 {
     Expects_not_null(frame);
@@ -1159,16 +1159,17 @@ exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
 
     if (!frame->functions)
     {
-        return EXEC_ERROR;
+        return FRAME_EXEC_ERROR;
     }
 
     const ast_node_t *func_def = func_store_get_def(frame->functions, name);
     if (!func_def)
     {
-        return EXEC_ERROR;
+        return FRAME_EXEC_ERROR;
     }
 
-    return EXEC_NOT_IMPL;
+    // FIXME: Implement the execution of a function body AST node
+    return FRAME_EXEC_NOT_IMPL;
 }
 
 /* ============================================================================
@@ -1193,11 +1194,27 @@ void frame_set_last_exit_status(exec_frame_t *frame, int status)
  * Control Flow
  * ============================================================================ */
 
-void frame_set_pending_control_flow(exec_frame_t *frame, exec_control_flow_t flow, int depth)
+void frame_set_pending_control_flow(exec_frame_t *frame, frame_control_flow_t flow, int depth)
 {
     Expects_not_null(frame);
+    exec_control_flow_t internal_flow;
+    switch (flow)
+    {
+        case FRAME_FLOW_BREAK:
+            internal_flow = EXEC_BREAK;
+            break;
+        case FRAME_FLOW_CONTINUE:
+            internal_flow = EXEC_CONTINUE;
+            break;
+        case FRAME_FLOW_RETURN:
+            internal_flow = EXEC_RETURN;
+            break;
 
-    frame->pending_control_flow = flow;
+    default:
+            internal_flow = EXEC_OK;
+        break;
+    }
+    frame->pending_control_flow = internal_flow;
     frame->pending_flow_depth = depth;
 }
 
@@ -1635,12 +1652,12 @@ bool frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion)
     return job_store_update_status(frame->executor->jobs, wait_for_completion);
 }
 
-bool frame_print_completed_background_jobs(exec_frame_t *frame)
+void frame_print_completed_background_jobs(exec_frame_t *frame)
 {
     Expects_not_null(frame);
     Expects_not_null(frame->executor);
     Expects_not_null(frame->executor->jobs);
-    return job_store_print_completed_jobs(frame->executor->jobs, stdout);
+    job_store_print_completed_jobs(frame->executor->jobs, stdout);
 }
 
 void frame_print_background_jobs(exec_frame_t *frame)
@@ -1686,26 +1703,6 @@ static job_store_t *get_job_store(const exec_frame_t *frame)
     if (!frame || !frame->executor)
         return NULL;
     return frame->executor->jobs;
-}
-
-/**
- * Helper: Convert job state to string
- */
-static const char *job_state_to_string(job_state_t state)
-{
-    switch (state)
-    {
-    case JOB_RUNNING:
-        return "Running";
-    case JOB_STOPPED:
-        return "Stopped";
-    case JOB_DONE:
-        return "Done";
-    case JOB_TERMINATED:
-        return "Terminated";
-    default:
-        return "Unknown";
-    }
 }
 
 /**

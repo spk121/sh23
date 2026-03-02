@@ -478,8 +478,8 @@ int main(int argc, char **argv, char **envp)
                                 .verbose = flag_v,
                                 .vi = false,
                                 .xtrace = flag_x};
-    exec_cfg_set_from_shell_options(&cfg.exec_cfg, argc, (const char *const *)argv,
-                                               (const char *const *)envp, name, NULL, NULL, NULL,
+    exec_cfg_set_from_shell_options(&cfg.exec_cfg, argc, (char *const *)argv,
+                                               (char *const *)envp, name, NULL, NULL, NULL,
                                                (mode == SHELL_MODE_INTERACTIVE), false, flag_m);
 
     if (flag_c && (command_string == NULL || command_string[0] == '\0'))

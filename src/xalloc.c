@@ -1,9 +1,14 @@
-#include "xalloc.h"
+#ifndef _POSIX_C_SOURCE
+#define _POSIX_C_SOURCE 202311L   // for strdup on GNU libc
+#endif
+
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "xalloc.h"
 
 // Default arena configuration constants
 #if __STDC_VERSION__ >= 202311L && !defined(_MSC_VER)

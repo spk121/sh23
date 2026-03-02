@@ -9,6 +9,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <ctype.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>

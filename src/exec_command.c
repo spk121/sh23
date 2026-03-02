@@ -444,9 +444,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             xfree(cloexec_fds);
 
             /* Exec */
-            execve(cmd_name, argv, envp);
 #if defined(HAVE_EXECVPE)
-            execvpe(cmd_name, argv, envp); /* fallback: PATH lookup with custom env */
+            execvpe(cmd_name, argv, envp);
 #else
             /* Manual PATH search fallback if execvpe is not available */
             const char *path_env = NULL;
@@ -468,6 +467,12 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                     char fullpath[PATH_MAX];
                     snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd_name);
                     execve(fullpath, argv, envp);
+                    /* Only print if it looks like a real try (not ENOENT on every dir) */
+                    if (errno != ENOENT)
+                    {
+                        fprintf(stderr, "%s: %s\n", fullpath, strerror(errno));
+                        _exit(126); // 126 = found but cannot execute (permission, format, etc.)
+                    }
                     dir = strtok_r(NULL, ":", &saveptr);
                 }
                 xfree(path);
@@ -476,9 +481,20 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             {
                 execve(cmd_name, argv, envp);
             }
-            perror(cmd_name);
-            _exit(127);
 #endif
+            /* If we get here: either absolute path failed, or PATH search exhausted */
+            if (errno == ENOENT || (strchr(cmd_name, '/') == NULL && path_env == NULL))
+            {
+                fprintf(stderr, "%s: command not found\n", cmd_name);
+                _exit(127);
+            }
+            else
+            {
+                fprintf(stderr, "%s: %s\n", cmd_name, strerror(errno));
+                _exit(127);
+                // FIXME: perhaps 126 for found but cannot execute. But we'd have to
+                // make sure the REPL also handles 126.
+            }
         }
         else /* parent */
         {
@@ -508,7 +524,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             exec_set_error(executor, "%s: command not found", cmd_name);
         }
-#elif defined(UCRT_API)
+#elifdef UCRT_API
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++)
@@ -612,7 +628,6 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         {
             exec_set_error(executor, "%s: command not found", cmd_name);
         }
-    }
 #else
         /* ISO C fallback using system() */
         if (!cmd_name || *cmd_name == '\0')
@@ -645,7 +660,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         if (rc == -1)
         {
             exec_set_error(executor, "system() failed: %s", strerror(errno));
-            cmd_exit_status = 127;
+        cmd_exit_status = 127;
         }
         else
         {
@@ -657,32 +672,32 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             exec_set_error(executor, "%s: command not found", cmd_name);
         }
 #endif
+    } // end of has_words == true
+ done_execution:
+    frame->last_exit_status = cmd_exit_status;
 
-    done_execution:
-        frame->last_exit_status = cmd_exit_status;
-
-        /* Update $_ with last argument */
-        if (string_list_size(expanded_words) > 1)
-        {
-            const string_t *last_arg =
-                string_list_at(expanded_words, string_list_size(expanded_words) - 1);
-            if (!executor->last_argument)
-                executor->last_argument = string_create();
-            string_set(executor->last_argument, last_arg);
-            executor->last_argument_set = true;
-        }
-
-    out_cleanup_words:
-        string_list_destroy(&expanded_words);
-
-    out_destroy_redirs:
-        exec_redirections_destroy(&runtime_redirs);
-
-    out_restore_vars:
-        /* Restore original variable store */
-        variable_store_destroy(&frame->variables);
-        frame->variables = frame->saved_variables;
-        frame->saved_variables = NULL;
-
-        return status;
+    /* Update $_ with last argument */
+    if (string_list_size(expanded_words) > 1)
+    {
+        const string_t *last_arg =
+            string_list_at(expanded_words, string_list_size(expanded_words) - 1);
+        if (!executor->last_argument)
+            executor->last_argument = string_create();
+        string_set(executor->last_argument, last_arg);
+        executor->last_argument_set = true;
     }
+
+out_cleanup_words:
+    string_list_destroy(&expanded_words);
+
+out_destroy_redirs:
+    exec_redirections_destroy(&runtime_redirs);
+
+out_restore_vars:
+    /* Restore original variable store */
+    variable_store_destroy(&frame->variables);
+    frame->variables = frame->saved_variables;
+    frame->saved_variables = NULL;
+
+    return status;
+}

@@ -537,7 +537,7 @@ void frame_clear_all_aliases(exec_frame_t *frame);
 bool frame_alias_name_is_valid(const char *name);
 
 // NEW API: background jobs
-void frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
+bool frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
 void frame_print_background_jobs(exec_frame_t *frame);
 
 /* ============================================================================
