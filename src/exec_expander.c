@@ -42,25 +42,33 @@
 /**
  * Get the IFS value from the frame, falling back to default.
  */
-static const char *get_ifs(exec_frame_t *frame)
+static string_t *get_ifs(exec_frame_t *frame)
 {
-    const char *ifs = NULL;
+    Expects_not_null(frame);
 
-    if (frame)
+    string_t *ifs_var = NULL;
+    if (frame_has_variable_cstr(frame, "IFS"))
     {
-        variable_store_t *vars = exec_frame_get_variables(frame);
-        if (vars)
+        ifs_var = frame_get_variable_cstr(frame, "IFS");
+        /* If IFS is empty, this had to be an explicit choice by the user, since
+         * it is initialized to <space><tab><newline> by default. So we intentionally
+         * don't check it here. */
+    }
+    else 
+    {
+        char *ifs_env = getenv("IFS");
+        if (ifs_env)
         {
-            ifs = variable_store_get_value_cstr(vars, "IFS");
+            ifs_var = string_create_from_cstr(ifs_env);
+        }
+        else
+        {
+            /* Default IFS is space, tab, newline */
+            ifs_var = string_create_from_cstr(" \t\n");
         }
     }
 
-    if (!ifs)
-    {
-        ifs = getenv("IFS");
-    }
-
-    return ifs ? ifs : " \t\n"; /* Default IFS */
+    return ifs_var;
 }
 
 /**
@@ -776,101 +784,116 @@ static bool is_ifs_char(char c, const char *ifs)
  */
 string_list_t *expand_field_split(exec_frame_t *frame, const string_t *text)
 {
+    Expects_not_null(frame);
+    Expects_not_null(text);
+
     string_list_t *fields = string_list_create();
 
-    if (!text || string_length(text) == 0)
+    if (string_empty(text))
+        return fields;
+
+    string_t *ifs = get_ifs(frame);
+    if (string_empty(ifs))
     {
+        // Empty IFS: no splitting, whole text is one field
+        string_list_push_back(fields, text);
+        string_destroy(&ifs);
         return fields;
     }
 
-    const char *ifs = get_ifs(frame);
-
-    if (*ifs == '\0')
+    // Split IFS into whitespace and non-whitespace parts for efficient searching
+    string_t *ifs_ws = string_create();
+    string_t *ifs_nws = string_create();
+    for (int k = 0; k < string_length(ifs); k++)
     {
-        /* Empty IFS: no splitting */
-        string_list_push_back(fields, string_create_from(text));
-        return fields;
-    }
-
-    const char *str = string_cstr(text);
-    int len = string_length(text);
-    string_t *current_field = string_create();
-    bool in_field = false;
-
-    for (int i = 0; i < len; i++)
-    {
-        char c = str[i];
-
-        if (is_ifs_char(c, ifs))
-        {
-            bool is_ws = is_ifs_whitespace(c);
-
-            if (in_field)
-            {
-                /* End current field */
-                string_list_move_push_back(fields, &current_field);
-                current_field = string_create();
-                in_field = false;
-
-                /* Non-whitespace IFS creates empty field after */
-                if (!is_ws)
-                {
-                    /* Check if next char is IFS whitespace, if so skip it */
-                    if (i + 1 < len && is_ifs_whitespace(str[i + 1]) && is_ifs_char(str[i + 1], ifs))
-                    {
-                        i++; /* Skip adjacent whitespace */
-                    }
-                }
-            }
-            else
-            {
-                /* Multiple IFS at start or between fields */
-                if (!is_ws)
-                {
-                    /* Non-whitespace IFS: empty field */
-                    string_list_push_back(fields, string_create());
-                }
-                /* IFS whitespace at start or between: skip */
-            }
-        }
+        char c = string_at(ifs, k);
+        if (is_ifs_whitespace(c))
+            string_append_char(ifs_ws, c);
         else
+            string_append_char(ifs_nws, c);
+    }
+
+    int len = string_length(text);
+    int i = 0;
+
+    // 1. Skip all leading IFS whitespace (never produces fields)
+    if (!string_empty(ifs_ws))
+    {
+        i = string_find_first_not_of_at(text, ifs_ws, 0);
+        if (i == -1)
         {
-            /* Regular character */
-            string_append_char(current_field, c);
-            in_field = true;
+            // Entire input is IFS whitespace → zero fields
+            goto cleanup;
         }
     }
+    // Now i is either at a non-IFS char or at a hard (non-ws) delimiter
 
-    /* Add final field if non-empty */
-    if (in_field && string_length(current_field) > 0)
+    while (i < len)
     {
-        string_list_move_push_back(fields, &current_field);
-    }
-    else
-    {
-        string_destroy(&current_field);
-    }
+        // 2. Collect the field: all characters until any IFS char
+        int field_start = i;
+        int field_end = string_find_first_of_at(text, ifs, i);
+        if (field_end == -1)
+            field_end = len;
 
-    /* POSIX: If the input contained only IFS whitespace, produce zero words.
-     * This happens when we've processed the entire string but never set in_field,
-     * OR we set in_field but only to accumulate empty strings that got removed.
-     */
-    if (string_list_size(fields) == 0)
-    {
-        /* Check if we had only IFS whitespace */
-        bool only_ifs_whitespace = true;
-        for (int i = 0; i < len; i++)
+        string_t *field = string_create_from_range(text, field_start, field_end);
+        string_list_move_push_back(fields, &field);
+
+        i = field_end;
+        if (i >= len)
+            break;
+
+        // 3. Consume the delimiter sequence
+        //    - Skip all following IFS whitespace (collapsed)
+        //    - Handle each non-whitespace IFS char as a separate delimiter (empty fields)
+        bool in_delimiter = true;
+        while (in_delimiter && i < len)
         {
-            if (!is_ifs_char(str[i], ifs) || !is_ifs_whitespace(str[i]))
+            // Skip whitespace part of delimiter
+            if (!string_empty(ifs_ws))
             {
-                only_ifs_whitespace = false;
-                break;
+                int after_ws = string_find_first_not_of_at(text, ifs_ws, i);
+                if (after_ws != -1)
+                    i = after_ws;
+                else
+                {
+                    // Only trailing whitespace left → done, no trailing empty from ws-only
+                    goto cleanup;
+                }
             }
+
+            // Now handle zero or more consecutive hard delimiters
+            while (i < len && string_find_first_of_at(text, ifs_nws, i) == i)
+            {
+                // Consume this hard delimiter
+                i++;
+
+                // After each hard delimiter, we conceptually "end" a field.
+                // If we're at end or followed by more delimiters → empty field
+                if (i >= len || string_find_first_of_at(text, ifs, i) == i)
+                {
+                    string_t *empty = string_create();
+                    string_list_move_push_back(fields, &empty);
+                }
+                else
+                {
+                    // Next is start of real field → stop consuming delimiters
+                    in_delimiter = false;
+                    break;
+                }
+            }
+
+            // If we didn't hit another hard delimiter and whitespace is done,
+            // we're at the start of the next field (or end)
+            if (i < len && string_find_first_of_at(text, ifs, i) != i)
+                in_delimiter = false;
         }
-        /* If we had only IFS whitespace, return empty list (zero words).
-         * This is correct POSIX behavior. */
     }
 
+cleanup:
+    string_destroy(&ifs);
+    string_destroy(&ifs_ws);
+    string_destroy(&ifs_nws);
     return fields;
 }
 
@@ -1066,6 +1089,24 @@ string_list_t *expand_word(exec_frame_t *frame, const token_t *tok)
     }
 
     return fields;
+}
+
+string_t *expand_word_nosplit(exec_frame_t *frame, const token_t *tok)
+{
+    if (!tok || tok->type != TOKEN_WORD)
+    {
+        return NULL;
+    }
+
+    /* If no expansion is needed at all, return the literal text */
+    if (!tok->needs_expansion)
+    {
+        return token_get_all_text(tok);
+    }
+
+    /* Expand parts (tilde, parameter, command subst, arithmetic)
+     * but skip field splitting and pathname expansion */
+    return expand_parts_to_string(frame, token_get_parts_const(tok));
 }
 
 /**

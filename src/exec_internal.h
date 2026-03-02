@@ -81,6 +81,7 @@ typedef struct exec_redirection_t
         {
             int fixed_fd;            /* Literal fd number, or -1 */
             string_t *fd_expression; /* If fd comes from expansion */
+            token_t *fd_token;       /* Full token for variable-derived FDs */
         } fd;
 
         /* REDIR_TARGET_HEREDOC */
@@ -113,7 +114,7 @@ typedef struct exec_redirections_t
 
 exec_redirections_t *exec_redirections_create(void);
 void exec_redirections_destroy(exec_redirections_t **redirections);
-void exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
+bool exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
 
 
 /* ============================================================================
@@ -205,16 +206,6 @@ exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,
 exec_result_t exec_builtin_command(exec_frame_t *frame, const string_t *name, string_list_t *argv);
 
 /* ============================================================================
- * Subshell Management
- * ============================================================================ */
-
-/**
- * Create a subshell executor from a parent executor.
- * This sets up appropriate state copying for a true subshell context.
- */
-exec_t *exec_create_subshell(exec_t *executor);
-
-/* ============================================================================
  * Loop Execution
  * ============================================================================ */
 
@@ -267,5 +258,35 @@ bool exec_is_special_param(const string_t *name);
  * @return Execution status
  */
 frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t *tokenizer);
+
+/**
+ * Execute a complete command string.
+ *
+ * This function executes a string as shell commands. It is useful for:
+ * - Trap handlers (the action string stored with trap)
+ * - eval builtin
+ * - Any case where you have a complete command as a string
+ *
+ * If the command string is incomplete (e.g., unclosed quotes, missing 'done'),
+ * this function treats it as an error rather than requesting more input.
+ *
+ * @param frame The execution frame
+ * @param command The complete command string to execute
+ * @return exec_result_t with execution status and exit code
+ */
+exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
+
+/**
+ * Parse a command string into an AST.
+ *
+ * This function parses a command string without executing it. The returned
+ * AST can be passed to exec_eval() or other execution functions.
+ *
+ * @param frame The execution frame (used for alias expansion)
+ * @param command The complete command string to parse
+ * @param out_ast Output parameter for the parsed AST (caller must destroy)
+ * @return exec_result_t with status indicating parse success/failure
+ */
+exec_result_t exec_parse_string(exec_frame_t *frame, const char *command, ast_node_t **out_ast);
 
 #endif /* EXEC_INTERNAL_H */

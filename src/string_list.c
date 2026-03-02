@@ -146,6 +146,50 @@ string_list_t *string_list_create_from(const string_list_t *other)
     return lst;
 }
 
+string_list_t *string_list_create_from_string_split_char(const string_t *str, char separator)
+{
+    Expects_not_null(str);
+    Expects_ne(separator, '\0');
+
+    string_list_t *lst = string_list_create();
+    string_t *separator_str = string_create_from_n_chars(separator, 1);
+    int begin = 0;
+
+    while (true)
+    {
+        int end = string_find_first_of_at(str, separator_str, begin);
+        string_t *substr = string_substring(str, begin, end);
+        string_list_move_push_back(lst, &substr);
+        if (end == -1)
+            break;
+        begin = end + 1;
+    }
+    string_destroy(&separator_str);
+    return lst;
+}
+
+string_list_t *string_list_create_from_string_split_cstr(const string_t *str,
+                                                         const char *separators)
+{
+    Expects_not_null(str);
+    Expects_not_null(separators);
+    Expects_ne(separators[0], '\0');
+
+    string_list_t *lst = string_list_create();
+    int begin = 0;
+
+    while (true)
+    {
+        int end = string_find_first_of_cstr_at(str, separators, begin);
+        string_t *substr = string_create_from_range(str, begin, end);
+        string_list_move_push_back(lst, &substr);
+        if (end == -1)
+            break;
+        begin = end + 1;
+    }
+    return lst;
+}
+
 string_list_t *string_list_create_slice(const string_list_t *list, int start, int end)
 {
     Expects_not_null(list);

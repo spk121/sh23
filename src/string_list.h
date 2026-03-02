@@ -34,7 +34,6 @@ typedef struct string_list_t
  */
 string_list_t *string_list_create(void);
 
-
 /**
  * Create a new string list by deep-copying a C string array.
  *
@@ -53,6 +52,25 @@ string_list_t *string_list_create_from_cstr_array(const char **strv, int len);
 string_list_t *string_list_create_from_system_env(void);
 
 string_list_t *string_list_create_from(const string_list_t *other);
+
+/**
+ * Create a string list by splitting a string using a single character separator.
+ *
+ * @param str The string to split
+ * @param separator Character to split on
+ * @return New string list instance with split strings, or NULL on allocation failure
+ */
+string_list_t *string_list_create_from_string_split_char(const string_t *str, char separator);
+
+/**
+ * Create a string list by splitting a string using any of the characters in the separators
+ * C-string.
+ * @param str The string to split
+ * @param separators C-string containing separator characters
+ * @return New string list instance with split strings, or NULL on allocation failure
+ */
+string_list_t *string_list_create_from_string_split_cstr(const string_t *str,
+                                                         const char *separators);
 
 /**
  * Create a new string list containing a slice of another list.

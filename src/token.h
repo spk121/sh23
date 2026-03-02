@@ -111,14 +111,13 @@ typedef struct part_list_t part_list_t;
 struct part_t
 {
     part_type_t type;
-    int padding1;
 
     /* For PART_LITERAL and PART_TILDE */
     string_t *text;
 
     /* For PART_PARAMETER */
     param_subtype_t param_kind;
-    int padding2;
+    bool has_colon; // distinguishes ${var-word} vs ${var:-word} etc.
     string_t *param_name;
     string_t *word; // the raw "word" text in ${var:-word} forms (literal string, not yet expanded)
 
@@ -129,7 +128,6 @@ struct part_t
     /* Quote tracking */
     bool was_single_quoted; // prevents all expansions
     bool was_double_quoted; // allows selective expansions
-    char padding3[6];
 };
 
 /* ============================================================================
@@ -309,6 +307,13 @@ bool token_needs_pathname_expansion(const token_t *token);
  * Assumes WORD token
  */
 string_t *token_get_all_text(const token_t *token);
+
+/**
+ * Get text from all part of a TOKEN_WORD token concatenated together, but
+ * for parameter parts, convert them to an unambiguous placeholder form like ${PARAM} or ${#PARAM}
+ * etc.
+ */
+string_t *token_get_text_with_param_placeholders(const token_t *token);
 
 /* ============================================================================
  * Token Part Management

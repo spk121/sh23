@@ -63,6 +63,7 @@ static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bo
     Expects_not_null(delim);
 
     int pos = lx->pos;
+    int pos_initial = pos;
 
     if (strip_tabs)
     {
@@ -79,15 +80,13 @@ static bool lexer_check_heredoc_delimiter(lexer_t *lx, const string_t *delim, bo
 
     // Must be followed by newline or EOF
     Expects_le(pos, string_length(lx->input));
-    if (string_length(lx->input) == pos || string_at(lx->input, pos) == '\n')
+    if (string_length(lx->input) == pos)
     {
-        lx->pos = pos;
-        if (string_at(lx->input, pos) == '\n')
-        {
-            lx->pos++;
-            lx->line_no++;
-            lx->col_no = 1;
-        }
+        lexer_advance_n_chars(lx, pos - pos_initial);
+    }
+    else if (string_at(lx->input, pos) == '\n')
+    {
+        lexer_advance_n_chars(lx, pos - pos_initial + 1); // consume delimiter and newline
         return true;
     }
 

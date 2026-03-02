@@ -59,13 +59,25 @@ int builtin_colon(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_dot(exec_frame_t *frame, const string_list_t *args);
 
+int builtin_eval(exec_frame_t *frame, const string_list_t *args);
+
 int builtin_export(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_readonly(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_times(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_trap(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_return(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_break(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_continue(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_exec(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_exit(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_shift(exec_frame_t *frame, const string_list_t *args);
 
@@ -93,12 +105,22 @@ int builtin_printf(exec_frame_t *frame, const string_list_t *args);
 int builtin_bracket(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_jobs(exec_frame_t *frame, const string_list_t *args);
+int builtin_kill(exec_frame_t *frame, const string_list_t *args);
+int builtin_wait(exec_frame_t *frame, const string_list_t *args);
+int builtin_fg(exec_frame_t *frame, const string_list_t *args);
+int builtin_bg(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_getopts(exec_frame_t *frame, const string_list_t *args);
 int builtin_ls(exec_frame_t *frame, const string_list_t *args);
+
+int builtin_alias(exec_frame_t *frame, const string_list_t *args);
+int builtin_unalias(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_basename(exec_frame_t *frame, const string_list_t *args);
 int builtin_dirname(exec_frame_t *frame, const string_list_t *args);
 int builtin_mgsh_dirnamevar(exec_frame_t *frame, const string_list_t *args);
 int builtin_mgsh_printfvar(exec_frame_t *frame, const string_list_t *args);
+int builtin_mgsh_cat(exec_frame_t *frame, const string_list_t *args);
 
 int builtin_true(exec_frame_t *frame, const string_list_t *args);
 int builtin_false(exec_frame_t *frame, const string_list_t *args);

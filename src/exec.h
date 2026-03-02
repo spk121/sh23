@@ -1,29 +1,32 @@
 #ifndef EXECUTOR_H
 #define EXECUTOR_H
 
+#include <signal.h>
+#include <stdbool.h>
 #include <stdio.h>
+
 #include "alias_store.h"
 #include "ast.h"
 // #include "exec_command.h"
 #include "exec_expander.h"
+#include "exec_frame.h"
+#include "func_store.h"
+#include "job_store.h"
 #include "positional_params.h"
+#include "sig_act.h"
 #include "string_t.h"
 #include "string_list.h"
+#include "trap_store.h"
 #include "variable_store.h"
 
 #ifdef POSIX_API
 #include <sys/types.h>
 #include <sys/resource.h>
 #endif
-#include "func_store.h"
-#include "sig_act.h"
-#include "job_store.h"
+
 #if defined(POSIX_API) || defined(UCRT_API)
 #include "fd_table.h"
 #endif
-#include "trap_store.h"
-#include <stdbool.h>
-
 
 #ifdef POSIX_API
 #define EXEC_SYSTEM_RC_PATH "/etc/mgshrc"
@@ -38,6 +41,14 @@
 // and no directory structure.
 #define EXEC_USER_RC_NAME "MGSH.RC"
 #define EXEC_RC_IN_CURRENT_DIRECTORY
+#endif
+
+#ifndef NSIG
+#ifdef _NSIG
+#define NSIG _NSIG
+#else
+#define NSIG 64 /* A common value for NSIG when not defined by the system */
+#endif
 #endif
 
 /* ============================================================================
@@ -283,6 +294,8 @@ typedef struct exec_t exec_t;
  * Executor Context
  * ============================================================================ */
 
+#ifndef EXEC_RESULT_T_DEFINED
+#define EXEC_RESULT_T_DEFINED
 typedef enum exec_status_t
 {
     EXEC_OK = 0,
@@ -294,6 +307,7 @@ typedef enum exec_status_t
     EXEC_RETURN,          ///< return statement executed
     EXEC_EXIT,            ///< exit statement executed
 } exec_status_t;
+#endif
 
 /* ============================================================================
  * Executor Configuration Functions
@@ -334,16 +348,6 @@ void exec_destroy(exec_t **executor);
 void exec_setup_interactive_execute(exec_t *executor);
 
 /**
- * Execute an AST.
- *
- * @param executor The executor context
- * @param root The root AST node to execute
- *
- * @return EXEC_OK on success, EXEC_ERROR on error, EXEC_NOT_IMPL for unsupported node types
- */
-exec_status_t exec_execute(exec_t *executor, const ast_node_t *root);
-
-/**
  * Execute commands from a stream (file or stdin).
  * Reads lines from the stream, parses them, and executes them.
  *
@@ -354,71 +358,23 @@ exec_status_t exec_execute(exec_t *executor, const ast_node_t *root);
 exec_status_t exec_execute_stream(exec_t *executor, FILE *fp);
 
 /**
- * Execute a command list.
+ * Execute a complete command string.
+ *
+ * This function executes a self-contained command string, such as a trap
+ * handler action or the argument to eval. Unlike exec_execute_stream(),
+ * this function expects the command to be complete and will treat incomplete
+ * input (unclosed quotes, missing keywords) as an error.
+ *
+ * @param frame The execution frame to use
+ * @param command The complete command string to execute
+ * @return exec_result_t with execution status and exit code
  */
-exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute an and/or list.
- */
-exec_status_t exec_execute_andor_list(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a pipeline.
- */
-exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node);
-
-// exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *params);
+exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
 
 /**
  * Execute a simple command.
  */
 exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t *node);
-
-/**
- * Execute a redirected command wrapper.
- */
-exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const ast_node_t *node);
-
-/**
- * Execute an if clause.
- */
-exec_status_t exec_execute_if_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a while clause.
- */
-exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute an until clause.
- */
-exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a for clause.
- */
-exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a case clause.
- */
-exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a subshell.
- */
-exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a brace group.
- */
-exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a function definition.
- */
-exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 
 /**
  * Check if any background jobs have completed, and if so mark them done

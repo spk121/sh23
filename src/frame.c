@@ -545,6 +545,28 @@ void frame_print_exported_variables_in_export_format(exec_frame_t *frame)
     }
 }
 
+static void print_readonly_var_callback(const string_t *name, const string_t *value, bool exported,
+                                        bool read_only, void *user_data)
+{
+    (void)exported;
+    (void)user_data;
+
+    if (read_only)
+    {
+        printf("readonly %s=%s\n", string_cstr(name), string_cstr(value));
+    }
+}
+
+void frame_print_readonly_variables(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    if (frame->variables)
+    {
+        variable_store_for_each(frame->variables, print_readonly_var_callback, NULL);
+    }
+}
+
 /* Helper structure for sorting variables */
 typedef struct
 {
@@ -671,12 +693,30 @@ void frame_print_variables(exec_frame_t *frame, bool reusable_format)
  * Word and String Expansion
  * ============================================================================ */
 
-string_t *frame_expand_string(exec_frame_t *frame, const string_t *text, expand_flags_t flags)
+static expand_flags_t convert_frame_expand_flags(frame_expand_flags_t frame_flags)
+{
+    expand_flags_t flags = EXPAND_NONE;
+    if (frame_flags & FRAME_EXPAND_TILDE)
+        flags |= EXPAND_TILDE;
+    if (frame_flags & FRAME_EXPAND_PARAMETER)
+        flags |= EXPAND_PARAMETER;
+    if (frame_flags & FRAME_EXPAND_COMMAND_SUBST)
+        flags |= EXPAND_COMMAND_SUBST;
+    if (frame_flags & FRAME_EXPAND_ARITHMETIC)
+        flags |= EXPAND_ARITHMETIC;
+    if (frame_flags & FRAME_EXPAND_FIELD_SPLIT)
+        flags |= EXPAND_FIELD_SPLIT;
+    if (frame_flags & FRAME_EXPAND_PATHNAME)
+        flags |= EXPAND_PATHNAME;
+    return flags;
+}
+
+string_t *frame_expand_string(exec_frame_t *frame, const string_t *text, frame_expand_flags_t flags)
 {
     Expects_not_null(frame);
     Expects_not_null(text);
 
-    return expand_string(frame, text, flags);
+    return expand_string(frame, text, convert_frame_expand_flags(flags));
 }
 
 string_list_t *frame_expand_word_token(exec_frame_t *frame, const token_t *tok)
@@ -1190,6 +1230,290 @@ void frame_run_exit_traps(const trap_store_t *store, exec_frame_t *frame)
     trap_store_run_exit_trap(store, frame);
 }
 
+/* Helper: Get trap store from frame */
+static trap_store_t *get_trap_store(exec_frame_t *frame)
+{
+    if (frame->traps)
+        return frame->traps;
+    if (frame->executor && frame->executor->traps)
+        return frame->executor->traps;
+    return NULL;
+}
+
+/* Callback adapter for frame_for_each_set_trap */
+typedef struct {
+    frame_trap_callback_t callback;
+    void *context;
+} frame_trap_callback_adapter_t;
+
+static void trap_callback_adapter(int signal_number, const trap_action_t *trap, void *context)
+{
+    frame_trap_callback_adapter_t *adapter = (frame_trap_callback_adapter_t *)context;
+    adapter->callback(signal_number, trap->action, trap->is_ignored, adapter->context);
+}
+
+void frame_for_each_set_trap(exec_frame_t *frame, frame_trap_callback_t callback, void *context)
+{
+    Expects_not_null(frame);
+    Expects_not_null(callback);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return;
+
+    frame_trap_callback_adapter_t adapter = { .callback = callback, .context = context };
+    trap_store_for_each_set_trap(traps, trap_callback_adapter, &adapter);
+}
+
+const string_t *frame_get_trap(exec_frame_t *frame, int signal_number, bool *out_is_ignored)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+    {
+        if (out_is_ignored)
+            *out_is_ignored = false;
+        return NULL;
+    }
+
+    const trap_action_t *trap = trap_store_get(traps, signal_number);
+    if (!trap)
+    {
+        if (out_is_ignored)
+            *out_is_ignored = false;
+        return NULL;
+    }
+
+    if (out_is_ignored)
+        *out_is_ignored = trap->is_ignored;
+
+    return trap->action;
+}
+
+const string_t *frame_get_exit_trap(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return NULL;
+
+    return trap_store_get_exit(traps);
+}
+
+bool frame_set_trap(exec_frame_t *frame, int signal_number, const string_t *action,
+                    bool is_ignored, bool is_reset)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return false;
+
+    return trap_store_set(traps, signal_number, (string_t *)action, is_ignored, is_reset);
+}
+
+bool frame_set_exit_trap(exec_frame_t *frame, const string_t *action,
+                         bool is_ignored, bool is_reset)
+{
+    Expects_not_null(frame);
+
+    trap_store_t *traps = get_trap_store(frame);
+    if (!traps)
+        return false;
+
+    return trap_store_set_exit(traps, (string_t *)action, is_ignored, is_reset);
+}
+
+int frame_trap_name_to_number(const char *name)
+{
+    if (!name)
+        return -1;
+
+    return trap_signal_name_to_number(name);
+}
+
+const char *frame_trap_number_to_name(int signal_number)
+{
+    return trap_signal_number_to_name(signal_number);
+}
+
+bool frame_trap_name_is_unsupported(const char *name)
+{
+    if (!name)
+        return false;
+
+    return trap_signal_name_is_unsupported(name);
+}
+
+/* ============================================================================
+ * Aliases
+ * ============================================================================ */
+
+/* Helper: Get alias store from frame */
+static alias_store_t *get_alias_store(exec_frame_t *frame)
+{
+    if (frame->aliases)
+        return frame->aliases;
+    if (frame->executor && frame->executor->aliases)
+        return frame->executor->aliases;
+    return NULL;
+}
+
+/* Helper: Get alias store from frame (const version) */
+static const alias_store_t *get_alias_store_const(const exec_frame_t *frame)
+{
+    if (frame->aliases)
+        return frame->aliases;
+    if (frame->executor && frame->executor->aliases)
+        return frame->executor->aliases;
+    return NULL;
+}
+
+bool frame_has_alias(const exec_frame_t *frame, const string_t *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_has_name(aliases, name);
+}
+
+bool frame_has_alias_cstr(const exec_frame_t *frame, const char *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_has_name_cstr(aliases, name);
+}
+
+const string_t *frame_get_alias(const exec_frame_t *frame, const string_t *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return NULL;
+
+    return alias_store_get_value(aliases, name);
+}
+
+const char *frame_get_alias_cstr(const exec_frame_t *frame, const char *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return NULL;
+
+    return alias_store_get_value_cstr(aliases, name);
+}
+
+bool frame_set_alias(exec_frame_t *frame, const string_t *name, const string_t *value)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+    Expects_not_null(value);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    alias_store_add(aliases, name, value);
+    return true;
+}
+
+bool frame_set_alias_cstr(exec_frame_t *frame, const char *name, const char *value)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+    Expects_not_null(value);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    alias_store_add_cstr(aliases, name, value);
+    return true;
+}
+
+bool frame_remove_alias(exec_frame_t *frame, const string_t *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_remove(aliases, name);
+}
+
+bool frame_remove_alias_cstr(exec_frame_t *frame, const char *name)
+{
+    Expects_not_null(frame);
+    Expects_not_null(name);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return false;
+
+    return alias_store_remove_cstr(aliases, name);
+}
+
+int frame_alias_count(const exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return 0;
+
+    return alias_store_size(aliases);
+}
+
+void frame_for_each_alias(const exec_frame_t *frame, frame_alias_callback_t callback, void *context)
+{
+    Expects_not_null(frame);
+    Expects_not_null(callback);
+
+    const alias_store_t *aliases = get_alias_store_const(frame);
+    if (!aliases)
+        return;
+
+    /* The alias_store_foreach callback signature matches frame_alias_callback_t */
+    alias_store_foreach(aliases, (alias_store_foreach_fn)callback, context);
+}
+
+void frame_clear_all_aliases(exec_frame_t *frame)
+{
+    Expects_not_null(frame);
+
+    alias_store_t *aliases = get_alias_store(frame);
+    if (!aliases)
+        return;
+
+    alias_store_clear(aliases);
+}
+
+bool frame_alias_name_is_valid(const char *name)
+{
+    if (!name)
+        return false;
+
+    return alias_name_is_valid(name);
+}
+
 /* ============================================================================
  * Background Jobs
  * ============================================================================ */
@@ -1542,4 +1866,57 @@ bool frame_has_jobs(const exec_frame_t* frame)
     return store->jobs != NULL;
 }
 
+/* ============================================================================
+ * Stream/String Execution
+ * ============================================================================ */
+
+frame_exec_status_t frame_execute_string(exec_frame_t *frame, const char *command)
+{
+    Expects_not_null(frame);
+
+    if (!command || !*command)
+        return FRAME_EXEC_OK;
+
+    exec_result_t result = exec_command_string(frame, command);
+
+    if (result.status == EXEC_ERROR)
+        return FRAME_EXEC_ERROR;
+
+    return FRAME_EXEC_OK;
+}
+
+frame_exec_status_t frame_execute_eval_string(exec_frame_t *frame, const char *command)
+{
+    Expects_not_null(frame);
+
+    if (!command || !*command)
+        return FRAME_EXEC_OK;
+
+    /* Parse the command string into an AST */
+    ast_node_t *ast = NULL;
+    exec_result_t parse_result = exec_parse_string(frame, command, &ast);
+
+    if (parse_result.status == EXEC_ERROR)
+    {
+        if (ast)
+            ast_node_destroy(&ast);
+        return FRAME_EXEC_ERROR;
+    }
+
+    /* Empty command is success */
+    if (!ast)
+        return FRAME_EXEC_OK;
+
+    /* Execute via exec_eval which uses EXEC_FRAME_EVAL */
+    exec_result_t result = exec_eval(frame, ast);
+    ast_node_destroy(&ast);
+
+    /* Update frame's exit status */
+    frame->last_exit_status = result.exit_status;
+
+    if (result.status == EXEC_ERROR)
+        return FRAME_EXEC_ERROR;
+
+    return FRAME_EXEC_OK;
+}
 

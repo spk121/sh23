@@ -35,18 +35,19 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
     if (!lx->in_word)
         lexer_start_word(lx);
 
-    int paren_depth = 0;
+    string_clear(lx->operator_buffer);
+
     string_t *expr_text = string_create();
 
     while (!lexer_at_end(lx))
     {
         char c = lexer_peek(lx);
 
-        // Closing ))
-        if (c == ')' && paren_depth == 0)
+        // Handle closing delimiter: )) at depth 0
+        if (c == ')' && string_length(lx->operator_buffer) == 0)
         {
-            char next_char = lexer_peek_ahead(lx, 1);
-            if (next_char == ')')
+            char c2 = lexer_peek_ahead(lx, 1);
+            if (c2 == ')')
             {
                 // Valid closing: ))
                 lexer_advance(lx); // consume first )
@@ -63,81 +64,128 @@ lex_status_t lexer_process_arith_exp(lexer_t *lx)
 
                 lexer_pop_mode(lx);
                 string_destroy(&expr_text);
+                string_clear(lx->operator_buffer);
                 return LEX_OK;
             }
-            else if (lx->pos + 1 >= string_length(lx->input))
+            else if (c2 == '\0')
             {
-                // At EOF after single ) - need more input
-                // Consume the ) so we advance past it, then exit loop to return INCOMPLETE
-                string_append_char(expr_text, c);
-                lexer_advance(lx);
-                break;
+                // EOF after single ) — need more input
+                string_destroy(&expr_text);
+                string_clear(lx->operator_buffer);
+
+                // TODO: is it worth handling this LEX_INCOMPLETE edge case, when normally
+                // we expect input to be line-buffered?
+                // return LEX_INCOMPLETE;
+
+                lexer_set_error(lx, "Missing closing parentheses in arithmetic expansion");
+                return LEX_ERROR;
             }
             else
             {
-                // Single ) followed by something other than ) - syntax error
+                // Single ) not followed by ) at depth 0 — syntax error
                 string_destroy(&expr_text);
                 lexer_set_error(lx, "Unbalanced parentheses in arithmetic expansion");
+                string_clear(lx->operator_buffer);
                 return LEX_ERROR;
             }
         }
-
-        // Count parentheses
-        if (c == '(')
-            paren_depth++;
-        else if (c == ')')
-            paren_depth--;
-
-        // Backslash escaping: only $, `, \, and newline
-        if (c == '\\')
+        else if (c == '(' || c == '{')
         {
+            // Track opening bracket for nested grouping / expansion
+            string_append_char(lx->operator_buffer, c);
+            string_append_char(expr_text, c);
+            lexer_advance(lx);
+        }
+        else if (c == ')' || c == '}')
+        {
+            // Closing bracket — must match top of stack
+            if (string_length(lx->operator_buffer) == 0)
+            {
+                // Unmatched closing bracket with empty stack — syntax error
+                string_destroy(&expr_text);
+                lexer_set_error(lx, "Unbalanced delimiter '%c' in arithmetic expansion", c);
+                string_clear(lx->operator_buffer);
+                return LEX_ERROR;
+            }
+            char open = string_pop_back(lx->operator_buffer);
+            if ((open == '(' && c != ')') || (open == '{' && c != '}'))
+            {
+                string_destroy(&expr_text);
+                lexer_set_error(lx, "Unbalanced delimiters in arithmetic expansion: '%c' vs '%c'",
+                                open, c);
+                string_clear(lx->operator_buffer);
+                return LEX_ERROR;
+            }
+            string_append_char(expr_text, c);
+            lexer_advance(lx);
+        }
+        else if (c == '\\')
+        {
+            // Backslash escaping inside arithmetic: $, `, \, and newline.
             char next = lexer_peek_ahead(lx, 1);
             if (next == '$' || next == '`' || next == '\\')
             {
+                // Escape: discard backslash, keep the escaped character
                 string_append_char(expr_text, next);
-                lexer_advance(lx); // skip <backslash>
+                lexer_advance(lx); // skip backslash
                 lexer_advance(lx); // skip escaped char
-                continue;
             }
-            if (next == '\n')
+            else if (next == '\n')
             {
-                lexer_advance(lx); // skip '\'
-                lexer_advance(lx); // skip \n
-                lx->line_no++;
-                lx->col_no = 1;
-                continue;
+                // Line continuation: discard both \ and newline.
+                // line_no/col_no update delegated to lexer_advance.
+                lexer_advance(lx); // skip backslash
+                lexer_advance(lx); // skip newline
             }
-            // Otherwise: keep both \ and next char
-            string_append_char(expr_text, '\\');
-            lexer_advance(lx);
-            continue;
+            else
+            {
+                // Non-escapable character: keep backslash literally.
+                // Next character will be processed on the next iteration.
+                string_append_char(expr_text, '\\');
+                lexer_advance(lx);
+            }
         }
-
-        // Nested expansions — copy raw text, do not re-lex
-        if (c == '$')
+        else if (c == '$')
         {
             char c2 = lexer_peek_ahead(lx, 1);
             if (c2 == '(' || c2 == '{')
             {
-                // Let nested lexer handle it — just copy the text
-                // This is safe because nested modes will append to the same word
-                string_append_char(expr_text, '$');
+                // Start of nested $(...) or ${...}: copy both chars and push
+                // the opener so its matching closer is not mistaken for the
+                // arithmetic closing ))
+                string_append_char(expr_text, c);
+                string_append_char(expr_text, c2);
+                string_append_char(lx->operator_buffer, c2);
+                lexer_advance(lx); // skip $
+                lexer_advance(lx); // skip ( or {
+            }
+            else
+            {
+                // Plain $ (e.g. $x, $1, $?) — copy literally
+                string_append_char(expr_text, c);
                 lexer_advance(lx);
-                continue;
             }
         }
-
-        if (c == '`')
+        else if (c == '`')
         {
-            string_append_char(expr_text, '`');
+            // Backtick command substitution: copy literally without stack
+            // tracking. Valid shell syntax cannot contain a bare ) inside a
+            // backtick expression, so the closing )) cannot be misidentified.
+            // Malformed input will be caught when the expression is re-lexed
+            // at execution time.
+            string_append_char(expr_text, c);
             lexer_advance(lx);
-            continue;
         }
-
-        string_append_char(expr_text, c);
-        lexer_advance(lx);
+        else
+        {
+            // Regular character
+            string_append_char(expr_text, c);
+            lexer_advance(lx);
+        }
     }
 
+    // End of input without finding closing ))
     string_destroy(&expr_text);
+    string_clear(lx->operator_buffer);
     return LEX_INCOMPLETE;
 }

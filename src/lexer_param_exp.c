@@ -17,7 +17,7 @@
 #define LEXER_INTERNAL
 #include "lexer_param_exp.h"
 
-#include "lexer.h"
+#include "lexer_t.h"
 #include "token.h"
 
 /**
@@ -52,39 +52,24 @@ static bool is_name_char(char c)
  * Create a PART_PARAMETER and add it to the current token.
  */
 static void lexer_add_param_part(lexer_t *lx, const char *name, int name_len, param_subtype_t kind,
-                                 const char *word, int word_len)
+                                 bool has_colon, const char *word, int word_len)
 {
     Expects_not_null(lx);
     Expects_not_null(lx->current_token);
     Expects_not_null(name);
     Expects_gt(name_len, 0);
 
-    // Create the parameter name string
-    string_t *param_name = string_create();
-    for (int i = 0; i < name_len; i++)
-    {
-        string_append_char(param_name, name[i]);
-    }
+    string_t *param_name = string_create_from_cstr_len(name, name_len);
 
-    // Create the part
     part_t *part = part_create_parameter(param_name);
     part->param_kind = kind;
+    part->has_colon = has_colon;
 
-    // If there's a word (for ${var:-word} style), store it
     if (word != NULL && word_len > 0)
-    {
-        part->word = string_create();
-        for (int i = 0; i < word_len; i++)
-        {
-            string_append_char(part->word, word[i]);
-        }
-    }
+        part->word = string_create_from_cstr_len(word, word_len);
 
-    // Check if we're inside double quotes
     if (lexer_in_mode(lx, LEX_DOUBLE_QUOTE))
-    {
         part_set_quoted(part, false, true);
-    }
 
     token_add_part(lx->current_token, part);
     lx->current_token->needs_expansion = true;
@@ -96,34 +81,25 @@ lex_status_t lexer_process_param_exp_unbraced(lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    // We enter after $ has been consumed
-    // Ensure we have a word token to build
     if (!lx->in_word)
-    {
         lexer_start_word(lx);
-    }
 
     if (lexer_at_end(lx))
-    {
         return LEX_INCOMPLETE;
-    }
 
     char c = lexer_peek(lx);
 
-    // Check for special single-character parameters
     if (is_special_param_char(c))
     {
         char name[2] = {c, '\0'};
         lexer_advance(lx);
-        lexer_add_param_part(lx, name, 1, PARAM_PLAIN, NULL, 0);
+        lexer_add_param_part(lx, name, 1, PARAM_PLAIN, false, NULL, 0);
         lexer_pop_mode(lx);
         return LEX_OK;
     }
 
-    // Check for name (starts with letter or underscore)
     if (is_name_start_char(c))
     {
-        // Read the longest valid name
         const char *input_data = string_data(lx->input);
         int start = lx->pos;
         int len = 0;
@@ -134,13 +110,12 @@ lex_status_t lexer_process_param_exp_unbraced(lexer_t *lx)
             len++;
         }
 
-        lexer_add_param_part(lx, input_data + start, len, PARAM_PLAIN, NULL, 0);
+        lexer_add_param_part(lx, input_data + start, len, PARAM_PLAIN, false, NULL, 0);
         lexer_pop_mode(lx);
         return LEX_OK;
     }
 
-    // If we get here, the $ wasn't followed by a valid parameter
-    // This shouldn't happen as the caller checks before pushing mode
+    // $ not followed by a valid parameter — caller should have checked
     lexer_set_error(lx, "Invalid parameter expansion");
     return LEX_ERROR;
 }
@@ -149,8 +124,6 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    // We enter after ${ has been consumed
-    // Ensure we have a word token to build
     if (!lx->in_word)
         lexer_start_word(lx);
 
@@ -161,26 +134,37 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
 
     char c = lexer_peek(lx);
 
-    // Check for ${#...} - length expansion
-    // This must be checked BEFORE reading parameter name
+    // Check for ${#...} - length expansion.
+    // Must be checked before reading the parameter name.
     bool is_length = false;
     if (c == '#')
     {
-        is_length = true;
-        lexer_advance(lx);  // consume #
-
-        if (lexer_at_end(lx))
-            return LEX_INCOMPLETE;
-
-        c = lexer_peek(lx);
+        // Peek ahead: if the next char is } or another operator it's ${#}
+        // which is an error, but if it's a name char or a digit it's ${#name}.
+        char c2 = lexer_peek_ahead(lx, 1);
+        if (is_name_start_char(c2) || isdigit(c2) || c2 == '@' || c2 == '*')
+        {
+            is_length = true;
+            lexer_advance(lx); // consume #
+            if (lexer_at_end(lx))
+                return LEX_INCOMPLETE;
+            c = lexer_peek(lx);
+        }
+        // Otherwise # is the parameter name itself (e.g. ${#} means $#)
     }
 
     int name_start = lx->pos;
     int name_len = 0;
 
-    // Now read the parameter name
     if (is_special_param_char(c))
     {
+        // For length expansion, only @, *, and positional digits are valid.
+        // ${#?}, ${#-}, ${#$}, ${#!} are not POSIX.
+        if (is_length && c != '@' && c != '*' && !isdigit(c))
+        {
+            lexer_set_error(lx, "bad substitution: ${#%c} is not a valid length expansion", c);
+            return LEX_ERROR;
+        }
         lexer_advance(lx);
         name_len = 1;
     }
@@ -194,86 +178,77 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
     }
     else if (c == '}')
     {
-        // ${} or ${#} without parameter name
-        if (is_length)
-        {
-            lexer_set_error(lx, "bad substitution: ${#} requires a parameter name");
-            return LEX_ERROR;
-        }
-        lexer_set_error(lx, "bad substitution: empty parameter name");
+        lexer_set_error(lx, "bad substitution: %s",
+                        is_length ? "${#} requires a parameter name"
+                                  : "empty parameter name in ${}");
         return LEX_ERROR;
     }
     else
     {
-        lexer_set_error(lx, "bad substitution: invalid parameter name");
+        lexer_set_error(lx, "bad substitution: invalid character '%c' in parameter name", c);
         return LEX_ERROR;
-    }
-
-    // If this is a length expansion, create the part and return
-    if (is_length)
-    {
-        string_t *name = string_create_from_cstr_len(input + name_start, name_len);
-        part_t *part = part_create_parameter(name);
-        part->param_kind = PARAM_LENGTH;
-        part_set_quoted(part, false, lexer_in_mode(lx, LEX_DOUBLE_QUOTE));
-        token_add_part(lx->current_token, part);
-        lx->current_token->needs_expansion = true;
-        string_destroy(&name);
-
-        if (lexer_at_end(lx))
-            return LEX_INCOMPLETE;
-
-        if (lexer_peek(lx) != '}')
-        {
-            lexer_set_error(lx, "bad substitution: expected '}' after ${#var}");
-            return LEX_ERROR;
-        }
-        lexer_advance(lx);
-        lexer_pop_mode(lx);
-        return LEX_OK;
     }
 
     if (lexer_at_end(lx))
         return LEX_INCOMPLETE;
 
-    c = lexer_peek(lx);
-
-    // Check for closing brace - simple expansion
-    if (c == '}')
+    // Length expansion: expect closing } immediately after the name
+    if (is_length)
     {
+        if (lexer_peek(lx) != '}')
+        {
+            lexer_set_error(lx, "bad substitution: expected '}' after ${#name}");
+            return LEX_ERROR;
+        }
+        string_t *name = string_create_from_cstr_len(input + name_start, name_len);
+        part_t *part = part_create_parameter(name);
+        part->param_kind = PARAM_LENGTH;
+        part->has_colon = false;
+        part_set_quoted(part, false, lexer_in_mode(lx, LEX_DOUBLE_QUOTE));
+        token_add_part(lx->current_token, part);
+        lx->current_token->needs_expansion = true;
+        string_destroy(&name);
         lexer_advance(lx); // consume }
-        lexer_add_param_part(lx, input + name_start, name_len, PARAM_PLAIN, NULL, 0);
         lexer_pop_mode(lx);
         return LEX_OK;
     }
 
-    // Check for operators
-    // We need to distinguish between operators with : prefix and without
+    c = lexer_peek(lx);
+
+    // Simple expansion: ${name}
+    if (c == '}')
+    {
+        lexer_advance(lx); // consume }
+        lexer_add_param_part(lx, input + name_start, name_len, PARAM_PLAIN, false, NULL, 0);
+        lexer_pop_mode(lx);
+        return LEX_OK;
+    }
+
+    // Operator expansions: ${name:-word}, ${name#pattern}, etc.
     bool has_colon = false;
-    param_subtype_t kind = PARAM_PLAIN;
     if (c == ':')
     {
         has_colon = true;
-        lexer_advance(lx);
+        lexer_advance(lx); // consume :
         if (lexer_at_end(lx))
             return LEX_INCOMPLETE;
         c = lexer_peek(lx);
     }
 
-    int op_len = 1;
+    param_subtype_t kind = PARAM_PLAIN;
     switch (c)
     {
     case '-':
-        kind = has_colon ? PARAM_USE_DEFAULT : PARAM_USE_DEFAULT;
+        kind = PARAM_USE_DEFAULT;
         break;
     case '=':
-        kind = has_colon ? PARAM_ASSIGN_DEFAULT : PARAM_ASSIGN_DEFAULT;
+        kind = PARAM_ASSIGN_DEFAULT;
         break;
     case '?':
-        kind = has_colon ? PARAM_ERROR_IF_UNSET : PARAM_ERROR_IF_UNSET;
+        kind = PARAM_ERROR_IF_UNSET;
         break;
     case '+':
-        kind = has_colon ? PARAM_USE_ALTERNATE : PARAM_USE_ALTERNATE;
+        kind = PARAM_USE_ALTERNATE;
         break;
     case '%':
         if (has_colon)
@@ -281,11 +256,11 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
             lexer_set_error(lx, "bad substitution: invalid operator :%");
             return LEX_ERROR;
         }
-        if (lexer_peek_ahead(lx, 1) == '%')
+        lexer_advance(lx); // consume first %
+        if (!lexer_at_end(lx) && lexer_peek(lx) == '%')
         {
+            lexer_advance(lx); // consume second %
             kind = PARAM_REMOVE_LARGE_SUFFIX;
-            lexer_advance(lx);
-            op_len++;
         }
         else
             kind = PARAM_REMOVE_SMALL_SUFFIX;
@@ -296,49 +271,94 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
             lexer_set_error(lx, "bad substitution: invalid operator :#");
             return LEX_ERROR;
         }
-        if (lexer_peek_ahead(lx, 1) == '#')
+        lexer_advance(lx); // consume first #
+        if (!lexer_at_end(lx) && lexer_peek(lx) == '#')
         {
+            lexer_advance(lx); // consume second #
             kind = PARAM_REMOVE_LARGE_PREFIX;
-            lexer_advance(lx);
-            op_len++;
         }
         else
             kind = PARAM_REMOVE_SMALL_PREFIX;
         break;
     default:
-        if (has_colon)
-        {
-            lexer_set_error(lx, "bad substitution: invalid operator after ':'");
-            return LEX_ERROR;
-        }
-        else
-        {
-            lexer_set_error(lx, "bad substitution: unexpected character '%c'", c);
-            return LEX_ERROR;
-        }
-        break;
+        lexer_set_error(lx,
+                        has_colon ? "bad substitution: invalid operator after ':'"
+                                  : "bad substitution: unexpected character '%c'",
+                        c);
+        return LEX_ERROR;
     }
 
-    if (op_len > 0)
-        lexer_advance_n_chars(lx, op_len);
+    // For the non-pattern operators (-, =, ?, +), consume the operator char.
+    // The pattern operators (%, #) already consumed their chars in the switch above.
+    if (kind == PARAM_USE_DEFAULT || kind == PARAM_ASSIGN_DEFAULT || kind == PARAM_ERROR_IF_UNSET ||
+        kind == PARAM_USE_ALTERNATE)
+    {
+        lexer_advance(lx); // consume -, =, ?, or +
+    }
 
-    // === 6. Read word until closing brace (raw text) ===
+    if (lexer_at_end(lx))
+        return LEX_INCOMPLETE;
+
+    // Read the word/pattern until the closing }, tracking nested expansions
+    // so that a } inside ${var:-${other}} doesn't close the outer expansion.
     int word_start = lx->pos;
     int word_len = 0;
+    int brace_depth = 0;
 
     while (!lexer_at_end(lx))
     {
         c = lexer_peek(lx);
+
         if (c == '}')
         {
+            if (brace_depth == 0)
+            {
+                // This is the closing } of the outer expansion
+                lexer_advance(lx); // consume }
+                lexer_add_param_part(lx, input + name_start, name_len, kind, has_colon,
+                                     word_len > 0 ? input + word_start : NULL, word_len);
+                lexer_pop_mode(lx);
+                return LEX_OK;
+            }
+            brace_depth--;
             lexer_advance(lx);
-            lexer_add_param_part(lx, input + name_start, name_len, kind,
-                                 word_len > 0 ? input + word_start : NULL, word_len);
-            lexer_pop_mode(lx);
-            return LEX_OK;
+            word_len++;
         }
-        if (c == '\\')
+        else if (c == '$')
         {
+            char c2 = lexer_peek_ahead(lx, 1);
+            if (c2 == '{' || c2 == '(')
+            {
+                // Nested expansion: track the opening brace/paren so its
+                // closing character doesn't prematurely end the word scan.
+                brace_depth++;
+                lexer_advance(lx); // consume $
+                lexer_advance(lx); // consume { or (
+                word_len += 2;
+            }
+            else
+            {
+                lexer_advance(lx);
+                word_len++;
+            }
+        }
+        else if (c == '(')
+        {
+            // Naked ( for subshell grouping inside pattern
+            brace_depth++;
+            lexer_advance(lx);
+            word_len++;
+        }
+        else if (c == ')')
+        {
+            if (brace_depth > 0)
+                brace_depth--;
+            lexer_advance(lx);
+            word_len++;
+        }
+        else if (c == '\\')
+        {
+            // Consume backslash and the following character together
             lexer_advance(lx);
             word_len++;
             if (!lexer_at_end(lx))
@@ -346,10 +366,60 @@ lex_status_t lexer_process_param_exp_braced(lexer_t *lx)
                 lexer_advance(lx);
                 word_len++;
             }
-            continue;
         }
-        lexer_advance(lx);
-        word_len++;
+        else if (c == '\'')
+        {
+            // Single-quoted section: scan for closing ' without interpreting
+            // anything, including }
+            lexer_advance(lx); // consume opening '
+            word_len++;
+            while (!lexer_at_end(lx) && lexer_peek(lx) != '\'')
+            {
+                lexer_advance(lx);
+                word_len++;
+            }
+            if (!lexer_at_end(lx))
+            {
+                lexer_advance(lx); // consume closing '
+                word_len++;
+            }
+        }
+        else if (c == '"')
+        {
+            // Double-quoted section: scan for closing " treating only \" as
+            // an escape so that a } inside doesn't close the outer expansion
+            lexer_advance(lx); // consume opening "
+            word_len++;
+            while (!lexer_at_end(lx) && lexer_peek(lx) != '"')
+            {
+                char qc = lexer_peek(lx);
+                if (qc == '\\')
+                {
+                    lexer_advance(lx);
+                    word_len++;
+                    if (!lexer_at_end(lx))
+                    {
+                        lexer_advance(lx);
+                        word_len++;
+                    }
+                }
+                else
+                {
+                    lexer_advance(lx);
+                    word_len++;
+                }
+            }
+            if (!lexer_at_end(lx))
+            {
+                lexer_advance(lx); // consume closing "
+                word_len++;
+            }
+        }
+        else
+        {
+            lexer_advance(lx);
+            word_len++;
+        }
     }
 
     return LEX_INCOMPLETE;

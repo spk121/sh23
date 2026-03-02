@@ -39,10 +39,9 @@
 #define _X86_
 #endif
 #include <handleapi.h>
-#include <processthreadsapi.h>
 #include <process.h>
+#include <processthreadsapi.h>
 #endif
-
 
 /* ============================================================================
  * Helper Functions
@@ -91,15 +90,24 @@ static void exec_populate_special_variables(variable_store_t *store, const exec_
         char flags[16] = {0};
         int idx = 0;
 
-        if (frame->opt_flags->allexport) flags[idx++] = 'a';
-        if (frame->opt_flags->errexit) flags[idx++] = 'e';
-        if (frame->opt_flags->noclobber) flags[idx++] = 'C';
-        if (frame->opt_flags->noglob) flags[idx++] = 'f';
-        if (frame->opt_flags->noexec) flags[idx++] = 'n';
-        if (frame->opt_flags->nounset) flags[idx++] = 'u';
-        if (frame->opt_flags->verbose) flags[idx++] = 'v';
-        if (frame->opt_flags->xtrace) flags[idx++] = 'x';
-        if (ex->is_interactive) flags[idx++] = 'i';
+        if (frame->opt_flags->allexport)
+            flags[idx++] = 'a';
+        if (frame->opt_flags->errexit)
+            flags[idx++] = 'e';
+        if (frame->opt_flags->noclobber)
+            flags[idx++] = 'C';
+        if (frame->opt_flags->noglob)
+            flags[idx++] = 'f';
+        if (frame->opt_flags->noexec)
+            flags[idx++] = 'n';
+        if (frame->opt_flags->nounset)
+            flags[idx++] = 'u';
+        if (frame->opt_flags->verbose)
+            flags[idx++] = 'v';
+        if (frame->opt_flags->xtrace)
+            flags[idx++] = 'x';
+        if (ex->is_interactive)
+            flags[idx++] = 'i';
 
         flags[idx] = '\0';
         variable_store_add_cstr(store, "-", flags, false, false);
@@ -155,7 +163,9 @@ static variable_store_t *exec_build_temp_store_for_simple_command(exec_frame_t *
  * So we apply the assignments to both the temp store and the shell's main store.
  *
  */
-static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame, variable_store_t *main_store, const ast_node_t *node)
+static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame,
+                                                   variable_store_t *main_store,
+                                                   const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
@@ -170,8 +180,8 @@ static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame, variable
     {
         const token_t *tok = token_list_get(assignments, i);
         string_t *value = expand_assignment_value(frame, tok);
-        var_store_error_t err = variable_store_add(frame->variables, tok->assignment_name, value,
-                                                    false, false);
+        var_store_error_t err =
+            variable_store_add(frame->variables, tok->assignment_name, value, false, false);
 
         if (err != VAR_STORE_ERROR_NONE)
         {
@@ -191,7 +201,6 @@ static exec_status_t exec_apply_prefix_assignments(exec_frame_t *frame, variable
 /* ============================================================================
  * Simple Command Execution
  * ============================================================================ */
-
 exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t *node)
 {
     Expects_not_null(frame);
@@ -207,8 +216,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
 
     bool has_words = (word_tokens && token_list_size(word_tokens) > 0);
 
-    /* Assignment-only command */
-    if (!has_words)
+    /* Assignment-only command (no words, no redirs) */
+    if (!has_words && !redirs)
     {
         if (assign_tokens)
         {
@@ -219,196 +228,186 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                 if (!value)
                 {
                     exec_set_error(executor, "assignment expansion failed");
-                    status = EXEC_ERROR;
-                    goto out_base_exp;
+                    return EXEC_ERROR;
                 }
 
                 var_store_error_t err =
-                    variable_store_add(frame->variables, tok->assignment_name, value,
-                                       false, false);
+                    variable_store_add(frame->variables, tok->assignment_name, value, false, false);
                 string_destroy(&value);
 
                 if (err != VAR_STORE_ERROR_NONE)
                 {
                     exec_set_error(executor, "cannot assign variable (error %d)", err);
-                    status = EXEC_ERROR;
-                    goto out_base_exp;
+                    return EXEC_ERROR;
                 }
             }
         }
 
         frame->last_exit_status = 0;
-        status = EXEC_OK;
-        goto out_base_exp;
+        return EXEC_OK;
     }
 
-    /* Build temporary variable store. The assignments at the beginning of a simple command
-     * and the positional parameters. */
-    /* Since these varible changes shouldn't survive after the command execution, we'll swap in
-     * the temporary variable store to use with the expansion step */
+    /* Swap in temporary variable store */
     frame->saved_variables = frame->variables;
     variable_store_t *temp_vars = exec_build_temp_store_for_simple_command(frame, node);
     frame->variables = temp_vars;
     temp_vars = NULL;
 
-    /* Expand command words. */
-    string_list_t *expanded_words = expand_words(frame, word_tokens);
-    if (!expanded_words || string_list_size(expanded_words) == 0)
-    {
-        frame->last_exit_status = 0;
-        if (expanded_words)
-            string_list_destroy(&expanded_words);
-        status = EXEC_OK;
-        goto out_exp_temp;
-    }
-
-    const string_t *cmd_name_str = string_list_at(expanded_words, 0);
-    int cmd_exit_status = 0;
-
-    if (!cmd_name_str) {
-        exec_set_error(executor, "empty command name");
-        cmd_exit_status = 127;
-        goto done_execution;
-    }
-    const char *cmd_name = string_cstr(cmd_name_str);
-
-    /* Convert AST redirections to runtime structure */
+    /* Convert AST redirections early */
     exec_redirections_t *runtime_redirs = NULL;
     if (redirs && ast_node_list_size(redirs) > 0)
     {
         runtime_redirs = exec_redirections_from_ast(frame, redirs);
         if (!runtime_redirs)
         {
-            string_list_destroy(&expanded_words);
             status = EXEC_ERROR;
-            goto out_exp_temp;
+            goto out_restore_vars;
         }
     }
+    if (!runtime_redirs)
+        runtime_redirs = exec_redirections_create();
 
-    /* Apply redirections */
-    saved_fd_t *saved_fds = NULL;
-    int saved_count = 0;
-
-#ifdef POSIX_API
-    status = exec_apply_redirections_posix(frame, runtime_redirs, &saved_fds, &saved_count);
-    if (status != EXEC_OK)
+    /* Expand command words */
+    string_list_t *expanded_words =
+        has_words ? expand_words(frame, word_tokens) : string_list_create();
+    if (has_words && !expanded_words)
     {
-        string_list_destroy(&expanded_words);
-        exec_redirections_destroy(&runtime_redirs);
-        goto out_exp_temp;
-    }
-#elif defined(UCRT_API)
-    if (runtime_redirs)
-    {
-        fflush(NULL);
-
-        status = exec_apply_redirections_ucrt_c(frame, runtime_redirs, &saved_fds, &saved_count);
-        if (status != EXEC_OK)
-        {
-            string_list_destroy(&expanded_words);
-            exec_redirections_destroy(&runtime_redirs);
-            goto out_exp_temp;
-        }
-    }
-#else
-    if (redirs && ast_node_list_size(redirs) > 0)
-    {
-        exec_set_error(executor, "redirections not supported in ISO_C_API mode");
-        string_list_destroy(&expanded_words);
         status = EXEC_ERROR;
-        goto out_exp_temp;
-    }
-#endif
-
-    /* Classify and execute command */
-    builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
-
-    /* Check if this is a reserved word that shouldn't be executed as a command */
-    if (token_is_reserved_word(cmd_name))
-    {
-        exec_set_error(executor, "%s: syntax error - reserved word in command position", cmd_name);
-        string_list_destroy(&expanded_words);
-        status = EXEC_ERROR;
-        cmd_exit_status = 2;
-        goto out_restore_redirs;
+        goto out_destroy_redirs;
     }
 
-    /* Special builtins: When calling special built-in, variable assignments survive the current shell. */
-    if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
+    int cmd_exit_status = 0;
+
+    if (has_words)
     {
-        /* Right now, the frame is still using the temp variable store, but we need to
-         * apply them to the permanent variable store when they happen in the context of
-         * special built-ins. */
-        exec_status_t assign_status = exec_apply_prefix_assignments(frame, frame->saved_variables, node);
-        if (assign_status != EXEC_OK)
+        const char *cmd_name = string_cstr(string_list_at(expanded_words, 0));
+
+        builtin_class_t builtin_class = builtin_classify_cstr(cmd_name);
+
+        if (token_is_reserved_word(cmd_name))
         {
-            string_list_destroy(&expanded_words);
-            status = assign_status;
-            goto out_restore_redirs;
-        }
-    }
-
-    /* Execute: special builtins */
-    if (builtin_class == BUILTIN_SPECIAL)
-    {
-        builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
-        if (builtin_fn != NULL)
-        {
-            cmd_exit_status = (*builtin_fn)(frame, expanded_words);
+            exec_set_error(executor, "%s: syntax error - reserved word in command position",
+                           cmd_name);
+            cmd_exit_status = 2;
             goto done_execution;
         }
-        exec_set_error(executor, "%s: special builtin not implemented", cmd_name);
-        cmd_exit_status = 1;
-        goto done_execution;
-    }
 
-    /* Execute: shell functions */
-    const ast_node_t *func_body = func_store_get_def_cstr(frame->functions, cmd_name);
-    if (func_body != NULL)
-    {
-        /* func_store returns the function body, not the full AST_FUNCTION_DEF node */
-
-        /* Get redirections associated with the function definition */
-        string_t *func_name_str = string_create_from_cstr(cmd_name);
-        const exec_redirections_t *func_redirs = func_store_get_redirections(frame->functions, func_name_str);
-        string_destroy(&func_name_str);
-
-        /* Create argument list without the function name (which is at index 0).
-         * In shell semantics, when calling foo arg1 arg2, the function receives
-         * arg1 as $1, arg2 as $2, etc. The function name is NOT passed as an argument. */
-        string_list_t *func_args = string_list_create_slice(expanded_words, 1, -1);
-
-        /* Execute function in a new function frame with argument scope isolation */
-        exec_result_t func_result = exec_function(frame,
-                                                   func_body,
-                                                   func_args,
-                                                   func_redirs);
-
-        string_list_destroy(&func_args);
-        cmd_exit_status = func_result.exit_status;
-        goto done_execution;
-    }
-
-    /* Execute: regular builtins */
-    if (builtin_class == BUILTIN_REGULAR)
-    {
-        builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
-        if (builtin_fn != NULL)
+        /* Special builtins: persist assignments */
+        if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
         {
-            cmd_exit_status = (*builtin_fn)(frame, expanded_words);
+            exec_status_t assign_st =
+                exec_apply_prefix_assignments(frame, frame->saved_variables, node);
+            if (assign_st != EXEC_OK)
+            {
+                status = assign_st;
+                goto done_execution;
+            }
+        }
+
+        /* ────────────────────────────────────────────────
+           Internal commands (builtins + functions)
+           ──────────────────────────────────────────────── */
+        bool is_internal = false;
+
+        /* Shell function */
+        const ast_node_t *func_body = func_store_get_def_cstr(frame->functions, cmd_name);
+        if (func_body != NULL)
+        {
+            is_internal = true;
+
+            string_t *func_name_str = string_create_from_cstr(cmd_name);
+            const exec_redirections_t *func_redirs =
+                func_store_get_redirections(frame->functions, func_name_str);
+            string_destroy(&func_name_str);
+
+            string_list_t *func_args = string_list_create_slice(expanded_words, 1, -1);
+
+            exec_status_t redir_st =
+                (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+            if (redir_st != EXEC_OK)
+            {
+                status = redir_st;
+                string_list_destroy(&func_args);
+                goto done_execution;
+            }
+
+            exec_result_t func_result = exec_function(frame, func_body, func_args, func_redirs);
+            cmd_exit_status = func_result.exit_status;
+
+            string_list_destroy(&func_args);
+
+            exec_restore_redirections(frame, runtime_redirs);
             goto done_execution;
+        }
+
+        /* Regular builtin */
+        if (builtin_class == BUILTIN_REGULAR)
+        {
+            is_internal = true;
+
+            builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
+            if (builtin_fn != NULL)
+            {
+                exec_status_t redir_st =
+                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+                if (redir_st != EXEC_OK)
+                {
+                    status = redir_st;
+                    goto done_execution;
+                }
+
+                cmd_exit_status = (*builtin_fn)(frame, expanded_words);
+
+                exec_restore_redirections(frame, runtime_redirs);
+
+                goto done_execution;
+            }
+        }
+
+        /* Special builtins (non-assignment case) */
+        if (builtin_class == BUILTIN_SPECIAL)
+        {
+            is_internal = true;
+
+            builtin_func_t builtin_fn = builtin_get_function_cstr(cmd_name);
+            if (builtin_fn != NULL)
+            {
+                exec_status_t redir_st =
+                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+                if (redir_st != EXEC_OK)
+                {
+                    status = redir_st;
+                    goto done_execution;
+                }
+
+                cmd_exit_status = (*builtin_fn)(frame, expanded_words);
+
+                exec_restore_redirections(frame, runtime_redirs);
+
+                goto done_execution;
+            }
+            else
+            {
+                exec_set_error(executor, "%s: special builtin not implemented", cmd_name);
+                cmd_exit_status = 1;
+                goto done_execution;
+            }
         }
     }
 
-    /* Execute: external command */
+    /* External command execution */
+    if (has_words)
     {
+        const char *cmd_name = string_cstr(string_list_at(expanded_words, 0));
+
 #ifdef POSIX_API
-        if (!cmd_name || strlen(cmd_name) == 0)
+        if (!cmd_name || *cmd_name == '\0')
         {
             exec_set_error(executor, "empty command name");
             cmd_exit_status = 127;
             goto done_execution;
         }
+
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
         for (int i = 0; i < argc; i++)
@@ -417,24 +416,71 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
         argv[argc] = NULL;
 
-        // We already copied current shell variables into the temp store, and
-        // the executor is using that store for expansion, so we can use it here.
-        char *const *envp = variable_store_get_envp(executor->variables);
+        char *const *envp = variable_store_get_envp(frame->variables);
 
         pid_t pid = fork();
         if (pid == -1)
         {
-            exec_set_error(executor, "fork failed");
+            exec_set_error(executor, "fork failed: %s", strerror(errno));
             cmd_exit_status = 127;
         }
-        else if (pid == 0)
+        else if (pid == 0) /* child */
         {
+            /* Apply redirections in child */
+            exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
+            if (redir_st != EXEC_OK)
+            {
+                _exit(127);
+            }
+
+            /* Close CLOEXEC FDs */
+            fd_table_t *fds = exec_frame_get_fds(frame);
+            size_t cloexec_count = 0;
+            int *cloexec_fds = fd_table_get_fds_with_flag(fds, FD_CLOEXEC, &cloexec_count);
+            for (size_t j = 0; j < cloexec_count; j++)
+            {
+                close(cloexec_fds[j]);
+            }
+            xfree(cloexec_fds);
+
+            /* Exec */
             execve(cmd_name, argv, envp);
-            execvp(cmd_name, argv);
+#if defined(HAVE_EXECVPE)
+            execvpe(cmd_name, argv, envp); /* fallback: PATH lookup with custom env */
+#else
+            /* Manual PATH search fallback if execvpe is not available */
+            const char *path_env = NULL;
+            for (char *const *ep = envp; ep && *ep; ++ep)
+            {
+                if (strncmp(*ep, "PATH=", 5) == 0)
+                {
+                    path_env = *ep + 5;
+                    break;
+                }
+            }
+            if (path_env && strchr(cmd_name, '/') == NULL)
+            {
+                char *path = xstrdup(path_env);
+                char *saveptr = NULL;
+                char *dir = strtok_r(path, ":", &saveptr);
+                while (dir)
+                {
+                    char fullpath[PATH_MAX];
+                    snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd_name);
+                    execve(fullpath, argv, envp);
+                    dir = strtok_r(NULL, ":", &saveptr);
+                }
+                xfree(path);
+            }
+            else
+            {
+                execve(cmd_name, argv, envp);
+            }
             perror(cmd_name);
             _exit(127);
+#endif
         }
-        else
+        else /* parent */
         {
             int wstatus = 0;
             if (waitpid(pid, &wstatus, 0) < 0)
@@ -458,7 +504,10 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         for (int i = 0; argv[i]; i++)
             xfree(argv[i]);
         xfree(argv);
-
+        if (cmd_exit_status == 127 && !exec_get_error(executor))
+        {
+            exec_set_error(executor, "%s: command not found", cmd_name);
+        }
 #elif defined(UCRT_API)
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
@@ -478,15 +527,16 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             goto done_execution;
         }
 
-        char *const *envp =
-            variable_store_get_envp(executor->variables);
+        char *const *envp = variable_store_get_envp(executor->variables);
 
-        /* Unlike POSIX, where the fork that created a background process happens way back at
-         * the exec_in_frame() call, UCRT background process creation happens from _spawnvpe. In
-         * UCRT we can only run simple commands in the background. */
         intptr_t spawn_result = 0;
-        if (frame->policy->classification.is_background)
+        if (frame->policy && frame->policy->classification.is_background)
         {
+            if (runtime_redirs && runtime_redirs->count > 0)
+            {
+                log_warn("Redirections for background commands are not supported on UCRT; ignoring "
+                         "redirections.");
+            }
             log_debug("Preparing to execute external background command: %s", cmd_name);
             for (int i = 0; i < string_list_size(expanded_words); i++)
             {
@@ -497,6 +547,19 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
         else
         {
+            if (runtime_redirs && runtime_redirs->count > 0)
+            {
+                exec_status_t redir_st =
+                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+                if (redir_st != EXEC_OK)
+                {
+                    for (int i = 0; argv[i]; i++)
+                        xfree(argv[i]);
+                    xfree(argv);
+                    status = redir_st;
+                    goto done_execution;
+                }
+            }
             log_debug("Preparing to execute external command: %s", cmd_name);
             for (int i = 0; i < string_list_size(expanded_words); i++)
             {
@@ -504,6 +567,10 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             }
             spawn_result =
                 _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
+            if (runtime_redirs && runtime_redirs->count > 0)
+            {
+                exec_restore_redirections(frame, runtime_redirs);
+            }
         }
         if (spawn_result == -1)
         {
@@ -519,12 +586,9 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
         else
         {
-            if (frame->policy->classification.is_background)
+            if (frame->policy && frame->policy->classification.is_background)
             {
-                /* In background execution, spawn_result is the Win32 process handle of the started process */
                 int pid = GetProcessId((HANDLE)spawn_result);
-
-                /* Store the PID. A PID of zero is an error, but, we'll still record it. */
                 frame->last_bg_pid = pid;
                 if (frame->executor->jobs)
                 {
@@ -532,7 +596,8 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
                     int job_id = job_store_add(frame->executor->jobs, cmdline, true);
                     if (job_id >= 0 && pid > 0)
                     {
-                        job_store_add_process(frame->executor->jobs, job_id, pid, (unsigned long)spawn_result, cmdline);
+                        job_store_add_process(frame->executor->jobs, job_id, pid,
+                                              (unsigned long)spawn_result, cmdline);
                     }
                     string_destroy(&cmdline);
                 }
@@ -543,9 +608,14 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         for (int i = 0; argv[i]; i++)
             xfree(argv[i]);
         xfree(argv);
-
+        if (cmd_exit_status == 127 && !exec_get_error(executor))
+        {
+            exec_set_error(executor, "%s: command not found", cmd_name);
+        }
+    }
 #else
-        if (!cmd_name || strlen(cmd_name) == 0)
+        /* ISO C fallback using system() */
+        if (!cmd_name || *cmd_name == '\0')
         {
             exec_set_error(executor, "empty command name");
             cmd_exit_status = 127;
@@ -561,7 +631,9 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
 
         string_t *env_fname = variable_store_write_env_file(executor->variables);
+
         int rc = system(string_cstr(cmdline));
+
         if (env_fname)
         {
             remove(string_cstr(env_fname));
@@ -569,207 +641,48 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         }
 
         string_destroy(&cmdline);
+
         if (rc == -1)
         {
-            exec_set_error(executor, "system() failed");
+            exec_set_error(executor, "system() failed: %s", strerror(errno));
             cmd_exit_status = 127;
         }
         else
         {
             cmd_exit_status = rc;
         }
-#endif
-    }
-    if (cmd_exit_status == 127 && !exec_get_error(executor))
-    {
-        exec_set_error(executor, "%s: command not found", cmd_name);
-    }
 
-done_execution:
-    frame->last_exit_status = cmd_exit_status;
-
-#if 0
-    /* Check to make sure that old vars and temp vars have the same contents, but, don't
-     * share any pointers */
-    if (variable_store_debug_verify_independent(frame->saved_variables, frame->variables))
-    {
-        log_debug("After execution: Temporary variable store is independent from old store");
-    }
+        if (cmd_exit_status == 127 && !exec_get_error(executor))
+        {
+            exec_set_error(executor, "%s: command not found", cmd_name);
+        }
 #endif
 
+    done_execution:
+        frame->last_exit_status = cmd_exit_status;
 
-    /* Update $_ with last argument */
-    if (string_list_size(expanded_words) > 1)
-    {
-        const string_t *last_arg =
-            string_list_at(expanded_words, string_list_size(expanded_words) - 1);
-        if (!executor->last_argument)
-            executor->last_argument = string_create();
-        string_clear(executor->last_argument);
-        string_append(executor->last_argument, last_arg);
-        executor->last_argument_set = true;
-    }
-    string_list_destroy(&expanded_words);
-    /* Fallthrough */
+        /* Update $_ with last argument */
+        if (string_list_size(expanded_words) > 1)
+        {
+            const string_t *last_arg =
+                string_list_at(expanded_words, string_list_size(expanded_words) - 1);
+            if (!executor->last_argument)
+                executor->last_argument = string_create();
+            string_set(executor->last_argument, last_arg);
+            executor->last_argument_set = true;
+        }
 
-out_restore_redirs:
-#if defined(POSIX_API)
-    if (runtime_redirs && saved_fds)
-    {
-        exec_restore_redirections_posix(saved_fds, saved_count);
-        xfree(saved_fds);
-    }
-#elif defined(UCRT_API)
-    if (runtime_redirs && saved_fds)
-    {
-        fflush(NULL);
-        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
-        xfree(saved_fds);
-    }
-#endif
+    out_cleanup_words:
+        string_list_destroy(&expanded_words);
 
-    exec_redirections_destroy(&runtime_redirs);
+    out_destroy_redirs:
+        exec_redirections_destroy(&runtime_redirs);
 
-    if (status != EXEC_ERROR)
-        status = EXEC_OK;
-
-out_exp_temp:
-    /* Restore the persistent variable store */
-    if (frame->saved_variables)
-    {
+    out_restore_vars:
+        /* Restore original variable store */
         variable_store_destroy(&frame->variables);
         frame->variables = frame->saved_variables;
         frame->saved_variables = NULL;
+
+        return status;
     }
-
-out_base_exp:
-    return status;
-}
-
-/* ============================================================================
- * Function Definition
- * ============================================================================ */
-
-exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node)
-{
-    Expects_not_null(executor);
-    Expects_not_null(node);
-    Expects_eq(node->type, AST_FUNCTION_DEF);
-
-    const string_t *name = node->data.function_def.name;
-
-    if (!executor->functions)
-    {
-        exec_set_error(executor, "function store is not initialized");
-        exec_set_exit_status(executor, 1);
-        return EXEC_ERROR;
-    }
-
-    func_store_error_t err = func_store_add(executor->functions, name, node);
-
-    if (err != FUNC_STORE_ERROR_NONE)
-    {
-        switch (err)
-        {
-        case FUNC_STORE_ERROR_EMPTY_NAME:
-            exec_set_error(executor, "empty function name");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_NAME_TOO_LONG:
-            exec_set_error(executor, "function name too long");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_NAME_INVALID_CHARACTER:
-        case FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT:
-            exec_set_error(executor, "invalid function name");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_STORAGE_FAILURE:
-            exec_set_error(executor, "failed to store function definition");
-            exec_set_exit_status(executor, 1);
-            break;
-
-        case FUNC_STORE_ERROR_NOT_FOUND:
-        default:
-            exec_set_error(executor, "internal function store error");
-            exec_set_exit_status(executor, 1);
-            break;
-        }
-
-        return EXEC_ERROR;
-    }
-
-    exec_clear_error(executor);
-    exec_set_exit_status(executor, 0);
-    return EXEC_OK_INTERNAL_FUNCTION_STORED;
-}
-
-/* ============================================================================
- * Redirected Command Wrapper
- * ============================================================================ */
-
-exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const ast_node_t *node)
-{
-    Expects_not_null(frame);
-    Expects_not_null(node);
-    Expects_eq(node->type, AST_REDIRECTED_COMMAND);
-
-    exec_t *executor = frame->executor;
-
-    const ast_node_t *inner = node->data.redirected_command.command;
-    const ast_node_list_t *ast_redirs = node->data.redirected_command.redirections;
-
-    /* Convert AST redirections to runtime structure */
-    exec_redirections_t *runtime_redirs = exec_redirections_from_ast(frame, ast_redirs);
-
-    saved_fd_t *saved_fds = NULL;
-    int saved_count = 0;
-
-    /* Apply redirections based on platform */
-#ifdef POSIX_API
-    exec_status_t st = exec_apply_redirections_posix(frame, runtime_redirs, &saved_fds, &saved_count);
-    if (st != EXEC_OK)
-    {
-        exec_redirections_destroy(&runtime_redirs);
-        return st;
-    }
-#elifdef UCRT_API
-    exec_status_t st = exec_apply_redirections_ucrt_c(frame, runtime_redirs, &saved_fds, &saved_count);
-    if (st != EXEC_OK)
-    {
-        exec_redirections_destroy(&runtime_redirs);
-        return st;
-    }
-#else
-    /* ISO_C: No redirections supported */
-    if (runtime_redirs && runtime_redirs->count > 0)
-    {
-        exec_set_error(executor, "Redirections are not supported in ISO_C_API mode");
-        exec_redirections_destroy(&runtime_redirs);
-        return EXEC_ERROR;
-    }
-    exec_status_t st = EXEC_OK;
-#endif
-
-    st = exec_execute(executor, inner);
-
-#if defined(POSIX_API)
-    if (saved_fds)
-    {
-        exec_restore_redirections_posix(saved_fds, saved_count);
-        xfree(saved_fds);
-    }
-#elif defined(UCRT_API)
-    if (saved_fds)
-    {
-        exec_restore_redirections_ucrt_c(saved_fds, saved_count);
-        xfree(saved_fds);
-    }
-#endif
-
-    exec_redirections_destroy(&runtime_redirs);
-    return st;
-}

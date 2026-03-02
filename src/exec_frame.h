@@ -12,6 +12,7 @@
  * - Convenience wrappers for common frame types
  */
 
+#include <signal.h>
 #include <stdbool.h>
 #ifdef POSIX_API
 #include <sys/types.h>
@@ -33,7 +34,24 @@ typedef struct exec_t exec_t;
 typedef struct exec_opt_flags_t exec_opt_flags_t;
 typedef struct exec_redirections_t exec_redirections_t;
 typedef struct trap_store_t trap_store_t;
-typedef enum exec_status_t exec_status_t;
+
+// FIXME: this is duplicated from exec.h; we need to break out some common types into a shared
+// header
+#ifndef EXEC_RESULT_T_DEFINED
+#define EXEC_RESULT_T_DEFINED
+typedef enum exec_status_t
+{
+    EXEC_OK = 0,
+    EXEC_ERROR = 1,
+    EXEC_NOT_IMPL = 2,
+    EXEC_OK_INTERNAL_FUNCTION_STORED,
+    EXEC_BREAK,    ///< break statement executed
+    EXEC_CONTINUE, ///< continue statement executed
+    EXEC_RETURN,   ///< return statement executed
+    EXEC_EXIT,     ///< exit statement executed
+} exec_status_t;
+#endif
+
 
 /* ============================================================================
  * Control Flow State
@@ -109,6 +127,7 @@ typedef struct exec_frame_t {
     /* Source tracking */
     string_t* source_name;  /* $BASH_SOURCE / script name */
     int source_line;        /* $LINENO */
+    bool lineno_active;     /* false if user has unset/reset LINENO */
 
     /* Trap handler state */
     bool in_trap_handler;   /* Prevents recursive trap handling */

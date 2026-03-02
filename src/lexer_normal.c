@@ -55,14 +55,18 @@ static token_type_t match_operator(const lexer_t *lx)
 {
     Expects_not_null(lx);
 
-    for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
+    for (int tlen = 3; tlen >= 1; tlen--)
     {
-        const char *op = normal_mode_operators[i];
-        if (op[0] == '\0')
-            continue; // skip uninitialized
-        if (check_operator_at_position(lx, op))
+        for (int i = 0; i < TOKEN_TYPE_COUNT; i++)
         {
-            return (token_type_t)i;
+            const char *op = normal_mode_operators[i];
+            if (strlen(op) != tlen)
+                continue; // skip operators of different length
+            
+            if (check_operator_at_position(lx, op))
+            {
+                return (token_type_t)i;
+            }
         }
     }
     return TOKEN_EOF; // no match
@@ -172,16 +176,15 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
                 lexer_set_error(lx, "unterminated double-quoted heredoc delimiter");
                 return false;
             }
-            // Inside double quotes: backslash escapes only ", $, `, \, and newline
+            // Backslash escapes are not processed in heredoc delimiters.
+            // The only processing is quote removal. And backslash/newline.
             if (c == '\\')
             {
                 char next = lexer_peek_ahead(lx, 1);
-                if (next == '"' || next == '$' || next == '`' || next == '\\' || next == '\n')
+                if (next == '\n')
                 {
                     lexer_advance(lx); // skip backslash
-                    if (next != '\n')
-                        string_append_char(out_delimiter, next);
-                    lexer_advance(lx);
+                    lexer_advance(lx); // skip newline
                     continue;
                 }
             }
@@ -208,8 +211,6 @@ static bool get_heredoc_delimiter(lexer_t *lx, string_t *out_delimiter, bool *ou
                 // Backslash-newline is removed
                 lexer_advance(lx);
                 lexer_advance(lx);
-                lx->line_no++;
-                lx->col_no = 1;
                 continue;
             }
             if (next != '\0')
@@ -315,13 +316,17 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
         char c = lexer_peek(lx);
         char c2 = lexer_peek_ahead(lx, 1);
 
-        // Backslash-newline splicing
+        // Backslash-newline splicing (line continuation)
         if (c == '\\' && c2 == '\n')
         {
-            lx->pos += 2;
-            lx->line_no++;
-            lx->col_no = 1;
-            // Don't emit any token or newline
+            lexer_advance(lx); // consume backslash
+            lexer_advance(lx); // consume newline
+            // After line continuation, check if we're at EOF
+            // If so, we need more input
+            if (lexer_at_end(lx))
+            {
+                return LEX_INCOMPLETE;
+            }
             continue;
         }
 
@@ -507,6 +512,7 @@ lex_status_t lexer_process_one_normal_token(lexer_t *lx)
             // Otherwise treat as word character
             lexer_start_word(lx);
             lexer_append_literal_char_to_word(lx, lexer_advance(lx));
+            continue;
         }
 
         lexer_set_error(lx, "Unexpected character '%c'", c);
