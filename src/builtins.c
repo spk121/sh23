@@ -7,6 +7,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifdef POSIX_API
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <termios.h>
+#include <unistd.h>
+#elifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
+#include <direct.h>
+#include <handleapi.h> // CloseHandle
+#include <io.h>
+#include <process.h>
+#include <processthreadsapi.h> // TerminateProcess, OpenProcess, etc.
+#include <synchapi.h>          // WaitForSingleObject
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
 
 #include "builtins.h"
 
@@ -23,19 +43,13 @@
 #include "variable_store.h"
 #include "xalloc.h"
 
-#ifdef UCRT_API
-#include <direct.h>
-#include <io.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#if defined(_WIN64)
-#define _AMD64_
-#elif defined(_WIN32)
-#define _X86_
-#endif
-#include <handleapi.h>         // CloseHandle
-#include <processthreadsapi.h> // TerminateProcess, OpenProcess, etc.
-#include <synchapi.h>          // WaitForSingleObject
+#ifdef POSIX_API
+#define CHDIR chdir
+#define GETCWD getcwd
+#define STAT stat
+#define STAT_T struct stat
+
+#elifdef UCRT_API
 /* Constants not always available without full Windows.h */
 #ifndef INFINITE
 #define INFINITE 0xFFFFFFFF
@@ -43,30 +57,18 @@
 #ifndef WAIT_OBJECT_0
 #define WAIT_OBJECT_0 0
 #endif
+#ifndef PATH_MAX
+#define PATH_MAX 1024
+#endif
 #define CHDIR _chdir
 #define GETCWD _getcwd
 #define STAT _stat
 #define STAT_T struct _stat
-#ifndef PATH_MAX
-#define PATH_MAX 1024
-#endif
 #ifndef S_ISDIR
 #define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
 #endif
-#endif
 
-#ifdef POSIX_API
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <termios.h>
-#include <unistd.h>
-#define CHDIR chdir
-#define GETCWD getcwd
-#define STAT stat
-#define STAT_T struct stat
-#endif
-
-#if !defined(POSIX_API) && !defined(UCRT_API)
+#else
 #ifndef PATH_MAX
 #define PATH_MAX 1024
 #endif
