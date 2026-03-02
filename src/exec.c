@@ -190,6 +190,27 @@ void exec_cfg_set_from_shell_options(exec_cfg_t *cfg, int argc, char *const *arg
     cfg->job_control_enabled = job_control_enabled;
 }
 
+/*
+ * Destroy an exec_cfg_t and free any heap-allocated members.
+ */
+void exec_cfg_destroy(exec_cfg_t *cfg)
+{
+    if (!cfg)
+        return;
+    if (cfg->shell_args_set && cfg->shell_args)
+    {
+        string_list_destroy(&cfg->shell_args);
+        cfg->shell_args_set = false;
+        cfg->shell_args = NULL;
+    }
+    if (cfg->env_vars_set && cfg->env_vars)
+    {
+        string_list_destroy(&cfg->env_vars);
+        cfg->env_vars_set = false;
+        cfg->env_vars = NULL;
+    }
+}
+
 
 /* ============================================================================
  * Executor Lifecycle

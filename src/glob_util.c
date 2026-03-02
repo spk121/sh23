@@ -441,8 +441,6 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
 #elifdef UCRT_API
 
-#elifdef UCRT_API
-
 string_list_t *glob_util_expand_path(const string_t *pattern)
 {
     if (!pattern)
