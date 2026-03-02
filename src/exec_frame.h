@@ -127,6 +127,7 @@ typedef struct exec_frame_t {
     /* Source tracking */
     string_t* source_name;  /* $BASH_SOURCE / script name */
     int source_line;        /* $LINENO */
+    bool lineno_active;     /* false if user has unset/reset LINENO */
 
     /* Trap handler state */
     bool in_trap_handler;   /* Prevents recursive trap handling */

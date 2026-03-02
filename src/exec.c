@@ -18,6 +18,7 @@
 
 #include "alias_store.h"
 #include "ast.h"
+#include "exec_expander.h"
 #include "exec_frame.h"
 #include "exec_redirect.h"
 #include "fd_table.h"
@@ -60,7 +61,6 @@
 #include <process.h>
 #include <processthreadsapi.h>   // GetProcessId, OpenProcess, GetExitCodeProcess, etc.
 #include <synchapi.h>            // WaitForSingleObject
-#include <handleapi.h>           // CloseHandle
 #endif
 
 /* ============================================================================
@@ -206,7 +206,7 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
      */
 
     /* -------------------------------------------------------------------------
-     * Shell Identity
+     * Shell Identity — PID / PPID
      * -------------------------------------------------------------------------
      */
 #ifdef POSIX_API
@@ -229,23 +229,30 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     e->shell_pid = cfg->shell_pid_set ? cfg->shell_pid : default_pid;
     e->shell_ppid = cfg->shell_ppid_set ? cfg->shell_ppid : default_ppid;
     e->shell_pid_valid = cfg->shell_pid_valid_set ? cfg->shell_pid_valid
-                                                   : (cfg->shell_pid_set ? true : default_pid_valid);
-    e->shell_ppid_valid = cfg->shell_ppid_valid_set ? cfg->shell_ppid_valid
-                                                     : (cfg->shell_ppid_set ? true : default_ppid_valid);
+                                                  : (cfg->shell_pid_set ? true : default_pid_valid);
+    e->shell_ppid_valid = cfg->shell_ppid_valid_set
+                              ? cfg->shell_ppid_valid
+                              : (cfg->shell_ppid_set ? true : default_ppid_valid);
 
-    int argc = cfg->argv_set ? cfg->argc : 0;
-    char *const *argv = cfg->argv_set ? cfg->argv : NULL;
-    e->argc = argc;
-    e->argv = (char **)argv;
+    /* -------------------------------------------------------------------------
+     * Command Line — argc / argv / envp
+     * -------------------------------------------------------------------------
+     */
+    e->argc = cfg->argv_set ? cfg->argc : 0;
+    e->argv = cfg->argv_set ? (char **)cfg->argv : NULL;
     e->envp = cfg->envp_set ? (char **)cfg->envp : NULL;
 
+    /* -------------------------------------------------------------------------
+     * Shell Name ($0) and Arguments ($@)
+     * -------------------------------------------------------------------------
+     */
     if (cfg->shell_name_set && cfg->shell_name)
     {
         e->shell_name = string_create_from_cstr(cfg->shell_name);
     }
-    else if (argc > 0 && argv && argv[0])
+    else if (e->argc > 0 && e->argv && e->argv[0])
     {
-        e->shell_name = string_create_from_cstr(argv[0]);
+        e->shell_name = string_create_from_cstr(e->argv[0]);
     }
     else
     {
@@ -256,15 +263,19 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     {
         e->shell_args = cfg->shell_args;
     }
-    else if (argc > 1 && argv)
+    else if (e->argc > 1 && e->argv)
     {
-        e->shell_args = string_list_create_from_cstr_array((const char **)argv + 1, argc - 1);
+        e->shell_args = string_list_create_from_cstr_array((const char **)e->argv + 1, e->argc - 1);
     }
     else
     {
         e->shell_args = string_list_create();
     }
 
+    /* -------------------------------------------------------------------------
+     * Environment Variables
+     * -------------------------------------------------------------------------
+     */
     if (cfg->env_vars_set && cfg->env_vars)
     {
         e->env_vars = cfg->env_vars;
@@ -278,6 +289,10 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
         e->env_vars = string_list_create_from_system_env();
     }
 
+    /* -------------------------------------------------------------------------
+     * Option Flags
+     * -------------------------------------------------------------------------
+     */
     if (cfg->opt_flags_set)
     {
         e->opt = cfg->opt;
@@ -288,7 +303,10 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
         e->opt = opt_fallback;
     }
 
-
+    /* -------------------------------------------------------------------------
+     * Interactive / Login Shell Detection
+     * -------------------------------------------------------------------------
+     */
 #ifdef POSIX_API
     bool default_is_interactive = isatty(STDIN_FILENO);
 #elifdef UCRT_API
@@ -302,15 +320,13 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     e->is_interactive = cfg->is_interactive_set ? cfg->is_interactive : default_is_interactive;
     e->is_login_shell = cfg->is_login_shell_set ? cfg->is_login_shell : default_is_login_shell;
 
-    /* RC File handling happens when creating the top frame, aliases is empty for now*/
-    e->aliases = alias_store_create();
-
-    /* Tokenizer for persistent state across interactive commands (created lazily) */
-    e->tokenizer = NULL;
-
+    /* -------------------------------------------------------------------------
+     * Job Control and Process Groups
+     * -------------------------------------------------------------------------
+     */
     e->jobs = job_store_create();
-    e->job_control_enabled = cfg->job_control_enabled_set ? cfg->job_control_enabled
-                                                          : e->is_interactive;
+    e->job_control_enabled =
+        cfg->job_control_enabled_set ? cfg->job_control_enabled : e->is_interactive;
 
 #ifdef POSIX_API
     if (cfg->pgid_set)
@@ -335,38 +351,39 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     e->pgid_valid = cfg->pgid_valid_set ? cfg->pgid_valid : false;
 #endif
 
-    e->top_frame_initialized = false;
-    e->current_frame = NULL;
-    e->top_frame = NULL;
-#if defined(EXEC_SYSTEM_RC_PATH) || defined(EXEC_USER_RC_PATH)
-    e->rc_loaded = cfg->rc_loaded_set ? cfg->rc_loaded : false;
-#else
-    e->rc_loaded = cfg->rc_loaded_set ? cfg->rc_loaded : true;
-#endif
-
+    /* -------------------------------------------------------------------------
+     * Signals and Traps
+     * -------------------------------------------------------------------------
+     */
     e->signals_installed = false;
     e->sigint_received = 0;
     e->sigchld_received = 0;
     for (int i = 0; i < NSIG; i++)
         e->trap_pending[i] = 0;
 
+    e->original_signals = sig_act_store_create();
+
     /* -------------------------------------------------------------------------
-     * Command Line
+     * Pipeline Status (pipefail / PIPESTATUS)
      * -------------------------------------------------------------------------
      */
-    e->argc = cfg->argc;
-    e->argv = (char **)cfg->argv;
-    e->envp = (char **)cfg->envp;
+    e->pipe_statuses = NULL;
+    e->pipe_status_count = 0;
+    e->pipe_status_capacity = 0;
 
     /* -------------------------------------------------------------------------
      * Top-Frame Initialization Data (lazy frame creation)
      * -------------------------------------------------------------------------
+     * These stores are owned by exec_t until the top frame is created,
+     * at which point ownership transfers to the frame.
      */
     e->variables = NULL;
     e->local_variables = NULL;
     e->positional_params = NULL;
     e->functions = NULL;
+    e->aliases = alias_store_create();
     e->traps = NULL;
+
 #if defined(POSIX_API) || defined(UCRT_API)
     e->open_fds = NULL;
     e->next_fd = 0;
@@ -380,6 +397,7 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     {
         e->working_directory = NULL;
     }
+
 #ifdef POSIX_API
     e->umask = cfg->umask_set ? cfg->umask : 0;
     e->file_size_limit = cfg->file_size_limit_set ? cfg->file_size_limit : 0;
@@ -387,6 +405,10 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     e->umask = cfg->umask_set ? cfg->umask : 0;
 #endif
 
+    /* -------------------------------------------------------------------------
+     * Special Parameters ($?, $!, $_)
+     * -------------------------------------------------------------------------
+     */
     if (cfg->last_exit_status_set)
     {
         e->last_exit_status = cfg->last_exit_status;
@@ -420,25 +442,31 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
         e->last_argument_set = false;
     }
 
-    /* Traps and signal state (singleton) */
-    e->original_signals = sig_act_store_create();
-
-    /* Pipeline status */
-    e->pipe_statuses = NULL;
-    e->pipe_status_count = 0;
-    e->pipe_status_capacity = 0;
-
-    /* Frame pointers are lazily initialized */
-    e->top_frame_initialized = false;
-    e->top_frame = NULL;
-    e->current_frame = NULL;
-
+    /* -------------------------------------------------------------------------
+     * RC File State
+     * -------------------------------------------------------------------------
+     */
 #if defined(EXEC_SYSTEM_RC_PATH) || defined(EXEC_USER_RC_PATH)
+    e->rc_loaded = cfg->rc_loaded_set ? cfg->rc_loaded : false;
     e->rc_files_sourced = cfg->rc_files_sourced_set ? cfg->rc_files_sourced : false;
 #else
+    e->rc_loaded = cfg->rc_loaded_set ? cfg->rc_loaded : true;
     e->rc_files_sourced = cfg->rc_files_sourced_set ? cfg->rc_files_sourced : true;
 #endif
 
+    /* -------------------------------------------------------------------------
+     * Tokenizer (created lazily on first use)
+     * -------------------------------------------------------------------------
+     */
+    e->tokenizer = NULL;
+
+    /* -------------------------------------------------------------------------
+     * Frame Stack (lazily initialized on first execution)
+     * -------------------------------------------------------------------------
+     */
+    e->top_frame_initialized = false;
+    e->top_frame = NULL;
+    e->current_frame = NULL;
 
     /* -------------------------------------------------------------------------
      * Error State
@@ -869,11 +897,20 @@ static const char *ps1_lookup_variable(const exec_frame_t *frame, const char *na
     return NULL;
 }
 
-
 const char *exec_get_ps2(const exec_t *executor)
 {
     Expects_not_null(executor);
-    const char *ps2 = variable_store_get_value_cstr(executor->variables, "PS2");
+    const char *ps2 = NULL;
+    if (executor->current_frame && executor->current_frame->variables)
+    {
+        ps2 = variable_store_get_value_cstr(executor->current_frame->variables, "PS2");
+        if (ps2 && *ps2)
+            return ps2;
+    }
+    if (executor->variables)
+    {
+        ps2 = variable_store_get_value_cstr(executor->variables, "PS2");
+    }
     return (ps2 && *ps2) ? ps2 : "> ";
 }
 
@@ -929,13 +966,54 @@ void exec_setup_interactive_execute(exec_t *executor)
     /* FIXME handle rcfile here */
 }
 
+/**
+ * Update the LINENO variable in the frame's variable store.
+ *
+ * POSIX says LINENO is set by the shell "to a decimal number representing the
+ * current sequential line number (numbered starting with 1) within a script or
+ * function before it executes each command."
+ *
+ * LINENO is a regular variable — the user can unset or reset it. If they do,
+ * it will be recreated or updated again when the next command executes.
+ *
+ * We only update when we have a valid source line (> 0) from the AST, and
+ * only when executing within a script or function context.
+ */
+static void exec_update_lineno(exec_frame_t *frame, const ast_node_t *node)
+{
+    if (!frame || !node)
+        return;
+
+    /* Only update for valid source lines (parser-assigned, 1-based) */
+    if (node->first_line <= 0)
+        return;
+
+    /* Update the frame's internal line tracker */
+    frame->source_line = node->first_line;
+
+    /* Write LINENO into the variable store as a regular variable */
+    variable_store_t *vars = exec_frame_get_variables(frame);
+    if (!vars)
+        return;
+
+    if (variable_store_has_name_cstr(vars, "LINENO") &&
+        variable_store_is_read_only_cstr(vars, "LINENO"))
+        /* You can't make LINENO readonly, permanently. Muhuhuwahaha! */
+        variable_store_set_read_only_cstr(vars, "LINENO", false);
+
+    char buf[24];
+    snprintf(buf, sizeof(buf), "%d", node->first_line);
+    variable_store_add_cstr(vars, "LINENO", buf, false, false);
+}
+
 exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
-    /* Dispatch based on AST node type */
-    /* Execute based on AST node type */
     exec_result_t result;
+
+    /* Update LINENO before executing this command */
+    exec_update_lineno(frame, node);
 
     switch (node->type)
     {
@@ -1003,97 +1081,6 @@ exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
     }
 
     return result;
-}
-
-exec_status_t exec_execute(exec_t *executor, const ast_node_t *root)
-{
-    Expects_not_null(executor);
-
-    if (root == NULL)
-        return EXEC_OK;
-
-    exec_clear_error(executor);
-
-    /* Ensure we have a top-level frame */
-    if (!executor->current_frame)
-    {
-        /* Create top-level frame from exec_t init data */
-        executor->top_frame = exec_frame_create_top_level(executor);
-        executor->current_frame = executor->top_frame;
-    }
-
-    /* Execute based on AST node type */
-    exec_result_t result;
-
-    switch (root->type)
-    {
-    case AST_COMMAND_LIST:
-        result = exec_compound_list(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_AND_OR_LIST:
-        result = exec_and_or_list(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_PIPELINE:
-        result = exec_pipeline(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_SIMPLE_COMMAND:
-        result = exec_simple_command(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_SUBSHELL:
-        result = exec_subshell(executor->current_frame, root->data.compound.body);
-        break;
-
-    case AST_BRACE_GROUP:
-        result =
-            exec_brace_group(executor->current_frame, root->data.compound.body, NULL);
-        break;
-
-    case AST_IF_CLAUSE:
-        result = exec_if_clause(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_WHILE_CLAUSE:
-    case AST_UNTIL_CLAUSE:
-        result = exec_while_clause(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_FOR_CLAUSE:
-        result = exec_for_clause(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_REDIRECTED_COMMAND:
-        result = exec_redirected_command(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_CASE_CLAUSE:
-        result = exec_case_clause(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    case AST_FUNCTION_DEF:
-        result = exec_function_def_clause(executor->current_frame, (ast_node_t *)root);
-        break;
-
-    default:
-        exec_set_error(executor, "Unsupported AST node type: %d", root->type);
-        return EXEC_NOT_IMPL;
-    }
-
-    /* Update executor's exit status */
-    if (result.has_exit_status)
-    {
-        executor->last_exit_status = result.exit_status;
-        executor->last_exit_status_set = true;
-        if (executor->current_frame)
-        {
-            executor->current_frame->last_exit_status = result.exit_status;
-        }
-    }
-
-    return result.status;
 }
 
 /* ============================================================================
@@ -1732,6 +1719,8 @@ frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t 
     while (fgets(line_buffer, sizeof(line_buffer), fp) != NULL)
     {
         exec_string_status_t status = exec_string_core(frame, line_buffer, tokenizer, ctx);
+        if (ctx && ctx->line_num > 0)
+            frame->source_line = ctx->line_num;
 
         switch (status)
         {
@@ -2083,6 +2072,9 @@ exec_result_t exec_compound_list(exec_frame_t* frame, const ast_node_t* list)
         if (!cmd)
             continue;  // Skip null commands (shouldn't happen, but defensive)
 
+        /* Update LINENO before executing this command */
+        exec_update_lineno(frame, cmd);
+
         cmd_separator_t sep = cmd_separator_list_get(separators, i);
         if (sep == CMD_EXEC_BACKGROUND)
         {
@@ -2200,6 +2192,9 @@ exec_result_t exec_and_or_list(exec_frame_t *frame, ast_node_t *list)
     ast_node_t *right = list->data.andor_list.right;
     andor_operator_t op = list->data.andor_list.op;
 
+    /* Update LINENO for left side */
+    exec_update_lineno(frame, left);
+
     // Execute left command
     exec_result_t left_result;
     switch (left->type) {
@@ -2239,6 +2234,9 @@ exec_result_t exec_and_or_list(exec_frame_t *frame, ast_node_t *list)
     }
 
     if (execute_right) {
+        /* Update LINENO for right side (only if we're going to execute it) */
+        exec_update_lineno(frame, right);
+
         // Execute right command
         exec_result_t right_result;
         switch (right->type) {
@@ -2417,23 +2415,21 @@ exec_result_t exec_for_clause(exec_frame_t *frame, ast_node_t *node)
     token_list_t *word_tokens = node->data.for_clause.words;
     ast_node_t *body = node->data.for_clause.body;
 
-    // Convert tokens to string list for iteration
+    // Build the word list via proper POSIX expansion or positional parameters
     string_list_t *words;
     if (word_tokens && token_list_size(word_tokens) > 0)
     {
-        // Expand word tokens to strings
-        // For now, just extract literal strings (full expansion would use word expansion)
-        words = string_list_create();
-        for (int i = 0; i < token_list_size(word_tokens); i++)
+        // Perform full word expansion: tilde, parameter, command substitution,
+        // arithmetic, field splitting, and pathname expansion
+        words = expand_words(frame, word_tokens);
+        if (!words)
         {
-            const token_t *tok = token_list_get(word_tokens, i);
-            string_t *word_str = token_to_string(tok);
-            string_list_move_push_back(words, &word_str);
+            words = string_list_create(); // Treat expansion failure as empty list
         }
     }
     else
     {
-        // No words provided: iterate over positional parameters
+        // No words provided: iterate over positional parameters ("$@")
         positional_params_t *params = frame->positional_params;
         words = positional_params_get_all(params);
     }
@@ -2446,7 +2442,6 @@ exec_result_t exec_for_clause(exec_frame_t *frame, ast_node_t *node)
 
     return result;
 }
-
 exec_result_t exec_function_def_clause(exec_frame_t *frame, ast_node_t *node)
 {
     Expects_not_null(frame);
@@ -2736,19 +2731,47 @@ exec_result_t exec_iteration_loop(exec_frame_t *frame, exec_params_t *params)
     return result;
 }
 
+/* ============================================================================
+ * Helper: EINTR-safe waitpid
+ * ============================================================================ */
+
+#ifdef POSIX_API
+/**
+ * waitpid wrapper that retries on EINTR.
+ * Returns the pid on success, -1 on real error (with errno set).
+ */
+static pid_t waitpid_eintr(pid_t pid, int *status, int options)
+{
+    pid_t ret;
+    do
+    {
+        ret = waitpid(pid, status, options);
+    } while (ret == -1 && errno == EINTR);
+    return ret;
+}
+#endif
+
+/* ============================================================================
+ * Pipeline Orchestration
+ * ============================================================================ */
+
 /**
  * Execute a pipeline from within an EXEC_FRAME_PIPELINE frame.
  *
- * This function orchestrates the execution of multiple commands connected by pipes.
- * It must be called from within an EXEC_FRAME_PIPELINE frame. It creates pipes,
- * forks child processes for each command, sets up pipe plumbing, and waits for all
- * children to complete.
+ * This function orchestrates the execution of multiple commands connected by
+ * pipes. It creates pipes, forks child processes for each command, sets up
+ * pipe plumbing, and waits for all children to complete.
  *
- * Each pipeline command runs in its own EXEC_FRAME_PIPELINE_CMD frame (created in
- * the child process after fork) with proper subshell semantics: copied variables,
- * reset traps, and proper process group handling.
+ * Process group handling follows the standard POSIX practice of calling
+ * setpgid() in both parent and child to avoid race conditions. The first
+ * child's PID becomes the pipeline's process group ID; subsequent children
+ * join that group. Both parent and child call setpgid() because:
+ *   - The child might run before the parent records pipeline_pgid
+ *   - The parent might run before the child calls setpgid() on itself
+ * One of the two calls will succeed; the other will get EACCES/ESRCH
+ * harmlessly.
  *
- * @param frame The current execution frame (must be EXEC_FRAME_PIPELINE)
+ * @param frame  The current execution frame (must be EXEC_FRAME_PIPELINE)
  * @param params Parameters including pipeline_commands and pipeline_negated
  * @return exec_result_t with final pipeline status
  */
@@ -2776,7 +2799,7 @@ exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *para
 
     if (ncmds == 1)
     {
-        // Single command - just execute it
+        /* Single command — no pipes needed, just execute directly */
         ast_node_t *cmd = commands->nodes[0];
         exec_result_t cmd_result = exec_execute_dispatch(frame, cmd);
         if (is_negated && cmd_result.has_exit_status)
@@ -2787,23 +2810,41 @@ exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *para
     }
 
 #ifdef POSIX_API
-    // Create pipes: we need (ncmds - 1) pipes
-    int pipes[2 * (ncmds - 1)];
-    for (int i = 0; i < ncmds - 1; i++)
+    /*
+     * Allocate pipes and PID array on the heap to avoid VLA stack overflow
+     * with pathological input. We need (ncmds - 1) pipes, each being 2 fds.
+     */
+    int num_pipes = ncmds - 1;
+    int *pipes = xcalloc(2 * num_pipes, sizeof(int));
+    pid_t *pids = xcalloc(ncmds, sizeof(pid_t));
+
+    /* Initialize all pipe fds to -1 so cleanup knows which were opened */
+    for (int i = 0; i < 2 * num_pipes; i++)
+    {
+        pipes[i] = -1;
+    }
+
+    /* Create all pipes up front */
+    for (int i = 0; i < num_pipes; i++)
     {
         if (pipe(pipes + 2 * i) == -1)
         {
-            exec_set_error(frame->executor, "pipe() failed");
+            exec_set_error(frame->executor, "pipe() failed: %s", strerror(errno));
             result.status = EXEC_ERROR;
             result.exit_status = 1;
-            return result;
+            goto cleanup;
         }
     }
 
-    pid_t pids[ncmds];
+    /* Initialize all PIDs to -1 so cleanup knows which children were forked */
+    for (int i = 0; i < ncmds; i++)
+    {
+        pids[i] = -1;
+    }
+
     pid_t pipeline_pgid = 0;
 
-    // Fork and execute each command
+    /* Fork and execute each command */
     for (int i = 0; i < ncmds; i++)
     {
         ast_node_t *cmd = commands->nodes[i];
@@ -2811,110 +2852,186 @@ exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *para
         pid_t pid = fork();
         if (pid == -1)
         {
-            exec_set_error(frame->executor, "fork() failed in pipeline");
-            // Close all pipes
-            for (int j = 0; j < 2 * (ncmds - 1); j++)
+            exec_set_error(frame->executor, "fork() failed in pipeline: %s", strerror(errno));
+
+            /* Kill and reap all children we already forked */
+            for (int j = 0; j < i; j++)
             {
-                close(pipes[j]);
+                kill(pids[j], SIGTERM);
             }
+            for (int j = 0; j < i; j++)
+            {
+                int discard;
+                waitpid_eintr(pids[j], &discard, 0);
+            }
+
             result.status = EXEC_ERROR;
             result.exit_status = 1;
-            return result;
+            goto cleanup;
         }
         else if (pid == 0)
         {
-            /* Child process */
+            /* ---- Child process ---- */
 
-            // Set up stdin from previous pipe
+            /*
+             * Set up process group (child side).
+             * For the first child (i == 0), pipeline_pgid is 0, so
+             * setpgid(0, 0) creates a new group with this child as leader.
+             * For subsequent children, pipeline_pgid was set by the parent
+             * before this fork, so we join the existing group.
+             *
+             * Errors are ignored: EACCES means the parent already called
+             * setpgid for us (or the child has already exec'd), and ESRCH
+             * is similarly benign in this context.
+             */
+            setpgid(0, pipeline_pgid);
+
+            /* Set up stdin from previous pipe */
             if (i > 0)
             {
                 dup2(pipes[2 * (i - 1)], STDIN_FILENO);
             }
 
-            // Set up stdout to next pipe
+            /* Set up stdout to next pipe */
             if (i < ncmds - 1)
             {
                 dup2(pipes[2 * i + 1], STDOUT_FILENO);
             }
 
-            // Close all pipe FDs
-            for (int j = 0; j < 2 * (ncmds - 1); j++)
+            /* Close all pipe FDs in the child */
+            for (int j = 0; j < 2 * num_pipes; j++)
             {
                 close(pipes[j]);
             }
 
-            // Set up process group
-            if (i == 0)
-            {
-                // First command creates the group
-                setpgid(0, 0);
-            }
-            else
-            {
-                // Other commands join the group
-                setpgid(0, pipeline_pgid);
-            }
-
-            // Execute the command (in the context of the current frame, which is already
-            // an EXEC_FRAME_PIPELINE that shares parent state)
+            /* Execute the command */
             exec_result_t cmd_result = exec_execute_dispatch(frame, cmd);
 
-            // Exit the child with the command's exit status
+            /* Exit the child with the command's exit status */
             _exit(cmd_result.has_exit_status ? cmd_result.exit_status : 0);
         }
 
-        // Parent process
+        /* ---- Parent process ---- */
         pids[i] = pid;
+
         if (i == 0)
         {
-            pipeline_pgid = pid; // First child is the group leader
+            /* First child is the group leader */
+            pipeline_pgid = pid;
+        }
+
+        /*
+         * Set up process group (parent side).
+         * We call setpgid() here as well to eliminate the race condition
+         * where the parent proceeds to fork the next child (which needs
+         * pipeline_pgid) before the first child has called setpgid() on
+         * itself. One of the parent/child setpgid calls will succeed;
+         * the other will get EACCES (child already exec'd) which is fine.
+         */
+        setpgid(pid, pipeline_pgid);
+
+        /*
+         * Eagerly close pipe ends that the parent no longer needs.
+         * After forking child i:
+         *   - The write end of pipe i (pipes[2*i+1]) has been dup2'd into
+         *     child i's stdout. Parent doesn't need it.
+         *   - The read end of pipe i-1 (pipes[2*(i-1)]) has been dup2'd
+         *     into child i's stdin. Parent doesn't need it.
+         * Closing eagerly ensures that:
+         *   - Children see EOF on their stdin when the upstream writer exits
+         *   - We don't accumulate open fds across the fork loop
+         */
+        if (i < ncmds - 1)
+        {
+            close(pipes[2 * i + 1]);
+            pipes[2 * i + 1] = -1;
+        }
+        if (i > 0)
+        {
+            close(pipes[2 * (i - 1)]);
+            pipes[2 * (i - 1)] = -1;
         }
     }
 
-    // Parent: close all pipes
-    for (int i = 0; i < 2 * (ncmds - 1); i++)
+    /* Close any remaining pipe fds the parent still holds */
+    for (int i = 0; i < 2 * num_pipes; i++)
     {
-        close(pipes[i]);
+        if (pipes[i] >= 0)
+        {
+            close(pipes[i]);
+            pipes[i] = -1;
+        }
     }
 
-    // Wait for all children
+    /* Wait for all children (collect every status for future pipefail support) */
     int last_status = 0;
     for (int i = 0; i < ncmds; i++)
     {
         int status;
-        if (waitpid(pids[i], &status, 0) < 0)
+        pid_t waited = waitpid_eintr(pids[i], &status, 0);
+        if (waited < 0)
         {
-            exec_set_error(frame->executor, "waitpid() failed in pipeline");
-            result.status = EXEC_ERROR;
-            result.exit_status = 1;
-            return result;
-        }
-
-        // The pipeline's exit status is the exit status of the last command
-        if (i == ncmds - 1)
-        {
-            if (WIFEXITED(status))
+            /*
+             * ECHILD means the child was already reaped (e.g. by a signal
+             * handler). Treat as exit status 127. For any other error,
+             * report but continue waiting for remaining children.
+             */
+            if (errno != ECHILD)
             {
-                last_status = WEXITSTATUS(status);
+                exec_set_error(frame->executor, "waitpid() failed for pid %d: %s", (int)pids[i],
+                               strerror(errno));
             }
-            else if (WIFSIGNALED(status))
-            {
-                last_status = 128 + WTERMSIG(status);
-            }
-            else
+            if (i == ncmds - 1)
             {
                 last_status = 127;
             }
+            continue;
+        }
+
+        int child_status;
+        if (WIFEXITED(status))
+        {
+            child_status = WEXITSTATUS(status);
+        }
+        else if (WIFSIGNALED(status))
+        {
+            child_status = 128 + WTERMSIG(status);
+        }
+        else
+        {
+            child_status = 127;
+        }
+
+        /*
+         * TODO: Store child_status in frame->executor->pipe_statuses[i]
+         * for pipefail / $PIPESTATUS support.
+         */
+
+        if (i == ncmds - 1)
+        {
+            last_status = child_status;
         }
     }
 
     result.exit_status = is_negated ? (last_status == 0 ? 1 : 0) : last_status;
     frame->last_exit_status = result.exit_status;
 
+cleanup:
+    /* Free heap-allocated arrays */
+    for (int i = 0; i < 2 * num_pipes; i++)
+    {
+        if (pipes[i] >= 0)
+        {
+            close(pipes[i]);
+        }
+    }
+    xfree(pipes);
+    xfree(pids);
+
     return result;
 
 #else
-    // For non-POSIX systems, pipelines are not supported
+    /* For non-POSIX systems, multi-command pipelines are not supported */
     exec_set_error(frame->executor, "Pipelines not supported on this platform");
     result.status = EXEC_NOT_IMPL;
     result.exit_status = 1;
@@ -2928,89 +3045,103 @@ exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node)
     Expects_not_null(node);
     Expects(node->type == AST_CASE_CLAUSE);
 
-    exec_result_t result = {
-        .status = EXEC_OK,
-        .has_exit_status = true,
-        .exit_status = 0,
-        .flow = EXEC_FLOW_NORMAL,
-        .flow_depth = 0
-    };
+    exec_result_t result = {.status = EXEC_OK,
+                            .has_exit_status = true,
+                            .exit_status = 0,
+                            .flow = EXEC_FLOW_NORMAL,
+                            .flow_depth = 0};
 
-    // Get the word to match against
+    /* Get the word to match against */
     token_t *word_token = node->data.case_clause.word;
-    if (!word_token) {
-        return result; // No word, exit status 0
+    if (!word_token)
+    {
+        return result;
     }
 
-    // Expand the word
-    string_list_t *word_list = exec_expand_word(frame->executor, word_token);
-    string_t *word = string_list_join_move(&word_list, " ");
-    if (!word) {
+    /*
+     * POSIX XCU 2.9.4.3: The case word undergoes tilde expansion, parameter
+     * expansion, command substitution, and arithmetic expansion — but NOT
+     * field splitting or pathname expansion.
+     */
+    string_t *word = expand_word_nosplit(frame, word_token);
+    if (!word)
+    {
         exec_set_error(frame->executor, "Failed to expand case word");
         result.status = EXEC_ERROR;
         result.exit_status = 1;
         return result;
     }
 
-    // Iterate through case items
+    /* Iterate through case items */
     ast_node_list_t *case_items = node->data.case_clause.case_items;
-    if (!case_items) {
+    if (!case_items)
+    {
         string_destroy(&word);
-        return result; // No items, exit status 0
+        return result;
     }
 
     bool matched = false;
-    for (int i = 0; i < case_items->size && !matched; i++) {
+    for (int i = 0; i < case_items->size && !matched; i++)
+    {
         ast_node_t *item = case_items->nodes[i];
-        if (!item || item->type != AST_CASE_ITEM) {
+        if (!item || item->type != AST_CASE_ITEM)
+        {
             continue;
         }
 
-        // Check if any pattern in this item matches
         token_list_t *patterns = item->data.case_item.patterns;
-        if (!patterns) {
+        if (!patterns)
+        {
             continue;
         }
 
-        for (int j = 0; j < token_list_size(patterns); j++) {
+        for (int j = 0; j < token_list_size(patterns); j++)
+        {
             const token_t *pattern_token = token_list_get(patterns, j);
 
-            // Expand the pattern
-            string_list_t *pattern_list = exec_expand_word(frame->executor, pattern_token);
-            string_t *pattern = string_list_join_move(&pattern_list, " ");
-            if (!pattern) {
+            /*
+             * POSIX XCU 2.9.4.3: Each pattern undergoes the same expansions
+             * as the case word (tilde, parameter, command subst, arithmetic)
+             * but NOT field splitting or pathname expansion. The pattern
+             * metacharacters (*, ?, [...]) retain their special meaning for
+             * fnmatch-style matching against the case word — they are NOT
+             * used for filesystem globbing.
+             */
+            string_t *pattern = expand_word_nosplit(frame, pattern_token);
+            if (!pattern)
+            {
                 continue;
             }
 
-            // Pattern matching
+            /* Match pattern against word */
             bool pattern_matches = false;
 #ifdef POSIX_API
-            // Use fnmatch for proper pattern matching
             pattern_matches = (fnmatch(string_cstr(pattern), string_cstr(word), 0) == 0);
 #else
-            // Use glob_util_match for pattern matching on Windows
             pattern_matches = glob_util_match(string_cstr(pattern), string_cstr(word), 0);
 #endif
-            
+
             string_destroy(&pattern);
-            
-            if (pattern_matches) {
+
+            if (pattern_matches)
+            {
                 matched = true;
-                
-                // Execute the body of this case item
+
+                /* Execute the body of this case item */
                 ast_node_t *body = item->data.case_item.body;
-                if (body) {
+                if (body)
+                {
                     result = exec_execute_dispatch(frame, body);
                 }
-                
-                break; // Stop checking patterns
+
+                break;
             }
         }
     }
 
     string_destroy(&word);
-    
-    // If no match found, exit status remains 0
+
+    /* If no match found, exit status remains 0 */
     return result;
 }
 

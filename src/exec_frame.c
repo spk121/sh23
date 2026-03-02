@@ -502,6 +502,8 @@ exec_frame_t *exec_frame_create_top_level(exec_t *exec)
     frame->executor->current_frame = frame;
     frame->executor->top_frame_initialized = true;
 
+    frame->source_line = 0;
+
     return frame;
 }
 
@@ -617,7 +619,7 @@ exec_frame_t *exec_frame_pop(exec_frame_t **frame_ptr)
     /* Run EXIT trap if applicable */
     if (policy->traps.exit_trap_runs)
     {
-        if (frame->traps->exit_trap_set)
+        if (frame->traps && frame->traps->exit_trap_set)
             trap_store_run_exit_trap(frame->traps, frame);
     }
 

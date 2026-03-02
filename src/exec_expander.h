@@ -86,6 +86,22 @@ string_list_t *expand_word(exec_frame_t *frame, const token_t *tok);
 string_list_t *expand_words(exec_frame_t *frame, const token_list_t *tokens);
 
 /**
+ * Expand a single word token without field splitting or pathname expansion.
+ *
+ * Performs tilde expansion, parameter expansion, command substitution, and
+ * arithmetic expansion only. Used for contexts where POSIX prohibits field
+ * splitting and globbing, such as:
+ *   - The word in a case statement ("case $word in")
+ *   - Case patterns (expanded but glob chars retained for fnmatch)
+ *   - Here-document delimiters
+ *
+ * @param frame  The execution frame
+ * @param tok    Token to expand (must be TOKEN_WORD)
+ * @return       Expanded string, or NULL on error
+ */
+string_t *expand_word_nosplit(exec_frame_t *frame, const token_t *tok);
+
+/**
  * Expand a string with specified expansion flags.
  *
  * This is a lower-level function for expanding arbitrary strings.
@@ -200,6 +216,7 @@ string_list_t *expand_field_split(exec_frame_t *frame, const string_t *text);
  *                 original pattern if no matches
  */
 string_list_t *expand_pathname(exec_frame_t *frame, const string_t *pattern);
+
 
 /* ============================================================================
  * Special Parameter Access

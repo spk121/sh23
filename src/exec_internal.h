@@ -206,16 +206,6 @@ exec_result_t exec_external_command(exec_frame_t *frame, string_list_t *argv,
 exec_result_t exec_builtin_command(exec_frame_t *frame, const string_t *name, string_list_t *argv);
 
 /* ============================================================================
- * Subshell Management
- * ============================================================================ */
-
-/**
- * Create a subshell executor from a parent executor.
- * This sets up appropriate state copying for a true subshell context.
- */
-exec_t *exec_create_subshell(exec_t *executor);
-
-/* ============================================================================
  * Loop Execution
  * ============================================================================ */
 

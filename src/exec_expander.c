@@ -1091,6 +1091,24 @@ string_list_t *expand_word(exec_frame_t *frame, const token_t *tok)
     return fields;
 }
 
+string_t *expand_word_nosplit(exec_frame_t *frame, const token_t *tok)
+{
+    if (!tok || tok->type != TOKEN_WORD)
+    {
+        return NULL;
+    }
+
+    /* If no expansion is needed at all, return the literal text */
+    if (!tok->needs_expansion)
+    {
+        return token_get_all_text(tok);
+    }
+
+    /* Expand parts (tilde, parameter, command subst, arithmetic)
+     * but skip field splitting and pathname expansion */
+    return expand_parts_to_string(frame, token_get_parts_const(tok));
+}
+
 /**
  * Expand a list of WORD tokens into a list of strings, applying all relevant expansions.
  * This may have side effects from parameter expansions with modifiers and command substitutions.

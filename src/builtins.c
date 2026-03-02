@@ -947,12 +947,21 @@ int builtin_readonly(exec_frame_t *frame, const string_list_t *args)
             string_destroy(&empty);
         }
 
-        /* Mark variable as readonly */
-        var_store_error_t ro_result = frame_set_variable_readonly(frame, name, true);
-        if (ro_result != VAR_STORE_ERROR_NONE)
+        if (string_eq_cstr(name, "LINENO"))
         {
-            fprintf(stderr, "readonly: failed to mark '%s' as readonly\n", name_cstr);
+            /* It is unspecified in the standard if LINENO can be made readonly. We'll go with 'no'*/
+            fprintf(stderr, "readonly: variable 'LINENO' cannot be made readonly\n");
             exit_status = 1;
+        }
+        else
+        {
+            /* Mark variable as readonly */
+            var_store_error_t ro_result = frame_set_variable_readonly(frame, name, true);
+            if (ro_result != VAR_STORE_ERROR_NONE)
+            {
+                fprintf(stderr, "readonly: failed to mark '%s' as readonly\n", name_cstr);
+                exit_status = 1;
+            }
         }
 
         string_destroy(&name);
@@ -1875,7 +1884,15 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
             }
             else
             {
-                frame_unset_variable(frame, string_list_at(args, optind));
+                const string_t *name = string_list_at(args, optind);
+                frame_unset_variable(frame, name);
+                if (string_eq_cstr(name, "LINENO"))
+                {
+                    /* It is unspecified in the standard if LINENO can be unset.
+                     * We'll allow it to be unset here, but, it will just come back when
+                     * we parse another AST node. */
+                    fprintf(stderr, "unset: variable 'LINENO' cannot be permanently unset\n");
+                }
             }
         }
     }

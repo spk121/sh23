@@ -348,16 +348,6 @@ void exec_destroy(exec_t **executor);
 void exec_setup_interactive_execute(exec_t *executor);
 
 /**
- * Execute an AST.
- *
- * @param executor The executor context
- * @param root The root AST node to execute
- *
- * @return EXEC_OK on success, EXEC_ERROR on error, EXEC_NOT_IMPL for unsupported node types
- */
-exec_status_t exec_execute(exec_t *executor, const ast_node_t *root);
-
-/**
  * Execute commands from a stream (file or stdin).
  * Reads lines from the stream, parses them, and executes them.
  *
@@ -382,71 +372,9 @@ exec_status_t exec_execute_stream(exec_t *executor, FILE *fp);
 exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
 
 /**
- * Execute a command list.
- */
-exec_status_t exec_execute_command_list(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute an and/or list.
- */
-exec_status_t exec_execute_andor_list(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a pipeline.
- */
-exec_status_t exec_execute_pipeline(exec_t *executor, const ast_node_t *node);
-
-// exec_result_t exec_pipeline_orchestrate(exec_frame_t *frame, exec_params_t *params);
-
-/**
  * Execute a simple command.
  */
 exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t *node);
-
-/**
- * Execute a redirected command wrapper.
- */
-exec_status_t exec_execute_redirected_command(exec_frame_t *frame, const ast_node_t *node);
-
-/**
- * Execute an if clause.
- */
-exec_status_t exec_execute_if_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a while clause.
- */
-exec_status_t exec_execute_while_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute an until clause.
- */
-exec_status_t exec_execute_until_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a for clause.
- */
-exec_status_t exec_execute_for_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a case clause.
- */
-exec_status_t exec_execute_case_clause(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a subshell.
- */
-exec_status_t exec_execute_subshell(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a brace group.
- */
-exec_status_t exec_execute_brace_group(exec_t *executor, const ast_node_t *node);
-
-/**
- * Execute a function definition.
- */
-exec_status_t exec_execute_function_def(exec_t *executor, const ast_node_t *node);
 
 /**
  * Check if any background jobs have completed, and if so mark them done
