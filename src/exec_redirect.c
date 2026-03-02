@@ -6,6 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 #ifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
+#include <fileapi.h>
 #include <fcntl.h>
 #include <io.h>
 #include <sys/stat.h>
@@ -17,11 +23,12 @@
 #endif
 #endif
 
+#include "exec_redirect.h"
+
 #include "ast.h"
 #include "exec_expander.h"
 #include "exec_frame.h"
 #include "exec_internal.h"
-#include "exec_redirect.h"
 #include "lib.h"
 #include "logging.h"
 #include "string_t.h"

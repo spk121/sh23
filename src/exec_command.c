@@ -504,6 +504,10 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
         for (int i = 0; argv[i]; i++)
             xfree(argv[i]);
         xfree(argv);
+        if (cmd_exit_status == 127 && !exec_get_error(executor))
+        {
+            exec_set_error(executor, "%s: command not found", cmd_name);
+        }
 #elif defined(UCRT_API)
         int argc = string_list_size(expanded_words);
         char **argv = xcalloc((size_t)argc + 1, sizeof(char *));
