@@ -384,45 +384,42 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
     const char *pattern_str = string_cstr(pattern);
     wordexp_t we;
-    int ret;
-
-    /* WRDE_NOCMD: prevent command substitution (security)
-     * WRDE_UNDEF: fail on undefined variables (like $foo)
-     * No WRDE_SHOWERR — we silence errors about ~nonexistentuser
-     */
-    ret = wordexp(pattern_str, &we, WRDE_NOCMD | WRDE_UNDEF);
+    int ret = wordexp(pattern_str, &we, WRDE_NOCMD | WRDE_UNDEF);
 
     if (ret != 0 || we.we_wordc == 0)
     {
-        /* Possible return values:
-         * WRDE_BADCHAR: illegal char like | or ;
-         * WRDE_BADVAL: undefined variable reference (with WRDE_UNDEF)
-         * WRDE_CMDSUB: command substitution (blocked by WRDE_NOCMD)
-         * WRDE_NOSPACE: out of memory
-         * WRDE_SYNTAX: shell syntax error
-         * Or we_wordc == 0: no matches
-         */
         if (ret != 0)
-        {
-            wordfree(&we); // safe to call even on failure
-        }
-        return NULL; // treat errors and no matches the same: keep literal
+            wordfree(&we);
+        return NULL;
     }
 
-    /* Success and at least one match */
+    /* Find start of basename */
+    int sep_idx = string_find_last_of_cstr(pattern, "/");
+    size_t pos = (sep_idx >= 0 ? (size_t)sep_idx + 1 : 0);
+
+    /* Skip backslashes that would quote the following character.
+       We only care whether the *effective* first character of the basename is '.' */
+    bool explicit_dot = false;
+    while (pos < strlen(pattern_str) && pattern_str[pos] == '\\')
+        pos++; // skip quoting backslash
+
+    if (pos < strlen(pattern_str) && pattern_str[pos] == '.')
+        explicit_dot = true;
+
     string_list_t *result = string_list_create();
 
     for (size_t i = 0; i < we.we_wordc; i++)
     {
         string_t *expanded = string_create_from_cstr(we.we_wordv[i]);
 
-        // Filter out . and .. entries by examining the final path component.
-        // name_start is the index just after the last '/', or 0 if no slash present.
         int sep = string_find_last_of_cstr(expanded, "/");
         int name_start = (sep >= 0) ? sep + 1 : 0;
 
-        if (string_compare_cstr_substring(expanded, name_start, -1, ".", 0, -1) == 0 ||
-            string_compare_cstr_substring(expanded, name_start, -1, "..", 0, -1) == 0)
+        bool is_dot_or_dotdot =
+            string_compare_cstr_substring(expanded, name_start, -1, ".", 0, -1) == 0 ||
+            string_compare_cstr_substring(expanded, name_start, -1, "..", 0, -1) == 0;
+
+        if (is_dot_or_dotdot && !explicit_dot)
         {
             string_destroy(&expanded);
             continue;
@@ -433,7 +430,6 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
     wordfree(&we);
 
-    // If only . and .. matched, return NULL
     if (string_list_size(result) == 0)
     {
         string_list_destroy(&result);
@@ -445,6 +441,8 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 
 #elifdef UCRT_API
 
+#elifdef UCRT_API
+
 string_list_t *glob_util_expand_path(const string_t *pattern)
 {
     if (!pattern)
@@ -453,61 +451,106 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
     const char *pattern_str = string_cstr(pattern);
     log_debug("glob_util_expand_path: UCRT glob pattern='%s'", pattern_str);
 
+    /* Find start of basename */
+    int sep_idx = string_find_last_of_cstr(pattern, "/\\");
+    size_t basename_start = (sep_idx >= 0 ? (size_t)sep_idx + 1 : 0);
+
+    /* Determine if the basename *effectively* starts with '.' after quote removal.
+     * We skip leading backslashes ourselves because the pattern may contain escaped dots
+     * (e.g. \.* should be treated the same as .* for dotfile inclusion purposes). */
+    size_t pos = basename_start;
+    while (pos < strlen(pattern_str) && pattern_str[pos] == '\\')
+        pos++; // skip quoting backslash
+
+    bool explicit_dot = false;
+    if (pos < strlen(pattern_str) && pattern_str[pos] == '.')
+        explicit_dot = true;
+
+    /* Check if the basename contains any [ character → needs full matching */
+    bool has_bracket = false;
+    for (size_t i = basename_start; i < strlen(pattern_str); ++i)
+    {
+        if (pattern_str[i] == '[')
+        {
+            has_bracket = true;
+            break;
+        }
+    }
+
     struct _finddata_t fd;
     intptr_t handle;
 
-    // Attempt to find first matching file
-    handle = _findfirst(pattern_str, &fd);
+    /* Directory prefix for path reconstruction (includes trailing separator if present) */
+    string_t *dir_prefix = string_create_from_range(pattern, 0, sep_idx + 1);
+
+    if (!has_bracket)
+    {
+        /* Fast path: native wildcard handling (* and ? only) */
+        handle = _findfirst(pattern_str, &fd);
+    }
+    else
+    {
+        /* Slow path: enumerate everything and filter with glob_util_match */
+        string_t *search = string_create_from(dir_prefix);
+        string_append_cstr(search, "*");
+        handle = _findfirst(string_cstr(search), &fd);
+        string_destroy(&search);
+    }
+
     if (handle == -1L)
     {
+        string_destroy(&dir_prefix);
         if (errno == ENOENT)
         {
-            // No matches found
             log_debug("glob_util_expand_path: no matches found");
             return NULL;
         }
-        // Other error (access denied, etc.)
         log_debug("glob_util_expand_path: error: %s", strerror(errno));
         return NULL;
     }
 
-    // Create result list
     string_list_t *result = string_list_create();
 
-    // Extract the directory prefix from the pattern so we can reconstruct full
-    // paths.  _findfirst/_findnext only return the bare filename in fd.name,
-    // but callers expect paths in the same form as the POSIX wordexp() version
-    // (e.g. pattern "src/*.c" -> results like "src/file.c", not "file.c").
-    // string_find_last_of_cstr returns the index of the last separator, or -1.
-    int sep_idx = string_find_last_of_cstr(pattern, "/\\");
-    // dir_prefix is the leading "dir/" portion (inclusive of the separator),
-    // or an empty string when sep_idx == -1 (sep_idx + 1 == 0 -> empty range).
-    string_t *dir_prefix = string_create_from_range(pattern, 0, sep_idx + 1);
-
-    // Add all matching files
     do
     {
-        // Skip . and .. entries
-        if (strcmp(fd.name, ".") == 0 || strcmp(fd.name, "..") == 0)
+        const char *name = fd.name;
+
+        /* 1. Special case: always filter . and .. unless pattern explicitly wants dotfiles */
+        if (!explicit_dot && (strcmp(name, ".") == 0 || strcmp(name, "..") == 0))
             continue;
 
-        // Reconstruct the full path by appending the bare filename to the prefix.
+        /* 2. Enforce GLOB_UTIL_PERIOD-like behavior for hidden files (leading .) */
+        if (!explicit_dot && name[0] == '.')
+        {
+            /* Pattern does not start with . → hidden files should not be matched by * or ? */
+            continue;
+        }
+
+        /* 3. When using bracket path, apply full pattern matching on the basename */
+        if (has_bracket)
+        {
+            const char *bname_pat = pattern_str + basename_start;
+            int match_flags = GLOB_UTIL_PATHNAME | GLOB_UTIL_PERIOD | GLOB_UTIL_CASEFOLD;
+
+            if (!glob_util_match(bname_pat, name, match_flags))
+                continue;
+        }
+
+        /* Build full path */
         string_t *filepath = string_create_from(dir_prefix);
-        string_append_cstr(filepath, fd.name);
+        string_append_cstr(filepath, name);
 
         string_list_move_push_back(result, &filepath);
-        log_debug("glob_util_expand_path: matched '%s'", fd.name);
+        log_debug("glob_util_expand_path: matched '%s'", name);
 
     } while (_findnext(handle, &fd) == 0);
 
     string_destroy(&dir_prefix);
-
     _findclose(handle);
 
-    // If no files were added (only . and .. were found), return NULL
     if (string_list_size(result) == 0)
     {
-        log_debug("glob_util_expand_path: only . and .. matched");
+        log_debug("glob_util_expand_path: only . and .. or no matches or all hidden filtered");
         string_list_destroy(&result);
         return NULL;
     }
@@ -517,15 +560,13 @@ string_list_t *glob_util_expand_path(const string_t *pattern)
 }
 
 #else
-
-/* ISO_C: No filesystem access available */
+/* ISO_C unchanged */
 string_list_t *glob_util_expand_path(const string_t *pattern)
 {
     (void)pattern;
     log_warn("glob_util_expand_path: No glob implementation available in ISO_C mode");
     return NULL;
 }
-
 #endif
 
 string_list_t *glob_util_expand_path_ex(const string_t *pattern, int flags, const char *base_dir)
