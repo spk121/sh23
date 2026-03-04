@@ -1535,6 +1535,8 @@ bool frame_alias_name_is_valid(const char *name)
  * Background Jobs
  * ============================================================================ */
 
+// TODO: move to the job_store API, since it's not really specific to frames. The frame API can just
+// delegate to it.
 static bool job_store_update_status(job_store_t *jobs, bool wait_for_completion)
 {
     Expects_not_null(jobs);
@@ -1643,6 +1645,8 @@ static bool job_store_update_status(job_store_t *jobs, bool wait_for_completion)
 #endif
 }
 
+// TODO: background jobs should be part of the exec.h API, not the frame API,
+// since they are more related to the executor than individual frames.
 bool frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion)
 {
     Expects_not_null(frame);
@@ -1652,6 +1656,7 @@ bool frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion)
     return job_store_update_status(frame->executor->jobs, wait_for_completion);
 }
 
+// TODO: move to exec.h API
 void frame_print_completed_background_jobs(exec_frame_t *frame)
 {
     Expects_not_null(frame);
@@ -1660,6 +1665,7 @@ void frame_print_completed_background_jobs(exec_frame_t *frame)
     job_store_print_completed_jobs(frame->executor->jobs, stdout);
 }
 
+// TODO: move to exec.h API
 void frame_print_background_jobs(exec_frame_t *frame)
 {
     Expects_not_null(frame);
@@ -1673,6 +1679,12 @@ void frame_print_background_jobs(exec_frame_t *frame)
  * Stream Execution
  * ============================================================================ */
 
+/* Execute a stream with fresh tokenizer at a specific frame. This is used for the `builtin_dot`
+ * implementation, which needs to execute a stream starting
+ * at an arbitrary frame in a non-interactive context with a fresh tokenizer.
+ */ 
+// TODO: if this is still used, it should call a frame-specific execute function.
+// If we can't make a frame-specific execute function, it should be move to the exec API.
 frame_exec_status_t frame_execute_stream(exec_frame_t *frame, FILE *fp)
 {
     Expects_not_null(frame);
@@ -1685,7 +1697,22 @@ frame_exec_status_t frame_execute_stream(exec_frame_t *frame, FILE *fp)
         return FRAME_EXEC_ERROR;
     }
 
-    frame_exec_status_t status = exec_stream_core(frame, fp, tokenizer);
+    // TODO: this should be a frame-specific execute function, if possible.
+    exec_status_t est = exec_execute_stream_repl(frame->executor, fp, false);
+    frame_exec_status_t status;
+    switch (est)
+    {
+    case EXEC_OK:
+    case EXEC_RETURN:
+        status = FRAME_EXEC_OK;
+        break;
+    case EXEC_ERROR:
+    case EXEC_BREAK:
+    case EXEC_CONTINUE:
+    default:
+        status = FRAME_EXEC_ERROR;
+        break;
+    }
 
     tokenizer_destroy(&tokenizer);
     return status;
@@ -1698,6 +1725,8 @@ frame_exec_status_t frame_execute_stream(exec_frame_t *frame, FILE *fp)
 /**
  * Helper: Get the job_store from the frame's executor
  */
+// TODO: this should be part of the exec API, not the frame API, since it's more related to the
+// executor than individual frames.
 static job_store_t *get_job_store(const exec_frame_t *frame)
 {
     if (!frame || !frame->executor)
@@ -1708,6 +1737,7 @@ static job_store_t *get_job_store(const exec_frame_t *frame)
 /**
  * Helper: Get job indicator character
  */
+// TODO: this should be moved to the job store API.
 static char get_job_indicator(const job_store_t *store, const job_t *job)
 {
     if (job == store->current_job)
@@ -1720,6 +1750,8 @@ static char get_job_indicator(const job_store_t *store, const job_t *job)
 /**
  * Helper: Print a single job
  */
+// TODO: this should be moved to the job store API, since it's not really specific to frames. The
+// frame API can just delegate to it.
 static void print_job(const job_store_t *store, const job_t *job, frame_jobs_format_t format)
 {
     if (!job || !store)
@@ -1768,6 +1800,8 @@ static void print_job(const job_store_t *store, const job_t *job, frame_jobs_for
     }
 }
 
+// TODO: this should be moved to the exec API, since it's more related to the executor than
+// individual frames.
 int frame_parse_job_id(const exec_frame_t* frame, const string_t* arg_str)
 {
     if (!frame || !arg_str || string_length(arg_str) == 0)
@@ -1819,6 +1853,8 @@ int frame_parse_job_id(const exec_frame_t* frame, const string_t* arg_str)
     return -1;
 }
 
+// TODO: this should be moved to the exec API, since it's more related to the executor than
+// individual frames.
 bool frame_print_job_by_id(const exec_frame_t* frame, int job_id, frame_jobs_format_t format)
 {
     if (!frame)
@@ -1836,6 +1872,9 @@ bool frame_print_job_by_id(const exec_frame_t* frame, int job_id, frame_jobs_for
     return true;
 }
 
+// TODO: this should be moved to the exec API, since it's more related to the executor than
+// individual frames. Or it could be moved to the job store API, since it's really just printing
+// jobs from the store.
 void frame_print_all_jobs(const exec_frame_t* frame, frame_jobs_format_t format)
 {
     if (!frame)
@@ -1851,6 +1890,8 @@ void frame_print_all_jobs(const exec_frame_t* frame, frame_jobs_format_t format)
     }
 }
 
+// TODO: this should be moved to the exec API, since it's more related to the executor than
+// individual frames.
 bool frame_has_jobs(const exec_frame_t* frame)
 {
     if (!frame)

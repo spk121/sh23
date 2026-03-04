@@ -645,7 +645,7 @@ exec_status_t exec_execute_simple_command(exec_frame_t *frame, const ast_node_t 
             string_append(cmdline, string_list_at(expanded_words, i));
         }
 
-        string_t *env_fname = variable_store_write_env_file(executor->variables);
+        string_t *env_fname = variable_store_write_env_file(frame->variables);
 
         int rc = system(string_cstr(cmdline));
 

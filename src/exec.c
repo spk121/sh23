@@ -1110,28 +1110,9 @@ exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
  * ============================================================================ */
 
 /**
- * Result of processing a single string/line of input.
- */
-typedef enum {
-    EXEC_STRING_OK,           /* Successfully executed one or more commands */
-    EXEC_STRING_INCOMPLETE,   /* Need more input to complete lexing/parsing */
-    EXEC_STRING_EMPTY,        /* No commands to execute (empty input or comments) */
-    EXEC_STRING_ERROR         /* Error occurred */
-} exec_string_status_t;
-
-/**
- * Context structure for exec_string_core to maintain state between calls.
- */
-typedef struct {
-    lexer_t *lexer;
-    token_list_t *accumulated_tokens;
-    int line_num;
-} exec_string_ctx_t;
-
-/**
  * Initialize the string execution context.
  */
-static exec_string_ctx_t *exec_string_ctx_create(void)
+exec_string_ctx_t *exec_string_ctx_create(void)
 {
     exec_string_ctx_t *ctx = xcalloc(1, sizeof(exec_string_ctx_t));
     ctx->lexer = lexer_create();
@@ -1143,7 +1124,7 @@ static exec_string_ctx_t *exec_string_ctx_create(void)
 /**
  * Destroy the string execution context.
  */
-static void exec_string_ctx_destroy(exec_string_ctx_t **ctx_ptr)
+void exec_string_ctx_destroy(exec_string_ctx_t **ctx_ptr)
 {
     if (!ctx_ptr || !*ctx_ptr)
         return;
@@ -1162,7 +1143,7 @@ static void exec_string_ctx_destroy(exec_string_ctx_t **ctx_ptr)
 /**
  * Reset the context after successful execution.
  */
-static void exec_string_ctx_reset(exec_string_ctx_t *ctx)
+void exec_string_ctx_reset(exec_string_ctx_t *ctx)
 {
     if (ctx->lexer)
         lexer_reset(ctx->lexer);
@@ -1709,66 +1690,6 @@ exec_result_t exec_parse_string(exec_frame_t *frame, const char *command, ast_no
 
     *out_ast = ast;
     return result;
-}
-
-/**
- * Core implementation for executing shell commands from a stream.
- * 
- * This is shared between exec_execute_stream() and frame_execute_stream().
- * The caller provides the tokenizer and manages its lifecycle.
- */
-frame_exec_status_t exec_stream_core(exec_frame_t *frame, FILE *fp, tokenizer_t *tokenizer)
-{
-    Expects_not_null(frame);
-    Expects_not_null(fp);
-    Expects_not_null(tokenizer);
-    Expects_not_null(frame->executor);
-
-    exec_string_ctx_t *ctx = exec_string_ctx_create();
-    if (!ctx || !ctx->lexer)
-    {
-        frame_set_error_printf(frame, "Failed to create execution context");
-        if (ctx)
-            exec_string_ctx_destroy(&ctx);
-        return FRAME_EXEC_ERROR;
-    }
-
-    frame_exec_status_t final_status = FRAME_EXEC_OK;
-
-#define LINE_BUFFER_SIZE 4096
-    char line_buffer[LINE_BUFFER_SIZE];
-
-    while (fgets(line_buffer, sizeof(line_buffer), fp) != NULL)
-    {
-        exec_string_status_t status = exec_string_core(frame, line_buffer, tokenizer, ctx);
-        if (ctx && ctx->line_num > 0)
-            frame->source_line = ctx->line_num;
-
-        switch (status)
-        {
-        case EXEC_STRING_OK:
-            /* Successfully executed, continue to next line */
-            break;
-
-        case EXEC_STRING_INCOMPLETE:
-            /* Need more input, continue reading */
-            break;
-
-        case EXEC_STRING_EMPTY:
-            /* No commands to execute, continue */
-            break;
-
-        case EXEC_STRING_ERROR:
-            /* Error occurred, stop processing */
-            final_status = FRAME_EXEC_ERROR;
-            goto cleanup;
-        }
-    }
-
-cleanup:
-    exec_string_ctx_destroy(&ctx);
-
-    return final_status;
 }
 
 exec_status_t exec_execute_stream(exec_t *executor, FILE *fp)

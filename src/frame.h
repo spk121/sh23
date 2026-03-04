@@ -1,6 +1,18 @@
 #ifndef FRAME_H
 #define FRAME_H
 
+// TODO: this header needs to be reworked so that it only contains the public
+// API for the frame-level executor, and all internal definitions are moved to exec_internal.h or
+// similar.
+//
+// Also any top-level APIs in this header should be moved to exec.h, which is the public
+// API for the top-level executor. Together, exec.h and frame.h should be the only public headers
+// for the execution engine, and shell.c and builtins.c should only be using the public APIs defined
+// in those headers.
+//
+// Aside from string_t.h and string_list.h,
+// no other internal API should be exposed in this header.
+
 #include <stdio.h>
 
 #include "string_t.h"
@@ -44,6 +56,7 @@ typedef enum frame_exec_status_t
     FRAME_EXEC_OK = 0,       /* Execution succeeded */
     FRAME_EXEC_ERROR = 1,    /* Execution error */
     FRAME_EXEC_NOT_IMPL = 2, /* Feature not implemented */
+    FRAME_EXEC_INCOMPLETE = 3 /* Incomplete input (e.g. unclosed quotes) */
 } frame_exec_status_t;
 
 /**
@@ -536,7 +549,8 @@ void frame_clear_all_aliases(exec_frame_t *frame);
  */
 bool frame_alias_name_is_valid(const char *name);
 
-// NEW API: background jobs
+// TODO: background jobs should be part of the exec.h API, not the frame API,
+// since they are more related to the executor than individual frames.
 bool frame_reap_background_jobs(exec_frame_t *frame, bool wait_for_completion);
 void frame_print_background_jobs(exec_frame_t *frame);
 

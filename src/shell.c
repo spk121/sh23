@@ -3,12 +3,17 @@
 
 #include "shell.h"
 
+// FIXME: both shell.c and builtins.c should be using the public interface exclusively,
+// which is in frame.h and exec.h.
+#define MGSH_USE_PUBLIC_INTERFACES
+
 #include "exec.h"
 #include "frame.h"
 #include "logging.h"
-#include "positional_params.h"
+// #include "positional_params.h"
 #include "string_t.h"
 #include "xalloc.h"
+
 
 struct shell_t
 {
@@ -176,7 +181,7 @@ static sh_status_t shell_execute_script_file(shell_t *sh)
         positional_params_set_arg0(frame->positional_params, sh->script_filename);
     }
 
-    exec_status_t status = exec_execute_stream(sh->executor, fp);
+    exec_status_t status = exec_execute_stream_repl(sh->executor, fp, false /* not interactive */);
     fclose(fp);
 
     // Convert exec_status_t to sh_status_t

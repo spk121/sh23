@@ -25,6 +25,7 @@
 #include "fd_table.h"
 #include "frame.h"
 #include "func_store.h"
+#include "lexer.h"
 #include "job_store.h"
 #include "positional_params.h"
 #include "sig_act.h"
@@ -41,6 +42,35 @@
 #include "exec_frame.h"
 
 /* ============================================================================
+ * Executor State
+ * ============================================================================ */
+
+ /**
+ * Result of processing a single string/line of input.
+ */
+typedef enum
+{
+    EXEC_STRING_OK,         /* Successfully executed one or more commands */
+    EXEC_STRING_INCOMPLETE, /* Need more input to complete lexing/parsing */
+    EXEC_STRING_EMPTY,      /* No commands to execute (empty input or comments) */
+    EXEC_STRING_ERROR       /* Error occurred */
+} exec_string_status_t;
+
+/**
+ * Context structure for exec_string_core to maintain state between calls.
+ */
+typedef struct
+{
+    lexer_t *lexer;
+    token_list_t *accumulated_tokens;
+    int line_num;
+} exec_string_ctx_t;
+
+exec_string_ctx_t *exec_string_ctx_create(void);
+void exec_string_ctx_destroy(exec_string_ctx_t **ctx_ptr);
+void exec_string_ctx_reset(exec_string_ctx_t *ctx);
+
+    /* ============================================================================
  * Redirection Structures
  * ============================================================================ */
 
@@ -245,6 +275,7 @@ bool exec_is_special_param(const string_t *name);
 
 /**
  * Core implementation for executing shell commands from a stream.
+ * It reads a complete line from the input stream, parses it into an AST, and executes it.
  * 
  * This is the shared implementation used by both exec_execute_stream() and
  * frame_execute_stream(). The caller provides the tokenizer and manages its
