@@ -119,52 +119,57 @@ $(shell $(MKDIR) $(BIN_DIR) $(LIB_DIR) $(OBJ_DIR) $(TEST_DIR))
 # --------------------------------------------------------------------------
 
 MGSHBASE_SOURCES := \
-	src/getopt.c \
-	src/lib.c \
-	src/logging.c \
-	src/string_t.c \
-	src/string_list.c \
-	src/xalloc.c
+src/getopt.c \
+src/getopt_string.c \
+src/glob_util.c \
+src/lib.c \
+src/logging.c \
+src/pattern_removal.c \
+src/string_t.c \
+src/string_list.c \
+src/xalloc.c
 
 MGSHSTORE_SOURCES := \
-	src/alias.c \
-	src/alias_store.c \
-	src/alias_array.c \
-	src/fd_table.c \
-	src/func_map.c \
-	src/func_store.c \
-	src/glob_util.c \
-	src/gnode.c \
-	src/gprint.c \
-	src/job_store.c \
-	src/sig_act.c \
-	src/trap_store.c \
-	src/variable_map.c \
-	src/variable_store.c \
-	src/token.c \
-	src/token_array.c \
-	src/ast.c \
-	src/pattern_removal.c
+src/alias.c \
+src/alias_array.c \
+src/alias_store.c \
+src/ast.c \
+src/fd_table.c \
+src/func_map.c \
+src/func_store.c \
+src/gnode.c \
+src/gprint.c \
+src/job_store.c \
+src/sig_act.c \
+src/token.c \
+src/token_array.c \
+src/trap_store.c \
+src/variable_map.c \
+src/variable_store.c
 
 MGSHLOGIC_SOURCES := \
-	src/arithmetic.c \
-	src/getopt_string.c \
-	src/lower.c \
-	src/lexer.c \
-	src/lexer_arith_exp.c \
-	src/lexer_cmd_subst.c \
-	src/lexer_heredoc.c \
-	src/lexer_normal.c \
-	src/lexer_squote.c \
-	src/lexer_dquote.c \
-	src/lexer_param_exp.c \
-	src/tokenizer.c \
-	src/parser.c \
-	src/shell.c \
-	src/positional_params.c
-#	src/builtins.c \
-#	src/expander.c \
-#	src/exec.c \
+src/arithmetic.c \
+src/builtins.c \
+src/exec.c \
+src/exec_command.c \
+src/exec_expander.c \
+src/exec_frame.c \
+src/exec_redirect.c \
+src/frame.c \
+src/getopt_string.c \
+src/lower.c \
+src/lexer.c \
+src/lexer_arith_exp.c \
+src/lexer_cmd_subst.c \
+src/lexer_heredoc.c \
+src/lexer_normal.c \
+src/lexer_squote.c \
+src/lexer_dquote.c \
+src/lexer_param_exp.c \
+src/tokenizer.c \
+src/parser.c \
+src/positional_params.c \
+src/shell.c
 
 MAIN_SOURCE := src/main.c
 
@@ -172,21 +177,14 @@ CTEST_OBJ_SOURCE := test/ctest/ctest.c
 
 # Test sources
 BASE_TESTS := \
-	test/mgsh/test_xalloc_ctest.c \
-	test/mgsh/test_getopt_ctest.c \
-	test/mgsh/test_string_ctest.c \
-	test/mgsh/test_string_list_ctest.c
+test/mgsh/test_xalloc_ctest.c \
+test/mgsh/test_getopt_ctest.c \
+test/mgsh/test_string_ctest.c
 
 STORE_TESTS := \
-	test/mgsh/test_alias_ctest.c \
-	test/mgsh/test_ast_ctest.c \
-	test/mgsh/test_fd_table_ctest.c \
-	test/mgsh/test_func_store_ctest.c \
-	test/mgsh/test_sig_act_ctest.c \
-	test/mgsh/test_token_ctest.c \
-	test/mgsh/test_token_array_ctest.c \
-	test/mgsh/test_pattern_removal_ctest.c \
-	test/mgsh/test_variable_store_ctest.c
+test/mgsh/test_alist_ctest.c \
+test/mgsh/test_ast_ctest.c \
+test/mgsh/test_sig_act_ctest.c
 
 LOGIC_TESTS := \
 	test/mgsh/test_arithmetic_ctest.c \

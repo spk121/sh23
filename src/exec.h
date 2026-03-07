@@ -268,6 +268,7 @@ bool exec_is_top_frame_initialized(const exec_t *executor);
  */
 exec_frame_t *exec_get_current_frame(const exec_t *executor);
 
+
 /* ============================================================================
  * Builtin Registration
  * ============================================================================
@@ -305,6 +306,30 @@ typedef struct exec_builtin_context_t
 typedef int (*exec_builtin_fn_t)(exec_builtin_context_t *ctx, string_list_t *args);
 
 /**
+ * Builtin category per POSIX XCU 2.14.
+ *
+ * The distinction matters for error handling and variable assignment
+ * semantics:
+ *
+ *   SPECIAL builtins (break, continue, return, exit, export, readonly,
+ *   set, unset, eval, exec, dot/source, shift, times, trap):
+ *     - Variable assignments from the command prefix persist after the
+ *       builtin completes.
+ *     - A usage or redirection error in a special builtin causes a
+ *       non-interactive shell to exit.
+ *
+ *   REGULAR builtins (cd, read, command, type, etc.):
+ *     - Variable assignments from the command prefix are temporary
+ *       (scoped to the command).
+ *     - Errors do not cause the shell to exit.
+ */
+typedef enum exec_builtin_category_t
+{
+    EXEC_BUILTIN_SPECIAL, /**< POSIX special builtin  */
+    EXEC_BUILTIN_REGULAR  /**< POSIX regular builtin  */
+} exec_builtin_category_t;
+
+/**
  * Register a builtin command.
  *
  * If a builtin with the given name already exists it is replaced.
@@ -312,9 +337,11 @@ typedef int (*exec_builtin_fn_t)(exec_builtin_context_t *ctx, string_list_t *arg
  * @param executor  The executor.
  * @param name      The command name (e.g. "cd", "export", "myfunc").
  * @param fn        The implementation function.
+ * @param category  Whether this is a POSIX special or regular builtin.
  * @return true on success, false on failure (e.g. NULL arguments).
  */
-bool exec_register_builtin(exec_t *executor, const char *name, exec_builtin_fn_t fn);
+bool exec_register_builtin(exec_t *executor, const char *name, exec_builtin_fn_t fn,
+                           exec_builtin_category_t category);
 
 /**
  * Unregister a previously registered builtin command.
@@ -335,6 +362,19 @@ bool exec_has_builtin(const exec_t *executor, const char *name);
  *         that name.
  */
 exec_builtin_fn_t exec_get_builtin(const exec_t *executor, const char *name);
+
+/**
+ * Get the category of a registered builtin.
+ *
+ * @param executor  The executor.
+ * @param name      The builtin name.
+ * @param category_out  If non-NULL and the builtin exists, receives the
+ *                      category.
+ * @return true if the builtin exists, false otherwise.
+ */
+bool exec_get_builtin_category(const exec_t *executor, const char *name,
+                               exec_builtin_category_t *category_out);
+
 
 /* ============================================================================
  * Execution Setup
@@ -605,8 +645,18 @@ int exec_job_get_process_pid(const exec_t *executor, int job_id, size_t index);
 
 /* ── Job actions ─────────────────────────────────────────────────────────── */
 
-bool exec_job_foreground(exec_t *executor, int job_id, bool cont);
-bool exec_job_background(exec_t *executor, int job_id, bool cont);
+/**
+ * Bring a job to the foreground.
+ * If `cmd` is provided and if the function returns 'true' indicating
+ * that a job was foregrounded, `cmd` will receive a newly allocated copy of
+ * the command string of the 
+ * job that is being foregrounded. This necessary because foregrounded jobs
+ * are removed from the job list, so their command strings are freed and no
+ * longer accessible.
+ */
+bool exec_job_foreground(exec_t *executor, int job_id, char **cmd);
+
+bool exec_job_background(exec_t *executor, int job_id);
 bool exec_job_kill(exec_t *executor, int job_id, int sig);
 void exec_print_jobs(const exec_t *executor, FILE *output);
 

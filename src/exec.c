@@ -36,7 +36,6 @@
 #include "positional_params.h"
 #include "sig_act.h"
 #include "string_list.h"
-#include "string_t.""
 #include "token.h"
 #include "tokenizer.h"
 #include "trap_store.h"
@@ -305,7 +304,7 @@ bool exec_set_flag_allexport(exec_t* executor, bool value)
     return true;
 }
 
-bool exec_get_flag_errexit(const exec_t *executor);
+bool exec_get_flag_errexit(const exec_t *executor)
 {
     Expects_not_null(executor);
     return executor->opt.errexit;
@@ -350,7 +349,7 @@ bool exec_set_flag_noclobber(exec_t* executor, bool value)
     return true;
 }
 
-bool exec_get_flag_noglob(const exec_t *executor);
+bool exec_get_flag_noglob(const exec_t *executor)
 {
     Expects_not_null(executor);
     return executor->opt.noglob;
@@ -820,13 +819,83 @@ exec_frame_t* exec_get_current_frame(const exec_t* executor)
 }
 
 /* ============================================================================
- * Builtin Registration
+ * Builtin Registration (delegates to builtin_store)
  * ============================================================================ */
 
-bool exec_register_builtin(exec_t *executor, const char *name, exec_builtin_fn_t fn);
-bool exec_unregister_builtin(exec_t *executor, const char *name);
-bool exec_has_builtin(const exec_t *executor, const char *name);
-exec_builtin_fn_t exec_get_builtin(const exec_t *executor, const char *name);
+bool exec_register_builtin(exec_t *executor, const char *name, exec_builtin_fn_t fn,
+                           exec_builtin_category_t category)
+{
+    Expects_not_null(executor);
+
+    if (!name || !fn)
+        return false;
+
+    /* The builtin store can be created at any time — it is not tied
+       to the top-frame lifecycle like other pre-execution state. */
+    if (!executor->builtins)
+    {
+        executor->builtins = builtin_store_create();
+        if (!executor->builtins)
+            return false;
+    }
+
+    /* Map the public enum to the internal enum.  The values are
+       deliberately kept in sync (both start at 0 for SPECIAL), but
+       we do an explicit conversion for type safety. */
+    builtin_category_t internal_cat =
+        (category == EXEC_BUILTIN_SPECIAL) ? BUILTIN_SPECIAL : BUILTIN_REGULAR;
+
+    return builtin_store_set(executor->builtins, name, (builtin_fn_t)fn, internal_cat);
+}
+
+bool exec_unregister_builtin(exec_t *executor, const char *name)
+{
+    Expects_not_null(executor);
+
+    if (!name || !executor->builtins)
+        return false;
+
+    return builtin_store_remove(executor->builtins, name);
+}
+
+bool exec_has_builtin(const exec_t *executor, const char *name)
+{
+    Expects_not_null(executor);
+
+    if (!name || !executor->builtins)
+        return false;
+
+    return builtin_store_has(executor->builtins, name);
+}
+
+exec_builtin_fn_t exec_get_builtin(const exec_t *executor, const char *name)
+{
+    Expects_not_null(executor);
+
+    if (!name || !executor->builtins)
+        return NULL;
+
+    return (exec_builtin_fn_t)builtin_store_get(executor->builtins, name);
+}
+
+bool exec_get_builtin_category(const exec_t *executor, const char *name,
+                               exec_builtin_category_t *category_out)
+{
+    Expects_not_null(executor);
+
+    if (!name || !executor->builtins)
+        return false;
+
+    builtin_category_t internal_cat;
+    bool found = builtin_store_lookup(executor->builtins, name, NULL, &internal_cat);
+    if (found && category_out)
+    {
+        *category_out =
+            (internal_cat == BUILTIN_SPECIAL) ? EXEC_BUILTIN_SPECIAL : EXEC_BUILTIN_REGULAR;
+    }
+
+    return found;
+}
 
 /* ============================================================================
  * Execution Setup
@@ -880,12 +949,12 @@ static exec_status_t exec_setup_core(exec_t* e, bool interactive)
     }
 
     /* Install default signal handlers for interactive mode */
-    if (!executor->signals_installed)
+    if (!e->signals_installed)
     {
         sig_act_store_t *original_signals = sig_act_store_create();
         sig_act_store_install_default_signal_handlers(original_signals);
-        executor->original_signals = original_signals;
-        executor->signals_installed = true;
+        e->original_signals = original_signals;
+        e->signals_installed = true;
     }
 
     e->sigint_received = false;
@@ -946,11 +1015,11 @@ static exec_status_t exec_setup_core(exec_t* e, bool interactive)
     // N.B. If e->variables is set, e->variables, rather than e->envp, becomes the source of the initial
     // environment variables for the top frame when the top frame is initialized.
     if (e->envp)
-        e->env_vars = string_list_create_from_cstr_array((const char **)cfg->envp, -1);
+        e->env_vars = string_list_create_from_cstr_array((const char **)e->envp, -1);
     else
         e->env_vars = string_list_create_from_system_env();
 
-    if (!executor->top_frame)`
+    if (!e->top_frame)
     {
         // This initialization is very involved. Lots of things happen in exec_frame_create_top_level()
         // 
@@ -996,7 +1065,7 @@ static exec_status_t exec_setup_core(exec_t* e, bool interactive)
     }
 
     /* Source RC files */
-    if (!executor->inhibit_rc_files && (interactive || e->is_login_shell))
+    if (!e->inhibit_rc_files && (interactive || e->is_login_shell))
     {
         exec_status_t ret = source_rc_files(e, interactive);
         e->rc_loaded = ret == EXEC_OK;
@@ -2603,21 +2672,1265 @@ exec_status_t exec_execute_stream_named(exec_t* executor, FILE* fp, const char* 
 }
 
 /* this version is for executing -c complete strings. Incomplete inputs are errors */
-exec_result_t exec_execute_command_string(exec_t* executor, const char* command)
+exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
 {
     Expects_not_null(executor);
     Expects_not_null(command);
+
+    exec_result_t result = {.status = EXEC_OK, .exit_code = 0};
+
+    /* ------------------------------------------------------------------
+     * Ensure the frame stack is initialized.
+     * For -c invocations the caller should have called
+     * exec_setup_non_interactive() beforehand, but handle the lazy case.
+     * ------------------------------------------------------------------ */
     if (!executor->top_frame_initialized)
     {
-        exec_status_t status = exec_setup_lazy(executor, fp);
-        if (status != EXEC_OK)
-            log_warn("lazy setup failed with status %d", status);
-        // Not a fatal error
+        exec_status_t setup = exec_setup_core(executor, false);
+        if (setup != EXEC_OK)
+            log_warn("lazy setup for command string failed with status %d", setup);
+        /* Not fatal — proceed with whatever state we have. */
     }
-    Expects_not_null(executor->current_frame);
 
-    // TO BE CONTINUED
+    exec_frame_t *frame = executor->current_frame;
+    if (!frame)
+    {
+        exec_set_error(executor, "No execution frame available");
+        result.status = EXEC_ERROR;
+        result.exit_code = EXEC_EXIT_FAILURE;
+        return result;
+    }
+
+    /* ------------------------------------------------------------------
+     * Create / reuse the persistent tokenizer.
+     * ------------------------------------------------------------------ */
+    if (!executor->tokenizer)
+    {
+        executor->tokenizer = tokenizer_create(executor->aliases);
+        if (!executor->tokenizer)
+        {
+            exec_set_error(executor, "Failed to create tokenizer");
+            result.status = EXEC_ERROR;
+            result.exit_code = EXEC_EXIT_FAILURE;
+            return result;
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Create a temporary string-execution context.
+     * Unlike the REPL, we feed all input at once, so the context is
+     * local to this call rather than persistent across lines.
+     * ------------------------------------------------------------------ */
+    exec_string_ctx_t *ctx = exec_string_ctx_create();
+    if (!ctx || !ctx->lexer)
+    {
+        if (ctx)
+            exec_string_ctx_destroy(&ctx);
+        exec_set_error(executor, "Failed to create execution context");
+        result.status = EXEC_ERROR;
+        result.exit_code = EXEC_EXIT_FAILURE;
+        return result;
+    }
+
+    /* ------------------------------------------------------------------
+     * Feed the entire command string to the core execution engine.
+     * ------------------------------------------------------------------ */
+    exec_string_status_t str_status = exec_string_core(frame, command, executor->tokenizer, ctx);
+
+    switch (str_status)
+    {
+    case EXEC_STRING_OK:
+        result.status = EXEC_OK;
+        result.exit_code = executor->last_exit_status;
+        break;
+
+    case EXEC_STRING_EMPTY:
+        /* Empty command string (e.g. whitespace only, comments only).
+         * POSIX: exit status is zero for an empty command. */
+        result.status = EXEC_OK;
+        result.exit_code = 0;
+        break;
+
+    case EXEC_STRING_INCOMPLETE:
+        /* For -c style execution, incomplete input is an error — the
+         * caller promised a complete command string. */
+        if (!exec_get_error(executor))
+        {
+            exec_set_error(executor, "Unexpected end of input (unclosed quote, "
+                                     "here-document, or compound command)");
+        }
+        result.status = EXEC_INCOMPLETE_INPUT;
+        result.exit_code = EXEC_EXIT_MISUSE;
+        break;
+
+    case EXEC_STRING_ERROR:
+        result.status = EXEC_ERROR;
+        result.exit_code =
+            executor->last_exit_status ? executor->last_exit_status : EXEC_EXIT_FAILURE;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * Translate control-flow signals that may have been set during
+     * execution into the appropriate top-level result status.
+     * ------------------------------------------------------------------ */
+    if (frame->pending_control_flow == FRAME_FLOW_TOP || executor->exit_requested)
+    {
+        result.status = EXEC_EXIT;
+        result.exit_code = executor->last_exit_status;
+    }
+    else if (frame == executor->top_frame && frame->pending_control_flow == FRAME_FLOW_RETURN)
+    {
+        /* A top-level 'return' is equivalent to 'exit'. */
+        result.status = EXEC_EXIT;
+        result.exit_code = executor->last_exit_status;
+    }
+
+    /* ------------------------------------------------------------------
+     * Clean up.
+     * ------------------------------------------------------------------ */
+    exec_string_ctx_destroy(&ctx);
+
+    return result;
 }
+
+/* ============================================================================
+ * Partial State Lifecycle
+ * ============================================================================ */
+
+size_t exec_partial_state_size(void)
+{
+    return sizeof(struct exec_partial_state_t);
+}
+
+void exec_partial_state_cleanup(exec_partial_state_t *state)
+{
+    if (!state)
+        return;
+
+    if (state->filename)
+        string_destroy(&state->filename);
+    if (state->string_ctx)
+        exec_string_ctx_destroy(&state->string_ctx);
+    if (state->tokenizer)
+        tokenizer_destroy(&state->tokenizer);
+
+    memset(state, 0, sizeof(*state));
+}
+
+/* ============================================================================
+ * Incremental Command String Execution
+ * ============================================================================ */
+
+exec_status_t exec_execute_command_string_partial(exec_t *executor, const char *command,
+                                                  const char *filename, size_t line_number,
+                                                  exec_partial_state_t *partial_state_out)
+{
+    Expects_not_null(executor);
+    Expects_not_null(command);
+    Expects_not_null(partial_state_out);
+
+    /* ------------------------------------------------------------------
+     * Ensure the frame stack is initialized.
+     * ------------------------------------------------------------------ */
+    if (!executor->top_frame_initialized)
+    {
+        exec_status_t setup = exec_setup_core(executor, false);
+        if (setup != EXEC_OK)
+            log_warn("lazy setup for partial execution failed with status %d", setup);
+    }
+
+    exec_frame_t *frame = executor->current_frame;
+    if (!frame)
+    {
+        exec_set_error(executor, "No execution frame available");
+        return EXEC_ERROR;
+    }
+
+    /* ------------------------------------------------------------------
+     * If an exit has been requested (e.g. by a previous invocation's
+     * exit builtin), honour it immediately without consuming input.
+     * ------------------------------------------------------------------ */
+    if (executor->exit_requested)
+        return EXEC_EXIT;
+
+    /* ------------------------------------------------------------------
+     * Source location tracking.
+     *
+     * If the caller supplies a filename, store it in the partial state
+     * so it persists across calls.  The filename is also pushed into the
+     * frame for error messages.
+     *
+     * line_number is updated every call when >= 1.  When the caller
+     * does not supply a line number (0), we auto-increment from the
+     * value stored in the partial state on previous calls.
+     * ------------------------------------------------------------------ */
+    if (filename)
+    {
+        if (!partial_state_out->filename)
+            partial_state_out->filename = string_create_from_cstr(filename);
+        else
+            string_set_cstr(partial_state_out->filename, filename);
+
+        /* Push into the frame for error reporting. */
+        if (frame->source_name)
+            string_set_cstr(frame->source_name, filename);
+        else
+            frame->source_name = string_create_from_cstr(filename);
+    }
+    else if (partial_state_out->filename)
+    {
+        /* Caller previously supplied a filename — keep using it. */
+        if (frame->source_name)
+            string_set(frame->source_name, partial_state_out->filename);
+        else
+            frame->source_name = string_clone(partial_state_out->filename);
+    }
+
+    if (line_number >= 1)
+    {
+        partial_state_out->line_number = line_number;
+    }
+    else if (partial_state_out->line_number > 0)
+    {
+        /* Auto-increment from last known line. */
+        partial_state_out->line_number++;
+    }
+
+    if (partial_state_out->line_number >= 1)
+        frame->source_line = (int)partial_state_out->line_number;
+
+    /* ------------------------------------------------------------------
+     * Lazily create the tokenizer.
+     *
+     * The tokenizer lives in the partial state (not the executor) so
+     * that each partial-execution sequence has its own compound-command
+     * buffering independent of the executor's REPL tokenizer.
+     * ------------------------------------------------------------------ */
+    if (!partial_state_out->tokenizer)
+    {
+        partial_state_out->tokenizer = tokenizer_create(executor->aliases);
+        if (!partial_state_out->tokenizer)
+        {
+            exec_set_error(executor, "Failed to create tokenizer");
+            return EXEC_ERROR;
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Lazily create the string execution context.
+     *
+     * This context holds the lexer (with its quote / heredoc state) and
+     * any accumulated tokens from previous partial calls.
+     * ------------------------------------------------------------------ */
+    if (!partial_state_out->string_ctx)
+    {
+        partial_state_out->string_ctx = exec_string_ctx_create();
+        if (!partial_state_out->string_ctx || !partial_state_out->string_ctx->lexer)
+        {
+            if (partial_state_out->string_ctx)
+                exec_string_ctx_destroy(&partial_state_out->string_ctx);
+            exec_set_error(executor, "Failed to create execution context");
+            return EXEC_ERROR;
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Synchronise the context's line number with ours so that error
+     * messages from exec_string_core reference the correct line.
+     * ------------------------------------------------------------------ */
+    if (partial_state_out->line_number >= 1)
+        partial_state_out->string_ctx->line_num = (int)partial_state_out->line_number - 1;
+    /* -1 because exec_string_core increments before processing */
+
+    /* ------------------------------------------------------------------
+     * Feed this chunk to the core execution engine.
+     * ------------------------------------------------------------------ */
+    exec_string_status_t str_status = exec_string_core(frame, command, partial_state_out->tokenizer,
+                                                       partial_state_out->string_ctx);
+
+    /* Update the line number from the context (exec_string_core may
+       have incremented it). */
+    partial_state_out->line_number = (size_t)partial_state_out->string_ctx->line_num;
+
+    /* ------------------------------------------------------------------
+     * Translate the internal status to the public exec_status_t.
+     * ------------------------------------------------------------------ */
+    exec_status_t result;
+
+    switch (str_status)
+    {
+    case EXEC_STRING_OK:
+        partial_state_out->incomplete = false;
+        result = EXEC_OK;
+        break;
+
+    case EXEC_STRING_EMPTY:
+        /* An empty chunk (whitespace, comments) is OK.
+         * If we were already mid-continuation, stay incomplete — the
+         * empty line is just a blank line inside a multi-line construct.
+         * Otherwise report OK. */
+        if (partial_state_out->incomplete)
+            result = EXEC_INCOMPLETE_INPUT;
+        else
+            result = EXEC_OK;
+        break;
+
+    case EXEC_STRING_INCOMPLETE:
+        partial_state_out->incomplete = true;
+        result = EXEC_INCOMPLETE_INPUT;
+        break;
+
+    case EXEC_STRING_ERROR:
+        /* On error, clean up the context so the next call starts fresh.
+         * The caller can inspect exec_get_error() for details. */
+        exec_string_ctx_reset(partial_state_out->string_ctx);
+        partial_state_out->incomplete = false;
+        result = EXEC_ERROR;
+        break;
+
+    default:
+        result = EXEC_ERROR;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * If the command completed (OK or ERROR), check for control flow
+     * signals that should be propagated to the caller.
+     * ------------------------------------------------------------------ */
+    if (result == EXEC_OK || result == EXEC_ERROR)
+    {
+        if (frame->pending_control_flow == FRAME_FLOW_TOP || executor->exit_requested)
+        {
+            result = EXEC_EXIT;
+        }
+        else if (frame == executor->top_frame && frame->pending_control_flow == FRAME_FLOW_RETURN)
+        {
+            /* Top-level 'return' is equivalent to 'exit'. */
+            result = EXEC_EXIT;
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * If the parse completed (not INCOMPLETE), release the internal
+     * resources but keep the partial state struct valid for reuse.
+     * The caller can start a new sequence without calling cleanup.
+     * ------------------------------------------------------------------ */
+    if (result != EXEC_INCOMPLETE_INPUT)
+    {
+        if (partial_state_out->string_ctx)
+            exec_string_ctx_reset(partial_state_out->string_ctx);
+        partial_state_out->incomplete = false;
+        /* Keep tokenizer and string_ctx allocated for reuse on next call. */
+    }
+
+    return result;
+}
+
+/* ============================================================================
+ * Line-Editor Integration
+ * ============================================================================ */
+
+exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
+                                                   line_editor_fn_t line_editor_fn,
+                                                   void *line_editor_user_data)
+{
+    Expects_not_null(executor);
+    Expects_not_null(fp);
+    Expects_not_null(line_editor_fn);
+
+    /* ------------------------------------------------------------------
+     * This function is only valid for interactive mode.
+     * ------------------------------------------------------------------ */
+    if (!executor->is_interactive)
+    {
+        exec_set_error(executor, "exec_execute_stream_with_line_editor: "
+                                 "only valid after exec_setup_interactive()");
+        return EXEC_ERROR;
+    }
+
+    /* ------------------------------------------------------------------
+     * Ensure the frame stack is initialized.
+     * ------------------------------------------------------------------ */
+    if (!executor->top_frame_initialized)
+    {
+        exec_status_t status = exec_setup_core(executor, true);
+        if (status != EXEC_OK)
+            log_warn("lazy interactive setup failed with status %d", status);
+    }
+
+    /* ------------------------------------------------------------------
+     * Create / reuse the persistent tokenizer.
+     * ------------------------------------------------------------------ */
+    if (!executor->tokenizer)
+    {
+        executor->tokenizer = tokenizer_create(executor->aliases);
+        if (!executor->tokenizer)
+        {
+            exec_set_error(executor, "Failed to create tokenizer");
+            return EXEC_ERROR;
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     * Create the persistent string-execution context.
+     * ------------------------------------------------------------------ */
+    exec_string_ctx_t *ctx = exec_string_ctx_create();
+    if (!ctx || !ctx->lexer)
+    {
+        if (ctx)
+            exec_string_ctx_destroy(&ctx);
+        exec_set_error(executor, "Failed to create execution context");
+        return EXEC_ERROR;
+    }
+
+    /* ------------------------------------------------------------------
+     * REPL state
+     * ------------------------------------------------------------------ */
+#define IGNOREEOF_MAX 10
+    int consecutive_eof = 0;
+    bool need_continuation = false;
+    exec_status_t final_result = EXEC_OK;
+    string_t *line = NULL;
+
+    /* ------------------------------------------------------------------
+     * Main loop — one logical line per iteration
+     * ------------------------------------------------------------------ */
+    for (;;)
+    {
+        /* ---- 0. Check for pending exit request ---- */
+        if (executor->exit_requested)
+        {
+            final_result = EXEC_EXIT;
+            break;
+        }
+
+        /* ---- 1. Build the prompt ---- */
+        char *prompt = NULL;
+        if (need_continuation)
+        {
+            const char *ps2 = exec_get_ps2(executor);
+            prompt = xstrdup(ps2 ? ps2 : "> ");
+        }
+        else
+        {
+            prompt = frame_render_ps1(executor->current_frame);
+            if (!prompt)
+                prompt = xstrdup("$ ");
+        }
+
+        /* ---- 2. Call the line editor ---- */
+        line_edit_status_t le_status = line_editor_fn(prompt, &line, line_editor_user_data);
+
+        xfree(prompt);
+        prompt = NULL;
+
+        /* ---- 3. Handle line-editor status ---- */
+
+        if (le_status == LINE_EDIT_EOF)
+        {
+            /* ---- EOF ---- */
+            if (need_continuation)
+            {
+                fprintf(stderr, "\n%s: syntax error: unexpected end of file\n",
+                        string_cstr(executor->shell_name));
+                final_result = EXEC_ERROR;
+                break;
+            }
+
+            if (executor->opt.ignoreeof)
+            {
+                consecutive_eof++;
+                if (consecutive_eof < IGNOREEOF_MAX)
+                {
+                    int remaining = IGNOREEOF_MAX - consecutive_eof;
+                    fprintf(stderr,
+                            "Use \"exit\" to leave the shell "
+                            "(or press Ctrl-D %d more time%s).\n",
+                            remaining, remaining == 1 ? "" : "s");
+                    continue;
+                }
+                /* Too many consecutive EOFs — fall through to exit. */
+            }
+
+            /* Clean EOF. */
+            final_result = EXEC_OK;
+            break;
+        }
+
+        if (le_status == LINE_EDIT_ERROR)
+        {
+            exec_set_error(executor, "Line editor returned fatal error");
+            final_result = EXEC_ERROR;
+            break;
+        }
+
+        if (le_status == LINE_EDIT_INTERRUPT)
+        {
+            /* The line editor handled SIGINT (cleared the line, etc.).
+             * Discard any partial parse state and loop back for a fresh
+             * prompt, mirroring the SIGINT handling in the fgets REPL. */
+            consecutive_eof = 0;
+            need_continuation = false;
+
+            exec_string_ctx_reset(ctx);
+            tokenizer_destroy(&executor->tokenizer);
+            executor->tokenizer = tokenizer_create(executor->aliases);
+
+            /* POSIX: $? = 128 + SIGINT after an interrupted command. */
+            executor->last_exit_status = 128 + SIGINT;
+            continue;
+        }
+
+        /* LINE_EDIT_PREVIOUS, LINE_EDIT_NEXT, LINE_EDIT_CURRENT,
+         * LINE_EDIT_HISTORY_IDX are informational — the line editor has
+         * already filled *line_out with the selected history entry.
+         * We treat them the same as LINE_EDIT_OK for execution purposes. */
+
+        /* ---- 4. Validate the returned line ---- */
+        if (!line)
+        {
+            /* Line editor returned OK but no string — treat as empty. */
+            continue;
+        }
+
+        /* Got valid input — reset consecutive-EOF counter. */
+        consecutive_eof = 0;
+
+        /* ---- 5. Append a newline and feed to the execution core ----
+         *
+         * exec_string_core expects input lines to end with '\n' (the
+         * lexer uses newlines as token delimiters).  The line-editor
+         * contract says the returned string has NO trailing newline,
+         * so we append one.
+         */
+        string_t *input = string_clone(line);
+        string_append_char(input, '\n');
+
+        exec_string_status_t str_status =
+            exec_string_core(executor->current_frame, string_cstr(input), executor->tokenizer, ctx);
+
+        string_destroy(&input);
+
+        if (ctx->line_num > 0)
+            executor->current_frame->source_line = ctx->line_num;
+
+        /* ---- 6. Dispatch on execution status ---- */
+
+        if (str_status == EXEC_STRING_INCOMPLETE)
+        {
+            need_continuation = true;
+            continue;
+        }
+
+        /* Command complete (OK, EMPTY, or ERROR) — reset continuation. */
+        need_continuation = false;
+
+        if (str_status == EXEC_STRING_ERROR)
+        {
+            exec_string_ctx_reset(ctx);
+
+            const char *err = exec_get_error(executor);
+            if (err)
+            {
+                fprintf(stderr, "%s: %s\n", string_cstr(executor->shell_name), err);
+                exec_clear_error(executor);
+            }
+            /* Interactive shells keep going after errors. */
+        }
+
+        /* ---- 7. Check for exit / top-level return ---- */
+        if (executor->exit_requested)
+        {
+            final_result = EXEC_EXIT;
+            break;
+        }
+
+        if (executor->current_frame &&
+            executor->current_frame->pending_control_flow == FRAME_FLOW_TOP)
+        {
+            final_result = EXEC_EXIT;
+            break;
+        }
+
+        if (executor->current_frame && executor->current_frame == executor->top_frame &&
+            executor->current_frame->pending_control_flow == FRAME_FLOW_RETURN)
+        {
+            /* Top-level 'return' is equivalent to 'exit'. */
+            final_result = EXEC_EXIT;
+            break;
+        }
+
+        /* ---- 8. Reap background jobs ---- */
+        exec_reap_background_jobs(executor, true);
+
+        /* ---- 9. Process pending traps ---- */
+        for (int signo = 1; signo < NSIG; signo++)
+        {
+            if (!executor->trap_pending[signo])
+                continue;
+
+            executor->trap_pending[signo] = 0;
+
+            const trap_action_t *trap_action = trap_store_get(executor->traps, signo);
+            if (!trap_action || !trap_action->action)
+                continue;
+
+            /* POSIX: $? is preserved across trap execution. */
+            int saved_exit_status = executor->last_exit_status;
+
+            exec_frame_t *trap_frame =
+                exec_frame_push(executor->current_frame, EXEC_FRAME_TRAP, executor, NULL);
+
+            exec_result_t trap_result =
+                exec_execute_command_string(executor, string_cstr(trap_action->action));
+
+            exec_frame_pop(&executor->current_frame);
+
+            executor->last_exit_status = saved_exit_status;
+
+            if (trap_result.status == EXEC_EXIT)
+            {
+                final_result = EXEC_EXIT;
+                goto done;
+            }
+
+            if (trap_result.status == EXEC_ERROR)
+            {
+                const char *err = exec_get_error(executor);
+                if (err)
+                {
+                    fprintf(stderr, "%s: trap handler: %s\n", string_cstr(executor->shell_name),
+                            err);
+                    exec_clear_error(executor);
+                }
+            }
+        }
+
+        /* ---- 10. SIGINT received outside the line editor ----
+         *
+         * The line editor normally catches SIGINT itself and returns
+         * LINE_EDIT_INTERRUPT.  But a signal could arrive during
+         * exec_string_core or between steps.  Handle it here as a
+         * fallback.
+         */
+        if (executor->sigint_received)
+        {
+            executor->sigint_received = 0;
+
+            fprintf(stderr, "\n");
+            need_continuation = false;
+
+            exec_string_ctx_reset(ctx);
+            tokenizer_destroy(&executor->tokenizer);
+            executor->tokenizer = tokenizer_create(executor->aliases);
+        }
+
+    } /* for (;;) */
+
+done:
+    if (line)
+        string_destroy(&line);
+    exec_string_ctx_destroy(&ctx);
+    return final_result;
+}
+
+/* ============================================================================
+ * Global State Queries
+ * ============================================================================ */
+
+/* ── Exit status ─────────────────────────────────────────────────────────── */
+
+int exec_get_exit_status(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->last_exit_status;
+}
+
+void exec_set_exit_status(exec_t *executor, int status)
+{
+    Expects_not_null(executor);
+    executor->last_exit_status = status;
+}
+
+void exec_request_exit(exec_t *executor, int status);
+{
+    Expects_not_null(executor);
+    executor->exit_requested = true;
+    executor->last_exit_status = status;
+}
+
+bool exec_is_exit_requested(const exec_t* executor)
+{
+    Expects_not_null(executor);
+    return executor->exit_requested;
+}
+
+/* ── Error message ───────────────────────────────────────────────────────── */
+
+const char *exec_get_error(const exec_t *executor)\
+{
+    Expects_not_null(executor);
+    return executor->error_message ? string_cstr(executor->error_message) : NULL;
+}
+
+void exec_set_error(exec_t* executor, const char* format, ...)
+{
+    Expects_not_null(executor);
+    va_list args;
+    va_start(args, format);
+    string_set_vprintf(&executor->error_message, format, args);
+    va_end(args);
+}
+
+void exec_clear_error(exec_t *executor)
+{
+    Expects_not_null(executor);
+    if (executor->error_message)
+        string_destroy(&executor->error_message);
+}
+
+/* ── Pipe statuses (PIPESTATUS / pipefail) ───────────────────────────────── */
+
+int exec_get_pipe_status_count(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->pipe_status_count;
+}
+
+const int *exec_get_pipe_statuses(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return executor->pipe_statuses;
+}
+
+void exec_reset_pipe_statuses(exec_t *executor)
+{
+    Expects_not_null(executor);
+    executor->pipe_status_count = 0;
+}
+
+/* ── Prompts ─────────────────────────────────────────────────────────────── */
+
+char *exec_get_ps1(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    // FIXME: first check for a PS1 in the current frame's variable store, then fall back to the
+    // global store
+    const char *ps1 = var_store_get(executor->variables, "PS1");
+    return ps1 ? xstrdup(ps1) : NULL;
+}
+
+char *exec_get_rendered_ps1(const exec_t *executor);
+
+char *exec_get_ps2(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    const char *ps2 = var_store_get(executor->variables, "PS2");
+    return ps2 ? xstrdup(ps2) : NULL;
+}
+
+/* ============================================================================
+ * Job Control
+ * ============================================================================ */
+
+/**
+ * Job state as visible through the public API.
+ */
+typedef enum exec_job_state_t
+{
+    EXEC_JOB_UNKNOWN = 0, // No such job
+    EXEC_JOB_RUNNING,
+    EXEC_JOB_STOPPED,
+    EXEC_JOB_DONE,
+    EXEC_JOB_TERMINATED,
+    EXEC_JOB_UNSPECIFIED // Job exists but state is not specified
+} exec_job_state_t;
+
+/* ── Reaping ─────────────────────────────────────────────────────────────── */
+
+void exec_reap_background_jobs(exec_t* executor, bool notify)
+{
+    Expects_not_null(executor);
+
+    bool any_completed = job_store_update_status(executor->jobs, wait_for_completion);
+    if (notify && any_completed)
+    {
+        job_store_print_completed_jobs(executor->jobs, stdout);
+    }
+}
+
+/* ── Enumeration ─────────────────────────────────────────────────────────── */
+
+size_t exec_get_job_count(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return job_store_count(executor->jobs);
+}
+
+int exec_get_job_ids(const exec_t* executor, int* job_ids, size_t max_jobs)
+{
+    Expects_not_null(executor);
+    Expects_not_null(job_ids);
+    return job_store_get_job_ids(executor->jobs, job_ids, max_jobs);
+}
+
+int exec_get_current_job_id(const exec_t* executor)
+{
+    Expects_not_null(executor);
+    // job_t *job_store_get_current(const job_store_t *store);
+    job_t *current_job = job_store_get_current(executor->jobs);
+    return current_job ? current_job->job_id : -1;
+}
+
+int exec_get_previous_job_id(const exec_t* executor)
+{
+    Expects_not_null(executor);
+    job_t *previous_job = job_store_get_previous(executor->jobs);
+    return previous_job ? previous_job->job_id : -1;
+}
+
+/* ── Per-job queries ─────────────────────────────────────────────────────── */
+
+exec_job_state_t exec_job_get_state(const exec_t *executor, int job_id)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return EXEC_JOB_UNKNOWN;
+    switch (job->state)
+    {
+    case JOB_RUNNING:
+        return EXEC_JOB_RUNNING;
+    case JOB_STOPPED:
+        return EXEC_JOB_STOPPED;
+    case JOB_DONE:
+        return EXEC_JOB_DONE;
+    case JOB_TERMINATED:
+        return EXEC_JOB_TERMINATED;
+    default:
+        return EXEC_JOB_UNSPECIFIED;
+    }
+}
+
+const char* exec_job_get_command(const exec_t* executor, int job_id)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    return job ? string_cstr(job->command) : NULL;
+}
+
+bool exec_job_is_background(const exec_t* executor, int job_id)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    return job ? job->is_background : false;
+}
+
+#ifdef POSIX_API
+pid_t exec_job_get_pgid(const exec_t *executor, int job_id)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    return job ? job->pgid : -1;
+}
+#else
+int exec_job_get_pgid(const exec_t* executor, int job_id)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    return job ? job->pgid : -1;
+}
+#endif
+
+/* ── Per-process queries within a job ────────────────────────────────────── */
+
+size_t exec_job_get_process_count(const exec_t* executor, int job_id)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (job)
+        return job_process_count(job);
+    return 0;
+}
+
+exec_job_state_t exec_job_get_process_state(const exec_t *executor, int job_id, size_t index)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return EXEC_JOB_UNKNOWN;
+    if (index < 0 || index >= job_process_count(job))
+        return EXEC_JOB_UNKNOWN;
+    intptr_t pid = job_get_process_pid(job, index);
+    job_state_t proc_state = job_get_process_state(job, index);
+
+    switch (proc_state)
+    {
+    case JOB_RUNNING:
+        return EXEC_JOB_RUNNING;
+    case JOB_STOPPED:
+        return EXEC_JOB_STOPPED;
+    case JOB_DONE:
+        return EXEC_JOB_DONE;
+    case JOB_TERMINATED:
+        return EXEC_JOB_TERMINATED;
+    default:
+        return EXEC_JOB_UNSPECIFIED;
+    }
+}
+
+int exec_job_get_process_exit_status(const exec_t* executor, int job_id, size_t index)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return -1;
+    if (index < 0 || index >= job_process_count(job))
+        return -1;
+    return job_get_process_exit_status(job, index);
+}
+
+#ifdef POSIX_API
+pid_t exec_job_get_process_pid(const exec_t *executor, int job_id, size_t index)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return -1;
+    if (index < 0 || index >= job_process_count(job))
+        return -1;
+    return job_get_process_pid(job, index);
+}
+#elif defined(UCRT_API)
+int exec_job_get_process_pid(const exec_t *executor, int job_id, size_t index)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return -1;
+    if (index < 0 || index >= job_process_count(job))
+        return -1;
+    return (int)job_get_process_pid(job, index);
+}
+
+intptr_t exec_job_get_process_handle(const exec_t *executor, int job_id, size_t index)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return (uintptr_t)-1;
+    if (index < 0 || index >= job_process_count(job))
+        return (uintptr_t)-1;
+#ifdef UCRT_API
+    return job_get_process_handle(job, index);
+#else
+    return (intptr_t)-1;
+#endif
+}
+#else
+int exec_job_get_process_pid(const exec_t* executor, int job_id, size_t index)
+{
+    Expects_not_null(executor);
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+        return -1;
+    if (index < 0 || index >= job_process_count(job))
+        return -1;
+    return (int)job_get_process_pid(job, index);
+}
+#endif
+
+/* ── Job actions ─────────────────────────────────────────────────────────── */
+
+bool exec_job_foreground(exec_t *executor, int job_id, char **cmd)
+{
+    Expects_not_null(executor);
+    if (cmd)
+        *cmd = NULL;
+
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+    {
+        exec_set_error(executor, "fg: no such job");
+        return false;
+    }
+
+    if (job->state == JOB_STOPPED)
+    {
+#ifdef POSIX_API
+        if (kill(-job->pgid, SIGCONT) < 0)
+        {
+            exec_set_error(executor, "fg: cannot resume job: %s", strerror(errno));
+            return false;
+        }
+        job_store_set_state(executor->jobs, job_id, JOB_RUNNING);
+#else
+        exec_set_error(executor, "fg: cannot resume suspended jobs on this platform");
+        return false;
+#endif
+    }
+
+#ifdef POSIX_API
+    if (tcsetpgrp(STDIN_FILENO, job->pgid) < 0)
+    {
+        exec_set_error(executor, "fg: cannot set foreground process group: %s", strerror(errno));
+        return false;
+    }
+
+    job->is_background = false; // optional but nice for consistency
+
+    if (cmd)
+    {
+        *cmd = xstrdup(string_cstr(job->command));
+    }
+
+    job_store_remove(executor->jobs, job_id);
+    return true;
+#else
+    exec_set_error(executor, "fg: foreground job control not supported on this platform");
+    return false;
+#endif
+}
+
+bool exec_job_kill(exec_t *executor, int job_id, int sig)
+{
+    Expects_not_null(executor);
+
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+    {
+        exec_set_error(executor, "kill: no such job");
+        return false;
+    }
+
+    // Special case: sig == 0 → POSIX check existence/permissions, no signal sent
+    if (sig == 0)
+    {
+        // On POSIX: kill(-pgid, 0) succeeds if we can signal the group
+#ifdef POSIX_API
+        if (kill(-job->pgid, 0) < 0)
+        {
+            exec_set_error(executor, "kill: job %d: no such process group: %s", job_id,
+                           strerror(errno));
+            return false;
+        }
+        return true;
+#else
+        // On Windows: we can only check if handle is still valid/open
+        // If you store HANDLE hProcess in job_t from _spawnvpe:
+        // if (!job->hProcess || WaitForSingleObject(job->hProcess, 0) == WAIT_OBJECT_0) {
+        //     exec_set_error(executor, "kill: job %d no longer exists", job_id);
+        //     return false;
+        // }
+        // For simplicity: assume existence if still in table
+        return true;
+#endif
+    }
+
+    // Normal case: send real signal
+#ifdef POSIX_API
+    // Send to the entire process group (negative pgid)
+    if (kill(-job->pgid, sig) < 0)
+    {
+        // Common errors: ESRCH (no such process), EPERM (permission denied)
+        exec_set_error(executor, "kill: cannot send signal %d to job %d: %s", sig, job_id,
+                       strerror(errno));
+        return false;
+    }
+
+    return true;
+
+#elif defined(UCRT_API)
+    // Very limited: only attempt forceful termination for common "kill" signals
+    if (sig == SIGTERM || sig == SIGKILL || sig == 15 || sig == 9)
+    {
+        // Each job has a list of process_t, but, in UCRT, there will
+        // only ever be one entry. We can get the handle from the process.
+        if (job->processes)
+        {
+            unsigned long long handle;
+            // Using the shortcut that we know there can only be one process
+            // in a UCRT job.
+            handle = job->processes->handle;
+            if (handle && TerminateProcess(handle, 1))
+            {
+                CloseHandle(handle);
+                job->processes->handle = NULL;
+            }
+            else
+            {
+                exec_set_error(executor, "kill: failed to terminate job %d on Windows", job_id);
+                return false;
+            }
+        }
+        // Have to update job store here, since we won't catch a signal or status change from the
+        // process itself.
+        job_store_set_state(executor->jobs, job_id, JOB_TERMINATED);
+    }
+    else
+    {
+        exec_set_error(executor,
+                       "kill: only SIGTERM/SIGKILL supported on Windows (job control limited)");
+        return false;
+    }
+
+#else
+    exec_set_error(executor, "kill: job control not supported on this platform");
+    return false;
+#endif
+}
+
+void exec_print_jobs(const exec_t* executor, FILE* output)
+{
+    // void job_store_print_jobs(const job_store_t *store, FILE *output)
+    Expects_not_null(executor);
+    Expects_not_null(output);
+    job_store_print_jobs(executor->jobs, output);
+}
+
+/**
+ * Job output format for printing.
+ */
+typedef enum exec_jobs_format_t
+{
+    EXEC_JOBS_FORMAT_DEFAULT, /**< [job_id] state command  */
+    EXEC_JOBS_FORMAT_LONG,    /**< includes PIDs           */
+    EXEC_JOBS_FORMAT_PID_ONLY /**< process group leader PID only */
+} exec_jobs_format_t;
+
+/**
+ * Parse a job-ID specifier from a string.
+ * Accepts: %n, %+, %%, %-, or a plain number.
+ *
+ * @return Job ID on success, -1 on error.
+ */
+int exec_parse_job_id(const exec_t* executor, const char* spec)
+{
+    Expects_not_null(executor);
+    Expects_not_null(spec);
+    if (spec[0] == '%')
+    {
+        if (strcmp(spec, "%+") == 0 || strcmp(spec, "%%") == 0)
+        {
+            return exec_get_current_job_id(executor);
+        }
+        else if (strcmp(spec, "%-") == 0)
+        {
+            return exec_get_previous_job_id(executor);
+        }
+        else
+        {
+            // %n where n is a number
+            char *endptr;
+            long id = strtol(spec + 1, &endptr, 10);
+            if (*endptr != '\0' || id <= 0)
+            {
+                exec_set_error(executor, "Invalid job specifier: %s", spec);
+                return -1;
+            }
+            return (int)id;
+        }
+    }
+    else
+    {
+        // Plain number
+        char *endptr;
+        long id = strtol(spec, &endptr, 10);
+        if (*endptr != '\0' || id <= 0)
+        {
+            exec_set_error(executor, "Invalid job ID: %s", spec);
+            return -1;
+        }
+        return (int)id;
+    }
+}
+
+/**
+ * Print a single job.
+ *
+ * @return true if the job was found and printed.
+ */
+bool exec_print_job_by_id(const exec_t *executor, int job_id, exec_jobs_format_t format,
+                          FILE *output)
+{
+    Expects_not_null(executor);
+    //         const char *state_str = job_state_to_string(job->state);
+    // fprintf(output, "[%d] %s\t%s\n", job->job_id, state_str,
+    //        job->command_line ? string_cstr(job->command_line) : "(no command)");
+    job_t *job = job_store_find(executor->jobs, job_id);
+    if (!job)
+    {
+        exec_set_error(executor, "No such job: %d", job_id);
+        return false;
+    }
+    fprintf(output, "[%d] ", job->job_id);
+    switch (format)
+    {
+    case EXEC_JOBS_FORMAT_DEFAULT:
+        fprintf(output, "%s\t%s\n", job_state_to_string(job->state),
+                job->command_line ? string_cstr(job->command_line) : "(no command)");
+        break;
+    case EXEC_JOBS_FORMAT_LONG:
+        fprintf(output, "%s\tPGID: %d\t%s\n", job_state_to_string(job->state), job->pgid,
+                job->command_line ? string_cstr(job->command_line) : "(no command)");
+        break;
+    case EXEC_JOBS_FORMAT_PID_ONLY:
+        fprintf(output, "PGID: %d\n", job->pgid);
+        break;
+    default:
+        fprintf(output, "%s\t%s\n", job_state_to_string(job->state),
+                job->command_line ? string_cstr(job->command_line) : "(no command)");
+        break;
+    }
+    return true;
+}
+
+/**
+ * Print all jobs.
+ */
+void exec_print_all_jobs(const exec_t* executor, exec_jobs_format_t format, FILE* output)
+{
+    Expects_not_null(executor);
+    Expects_not_null(output);
+
+    job_store_t *store = executor->jobs;
+    for (const job_t *job = store->jobs; job; job = job->next)
+    {
+        const char *state_str = job_state_to_string(job->state);
+        switch (format)
+        {
+        case EXEC_JOBS_FORMAT_DEFAULT:
+            fprintf(output, "[%d] %s\t%s\n", job->job_id, state_str,
+                    job->command_line ? string_cstr(job->command_line) : "(no command)");
+            break;
+        case EXEC_JOBS_FORMAT_LONG:
+            fprintf(output, "[%d] %s\tPGID: %d\t%s\n", job->job_id, state_str, job->pgid,
+                    job->command_line ? string_cstr(job->command_line) : "(no command)");
+            break;
+        case EXEC_JOBS_FORMAT_PID_ONLY:
+            fprintf(output, "[%d] PGID: %d\n", job->job_id, job->pgid);
+            break;
+
+        default:
+            fprintf(output, "[%d] %s\t%s\n", job->job_id, state_str,
+                    job->command_line ? string_cstr(job->command_line) : "(no command)");
+        }
+    }
+}
+
+
+/**
+ * Check whether any jobs exist.
+ */
+bool exec_has_jobs(const exec_t* executor)
+{
+    Expects_not_null(executor);
+    return job_store_count(executor->jobs) > 0;
+}
+
+#ifdef KEEP_JUNK
+
 
 /**
  * Execute a complete command string.
@@ -4299,3 +5612,4 @@ exec_result_t exec_case_clause(exec_frame_t *frame, ast_node_t *node)
     return result;
 }
 
+#endif

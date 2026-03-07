@@ -361,7 +361,18 @@ int job_store_get_job_ids(const job_store_t *store, int *job_ids, size_t max_job
 
 size_t job_process_count(const job_t *job);
 
-intptr_t job_get_process_pid(const job_t *job, size_t index);
+#ifdef POSIX_API
+pid_t job_get_process_pid(const job_t *job, size_t index);
+#elifdef UCRT_API
+int job_get_process_pid(const job_t *job, size_t index);
+intptr_t job_get_process_handle(const job_t *job, size_t index);
+#else
+int job_get_process_pid(const job_t *job, size_t index);
+#endif
+
+job_state_t job_get_process_state(const job_t *job, size_t index);
+
+int job_get_process_exit_status(const job_t *job, size_t index);
 
 /**
  * Check if a job is still running.

@@ -344,6 +344,8 @@ set(SH23LOGIC_SOURCES
     src/exec_internal.h
     src/exec_redirect.c
     src/exec_redirect.h
+    src/exec_stream_repl.c
+    src/exec_stream_repl.h
     src/frame.c
     src/frame.h
     src/job_store.c
