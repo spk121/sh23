@@ -114,7 +114,7 @@ variable_store_t *variable_store_create(void);
  * @param envp NULL-terminated environment array.
  * @return Newly allocated variable store.
  */
-variable_store_t *variable_store_create_from_envp(char **envp);
+variable_store_t *variable_store_create_from_envp(char * const *envp);
 
 /**
  * Creates a deep copy of the source variable store.

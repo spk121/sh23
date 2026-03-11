@@ -1,4 +1,4 @@
-#ifndef SHELL_T_H
+﻿#ifndef SHELL_T_H
 #define SHELL_T_H
 
 #ifdef POSIX_API
@@ -75,6 +75,7 @@ typedef struct
     char *command_name; // argv[0]
     char *command_string; // -c command string (if any)
     char *command_file;   // command file (if any)
+    int argument_count;
     char **arguments;     // argv for the shell
     char **envp;          // environment variables (if any)
 

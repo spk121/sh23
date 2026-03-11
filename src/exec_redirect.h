@@ -70,14 +70,14 @@ exec_redirections_t *exec_redirections_create_from_ast_nodes(exec_frame_t *frame
  *
  * @return EXEC_OK on success, EXEC_ERROR on failure.
  */
-exec_status_t exec_frame_apply_redirections(exec_frame_t *frame,
+exec_status_t exec_redirect_apply_redirectons(exec_frame_t *frame,
                                             const exec_redirections_t *redirections);
 
 /**
- * Restore redirections previously applied by exec_frame_apply_redirections().
+ * Restore redirections previously applied by exec_redirect_apply_redirectons().
  * Dispatches to the correct platform-specific implementation.
  */
-void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
+void exec_redirect_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
 
 /* ============================================================================
  * Platform-Specific Implementations

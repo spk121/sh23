@@ -169,7 +169,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
     fd_table_t *fds = exec_frame_get_fds(frame);
     if (!fds)
     {
-        exec_set_error(executor, "No FD table available");
+        exec_set_error_cstr(executor, "No FD table available");
         return EXEC_ERROR;
     }
 
@@ -247,7 +247,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
         int backup = fcntl(fd, F_DUPFD_CLOEXEC, min_backup_fd);
         if (backup < 0)
         {
-            exec_set_error(executor, "fcntl(F_DUPFD_CLOEXEC) failed for fd %d: %s", fd,
+            exec_set_error_printf(executor, "fcntl(F_DUPFD_CLOEXEC) failed for fd %d: %s", fd,
                            strerror(errno));
             goto cleanup_error;
         }
@@ -257,7 +257,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
         if (!fd_table_add(fds, backup, FD_SAVED | FD_CLOEXEC, saved_name))
         {
             string_destroy(&saved_name);
-            exec_set_error(executor, "Failed to track saved FD %d", backup);
+            exec_set_error_printf(executor, "Failed to track saved FD %d", backup);
             close(backup);
             goto cleanup_error;
         }
@@ -273,7 +273,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
         int target_fd = redirection_default_fd(r);
         if (target_fd < 0)
         {
-            exec_set_error(executor, "Invalid target FD");
+            exec_set_error_printf(executor, "Failed to track redirected FD %d", target_fd);
             goto cleanup_error;
         }
 
@@ -287,7 +287,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 fname_str = string_create_from(r->target.file.filename);
             if (!fname_str)
             {
-                exec_set_error(executor, "Failed to expand file target");
+                exec_set_error_cstr(executor, "Failed to expand file target");
                 goto cleanup_error;
             }
             const char *fname = string_cstr(fname_str);
@@ -315,7 +315,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 flags = O_WRONLY | O_CREAT | O_TRUNC;
                 break;
             default:
-                exec_set_error(executor, "Unsupported redirection type %d", r->type);
+                exec_set_error_printf(executor, "Unsupported redirection type %d", r->type);
                 string_destroy(&fname_str);
                 goto cleanup_error;
             }
@@ -324,7 +324,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             int newfd = open(fname, flags, mode);
             if (newfd < 0)
             {
-                exec_set_error(executor, "open('%s') failed: %s", fname, strerror(errno));
+                exec_set_error_printf(executor, "open('%s') failed: %s", fname, strerror(errno));
                 string_destroy(&fname_str);
                 goto cleanup_error;
             }
@@ -334,7 +334,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                       target_fd, fname);
             if (dup2(newfd, target_fd) < 0)
             {
-                exec_set_error(executor, "dup2(%d, %d) failed: %s", newfd, target_fd,
+                exec_set_error_printf(executor, "dup2(%d, %d) failed: %s", newfd, target_fd,
                                strerror(errno));
                 close(newfd);
                 string_destroy(&fname_str);
@@ -345,7 +345,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
 
             if (!fd_table_add(fds, target_fd, FD_REDIRECTED, fname_str))
             {
-                exec_set_error(executor, "Failed to track redirected FD %d", target_fd);
+                exec_set_error_printf(executor, "Failed to track redirected FD %d", target_fd);
                 string_destroy(&fname_str);
                 goto cleanup_error;
             }
@@ -369,7 +369,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             }
             if (!fd_str)
             {
-                exec_set_error(executor, "Failed to expand FD target");
+                exec_set_error_cstr(executor, "Failed to expand FD target");
                 goto cleanup_error;
             }
 
@@ -377,7 +377,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             parse_fd_result_t src = parse_fd_number(lex);
             if (!src.success)
             {
-                exec_set_error(executor, "Invalid source FD: '%s'", lex);
+                exec_set_error_printf(executor, "Invalid source FD: '%s'", lex);
                 string_destroy(&fd_str);
                 goto cleanup_error;
             }
@@ -389,7 +389,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 log_debug("apply(posix): close(%d) explicit n<&- or n>&-", target_fd);
                 if (close(target_fd) < 0)
                 {
-                    exec_set_error(executor, "close(%d) failed: %s", target_fd, strerror(errno));
+                    exec_set_error_printf(executor, "close(%d) failed: %s", target_fd,
+                                          strerror(errno));
                     goto cleanup_error;
                 }
                 fd_table_mark_closed(fds, target_fd);
@@ -400,7 +401,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             log_debug("apply(posix): dup2(%d -> %d) fd-to-fd redirect", src.fd, target_fd);
             if (dup2(src.fd, target_fd) < 0)
             {
-                exec_set_error(executor, "dup2(%d, %d) failed: %s", src.fd, target_fd,
+                exec_set_error_printf(executor, "dup2(%d, %d) failed: %s", src.fd, target_fd,
                                strerror(errno));
                 goto cleanup_error;
             }
@@ -408,7 +409,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             string_t *redir_name = fd_table_generate_name_ex(target_fd, src.fd, FD_REDIRECTED);
             if (!fd_table_add(fds, target_fd, FD_REDIRECTED, redir_name))
             {
-                exec_set_error(executor, "Failed to track redirected FD %d", target_fd);
+                exec_set_error_printf(executor, "Failed to track redirected FD %d", target_fd);
                 string_destroy(&redir_name);
                 goto cleanup_error;
             }
@@ -440,7 +441,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             log_debug("apply(posix): close(%d) REDIR_TARGET_CLOSE", target_fd);
             if (close(target_fd) < 0)
             {
-                exec_set_error(executor, "close(%d) failed: %s", target_fd, strerror(errno));
+                exec_set_error_printf(executor, "close(%d) failed: %s", target_fd, strerror(errno));
                 goto cleanup_error;
             }
             fd_table_mark_closed(fds, target_fd);
@@ -457,7 +458,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                                   : string_create_from(r->target.heredoc.content);
                 if (!content_str)
                 {
-                    exec_set_error(executor, "Failed to process heredoc");
+                    exec_set_error_printf(executor, "Failed to process heredoc");
                     goto cleanup_error;
                 }
             }
@@ -476,14 +477,15 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 int tmpfd = mkstemp(tmpname);
                 if (tmpfd < 0)
                 {
-                    exec_set_error(executor, "mkstemp() failed for heredoc: %s", strerror(errno));
+                    exec_set_error_printf(executor, "mkstemp() failed for heredoc: %s",
+                                          strerror(errno));
                     string_destroy(&content_str);
                     goto cleanup_error;
                 }
                 ssize_t written = write(tmpfd, content, content_len);
                 if (written < 0 || (size_t)written != content_len)
                 {
-                    exec_set_error(executor, "write to heredoc temp file failed: %s",
+                    exec_set_error_printf(executor, "write to heredoc temp file failed: %s",
                                    strerror(errno));
                     close(tmpfd);
                     unlink(tmpname);
@@ -493,7 +495,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 lseek(tmpfd, 0, SEEK_SET);
                 if (dup2(tmpfd, target_fd) < 0)
                 {
-                    exec_set_error(executor, "dup2(%d, %d) for heredoc temp file failed: %s", tmpfd,
+                    exec_set_error_printf(executor, "dup2(%d, %d) for heredoc temp file failed: %s",
+                                          tmpfd,
                                    target_fd, strerror(errno));
                     close(tmpfd);
                     unlink(tmpname);
@@ -506,7 +509,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 string_t *heredoc_name = fd_table_generate_name(target_fd, FD_REDIRECTED);
                 if (!fd_table_add(fds, target_fd, FD_REDIRECTED, heredoc_name))
                 {
-                    exec_set_error(executor, "Failed to track heredoc FD %d", target_fd);
+                    exec_set_error_printf(executor, "Failed to track heredoc FD %d", target_fd);
                     string_destroy(&heredoc_name);
                     goto cleanup_error;
                 }
@@ -520,7 +523,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             int pipefd[2];
             if (pipe(pipefd) < 0)
             {
-                exec_set_error(executor, "pipe() failed: %s", strerror(errno));
+                exec_set_error_printf(executor, "pipe() failed: %s", strerror(errno));
                 string_destroy(&content_str);
                 goto cleanup_error;
             }
@@ -528,7 +531,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             ssize_t written = write(pipefd[1], content, content_len);
             if (written < 0 || (size_t)written != content_len)
             {
-                exec_set_error(executor, "write to heredoc pipe failed: %s", strerror(errno));
+                exec_set_error_printf(executor, "write to heredoc pipe failed: %s", strerror(errno));
                 close(pipefd[0]);
                 close(pipefd[1]);
                 string_destroy(&content_str);
@@ -540,7 +543,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                       target_fd, target_fd);
             if (dup2(pipefd[0], target_fd) < 0)
             {
-                exec_set_error(executor, "dup2(%d, %d) for heredoc failed: %s", pipefd[0],
+                exec_set_error_printf(executor, "dup2(%d, %d) for heredoc failed: %s", pipefd[0],
                                target_fd, strerror(errno));
                 close(pipefd[0]);
                 string_destroy(&content_str);
@@ -552,7 +555,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             string_t *heredoc_name = fd_table_generate_name(target_fd, FD_REDIRECTED);
             if (!fd_table_add(fds, target_fd, FD_REDIRECTED, heredoc_name))
             {
-                exec_set_error(executor, "Failed to track heredoc FD %d", target_fd);
+                exec_set_error_printf(executor, "Failed to track heredoc FD %d", target_fd);
                 string_destroy(&heredoc_name);
                 goto cleanup_error;
             }
@@ -561,7 +564,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
         }
 
         default:
-            exec_set_error(executor, "Unknown redirection kind %d", r->target_kind);
+            exec_set_error_printf(executor, "Unknown redirection kind %d", r->target_kind);
             goto cleanup_error;
         }
     }
@@ -1253,7 +1256,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
         int target_fd = redirection_default_fd(r);
         if (target_fd < 0)
         {
-            exec_set_error(executor, "Invalid target FD");
+            exec_set_error_printf(executor, "Invalid target FD");
             goto error_restore;
         }
 
@@ -1269,13 +1272,13 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
         switch (target_fd)
         {
         case 0:
-            target_ptr = frame->fd_stdin;
+            target_ptr = frame->stdin_fp;
             break;
         case 1:
-            target_ptr = frame->fd_stdout;
+            target_ptr = frame->stdout_fp;
             break;
         case 2:
-            target_ptr = frame->fd_stderr;
+            target_ptr = frame->stderr_fp;
             break;
         default:
             continue;
@@ -1292,7 +1295,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
 
             if (!fname_str)
             {
-                exec_set_error(executor, "Failed to expand file target");
+                exec_set_error_printf(executor, "Failed to expand file target");
                 goto error_restore;
             }
 
@@ -1318,7 +1321,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
                 mode = "w";
                 break;
             default:
-                exec_set_error(executor, "Unsupported redirection type %d", r->type);
+                exec_set_error_printf(executor, "Unsupported redirection type %d", r->type);
                 string_destroy(&fname_str);
                 goto error_restore;
             }
@@ -1326,7 +1329,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
             FILE *new_stream = fopen(fname, mode);
             if (!new_stream)
             {
-                exec_set_error(executor, "fopen('%s') failed: %s", fname, strerror(errno));
+                exec_set_error_printf(executor, "fopen('%s') failed: %s", fname, strerror(errno));
                 string_destroy(&fname_str);
                 goto error_restore;
             }
@@ -1345,14 +1348,14 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
             if (r->target.heredoc.content)
             {
                 content_str = r->target.heredoc.needs_expansion
-                                  ? exec_expand_heredoc(executor, r->target.heredoc.content, false)
+                                  ? expand_heredoc(frame, r->target.heredoc.content, false)
                                   : string_create_from(r->target.heredoc.content);
             }
 
             FILE *tmp = tmpfile();
             if (!tmp)
             {
-                exec_set_error(executor, "tmpfile() failed for heredoc");
+                exec_set_error_printf(executor, "tmpfile() failed for heredoc");
                 string_destroy(&content_str);
                 goto error_restore;
             }
@@ -1361,7 +1364,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
             size_t len = content_str ? string_length(content_str) : 0;
             if (len > 0 && fwrite(content, 1, len, tmp) != len)
             {
-                exec_set_error(executor, "write to heredoc tmpfile failed");
+                exec_set_error_printf(executor, "write to heredoc tmpfile failed");
                 fclose(tmp);
                 string_destroy(&content_str);
                 goto error_restore;
@@ -1400,7 +1403,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
 
             if (!fd_str)
             {
-                exec_set_error(executor, "Failed to expand FD target");
+                exec_set_error_printf(executor, "Failed to expand FD target");
                 goto error_restore;
             }
 
@@ -1411,7 +1414,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
 
             if (!src.success)
             {
-                exec_set_error(executor, "Invalid source FD: '%s'", lex);
+                exec_set_error_printf(executor, "Invalid source FD: '%s'", lex);
                 goto error_restore;
             }
 
@@ -1429,11 +1432,11 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
             /* Only support sharing among the three standard streams */
             FILE *src_stream = NULL;
             if (src.fd == 0)
-                src_stream = *_stdin;
+                src_stream = *frame->stdin_fp;
             else if (src.fd == 1)
-                src_stream = *_stdout;
+                src_stream = *frame->stdout_fp;
             else if (src.fd == 2)
-                src_stream = *_stderr;
+                src_stream = *frame->stderr_fp;
 
             if (src_stream)
             {
@@ -1458,7 +1461,7 @@ exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redi
         }
 
         default:
-            exec_set_error(executor, "Unsupported redirection kind %d in ISO C mode",
+            exec_set_error_printf(executor, "Unsupported redirection kind %d in ISO C mode",
                            r->target_kind);
             goto error_restore;
         }
@@ -1477,29 +1480,29 @@ error_restore:
 void exec_restore_redirections_iso_c(exec_frame_t *frame)
 {
     // In ISO C mode, since we don't have a real redirection mechanism, there's nothing to restore.
-    // But for those internal functions that do use the exec_builtin_context_t's fd_stdin,
-    // fd_stdout, and fd_stderr fields, we did provide a way to set special stdin/out/err FILE *
+    // But for those internal functions that do use the exec_frame_t's stdin_fp,
+    // stdout_fp, and stderr_fp fields, we did provide a way to set special stdin/out/err FILE *
     // values. This function just closes them.
-    if (frame->fd_stdin && *frame->fd_stdin)
+    if (frame->stdin_fp && *frame->stdin_fp)
     {
-        fclose(*frame->fd_stdin);
-        *frame->fd_stdin = NULL;
+        fclose(*frame->stdin_fp);
+        *frame->stdin_fp = NULL;
     }
-    if (frame->fd_stdout && *frame->fd_stdout)
+    if (frame->stdout_fp && *frame->stdout_fp)
     {
-        fclose(*frame->fd_stdout);
-        *frame->fd_stdout = NULL;
+        fclose(*frame->stdout_fp);
+        *frame->stdout_fp = NULL;
     }
-    if (frame->fd_stderr && *frame->fd_stderr)
+    if (frame->stderr_fp && *frame->stderr_fp)
     {
-        fclose(*frame->fd_stderr);
-        *frame->fd_stderr = NULL;
+        fclose(*frame->stderr_fp);
+        *frame->stderr_fp = NULL;
     }
     (void)frame;
 }
 #endif /* !POSIX_API && !UCRT_API */
 
-void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
+void exec_redirect_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
 {
     (void)redirections;
 #ifdef POSIX_API
@@ -1733,7 +1736,7 @@ exec_redirections_t *exec_redirections_clone(const exec_redirections_t *redirs)
  * @param redirections The runtime redirection structure
  * @return 0 on success, -1 on error
  */
-exec_status_t exec_frame_apply_redirections(exec_frame_t *frame,
+exec_status_t exec_redirect_apply_redirectons(exec_frame_t *frame,
                                             const exec_redirections_t *redirections)
 {
 #ifdef POSIX_API

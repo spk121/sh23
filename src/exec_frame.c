@@ -22,11 +22,15 @@
 #include "alias_store.h"
 #include "ast.h"
 #include "exec.h"
+#include "exec_command.h"
+#include "exec_frame_expander.h"
 #include "exec_frame_policy.h"
+#include "exec_redirect.h"
 #include "exec_types_internal.h"
 #include "exec_types_public.h"
 #include "fd_table.h"
 #include "func_store.h"
+#include "glob_util.h"
 #include "job_store.h"
 #include "logging.h"
 #include "positional_params.h"
@@ -73,6 +77,10 @@ exec_frame_execute_result_t exec_frame_execute_while_loop(exec_frame_t *frame,
                                                           bool is_negated);
 exec_frame_execute_result_t exec_frame_execute_for_loop(exec_frame_t *frame, string_t *var_name,
                                                         string_list_t *words, ast_node_t *body);
+static exec_frame_execute_result_t exec_frame_execute_background_job(exec_frame_t *parent,
+                                                                     ast_node_t *body,
+                                                                     string_list_t *command_args);
+ 
 
 /* ============================================================================
  * Helper Functions - System Queries
@@ -418,9 +426,9 @@ exec_frame_t *exec_frame_push(exec_frame_t *parent, exec_frame_type_t type, exec
 #if !defined(POSIX_API) && !defined(UCRT_API)
     if (frame->policy->stdio.inherits_redirected_stdio)
     {
-        frame->fd_stdin = parent ? parent->fd_stdin : NULL;
-        frame->fd_stdout = parent ? parent->fd_stdout : NULL;
-        frame->fd_stderr = parent ? parent->fd_stderr : NULL;
+        frame->stdin_fp = parent ? parent->stdin_fp : NULL;
+        frame->stdout_fp = parent ? parent->stdout_fp : NULL;
+        frame->stderr_fp = parent ? parent->stderr_fp : NULL;
     }
 #endif
 
@@ -642,23 +650,23 @@ static void cleanup_frame_resources(exec_frame_t *frame)
 #if !defined(POSIX_API) && !defined(UCRT_API)
     // It is a coding error if these aren't properly closed. They
     // should have been closed/destroyed when the redirections closed up.
-    if (*frame->fd_stdin && (!frame->parent || *frame->parent->fd_stdin != *frame->fd_stdin))
+    if (*frame->stdin_fp && (!frame->parent || *frame->parent->stdin_fp != *frame->stdin_fp))
     {
         log_error("Redirected stdin not closed properly");
-        fclose(*frame->fd_stdin);
-        *frame->fd_stdin = NULL;
+        fclose(*frame->stdin_fp);
+        *frame->stdin_fp = NULL;
     }
-    if (*frame->fd_stdout && (!frame->parent || *frame->parent->fd_stdout != *frame->fd_stdout))
+    if (*frame->stdout_fp && (!frame->parent || *frame->parent->stdout_fp != *frame->stdout_fp))
     {
         log_error("Redirected stdout not closed properly");
-        fclose(*frame->fd_stdout);
-        *frame->fd_stdout = NULL;
+        fclose(*frame->stdout_fp);
+        *frame->stdout_fp = NULL;
     }
-    if (*frame->fd_stderr && (!frame->parent || *frame->parent->fd_stderr != *frame->fd_stderr))
+    if (*frame->stderr_fp && (!frame->parent || *frame->parent->stderr_fp != *frame->stderr_fp))
     {
         log_error("Redirected stderr not closed properly");
-        fclose(*frame->fd_stderr);
-        *frame->fd_stderr = NULL;
+        fclose(*frame->stderr_fp);
+        *frame->stderr_fp = NULL;
     }
 #endif
 }
@@ -852,7 +860,7 @@ static exec_frame_execute_result_t execute_frame_body(exec_frame_t *frame, exec_
     /* Apply redirections */
     if (params->redirections)
     {
-        exec_status_t redir_result = exec_frame_apply_redirections(frame, params->redirections);
+        exec_status_t redir_result = exec_redirect_apply_redirectons(frame, params->redirections);
         if (redir_result != EXEC_OK)
         {
             result.exit_status = 1;
@@ -921,7 +929,7 @@ static exec_frame_execute_result_t execute_frame_body(exec_frame_t *frame, exec_
     /* Restore redirections */
     if (params->redirections)
     {
-        exec_restore_redirections(frame, params->redirections);
+        exec_redirect_restore_redirections(frame, params->redirections);
     }
 
     return result;
@@ -1033,6 +1041,17 @@ static exec_frame_execute_result_t exec_frame_execute_condition_loop(exec_frame_
 
     return result;
 }
+
+ static exec_frame_execute_result_t exec_frame_execute_background_job(exec_frame_t *parent, ast_node_t *body,
+                                 string_list_t *command_args)
+ {
+     exec_params_t params = {
+         .body = body,
+         .command_args = command_args,
+     };
+
+     return exec_in_frame(parent, EXEC_FRAME_BACKGROUND_JOB, &params);
+ }
 
 #ifdef UCRT_API
 
@@ -1495,75 +1514,78 @@ exec_frame_execute_result_t exec_frame_execute_compound_list(exec_frame_t *frame
             continue; // Skip null commands (shouldn't happen, but defensive)
 
         /* Update LINENO before executing this command */
-        exec_update_lineno(frame, cmd);
+        exec_frame_update_lineno(frame, cmd);
 
+        exec_frame_execute_result_t cmd_result;
         cmd_separator_t sep = cmd_separator_list_get(separators, i);
         if (sep == CMD_EXEC_BACKGROUND)
         {
-            /* For POSIX, UCRT, and ISO_C, we'll just call exec_background_job,
+            /* For POSIX, UCRT, and ISO_C, we'll just call exec_frame_execute_background_job,
              * but that doesn't mean this will actually run in the background.
-             * We'll handle platform-specific limitations inside exec_background_job.
+             * We'll handle platform-specific limitations inside exec_in_frame() or its children.
              *
-             * In POSIX, though, exec_background_job will return quickly.
-             * For the others, it depends.
+             * In POSIX, exec_job_background will return immediately because the bg process forked.
+             * For UCRT, it will run in the background if the command is spawnable, otherwise
+             * foreground with a warning.
+             * For ISO_C, it will run in the foreground with a warning.
              */
             string_t *command_line = ast_node_to_command_line_full(cmd);
             // Since we're not sending this to spawn, we can keep this as a single string_t
             string_list_t *argv_list = string_list_create();
             string_list_move_push_back(argv_list, &command_line);
-            exec_background_job(frame, cmd, argv_list);
-            continue;
+            cmd_result = exec_frame_execute_background_job(frame, cmd, argv_list);
+            string_list_destroy(&argv_list);
         }
-
-        // Execute the command based on its type
-        exec_frame_execute_result_t cmd_result;
-        switch (cmd->type)
+        else
         {
-        case AST_PIPELINE:
-            cmd_result = exec_frame_execute_pipeline(frame, cmd);
-            break;
-        case AST_AND_OR_LIST:
-            cmd_result = exec_frame_execute_and_or_list(frame, cmd);
-            break;
-        case AST_COMMAND_LIST:
-            cmd_result = exec_frame_execute_compound_list(frame, cmd);
-            break;
-        case AST_SIMPLE_COMMAND:
-            cmd_result = exec_frame_execute_simple_command(frame, cmd);
-            break;
-        case AST_BRACE_GROUP:
-            cmd_result = exec_frame_execute_brace_group(frame, cmd->data.compound.body, NULL);
-            break;
-        case AST_SUBSHELL:
-            cmd_result = exec_frame_execute_subshell(frame, cmd->data.compound.body);
-            break;
-        case AST_IF_CLAUSE:
-            cmd_result = exec_frame_execute_if_clause(frame, cmd);
-            break;
-        case AST_WHILE_CLAUSE:
-        case AST_UNTIL_CLAUSE:
-            cmd_result = exec_frame_execute_while_clause(frame, cmd);
-            break;
-        case AST_FOR_CLAUSE:
-            cmd_result = exec_frame_execute_for_clause(frame, cmd);
-            break;
-        case AST_CASE_CLAUSE:
-            cmd_result = exec_frame_execute_case_clause(frame, cmd);
-            break;
-        case AST_REDIRECTED_COMMAND:
-            cmd_result = exec_frame_execute_redirected_command(frame, cmd);
-            break;
-        case AST_FUNCTION_DEF:
-            cmd_result = exec_frame_execute_function_def_clause(frame, cmd);
-            break;
-        default:
-            exec_set_error_printf(frame->executor,
-                                  "Unsupported command type in compound list: %d (%s)", cmd->type,
-                                  ast_node_type_to_string(cmd->type));
-            result.status = EXEC_NOT_IMPL;
-            return result;
+            // Execute the command based on its type
+            switch (cmd->type)
+            {
+            case AST_PIPELINE:
+                cmd_result = exec_frame_execute_pipeline(frame, cmd);
+                break;
+            case AST_AND_OR_LIST:
+                cmd_result = exec_frame_execute_and_or_list(frame, cmd);
+                break;
+            case AST_COMMAND_LIST:
+                cmd_result = exec_frame_execute_compound_list(frame, cmd);
+                break;
+            case AST_SIMPLE_COMMAND:
+                cmd_result = exec_frame_execute_simple_command(frame, cmd);
+                break;
+            case AST_BRACE_GROUP:
+                cmd_result = exec_frame_execute_brace_group(frame, cmd->data.compound.body, NULL);
+                break;
+            case AST_SUBSHELL:
+                cmd_result = exec_frame_execute_subshell(frame, cmd->data.compound.body);
+                break;
+            case AST_IF_CLAUSE:
+                cmd_result = exec_frame_execute_if_clause(frame, cmd);
+                break;
+            case AST_WHILE_CLAUSE:
+            case AST_UNTIL_CLAUSE:
+                cmd_result = exec_frame_execute_while_clause(frame, cmd);
+                break;
+            case AST_FOR_CLAUSE:
+                cmd_result = exec_frame_execute_for_clause(frame, cmd);
+                break;
+            case AST_CASE_CLAUSE:
+                cmd_result = exec_frame_execute_case_clause(frame, cmd);
+                break;
+            case AST_REDIRECTED_COMMAND:
+                cmd_result = exec_frame_execute_redirected_command(frame, cmd);
+                break;
+            case AST_FUNCTION_DEF:
+                cmd_result = exec_frame_execute_function_def_clause(frame, cmd);
+                break;
+            default:
+                exec_set_error_printf(frame->executor,
+                                      "Unsupported command type in compound list: %d (%s)",
+                                      cmd->type, ast_node_type_to_string(cmd->type));
+                result.status = EXEC_NOT_IMPL;
+                return result;
+            }
         }
-
         // Propagate errors from command execution
         if (cmd_result.status != EXEC_OK)
         {

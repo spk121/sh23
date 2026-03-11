@@ -1,4 +1,4 @@
-#include <ctype.h>
+﻿#include <ctype.h>
 #include <limits.h>
 
 #define VARIABLE_MAP_INTERNAL
@@ -209,7 +209,7 @@ static bool parse_env_cstr(const char *env_str, string_t **out_name, string_t **
     return true;
 }
 
-variable_store_t *variable_store_create_from_envp(char **envp)
+variable_store_t *variable_store_create_from_envp(char * const *envp)
 {
     variable_store_t *store = variable_store_create();
 

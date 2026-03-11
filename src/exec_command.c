@@ -330,7 +330,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
             string_list_t *func_args = string_list_create_slice(expanded_words, 1, -1);
 
             exec_status_t redir_st =
-                (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+                (exec_status_t)exec_redirect_apply_redirectons(frame, runtime_redirs);
             if (redir_st != EXEC_OK)
             {
                 status = redir_st;
@@ -344,7 +344,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
 
             string_list_destroy(&func_args);
 
-            exec_restore_redirections(frame, runtime_redirs);
+            exec_redirect_restore_redirections(frame, runtime_redirs);
             goto done_execution;
         }
 
@@ -353,7 +353,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
         {
             is_internal = true;
 
-            exec_status_t redir_st = exec_frame_apply_redirections(frame, runtime_redirs);
+            exec_status_t redir_st = exec_redirect_apply_redirectons(frame, runtime_redirs);
             if (redir_st != EXEC_OK)
             {
                 status = redir_st;
@@ -362,7 +362,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
 
             cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
-            exec_restore_redirections(frame, runtime_redirs);
+            exec_redirect_restore_redirections(frame, runtime_redirs);
 
             goto done_execution;
         }
@@ -373,7 +373,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
             is_internal = true;
 
             exec_status_t redir_st =
-                (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+                (exec_status_t)exec_redirect_apply_redirectons(frame, runtime_redirs);
             if (redir_st != EXEC_OK)
             {
                 status = redir_st;
@@ -382,7 +382,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
 
             cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
-            exec_restore_redirections(frame, runtime_redirs);
+            exec_redirect_restore_redirections(frame, runtime_redirs);
 
             goto done_execution;
         }
@@ -559,7 +559,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
             if (runtime_redirs && runtime_redirs->count > 0)
             {
                 exec_status_t redir_st =
-                    (exec_status_t)exec_frame_apply_redirections(frame, runtime_redirs);
+                    (exec_status_t)exec_redirect_apply_redirectons(frame, runtime_redirs);
                 if (redir_st != EXEC_OK)
                 {
                     for (int i = 0; argv[i]; i++)
@@ -578,7 +578,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
                 _spawnvpe(_P_WAIT, cmd_name, (const char *const *)argv, (const char *const *)envp);
             if (runtime_redirs && runtime_redirs->count > 0)
             {
-                exec_restore_redirections(frame, runtime_redirs);
+                exec_redirect_restore_redirections(frame, runtime_redirs);
             }
         }
         if (spawn_result == -1)

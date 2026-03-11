@@ -1,4 +1,4 @@
-/**
+﻿/**
  * exec_expander.c - Word expansion implementation
  *
  * Performs POSIX word expansion in the context of execution frames.
@@ -1125,7 +1125,7 @@ string_list_t *expand_words(exec_frame_t *frame, const token_list_t *tokens)
     for (int i = 0; i < token_list_size(tokens); i++)
     {
         const token_t *tok = token_list_get(tokens, i);
-        string_list_t *expanded = exec_expander_expand_word(frame, tok);
+        string_list_t *expanded = exec_frame_expander_expand_word(frame, tok);
 
         if (expanded)
         {
@@ -1330,7 +1330,7 @@ string_list_t *exec_expand_word(exec_t *executor, const token_t *tok)
 {
     if (!executor)
         return NULL;
-    return exec_expander_expand_word(executor->current_frame, tok);
+    return exec_frame_expander_expand_word(executor->current_frame, tok);
 }
 
 string_list_t *exec_expand_words(exec_t *executor, const token_list_t *tokens)

@@ -1796,16 +1796,6 @@ exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *command
     return EXEC_OK;
 }
 
-exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *command)
-{
-    Expects_not_null(frame);
-
-    if (!command || string_empty(command))
-        return EXEC_OK;
-
-    return frame_execute_eval_string_cstr(frame, string_cstr(command));
-}
-
 exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const char *command)
 {
     Expects_not_null(frame);
@@ -1828,4 +1818,14 @@ exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const char *co
         return EXEC_ERROR;
 
     return EXEC_OK;
+}
+
+exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *command)
+{
+    Expects_not_null(frame);
+
+    if (!command || string_empty(command))
+        return EXEC_OK;
+
+    return frame_execute_eval_string_cstr(frame, string_cstr(command));
 }

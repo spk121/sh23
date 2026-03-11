@@ -1,4 +1,4 @@
-#include <stdio.h>
+﻿#include <stdio.h>
 #include <string.h>
 
 #include "shell.h"
@@ -60,7 +60,7 @@ shell_t *shell_create(const shell_cfg_t *cfg)
 
     sh->executor = exec_create();
     if (cfg->arguments)
-        exec_set_args(sh->executor, cfg->arguments);
+        exec_set_args_cstr(sh->executor, cfg->argument_count, cfg->arguments);
     if (cfg->envp)
         exec_set_envp_cstr(sh->executor, cfg->envp);
     if (cfg->flags.allexport)
@@ -126,7 +126,6 @@ sh_status_t shell_execute(shell_t *sh)
         }
         return shell_execute_script_file(sh);
     case SHELL_MODE_INTERACTIVE:
-        exec_setup_interactive_execute(sh->executor);
         return shell_execute_interactive(sh);
     case SHELL_MODE_COMMAND_STRING:
         if (!sh->command_string)
@@ -136,7 +135,7 @@ sh_status_t shell_execute(shell_t *sh)
         }
         return shell_execute_command_string(sh);
     case SHELL_MODE_STDIN:
-        exec_setup_interactive_execute(sh->executor);
+        exec_setup_interactive(sh->executor);
         return shell_execute_stdin(sh);
     case SHELL_MODE_UNKNOWN:
     case SHELL_MODE_INVALID_UID_GID:
@@ -194,7 +193,7 @@ static sh_status_t shell_execute_script_file(shell_t *sh)
         return SH_RUNTIME_ERROR;
     }
 
-    exec_status_t setup_status = exec_setup_noninteractive(sh->executor);
+    exec_status_t setup_status = exec_setup_non_interactive(sh->executor);
     if (setup_status != EXEC_OK)
     {
         fprintf(stderr, "Failed to parse RC file: %s\n", exec_get_error_cstr(sh->executor));
@@ -205,7 +204,7 @@ static sh_status_t shell_execute_script_file(shell_t *sh)
     exec_frame_t *frame = exec_get_current_frame(sh->executor);
     frame_set_arg0(frame, sh->script_filename);
 
-    exec_status_t status = exec_execute_stream_repl(sh->executor, fp, false /* not interactive */);
+    exec_status_t status = exec_execute_stream(sh->executor, fp);
     fclose(fp);
 
     // Convert exec_status_t to sh_status_t
@@ -216,7 +215,6 @@ static sh_status_t shell_execute_script_file(shell_t *sh)
     case EXEC_ERROR:
         return SH_RUNTIME_ERROR;
     case EXEC_NOT_IMPL:
-    case EXEC_OK_INTERNAL_FUNCTION_STORED:
     default:
         return SH_INTERNAL_ERROR;
     }
@@ -238,7 +236,6 @@ sh_status_t shell_execute_command_string(shell_t *sh)
     case EXEC_ERROR:
         return SH_RUNTIME_ERROR;
     case EXEC_NOT_IMPL:
-    case EXEC_OK_INTERNAL_FUNCTION_STORED:
     default:
         return SH_INTERNAL_ERROR;
     }
@@ -299,12 +296,12 @@ static bool read_line(char *static_buf, size_t static_size, char **out_buf, size
     return true;
 }
 
-// FIXME: use exec_execute_stream_repl() here and share more code with exec_stream_repl.c
 static sh_status_t shell_execute_interactive(shell_t *sh)
 {
     Expects_not_null(sh);
 
-    exec_status_t status = exec_execute_stream_repl(sh->executor, stdin, true);
+    exec_setup_interactive(sh->executor);
+    exec_status_t status = exec_execute_stream(sh->executor, stdin);
 
     switch (status)
     {
@@ -313,7 +310,6 @@ static sh_status_t shell_execute_interactive(shell_t *sh)
     case EXEC_ERROR:
         return SH_RUNTIME_ERROR;
     case EXEC_NOT_IMPL:
-    case EXEC_OK_INTERNAL_FUNCTION_STORED:
     default:
         return SH_INTERNAL_ERROR;
     }
@@ -331,7 +327,6 @@ sh_status_t shell_execute_stdin(shell_t *sh)
     case EXEC_ERROR:
         return SH_RUNTIME_ERROR;
     case EXEC_NOT_IMPL:
-    case EXEC_OK_INTERNAL_FUNCTION_STORED:
     default:
         return SH_INTERNAL_ERROR;
     }

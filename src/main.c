@@ -467,6 +467,7 @@ int main(int argc, char **argv, char **envp)
     cfg.command_string = command_string;
     cfg.command_file = command_file;
     cfg.arguments = arguments;
+    cfg.argument_count = arg_count;
     cfg.envp = envp;
     cfg.flags = (shell_flags_t){.allexport = flag_a,
                                 .noclobber = flag_C,
