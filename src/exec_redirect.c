@@ -11,8 +11,8 @@
 #elif defined(_WIN32)
 #define _X86_
 #endif
-#include <fileapi.h>
 #include <fcntl.h>
+#include <fileapi.h>
 #include <io.h>
 #include <sys/stat.h>
 #ifndef FD_SETSIZE
@@ -26,8 +26,8 @@
 #include "exec_redirect.h"
 
 #include "ast.h"
-#include "exec_frame_expander.h"
 #include "exec_frame.h"
+#include "exec_frame_expander.h"
 #include "exec_types_internal.h"
 #include "lib.h"
 #include "logging.h"
@@ -787,7 +787,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
         int backup = dup_to_safe_slot(fd);
         if (backup < 0)
         {
-            exec_set_error_printf(executor, "_dup(%d) to safe slot failed: %s", fd, strerror(errno));
+            exec_set_error_printf(executor, "_dup(%d) to safe slot failed: %s", fd,
+                                  strerror(errno));
             goto error_restore;
         }
         log_debug("apply(ucrt): phase1 _dup(%d) -> backup fd=%d", fd, backup);
@@ -891,7 +892,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
             log_debug("apply(ucrt): _dup2(%d -> %d) wiring fd=%d to '%s'", newfd, fd, fd, fname);
             if (_dup2(newfd, fd) < 0)
             {
-                exec_set_error_printf(executor, "_dup2(%d, %d) failed: %s", newfd, fd, strerror(errno));
+                exec_set_error_printf(executor, "_dup2(%d, %d) failed: %s", newfd, fd,
+                                      strerror(errno));
                 _close(newfd);
                 string_destroy(&expanded_target);
                 goto error_restore;
@@ -958,7 +960,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
             log_debug("apply(ucrt): _dup2(%d -> %d) fd-to-fd redirect", src.fd, fd);
             if (_dup2(src.fd, fd) < 0)
             {
-                exec_set_error_printf(executor, "_dup2(%d, %d) failed: %s", src.fd, fd, strerror(errno));
+                exec_set_error_printf(executor, "_dup2(%d, %d) failed: %s", src.fd, fd,
+                                      strerror(errno));
                 string_destroy(&fd_str);
                 goto error_restore;
             }
@@ -1048,7 +1051,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 if (err != 0 || tmpfd < 0)
                 {
                     exec_set_error_printf(executor, "_sopen_s() failed for heredoc temp file: %s",
-                                   strerror(errno));
+                                          strerror(errno));
                     DeleteFileA(temp_file);
                     string_destroy(&content_str);
                     goto error_restore;
@@ -1056,7 +1059,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 if (_write(tmpfd, content, (unsigned int)content_len) != (int)content_len)
                 {
                     exec_set_error_printf(executor, "write to heredoc temp file failed: %s",
-                                   strerror(errno));
+                                          strerror(errno));
                     _close(tmpfd);
                     string_destroy(&content_str);
                     goto error_restore;
@@ -1064,8 +1067,9 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 _lseek(tmpfd, 0, SEEK_SET);
                 if (_dup2(tmpfd, fd) < 0)
                 {
-                    exec_set_error_printf(executor, "_dup2(%d, %d) for heredoc temp file failed: %s",
-                                   tmpfd, fd, strerror(errno));
+                    exec_set_error_printf(executor,
+                                          "_dup2(%d, %d) for heredoc temp file failed: %s", tmpfd,
+                                          fd, strerror(errno));
                     _close(tmpfd);
                     string_destroy(&content_str);
                     goto error_restore;
@@ -1102,8 +1106,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                       fd);
             if (_dup2(pipefd[0], fd) < 0)
             {
-                exec_set_error_printf(executor, "_dup2(%d, %d) failed for heredoc: %s", pipefd[0], fd,
-                               strerror(errno));
+                exec_set_error_printf(executor, "_dup2(%d, %d) failed for heredoc: %s", pipefd[0],
+                                      fd, strerror(errno));
                 _close(pipefd[0]);
                 goto error_restore;
             }
@@ -1729,7 +1733,8 @@ exec_redirections_t *exec_redirections_clone(const exec_redirections_t *redirs)
  * @param redirections The runtime redirection structure
  * @return 0 on success, -1 on error
  */
-exec_status_t exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections)
+exec_status_t exec_frame_apply_redirections(exec_frame_t *frame,
+                                            const exec_redirections_t *redirections)
 {
 #ifdef POSIX_API
     exec_status_t st = exec_apply_redirections_posix(frame, redirections);
@@ -1753,8 +1758,8 @@ exec_status_t exec_frame_apply_redirections(exec_frame_t *frame, const exec_redi
  * @param ast_redirs The AST redirection nodes
  * @return A new exec_redirections_t structure, or NULL on error
  */
-exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame,
-                                                const ast_node_list_t *ast_redirs)
+exec_redirections_t *exec_redirections_create_from_ast_nodes(exec_frame_t *frame,
+                                                             const ast_node_list_t *ast_redirs)
 {
     if (!ast_redirs || ast_node_list_size(ast_redirs) == 0)
         return NULL;

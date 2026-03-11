@@ -1920,7 +1920,7 @@ exec_frame_execute_result_t exec_frame_execute_function_def_clause(exec_frame_t 
     exec_redirections_t *redirections = NULL;
     if (ast_redirections && ast_node_list_size(ast_redirections) > 0)
     {
-        redirections = exec_redirections_from_ast(frame, ast_redirections);
+        redirections = exec_redirections_create_from_ast_nodes(frame, ast_redirections);
         if (!redirections)
         {
             exec_set_error_printf(frame->executor,
@@ -1960,7 +1960,7 @@ exec_frame_execute_result_t exec_frame_execute_redirected_command(exec_frame_t *
     ast_node_list_t *ast_redirections = node->data.redirected_command.redirections;
 
     // Convert AST redirections to exec_redirections_t format
-    exec_redirections_t *redirections = exec_redirections_from_ast(frame, ast_redirections);
+    exec_redirections_t *redirections = exec_redirections_create_from_ast_nodes(frame, ast_redirections);
     if (!redirections && ast_redirections && ast_node_list_size(ast_redirections) > 0)
     {
         // Conversion failed

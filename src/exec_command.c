@@ -258,7 +258,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
     exec_redirections_t *runtime_redirs = NULL;
     if (redirs && ast_node_list_size(redirs) > 0)
     {
-        runtime_redirs = exec_redirections_from_ast(frame, redirs);
+        runtime_redirs = exec_redirections_create_from_ast_nodes(frame, redirs);
         if (!runtime_redirs)
         {
             status = EXEC_ERROR;

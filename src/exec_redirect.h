@@ -1,68 +1,123 @@
-#ifndef EXEC_REDIRECT_H
+﻿#ifndef EXEC_REDIRECT_H
 #define EXEC_REDIRECT_H
 
+/**
+ * @file exec_redirect.h
+ * @brief Runtime redirection structures and platform-agnostic redirection API.
+ *
+ * This header covers:
+ *   - exec_redirections_t lifecycle (create, destroy, clone, append)
+ *   - AST-to-runtime conversion
+ *   - Platform-agnostic apply/restore wrappers
+ *   - Platform-specific apply/restore declarations
+ */
+
 #include "ast.h"
-#include "exec_frame_expander.h"
 #include "exec_types_internal.h"
 
+/* ============================================================================
+ * Redirection Structure Lifecycle
+ * ============================================================================ */
+
 /**
- * Platform-specific redirection application functions.
- * These work exclusively with exec_redirections_t (runtime structures).
- * AST redirections should be converted to exec_redirections_t before calling.
+ * Create an empty runtime redirection list.
+ */
+exec_redirections_t *exec_redirections_create(void);
+
+/**
+ * Destroy a runtime redirection list and free all associated memory.
+ * Sets *redirections to NULL.
+ */
+void exec_redirections_destroy(exec_redirections_t **redirections);
+
+/**
+ * Deep-copy a redirection list.
  *
- * All three platform variants share the same two-function contract:
- *   - exec_apply_redirections_*()   applies redirections and records state in
- *                                   the frame's fd_table for later restoration.
- *   - exec_restore_redirections_*() reads that state back and undoes the
- *                                   redirections, leaving the frame's streams
- *                                   in their pre-apply condition.
- */
-#ifdef POSIX_API
-exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redirections_t *redirs);
-void exec_restore_redirections_posix(exec_frame_t *frame);
-#elifdef UCRT_API
-exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
-                                             const exec_redirections_t *redirs);
-void exec_restore_redirections_ucrt_c(exec_frame_t *frame);
-#else
-/**
- * ISO C redirection support is not possible, but, it does provide a workaround
- * for internal functions (builtins and functions defined in the current script).
- * For ISO C only, exec_apply_redirections_iso_c() accepts an optional exec_builtin_context_t*
- * argument, and will apply redirections by setting the FILE* fd_stdin, fd_stdout, and fd_stderr fields of
- * that struct.
- */
-exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redirections_t *redirs);
-/**
- * This stub version of redirections merely closes any non-NULL FILE* pointers in the
- * exec_builtin_context_t struct, which will cause builtins that use those fields to see EOF on the
- * corresponding stream. This is a very limited form of redirection, but it's the best we can do in
- * ISO C mode.
- */
-void exec_restore_redirections_iso_c(exec_frame_t *frame);
-#endif
-
-/**
- * Platform-agnostic wrappers that dispatch to the correct platform variant.
- * exec_frame_apply_redirections() returns 0 on success, -1 on error.
- */
-exec_status_t exec_frame_apply_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
-void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
-
-/**
- * Convert AST redirection nodes to runtime exec_redirections_t structure.
- * The caller is responsible for destroying the returned structure.
- */
-exec_redirections_t *exec_redirections_from_ast(exec_frame_t *frame,
-                                                const ast_node_list_t *ast_redirs);
-
-/**
- * Clone a redirection structure (deep copy).
- * @param redirs Source redirection structure (may be NULL)
- * @return New cloned structure, or NULL if source was NULL or allocation failed
+ * @param redirs  Source redirection list (may be NULL).
+ * @return A new cloned list, or NULL if source was NULL or allocation failed.
  */
 exec_redirections_t *exec_redirections_clone(const exec_redirections_t *redirs);
 
+/**
+ * Append a single redirection entry to the list (deep-copied).
+ *
+ * @return true on success, false on allocation failure.
+ */
 bool exec_redirections_append(exec_redirections_t *redirections, exec_redirection_t *redir);
 
+/* ============================================================================
+ * AST to Runtime Conversion
+ * ============================================================================ */
+
+/**
+ * Convert AST redirection nodes to a runtime exec_redirections_t list.
+ * The caller is responsible for destroying the returned structure.
+ *
+ * @param frame      The execution frame (for variable expansion and errors).
+ * @param ast_redirs The AST redirection node list.
+ * @return A new exec_redirections_t, or NULL on error or empty input.
+ */
+exec_redirections_t *exec_redirections_create_from_ast_nodes(exec_frame_t *frame,
+                                                             const ast_node_list_t *ast_redirs);
+
+/* ============================================================================
+ * Platform-Agnostic Redirection API
+ * ============================================================================ */
+
+/**
+ * Apply redirections from a runtime redirection list.
+ * Dispatches to the correct platform-specific implementation.
+ *
+ * @return EXEC_OK on success, EXEC_ERROR on failure.
+ */
+exec_status_t exec_frame_apply_redirections(exec_frame_t *frame,
+                                            const exec_redirections_t *redirections);
+
+/**
+ * Restore redirections previously applied by exec_frame_apply_redirections().
+ * Dispatches to the correct platform-specific implementation.
+ */
+void exec_restore_redirections(exec_frame_t *frame, const exec_redirections_t *redirections);
+
+/* ============================================================================
+ * Platform-Specific Implementations
+ * ============================================================================
+ *
+ * All platform variants share the same two-function contract:
+ *   - exec_apply_redirections_*()   applies redirections and records state
+ *                                   in the frame's fd_table for later restore.
+ *   - exec_restore_redirections_*() reads that state and undoes the
+ *                                   redirections.
+ *
+ * Callers should prefer the platform-agnostic wrappers above.
+ */
+
+#ifdef POSIX_API
+
+exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redirections_t *redirs);
+void exec_restore_redirections_posix(exec_frame_t *frame);
+
+#elifdef UCRT_API
+
+exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame,
+                                             const exec_redirections_t *redirs);
+void exec_restore_redirections_ucrt_c(exec_frame_t *frame);
+
+#else
+
+/**
+ * ISO C redirection support is limited.  For internal commands (builtins and
+ * shell functions), redirections are applied by setting the FILE* pointers
+ * on the frame.  External command redirection is not possible in ISO C mode.
+ */
+exec_status_t exec_apply_redirections_iso_c(exec_frame_t *frame, const exec_redirections_t *redirs);
+
+/**
+ * Restore ISO C redirections by closing any FILE* pointers that were opened
+ * during apply.
+ */
+void exec_restore_redirections_iso_c(exec_frame_t *frame);
+
 #endif
+
+#endif /* EXEC_REDIRECT_H */
