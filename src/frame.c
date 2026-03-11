@@ -1781,8 +1781,6 @@ exec_status_t frame_execute_string(exec_frame_t *frame, const string_t *command)
     return frame_execute_string_cstr(frame, string_cstr(command));
 }
 
-exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
-
 exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *command)
 {
     Expects_not_null(frame);
@@ -1808,8 +1806,6 @@ exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *
     return frame_execute_eval_string_cstr(frame, string_cstr(command));
 }
 
-exec_result_t exec_parse_string(exec_frame_t *frame, const char *command, ast_node_t **out_ast);
-
 exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const char *command)
 {
     Expects_not_null(frame);
@@ -1817,27 +1813,16 @@ exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const char *co
     if (!command || !*command)
         return EXEC_OK;
 
-    /* Parse the command string into an AST */
-    ast_node_t *ast = NULL;
-    exec_result_t parse_result = exec_parse_string(frame, command, &ast);
+    /* Push an EXEC_FRAME_EVAL frame so that control flow (return, break,
+     * continue) passes through to enclosing contexts correctly. */
+    exec_frame_t *eval_frame = exec_frame_push(frame, EXEC_FRAME_EVAL, frame->executor, NULL);
 
-    if (parse_result.status == EXEC_ERROR)
-    {
-        if (ast)
-            ast_node_destroy(&ast);
-        return EXEC_ERROR;
-    }
+    exec_result_t result = exec_command_string(eval_frame, command);
 
-    /* Empty command is success */
-    if (!ast)
-        return EXEC_OK;
+    exec_frame_pop(&eval_frame);
 
-    /* Execute via exec_eval which uses EXEC_FRAME_EVAL */
-    exec_frame_execute_result_t result = exec_eval(frame, ast);
-    ast_node_destroy(&ast);
-
-    /* Update frame's exit status */
-    frame->last_exit_status = result.exit_status;
+    /* Update caller frame's exit status */
+    frame->last_exit_status = result.exit_code;
 
     if (result.status == EXEC_ERROR)
         return EXEC_ERROR;

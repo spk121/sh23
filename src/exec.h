@@ -493,6 +493,20 @@ exec_status_t exec_execute_stream_named(exec_t *executor, FILE *fp, const char *
  */
 exec_result_t exec_execute_command_string(exec_t *executor, const char *command);
 
+/**
+ * Execute a complete command string in the context of a frame.
+ *
+ * Simplified wrapper for cases where the input is expected to be complete
+ * and self-contained (trap handlers, eval, command substitution, etc.).
+ * A terminal newline is appended if not present.  Any result other than
+ * EXEC_OK is promoted to EXEC_ERROR.
+ *
+ * @param frame   The execution frame.
+ * @param command The complete command string.
+ * @return Result with .status == EXEC_OK or EXEC_ERROR and .exit_code.
+ */
+exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
+
 /* ── Partial / incremental string execution ──────────────────────────────── */
 
 /**
