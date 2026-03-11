@@ -7,7 +7,7 @@
  * This header defines:
  * - exec_frame_t: The execution frame structure
  * - exec_params_t: Parameters for frame creation/execution
- * - exec_frame_result_t: Result of frame execution
+ * - exec_frame_execute_result_t: Result of frame execution
  * - Frame management functions (push, pop, exec_in_frame)
  * - Convenience wrappers for common frame types
  */
@@ -87,48 +87,6 @@ struct exec_frame_execute_result_t exec_frame_execute_command_string(exec_frame_
                                                                      const string_t *command_str);
 
 /* ============================================================================
- * Convenience Wrappers
- * ============================================================================
- * These wrap exec_in_frame() with appropriate frame types and params.
- */
-
-exec_frame_result_t exec_subshell(exec_frame_t *parent, const ast_node_t *body);
-
-exec_frame_result_t exec_brace_group(exec_frame_t *parent, const ast_node_t *body,
-                                     const exec_redirections_t *redirections);
-
-exec_frame_result_t exec_function(exec_frame_t *parent, const ast_node_t *body,
-                                  string_list_t *arguments,
-                                  const exec_redirections_t *redirections);
-
-exec_frame_result_t exec_for_loop(exec_frame_t *parent, string_t *var_name, string_list_t *words,
-                                  const ast_node_t *body);
-
-exec_frame_result_t exec_while_loop(exec_frame_t *parent, const ast_node_t *condition,
-                                    const ast_node_t *body, bool until_mode);
-
-exec_frame_result_t exec_dot_script(exec_frame_t *parent, string_t *script_path,
-                                    const ast_node_t *body, string_list_t *arguments);
-
-exec_frame_result_t exec_trap_handler(exec_frame_t *parent, const ast_node_t *body);
-
-exec_frame_result_t exec_background_job(exec_frame_t *parent, const ast_node_t *body,
-                                        string_list_t *command_args);
-
-exec_frame_result_t exec_pipeline_group(exec_frame_t *parent, ast_node_list_t *commands,
-                                        bool negated);
-
-#ifdef POSIX_API
-exec_frame_result_t exec_pipeline_cmd(exec_frame_t *parent, const ast_node_t *body,
-                                      pid_t pipeline_pgid);
-#else
-exec_frame_result_t exec_pipeline_cmd(exec_frame_t *parent, const ast_node_t *body,
-                                      int pipeline_pgid);
-#endif
-
-exec_frame_result_t exec_eval(exec_frame_t *parent, const ast_node_t *body);
-
-/* ============================================================================
  * Frame Query Functions
  * ============================================================================ */
 
@@ -168,7 +126,7 @@ trap_store_t *exec_frame_get_traps(exec_frame_t *frame);
  * Get variable value, checking local store first if applicable.
  */
 const string_t *exec_frame_get_variable(const exec_frame_t *frame, const string_t *name);
- 
+
 /**
  * Set variable, respecting local scope if applicable.
  */

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * exec_frame.c - Execution frame management for mgsh
  *
  * This file implements frame creation (push), destruction (pop), and execution.
@@ -779,6 +779,10 @@ static exec_frame_execute_result_t handle_control_flow(exec_frame_t *frame,
         }
         break;
 
+    case FRAME_FLOW_TOP:
+        /* Unwind all frames to top level (exit); always propagate */
+        return result;
+
     case FRAME_FLOW_BREAK:
     case FRAME_FLOW_CONTINUE:
         switch (policy->flow.loop_control)
@@ -1012,9 +1016,9 @@ static exec_frame_execute_result_t exec_frame_execute_condition_loop(exec_frame_
             result.has_exit_status = body_result.has_exit_status;
             continue;
         }
-        else if (body_result.flow == FRAME_FLOW_RETURN)
+        else if (body_result.flow == FRAME_FLOW_RETURN || body_result.flow == FRAME_FLOW_TOP)
         {
-            // Return propagates up
+            // Return/exit propagates up
             return body_result;
         }
         else if (body_result.status != EXEC_OK)
@@ -1070,7 +1074,7 @@ int split_command_line(const char *cmdline, char ***argvp)
 
             if (*p == '"')
             {
-                // Even backslashes ? literal ", odd ? escape "
+                // Even backslashes → literal ", odd → escape "
                 if (backslash_count % 2 == 1)
                 {
                     backslash_count--; // consume the escaping backslash
@@ -1103,7 +1107,7 @@ int split_command_line(const char *cmdline, char ***argvp)
 
         *q = '\0';
 
-        // realloc logic omitted for brevity ? use a dynamic array in real code
+        // realloc logic omitted for brevity — use a dynamic array in real code
         char **new_argv = xrealloc(argv, (argc + 2) * sizeof(char *));
         if (!new_argv)
         {
@@ -1349,7 +1353,7 @@ int exec_frame_declare_local(exec_frame_t *frame, const string_t *name, const st
  * current sequential line number (numbered starting with 1) within a script or
  * function before it executes each command."
  *
- * LINENO is a regular variable ? the user can unset or reset it. If they do,
+ * LINENO is a regular variable — the user can unset or reset it. If they do,
  * it will be recreated or updated again when the next command executes.
  *
  * We only update when we have a valid source line (> 0) from the AST, and
@@ -1387,7 +1391,7 @@ exec_frame_execute_result_t exec_frame_execute_dispatch(exec_frame_t *frame, con
     Expects_not_null(frame);
     Expects_not_null(node);
     exec_frame_execute_result_t result = {
-        .status = EXEC_FRAME_EXECUTE_STATUS_OK, .has_exit_status = false, .exit_status = 0};
+        .status = EXEC_OK, .has_exit_status = false, .exit_status = 0};
 
     /* Update LINENO before executing this command */
     exec_frame_update_lineno(frame, node);
@@ -1469,7 +1473,7 @@ exec_frame_execute_result_t exec_frame_execute_compound_list(exec_frame_t *frame
     Expects(list->type == AST_COMMAND_LIST);
 
     exec_frame_execute_result_t result = {
-        .status = EXEC_FRAME_EXECUTE_STATUS_OK, .has_exit_status = false, .exit_status = 0};
+        .status = EXEC_OK, .has_exit_status = false, .exit_status = 0};
 
     // Access the command list data
     ast_node_list_t *items = list->data.command_list.items;
@@ -1561,7 +1565,7 @@ exec_frame_execute_result_t exec_frame_execute_compound_list(exec_frame_t *frame
         }
 
         // Propagate errors from command execution
-        if (cmd_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+        if (cmd_result.status != EXEC_OK)
         {
             result.status = cmd_result.status;
             if (cmd_result.has_exit_status)
@@ -1614,7 +1618,7 @@ exec_frame_execute_result_t exec_frame_execute_and_or_list(exec_frame_t *frame, 
     Expects(list->type == AST_AND_OR_LIST);
 
     exec_frame_execute_result_t result = {
-        .status = EXEC_FRAME_EXECUTE_STATUS_OK, .has_exit_status = false, .exit_status = 0};
+        .status = EXEC_OK, .has_exit_status = false, .exit_status = 0};
 
     ast_node_t *left = list->data.andor_list.left;
     ast_node_t *right = list->data.andor_list.right;
@@ -1642,11 +1646,11 @@ exec_frame_execute_result_t exec_frame_execute_and_or_list(exec_frame_t *frame, 
     default:
         exec_set_error_printf(frame->executor, "Unsupported AST node type in and_or_list: %d (%s)",
                               left->type, ast_node_type_to_string(left->type));
-        result.status = EXEC_FRAME_EXECUTE_STATUS_NOT_IMPL;
+        result.status = EXEC_NOT_IMPL;
         return result;
     }
 
-    if (left_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+    if (left_result.status != EXEC_OK)
     {
         result = left_result;
         return result;
@@ -1694,11 +1698,11 @@ exec_frame_execute_result_t exec_frame_execute_and_or_list(exec_frame_t *frame, 
             exec_set_error_printf(frame->executor,
                                   "Unsupported AST node type in and_or_list: %d (%s)", right->type,
                                   ast_node_type_to_string(right->type));
-            result.status = EXEC_FRAME_EXECUTE_STATUS_NOT_IMPL;
+            result.status = EXEC_NOT_IMPL;
             return result;
         }
 
-        if (right_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+        if (right_result.status != EXEC_OK)
         {
             result = right_result;
             return result;
@@ -1737,25 +1741,11 @@ exec_frame_execute_result_t exec_frame_execute_simple_command(exec_frame_t *fram
 {
     /* Executing a simple command is so complicated, it gets
      * its own module, lol. Simple, my butt. */
-    exec_frame_execute_status_t status = exec_frame_execute_simple_command_impl(frame, node);
-    exec_frame_execute_result_t result;
-    if (status == EXEC_FRAME_EXECUTE_STATUS_OK)
-    {
-        result.status = EXEC_OK;
-        result.has_exit_status = true;
-        result.exit_status = frame->last_exit_status;
-    }
-    else
-    {
-        result.status = status;
-        result.has_exit_status = false;
-        result.exit_status = 0;
-    }
+    exec_frame_execute_result_t result = exec_frame_execute_simple_command_impl(frame, node);
 
-    /* Check if a builtin set pending control flow (return, break, continue) */
-    // TODO? FIXME? Is it right to put pending control flow in the frame itself?
-    // Or is it a property to be returned from all exec_frame_execute_* functions and
-    // then handled by the caller?
+    /* Pick up any pending control flow that a builtin set on the frame
+     * (return, break, continue).  The simple-command impl doesn't set
+     * these in the result struct itself. */
     result.flow = frame->pending_control_flow;
     result.flow_depth = frame->pending_flow_depth;
 
@@ -1773,12 +1763,12 @@ exec_frame_execute_result_t exec_frame_execute_if_clause(exec_frame_t *frame, as
     Expects(node->type == AST_IF_CLAUSE);
 
     exec_frame_execute_result_t result = {
-        .status = EXEC_FRAME_EXECUTE_STATUS_OK, .has_exit_status = false, .exit_status = 0};
+        .status = EXEC_OK, .has_exit_status = false, .exit_status = 0};
 
     // Execute the main condition
     exec_frame_execute_result_t cond_result =
         exec_frame_execute_dispatch(frame, node->data.if_clause.condition);
-    if (cond_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+    if (cond_result.status != EXEC_OK)
     {
         result = cond_result;
         return result;
@@ -1811,7 +1801,7 @@ exec_frame_execute_result_t exec_frame_execute_if_clause(exec_frame_t *frame, as
             }
             exec_frame_execute_result_t elif_cond_result =
                 exec_frame_execute_dispatch(frame, elif_node->data.if_clause.condition);
-            if (elif_cond_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+            if (elif_cond_result.status != EXEC_OK)
             {
                 result = elif_cond_result;
                 return result;
@@ -1820,7 +1810,7 @@ exec_frame_execute_result_t exec_frame_execute_if_clause(exec_frame_t *frame, as
             {
                 exec_frame_execute_result_t elif_then_result =
                     exec_frame_execute_dispatch(frame, elif_node->data.if_clause.then_body);
-                if (elif_then_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+                if (elif_then_result.status != EXEC_OK)
                 {
                     result = elif_then_result;
                     return result;
@@ -1836,7 +1826,7 @@ exec_frame_execute_result_t exec_frame_execute_if_clause(exec_frame_t *frame, as
     {
         exec_frame_execute_result_t else_result =
             exec_frame_execute_dispatch(frame, node->data.if_clause.else_body);
-        if (else_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+        if (else_result.status != EXEC_OK)
         {
             result = else_result;
             return result;
@@ -1920,7 +1910,7 @@ exec_frame_execute_result_t exec_frame_execute_function_def_clause(exec_frame_t 
     ast_node_t *body = node->data.function_def.body;
     ast_node_list_t *ast_redirections = node->data.function_def.redirections;
     string_t *name = node->data.function_def.name;
-    exec_frame_execute_result_t result = {.status = EXEC_FRAME_EXECUTE_STATUS_OK,
+    exec_frame_execute_result_t result = {.status = EXEC_OK,
                                           .has_exit_status = true,
                                           .exit_status = 0,
                                           .flow = FRAME_FLOW_NORMAL,
@@ -1974,7 +1964,7 @@ exec_frame_execute_result_t exec_frame_execute_redirected_command(exec_frame_t *
     if (!redirections && ast_redirections && ast_node_list_size(ast_redirections) > 0)
     {
         // Conversion failed
-        exec_frame_execute_result_t error_result = {.status = EXEC_FRAME_EXECUTE_STATUS_ERROR,
+        exec_frame_execute_result_t error_result = {.status = EXEC_ERROR,
                                                     .has_exit_status = true,
                                                     .exit_status = 1,
                                                     .flow = FRAME_FLOW_NORMAL,
@@ -2025,7 +2015,7 @@ exec_frame_execute_result_t exec_frame_execute_condition_loop(exec_frame_t *fram
     Expects_not_null(params->condition);
     Expects_not_null(params->body);
 
-    exec_frame_execute_result_t result = {.status = EXEC_FRAME_EXECUTE_STATUS_OK,
+    exec_frame_execute_result_t result = {.status = EXEC_OK,
                                           .has_exit_status = true,
                                           .exit_status = 0,
                                           .flow = FRAME_FLOW_NORMAL,
@@ -2038,7 +2028,7 @@ exec_frame_execute_result_t exec_frame_execute_condition_loop(exec_frame_t *fram
         // Execute condition
         exec_frame_execute_result_t cond_result =
             exec_frame_execute_dispatch(frame, params->condition);
-        if (cond_result.status != EXEC_FRAME_EXECUTE_STATUS_OK)
+        if (cond_result.status != EXEC_OK)
         {
             return cond_result;
         }
@@ -2088,9 +2078,9 @@ exec_frame_execute_result_t exec_frame_execute_condition_loop(exec_frame_t *fram
             result.has_exit_status = body_result.has_exit_status;
             continue;
         }
-        else if (body_result.flow == FRAME_FLOW_RETURN)
+        else if (body_result.flow == FRAME_FLOW_RETURN || body_result.flow == FRAME_FLOW_TOP)
         {
-            // Return propagates up
+            // Return/exit propagates up
             return body_result;
         }
         else if (body_result.status != EXEC_OK)
@@ -2138,7 +2128,7 @@ exec_frame_execute_result_t exec_frame_execute_iteration_loop(exec_frame_t *fram
     Expects_not_null(params->iteration_words);
     Expects_not_null(params->body);
 
-    exec_frame_execute_result_t result = {.status = EXEC_FRAME_EXECUTE_STATUS_OK,
+    exec_frame_execute_result_t result = {.status = EXEC_OK,
                                           .has_exit_status = true,
                                           .exit_status = 0,
                                           .flow = FRAME_FLOW_NORMAL,
@@ -2189,9 +2179,9 @@ exec_frame_execute_result_t exec_frame_execute_iteration_loop(exec_frame_t *fram
             result.has_exit_status = body_result.has_exit_status;
             continue;
         }
-        else if (body_result.flow == FRAME_FLOW_RETURN)
+        else if (body_result.flow == FRAME_FLOW_RETURN || body_result.flow == FRAME_FLOW_TOP)
         {
-            // Return propagates up
+            // Return/exit propagates up
             return body_result;
         }
         else if (body_result.status != EXEC_OK)
@@ -2262,7 +2252,7 @@ exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t
     bool is_negated = params->pipeline_negated;
     int ncmds = commands->size;
 
-    exec_frame_execute_result_t result = {.status = EXEC_FRAME_EXECUTE_STATUS_OK,
+    exec_frame_execute_result_t result = {.status = EXEC_OK,
                                           .has_exit_status = true,
                                           .exit_status = 0,
                                           .flow = FRAME_FLOW_NORMAL,
@@ -2276,7 +2266,7 @@ exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t
 
     if (ncmds == 1)
     {
-        /* Single command ? no pipes needed, just execute directly */
+        /* Single command — no pipes needed, just execute directly */
         ast_node_t *cmd = commands->nodes[0];
         exec_frame_execute_result_t cmd_result = exec_frame_execute_dispatch(frame, cmd);
         if (is_negated && cmd_result.has_exit_status)
@@ -2522,7 +2512,7 @@ exec_frame_execute_result_t exec_frame_execute_case_clause(exec_frame_t *frame, 
     Expects_not_null(node);
     Expects(node->type == AST_CASE_CLAUSE);
 
-    exec_frame_execute_result_t result = {.status = EXEC_FRAME_EXECUTE_STATUS_OK,
+    exec_frame_execute_result_t result = {.status = EXEC_OK,
                                           .has_exit_status = true,
                                           .exit_status = 0,
                                           .flow = FRAME_FLOW_NORMAL,
@@ -2537,7 +2527,7 @@ exec_frame_execute_result_t exec_frame_execute_case_clause(exec_frame_t *frame, 
 
     /*
      * POSIX XCU 2.9.4.3: The case word undergoes tilde expansion, parameter
-     * expansion, command substitution, and arithmetic expansion ? but NOT
+     * expansion, command substitution, and arithmetic expansion — but NOT
      * field splitting or pathname expansion.
      */
     string_t *word = expand_word_nosplit(frame, word_token);
@@ -2581,7 +2571,7 @@ exec_frame_execute_result_t exec_frame_execute_case_clause(exec_frame_t *frame, 
              * as the case word (tilde, parameter, command subst, arithmetic)
              * but NOT field splitting or pathname expansion. The pattern
              * metacharacters (*, ?, [...]) retain their special meaning for
-             * fnmatch-style matching against the case word ? they are NOT
+             * fnmatch-style matching against the case word — they are NOT
              * used for filesystem globbing.
              */
             string_t *pattern = expand_word_nosplit(frame, pattern_token);

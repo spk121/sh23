@@ -1,4 +1,4 @@
-#ifndef FRAME_H
+﻿#ifndef FRAME_H
 #define FRAME_H
 
 /**
@@ -215,7 +215,7 @@ void frame_print_readonly_variables(exec_frame_t *frame, FILE *output);
  */
 void frame_print_variables(exec_frame_t *frame, bool reusable_format, FILE *output);
 
-/* ?? IFS convenience ??????????????????????????????????????????????????????? */
+/* ── IFS convenience ─────────────────────────────────────────────────────── */
 
 /**
  * Returns the current value of IFS for the given frame.
@@ -229,7 +229,7 @@ void frame_print_variables(exec_frame_t *frame, bool reusable_format, FILE *outp
 string_t *frame_get_ifs(exec_frame_t *frame);
 char *frame_get_ifs_cstr(exec_frame_t *frame);
 
-/* ?? Working directory ????????????????????????????????????????????????????? */
+/* ── Working directory ───────────────────────────────────────────────────── */
 
 /**
  * Change the current working directory.
@@ -389,10 +389,10 @@ frame_func_error_t frame_unset_function_cstr(exec_frame_t *frame, const char *na
  * @param frame  The current execution frame.
  * @param name   The function name.
  * @param args   The argument list (args[0] is conventionally the function name).
- * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error.
+ * @return EXEC_OK on success, EXEC_ERROR on error.
  */
-frame_exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
-                                        const string_list_t *args);
+exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
+                                  const string_list_t *args);
 
 /* ============================================================================
  * Exit Status
@@ -607,10 +607,10 @@ bool frame_alias_name_is_valid(const char *name);
  *
  * @param frame The execution frame context
  * @param command The command string to execute
- * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ * @return EXEC_OK on success, EXEC_ERROR on error
  */
-frame_exec_status_t frame_execute_string(exec_frame_t *frame, const string_t *command);
-frame_exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *command);
+exec_status_t frame_execute_string(exec_frame_t *frame, const string_t *command);
+exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *command);
 
 /**
  * Execute an eval command string in the context of the given frame.
@@ -619,9 +619,9 @@ frame_exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *c
  *
  * @param frame The execution frame context
  * @param command The command string to execute
- * @return FRAME_EXEC_OK on success, FRAME_EXEC_ERROR on error
+ * @return EXEC_OK on success, EXEC_ERROR on error
  */
-frame_exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *command);
-frame_exec_status_t frame_execute_string_as_eval_cstr(exec_frame_t *frame, const char *command);
+exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *command);
+exec_status_t frame_execute_string_as_eval_cstr(exec_frame_t *frame, const char *command);
 
 #endif /* FRAME_H */

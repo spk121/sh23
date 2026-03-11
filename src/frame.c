@@ -1,4 +1,4 @@
-/**
+﻿/**
  * frame.c - Public API implementation for exec_frame_t
  *
  * This file implements the public API defined in frame.h, providing a clean
@@ -1388,31 +1388,31 @@ frame_func_error_t frame_unset_function_cstr(exec_frame_t *frame, const char *na
     return result;
 }
 
-frame_exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
-                                        const string_list_t *args)
+exec_status_t frame_call_function(exec_frame_t *frame, const string_t *name,
+                                  const string_list_t *args)
 {
     Expects_not_null(frame);
     Expects_not_null(name);
 
     if (!frame->functions)
     {
-        return FRAME_EXEC_ERROR;
+        return EXEC_ERROR;
     }
 
     const ast_node_t *func_def = func_store_get_def(frame->functions, name);
     if (!func_def)
     {
-        return FRAME_EXEC_ERROR;
+        return EXEC_ERROR;
     }
 
     /* Execute the function body in a new function frame */
     exec_frame_execute_result_t result =
         exec_frame_execute_function_body(frame, func_def, (string_list_t *)args, NULL);
 
-    if (result.status == EXEC_FRAME_EXECUTE_STATUS_ERROR)
-        return FRAME_EXEC_ERROR;
+    if (result.status == EXEC_ERROR)
+        return EXEC_ERROR;
 
-    return FRAME_EXEC_OK;
+    return EXEC_OK;
 }
 
 /* ============================================================================
@@ -1443,7 +1443,7 @@ void frame_set_pending_control_flow(exec_frame_t *frame, frame_control_flow_t fl
 
     if (flow == FRAME_FLOW_TOP)
     {
-        /* Unwind all frames to top level ? request exit on the executor */
+        /* Unwind all frames to top level � request exit on the executor */
         exec_request_exit(frame->executor, frame->last_exit_status);
     }
     frame->pending_control_flow = flow;
@@ -1771,51 +1771,51 @@ bool frame_alias_name_is_valid(const char *name)
  * Frame-Level Command Execution
  * ============================================================================ */
 
-frame_exec_status_t frame_execute_string(exec_frame_t *frame, const string_t *command)
+exec_status_t frame_execute_string(exec_frame_t *frame, const string_t *command)
 {
     Expects_not_null(frame);
 
     if (!command || string_empty(command))
-        return FRAME_EXEC_OK;
+        return EXEC_OK;
 
     return frame_execute_string_cstr(frame, string_cstr(command));
 }
 
 exec_result_t exec_command_string(exec_frame_t *frame, const char *command);
 
-frame_exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *command)
+exec_status_t frame_execute_string_cstr(exec_frame_t *frame, const char *command)
 {
     Expects_not_null(frame);
 
     if (!command || !*command)
-        return FRAME_EXEC_OK;
+        return EXEC_OK;
 
     exec_result_t result = exec_command_string(frame, command);
 
     if (result.status == EXEC_ERROR)
-        return FRAME_EXEC_ERROR;
+        return EXEC_ERROR;
 
-    return FRAME_EXEC_OK;
+    return EXEC_OK;
 }
 
-frame_exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *command)
+exec_status_t frame_execute_string_as_eval(exec_frame_t *frame, const string_t *command)
 {
     Expects_not_null(frame);
 
     if (!command || string_empty(command))
-        return FRAME_EXEC_OK;
+        return EXEC_OK;
 
     return frame_execute_eval_string_cstr(frame, string_cstr(command));
 }
 
 exec_result_t exec_parse_string(exec_frame_t *frame, const char *command, ast_node_t **out_ast);
 
-frame_exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const char *command)
+exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const char *command)
 {
     Expects_not_null(frame);
 
     if (!command || !*command)
-        return FRAME_EXEC_OK;
+        return EXEC_OK;
 
     /* Parse the command string into an AST */
     ast_node_t *ast = NULL;
@@ -1825,22 +1825,22 @@ frame_exec_status_t frame_execute_eval_string_cstr(exec_frame_t *frame, const ch
     {
         if (ast)
             ast_node_destroy(&ast);
-        return FRAME_EXEC_ERROR;
+        return EXEC_ERROR;
     }
 
     /* Empty command is success */
     if (!ast)
-        return FRAME_EXEC_OK;
+        return EXEC_OK;
 
     /* Execute via exec_eval which uses EXEC_FRAME_EVAL */
-    exec_frame_result_t result = exec_eval(frame, ast);
+    exec_frame_execute_result_t result = exec_eval(frame, ast);
     ast_node_destroy(&ast);
 
     /* Update frame's exit status */
     frame->last_exit_status = result.exit_status;
 
     if (result.status == EXEC_ERROR)
-        return FRAME_EXEC_ERROR;
+        return EXEC_ERROR;
 
-    return FRAME_EXEC_OK;
+    return EXEC_OK;
 }

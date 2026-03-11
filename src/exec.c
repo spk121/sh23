@@ -1885,10 +1885,10 @@ exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
     result.exit_code = res.exit_status;
     switch (res.exit_status)
     {
-    case EXEC_FRAME_EXECUTE_STATUS_OK:
+    case EXEC_OK:
         result.status = EXEC_OK;
         break;
-    case EXEC_FRAME_EXECUTE_STATUS_ERROR:
+    case EXEC_ERROR:
     default:
         result.status = EXEC_ERROR;
         break;
@@ -1918,8 +1918,8 @@ exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
  * @param session The parse session (maintains lexer, tokenizer, and accumulated tokens)
  * @return Status indicating success, need for more input, or error
  */
-static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *input,
-                                             exec_parse_session_t *session)
+static exec_status_t exec_string_core(exec_frame_t *frame, const char *input,
+                                      exec_parse_session_t *session)
 {
     Expects_not_null(frame);
     Expects_not_null(input);
@@ -1947,7 +1947,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
         const char *err = lexer_get_error(lx);
         frame_set_error_printf(frame, "Lexer error: %s", err ? err : "unknown");
         token_list_destroy(&raw_tokens);
-        return EXEC_STRING_ERROR;
+        return EXEC_ERROR;
     }
 
     if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
@@ -1973,7 +1973,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
                 const char *err = tokenizer_get_error(tokenizer);
                 frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
                 token_list_destroy(&processed_tokens);
-                return EXEC_STRING_ERROR;
+                return EXEC_ERROR;
             }
 
             if (tok_status == TOK_INCOMPLETE)
@@ -1983,7 +1983,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
                           session->line_num);
                 /* Tokens are buffered in tokenizer, continue to next line */
                 token_list_destroy(&processed_tokens);
-                return EXEC_STRING_INCOMPLETE;
+                return EXEC_INCOMPLETE;
             }
 
             /* Accumulate these tokens for when the lexer completes */
@@ -1997,7 +1997,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
                     0)
                 {
                     log_debug("exec_string_core: Failed to append incomplete tokens");
-                    return EXEC_STRING_ERROR;
+                    return EXEC_ERROR;
                 }
             }
         }
@@ -2005,7 +2005,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
         {
             token_list_destroy(&raw_tokens);
         }
-        return EXEC_STRING_INCOMPLETE;
+        return EXEC_INCOMPLETE;
     }
 
     log_debug("exec_string_core: Lexer produced %d raw tokens at line %d",
@@ -2021,7 +2021,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
         const char *err = tokenizer_get_error(tokenizer);
         frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
         token_list_destroy(&processed_tokens);
-        return EXEC_STRING_ERROR;
+        return EXEC_ERROR;
     }
 
     if (tok_status == TOK_INCOMPLETE)
@@ -2033,14 +2033,14 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
          * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
          * Continue reading more input. */
         token_list_destroy(&processed_tokens);
-        return EXEC_STRING_INCOMPLETE;
+        return EXEC_INCOMPLETE;
     }
 
     if (token_list_size(processed_tokens) == 0)
     {
         log_debug("exec_string_core: No tokens after processing at line %d", session->line_num);
         token_list_destroy(&processed_tokens);
-        return EXEC_STRING_EMPTY;
+        return EXEC_EMPTY;
     }
 
     /* Accumulate tokens if we had an incomplete parse previously */
@@ -2053,7 +2053,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
         if (token_list_append_list_move(session->accumulated_tokens, &processed_tokens) != 0)
         {
             log_debug("exec_string_core: Failed to append tokens");
-            return EXEC_STRING_ERROR;
+            return EXEC_ERROR;
         }
 
         /* Use the accumulated list for parsing */
@@ -2110,7 +2110,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
             }
         }
         parser_destroy(&parser);
-        return EXEC_STRING_ERROR;
+        return EXEC_ERROR;
     }
 
     if (parse_status == PARSE_INCOMPLETE)
@@ -2122,14 +2122,14 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
         /* Clone token list from parser - respect silo boundary */
         session->accumulated_tokens = token_list_clone(parser->tokens);
         parser_destroy(&parser);
-        return EXEC_STRING_INCOMPLETE;
+        return EXEC_INCOMPLETE;
     }
 
     if (parse_status == PARSE_EMPTY || !gnode)
     {
         log_debug("exec_string_core: Parse empty at line %d", session->line_num);
         parser_destroy(&parser);
-        return EXEC_STRING_EMPTY;
+        return EXEC_EMPTY;
     }
 
     ast_node_t *ast = ast_lower(gnode);
@@ -2138,7 +2138,7 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
 
     if (!ast)
     {
-        return EXEC_STRING_EMPTY;
+        return EXEC_EMPTY;
     }
 
     /* Execute via the dispatch function */
@@ -2154,15 +2154,15 @@ static exec_string_status_t exec_string_core(exec_frame_t *frame, const char *in
 
     ast_node_destroy(&ast);
 
-    if (result.status == EXEC_FRAME_EXECUTE_STATUS_ERROR)
+    if (result.status == EXEC_ERROR)
     {
-        return EXEC_STRING_ERROR;
+        return EXEC_ERROR;
     }
 
     /* Reset context after successful execution */
     exec_parse_session_reset(session);
 
-    return EXEC_STRING_OK;
+    return EXEC_OK;
 }
 
 /* extracts strings from an input stream to feed to exec_string_core */
@@ -2193,20 +2193,20 @@ exec_status_t exec_stream_core_ex(exec_frame_t *frame, FILE *fp, exec_parse_sess
             if (line_len == 0)
             {
                 /* Fast path: entire line fits in chunk */
-                exec_string_status_t status = exec_string_core(frame, chunk, session);
+                exec_status_t status = exec_string_core(frame, chunk, session);
                 if (session->line_num > 0)
                     frame->source_line = session->line_num;
 
                 switch (status)
                 {
-                case EXEC_STRING_OK:
-                case EXEC_STRING_EMPTY:
+                case EXEC_OK:
+                case EXEC_EMPTY:
                     final_status = EXEC_OK;
                     break;
-                case EXEC_STRING_INCOMPLETE:
-                    final_status = EXEC_INCOMPLETE_INPUT;
+                case EXEC_INCOMPLETE:
+                    final_status = EXEC_INCOMPLETE;
                     break;
-                case EXEC_STRING_ERROR:
+                case EXEC_ERROR:
                     final_status = EXEC_ERROR;
                     break;
                 }
@@ -2254,20 +2254,20 @@ exec_status_t exec_stream_core_ex(exec_frame_t *frame, FILE *fp, exec_parse_sess
     /* Process whatever we accumulated (may be empty on pure EOF) */
     if (line_len > 0)
     {
-        exec_string_status_t status = exec_string_core(frame, line_buf, session);
+        exec_status_t status = exec_string_core(frame, line_buf, session);
         if (session->line_num > 0)
             frame->source_line = session->line_num;
 
         switch (status)
         {
-        case EXEC_STRING_OK:
-        case EXEC_STRING_EMPTY:
+        case EXEC_OK:
+        case EXEC_EMPTY:
             final_status = EXEC_OK;
             break;
-        case EXEC_STRING_INCOMPLETE:
-            final_status = EXEC_INCOMPLETE_INPUT;
+        case EXEC_INCOMPLETE:
+            final_status = EXEC_INCOMPLETE;
             break;
-        case EXEC_STRING_ERROR:
+        case EXEC_ERROR:
             final_status = EXEC_ERROR;
             break;
         }
@@ -2384,7 +2384,7 @@ exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interact
         consecutive_eof = 0;
 
         /* ---- 4. Dispatch on line status ---- */
-        if (line_status == EXEC_INCOMPLETE_INPUT)
+        if (line_status == EXEC_INCOMPLETE)
         {
             /*
              * The lexer or parser needs more input.  The session holds the
@@ -2585,7 +2585,7 @@ exec_status_t exec_execute_stream_once(exec_t *executor, FILE *fp)
     switch (raw_status)
     {
     case EXEC_OK:
-    case EXEC_INCOMPLETE_INPUT:
+    case EXEC_INCOMPLETE:
         status = EXEC_OK;
         break;
     case EXEC_ERROR:
@@ -2684,23 +2684,23 @@ exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
     /* ------------------------------------------------------------------
      * Feed the entire command string to the core execution engine.
      * ------------------------------------------------------------------ */
-    exec_string_status_t str_status = exec_string_core(frame, command, session);
+    exec_status_t str_status = exec_string_core(frame, command, session);
 
     switch (str_status)
     {
-    case EXEC_STRING_OK:
+    case EXEC_OK:
         result.status = EXEC_OK;
         result.exit_code = executor->last_exit_status;
         break;
 
-    case EXEC_STRING_EMPTY:
+    case EXEC_EMPTY:
         /* Empty command string (e.g. whitespace only, comments only).
          * POSIX: exit status is zero for an empty command. */
         result.status = EXEC_OK;
         result.exit_code = 0;
         break;
 
-    case EXEC_STRING_INCOMPLETE:
+    case EXEC_INCOMPLETE:
         /* For -c style execution, incomplete input is an error — the
          * caller promised a complete command string. */
         if (!exec_get_error_cstr(executor))
@@ -2708,11 +2708,11 @@ exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
             exec_set_error_cstr(executor, "Unexpected end of input (unclosed quote, "
                                           "here-document, or compound command)");
         }
-        result.status = EXEC_INCOMPLETE_INPUT;
+        result.status = EXEC_INCOMPLETE;
         result.exit_code = EXEC_EXIT_MISUSE;
         break;
 
-    case EXEC_STRING_ERROR:
+    case EXEC_ERROR:
         result.status = EXEC_ERROR;
         result.exit_code =
             executor->last_exit_status ? executor->last_exit_status : EXEC_EXIT_FAILURE;
@@ -2876,7 +2876,7 @@ exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const c
     /* ------------------------------------------------------------------
      * Feed this chunk to the core execution engine.
      * ------------------------------------------------------------------ */
-    exec_string_status_t str_status = exec_string_core(frame, command, session);
+    exec_status_t str_status = exec_string_core(frame, command, session);
 
     /* Update the caller line number from the session (exec_string_core may
        have incremented it). */
@@ -2889,28 +2889,28 @@ exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const c
 
     switch (str_status)
     {
-    case EXEC_STRING_OK:
+    case EXEC_OK:
         session->incomplete = false;
         result = EXEC_OK;
         break;
 
-    case EXEC_STRING_EMPTY:
+    case EXEC_EMPTY:
         /* An empty chunk (whitespace, comments) is OK.
          * If we were already mid-continuation, stay incomplete — the
          * empty line is just a blank line inside a multi-line construct.
          * Otherwise report OK. */
         if (session->incomplete)
-            result = EXEC_INCOMPLETE_INPUT;
+            result = EXEC_INCOMPLETE;
         else
             result = EXEC_OK;
         break;
 
-    case EXEC_STRING_INCOMPLETE:
+    case EXEC_INCOMPLETE:
         session->incomplete = true;
-        result = EXEC_INCOMPLETE_INPUT;
+        result = EXEC_INCOMPLETE;
         break;
 
-    case EXEC_STRING_ERROR:
+    case EXEC_ERROR:
         /* On error, clean up the session so the next call starts fresh.
          * The caller can inspect exec_get_error() for details. */
         exec_parse_session_reset(session);
@@ -2945,7 +2945,7 @@ exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const c
      * resources but keep the session struct valid for reuse.
      * The caller can start a new sequence without calling cleanup.
      * ------------------------------------------------------------------ */
-    if (result != EXEC_INCOMPLETE_INPUT)
+    if (result != EXEC_INCOMPLETE)
     {
         exec_parse_session_reset(session);
         session->incomplete = false;
@@ -3121,7 +3121,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
         string_t *input = string_create_from(line);
         string_append_char(input, '\n');
 
-        exec_string_status_t str_status =
+        exec_status_t str_status =
             exec_string_core(executor->current_frame, string_cstr(input), session);
 
         string_destroy(&input);
@@ -3131,7 +3131,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
 
         /* ---- 6. Dispatch on execution status ---- */
 
-        if (str_status == EXEC_STRING_INCOMPLETE)
+        if (str_status == EXEC_INCOMPLETE)
         {
             need_continuation = true;
             continue;
@@ -3140,7 +3140,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
         /* Command complete (OK, EMPTY, or ERROR) — reset continuation. */
         need_continuation = false;
 
-        if (str_status == EXEC_STRING_ERROR)
+        if (str_status == EXEC_ERROR)
         {
             exec_parse_session_reset(session);
 
@@ -3910,32 +3910,32 @@ exec_result_t exec_command_string(exec_frame_t *frame, const char *command)
     }
 
     /* Execute the command string */
-    exec_string_status_t status = exec_string_core(frame, string_cstr(cmd_with_newline), session);
+    exec_status_t status = exec_string_core(frame, string_cstr(cmd_with_newline), session);
 
     string_destroy(&cmd_with_newline);
 
     /* Map status to result */
     switch (status)
     {
-    case EXEC_STRING_OK:
+    case EXEC_OK:
         result.status = EXEC_OK;
         result.exit_status = frame->last_exit_status;
         break;
 
-    case EXEC_STRING_EMPTY:
+    case EXEC_EMPTY:
         /* Empty command is not an error, just return success with status 0 */
         result.status = EXEC_OK;
         result.exit_status = 0;
         break;
 
-    case EXEC_STRING_INCOMPLETE:
+    case EXEC_INCOMPLETE:
         /* For a "complete" command string, incomplete is an error */
         frame_set_error_printf(frame, "Incomplete command: unexpected end of input");
         result.status = EXEC_ERROR;
         result.exit_status = 2;
         break;
 
-    case EXEC_STRING_ERROR:
+    case EXEC_ERROR:
         result.status = EXEC_ERROR;
         result.exit_status = frame->last_exit_status ? frame->last_exit_status : 1;
         break;

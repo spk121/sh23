@@ -30,8 +30,8 @@
 
 #include "builtins.h"
 
-#include "exec_types_internal.h"
 #include "exec.h"
+#include "exec_types_internal.h"
 #include "frame.h"
 #include "func_store.h"
 #include "getopt.h"
@@ -74,7 +74,6 @@
 #define PATH_MAX 1024
 #endif
 #endif
-
 
 typedef struct builtin_implemented_function_map_t
 {
@@ -579,14 +578,14 @@ int builtin_eval(exec_frame_t *frame, const string_list_t *args)
     /* Execute the constructed command in an EXEC_FRAME_EVAL frame
      * This ensures proper control flow handling (return, break, continue
      * pass through to enclosing contexts) */
-    frame_exec_status_t status = frame_execute_string_as_eval(frame, command);
+    exec_status_t status = frame_execute_string_as_eval(frame, command);
     string_destroy(&command);
 
     /* Get the exit status from the executed command */
     int exit_status = frame_get_last_exit_status(frame);
 
     /* If execution failed but exit status is 0, return 1 */
-    if (status == FRAME_EXEC_ERROR && exit_status == 0)
+    if (status == EXEC_ERROR && exit_status == 0)
         return 1;
 
     return exit_status;
@@ -999,7 +998,8 @@ int builtin_readonly(exec_frame_t *frame, const string_list_t *args)
 
         if (string_eq_cstr(name, "LINENO"))
         {
-            /* It is unspecified in the standard if LINENO can be made readonly. We'll go with 'no'*/
+            /* It is unspecified in the standard if LINENO can be made readonly. We'll go with
+             * 'no'*/
             fprintf(stderr, "readonly: variable 'LINENO' cannot be made readonly\n");
             exit_status = 1;
         }
@@ -2343,7 +2343,6 @@ static string_t *resolve_home(exec_frame_t *frame)
     }
     return NULL;
 }
-
 
 #if defined(POSIX_API) || defined(UCRT_API)
 
@@ -6526,7 +6525,6 @@ int builtin_mgsh_cat(exec_frame_t *frame, const string_list_t *args)
     fclose(fp);
     return 0;
 }
-
 
 /* ============================================================================
  * true / false - Return success or failure

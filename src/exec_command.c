@@ -1,4 +1,4 @@
-#ifdef _MSC_VER
+﻿#ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
@@ -16,8 +16,8 @@
 #include "exec.h"
 #include "exec_frame_expander.h"
 #include "exec_frame_policy.h"
-#include "exec_types_internal.h"
 #include "exec_redirect.h"
+#include "exec_types_internal.h"
 #include "func_store.h"
 #include "job_store.h"
 #include "logging.h"
@@ -122,7 +122,7 @@ static void populate_special_variables(variable_store_t *store, const exec_frame
  *   - overlays assignment words from the command with expanded RHS
  */
 static variable_store_t *build_temp_store_for_siple_command(exec_frame_t *frame,
-                                                                  const ast_node_t *node)
+                                                            const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
@@ -164,9 +164,8 @@ static variable_store_t *build_temp_store_for_siple_command(exec_frame_t *frame,
  * So we apply the assignments to both the temp store and the shell's main store.
  *
  */
-static exec_status_t apply_prefix_assignments(exec_frame_t *frame,
-                                                   variable_store_t *main_store,
-                                                   const ast_node_t *node)
+static exec_status_t apply_prefix_assignments(exec_frame_t *frame, variable_store_t *main_store,
+                                              const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
@@ -202,14 +201,15 @@ static exec_status_t apply_prefix_assignments(exec_frame_t *frame,
 /* ============================================================================
  * Simple Command Execution
  * ============================================================================ */
-exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t *frame, const ast_node_t *node)
+exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t *frame,
+                                                                   const ast_node_t *node)
 {
     Expects_not_null(frame);
     Expects_not_null(node);
     Expects_eq(node->type, AST_SIMPLE_COMMAND);
 
     exec_t *executor = frame->executor;
-    exec_frame_execute_status_t status = EXEC_OK;
+    exec_status_t status = EXEC_OK;
 
     const token_list_t *word_tokens = node->data.simple_command.words;
     const token_list_t *assign_tokens = node->data.simple_command.assignments;
@@ -229,7 +229,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
                 if (!value)
                 {
                     exec_set_error_cstr(executor, "assignment expansion failed");
-                    return (exec_frame_execute_result_t){ .status = EXEC_FRAME_EXECUTE_STATUS_ERROR };
+                    return (exec_frame_execute_result_t){.status = EXEC_ERROR};
                 }
 
                 var_store_error_t err =
@@ -239,13 +239,13 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
                 if (err != VAR_STORE_ERROR_NONE)
                 {
                     exec_set_error_printf(executor, "cannot assign variable (error %d)", err);
-                    return (exec_frame_execute_result_t){ .status = EXEC_FRAME_EXECUTE_STATUS_ERROR };
+                    return (exec_frame_execute_result_t){.status = EXEC_ERROR};
                 }
             }
         }
 
         frame->last_exit_status = 0;
-        return (exec_frame_execute_result_t){ .status = EXEC_FRAME_EXECUTE_STATUS_OK };
+        return (exec_frame_execute_result_t){.status = EXEC_OK};
     }
 
     /* Swap in temporary variable store */
@@ -288,7 +288,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
         if (token_is_reserved_word(cmd_name))
         {
             exec_set_error_printf(executor, "%s: syntax error - reserved word in command position",
-                           cmd_name);
+                                  cmd_name);
             cmd_exit_status = 2;
             goto done_execution;
         }
@@ -296,8 +296,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
         /* Special builtins: persist assignments */
         if (builtin_class == BUILTIN_SPECIAL && assign_tokens && token_list_size(assign_tokens) > 0)
         {
-            exec_status_t assign_st =
-                apply_prefix_assignments(frame, frame->saved_variables, node);
+            exec_status_t assign_st = apply_prefix_assignments(frame, frame->saved_variables, node);
             if (assign_st != EXEC_OK)
             {
                 status = assign_st;
@@ -332,7 +331,8 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
                 goto done_execution;
             }
 
-            exec_frame_execute_result_t func_result = exec_frame_execute_function_body(frame, func_body, func_args, func_redirs);
+            exec_frame_execute_result_t func_result =
+                exec_frame_execute_function_body(frame, func_body, func_args, func_redirs);
             cmd_exit_status = func_result.exit_status;
 
             string_list_destroy(&func_args);
@@ -349,24 +349,22 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
             builtin_fn_t builtin_fn = builtin_get_function_cstr(cmd_name);
             if (builtin_fn != NULL)
             {
-                exec_builtin_context_t ctx = {
-                    .executor = executor,
-                    .frame = frame,
+                exec_builtin_context_t ctx = {.executor = executor,
+                                              .frame = frame,
 #if !defined(POSIX_API) && !defined(UCRT_API)
-                    .stdin_fp = stdin,
-                    .stdout_fp = stdout,
-                    .stderr_fp = stderr
+                                              .stdin_fp = stdin,
+                                              .stdout_fp = stdout,
+                                              .stderr_fp = stderr
 #endif
                 };
 
-                exec_status_t redir_st =
-                    exec_frame_apply_redirections(frame, runtime_redirs);
+                exec_status_t redir_st = exec_frame_apply_redirections(frame, runtime_redirs);
                 if (redir_st != EXEC_OK)
                 {
                     status = redir_st;
                     goto done_execution;
                 }
-                
+
                 cmd_exit_status = (*builtin_fn)(frame, expanded_words);
 
                 exec_restore_redirections(frame, runtime_redirs);
@@ -670,7 +668,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
         if (rc == -1)
         {
             exec_set_error(executor, "system() failed: %s", strerror(errno));
-        cmd_exit_status = 127;
+            cmd_exit_status = 127;
         }
         else
         {
@@ -683,7 +681,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
         }
 #endif
     } // end of has_words == true
- done_execution:
+done_execution:
     frame->last_exit_status = cmd_exit_status;
 
     /* Update $_ with last argument */
@@ -709,5 +707,5 @@ out_restore_vars:
     frame->variables = frame->saved_variables;
     frame->saved_variables = NULL;
 
-    return (exec_frame_execute_result_t){ .status = status };
+    return (exec_frame_execute_result_t){.status = status};
 }

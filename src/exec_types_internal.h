@@ -1,4 +1,4 @@
-#ifndef EXEC_TYPES_INTERNAL_H
+﻿#ifndef EXEC_TYPES_INTERNAL_H
 #define EXEC_TYPES_INTERNAL_H
 
 /**
@@ -293,34 +293,25 @@ typedef struct exec_redirections_t
  * ============================================================================ */
 
 /* ============================================================================
- * Frame-Level Execution Result Types
+ * Frame-Level Execution Result
  * ============================================================================ */
 
-// todo:
-// exec_frame_execute_status_t is a simple enum
-// exec_frame_execute_result_t is a struct that includes the status plus any additional info (like
-//   exit status, flow control info, etc)
-
-typedef enum exec_frame_execute_status_t
-{
-    EXEC_FRAME_EXECUTE_STATUS_OK,
-    EXEC_FRAME_EXECUTE_STATUS_ERROR,
-    EXEC_FRAME_EXECUTE_STATUS_NOT_IMPL,
-    EXEC_FRAME_EXECUTE_STATUS_INCOMPLETE,
-    EXEC_FRAME_EXECUTE_STATUS_UNKNOWN
-} exec_frame_execute_status_t;
-
+/**
+ * Result of executing a frame or command.
+ *
+ * Combines the execution status (exec_status_t) with control flow state
+ * (frame_control_flow_t), the shell exit status ($?), and loop depth
+ * for break/continue.
+ */
 typedef struct exec_frame_execute_result_t
 {
-    enum exec_frame_execute_status_t status;
+    exec_status_t status;
 
     bool has_exit_status;
-    int exit_status; // valid if has_exit_status is true
+    int exit_status; /* valid if has_exit_status is true */
 
-    bool has_control_flow;
-    enum frame_control_flow_t
-        flow;       // for break/continue/return: what control flow is pending from this execution
-    int flow_depth; // for break/continue: how many nested loops to break/continue out of
+    frame_control_flow_t flow; /* control flow: normal, break, continue, return, top */
+    int flow_depth;            /* for break/continue: how many nested loops */
 } exec_frame_execute_result_t;
 
 /* ============================================================================
@@ -445,21 +436,5 @@ typedef struct exec_params_t
     /* Source location */
     int source_line;
 } exec_params_t;
-
-/* ============================================================================
- * Execution Result
- * ============================================================================ */
-
-/**
- * Result of executing a frame or command.
- */
-typedef struct exec_frame_result_t
-{
-    enum exec_status_t status; /* Execution status (EXEC_OK, EXEC_ERROR, etc.) */
-    int exit_status;           /* The exit status ($?) */
-    bool has_exit_status;      /* Whether exit_status is valid */
-    frame_control_flow_t flow; /* Control flow state */
-    int flow_depth;            /* For 'break N' / 'continue N' */
-} exec_frame_result_t;
 
 #endif /* EXEC_TYPES_INTERNAL_H */

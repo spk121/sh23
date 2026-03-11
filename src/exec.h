@@ -537,7 +537,7 @@ void exec_parse_session_cleanup(exec_parse_session_t *session);
  * @param line_number       Starting line number (0 = not provided).
  * @param session           Parse session (caller creates with
  *                          exec_parse_session_create() before first call).
- * @return EXEC_OK if the command completed, EXEC_INCOMPLETE_INPUT if more
+ * @return EXEC_OK if the command completed, EXEC_INCOMPLETE if more
  *         input is needed, or an error / control-flow status.
  */
 exec_status_t exec_execute_command_string_partial(exec_t *executor, const string_t *command,

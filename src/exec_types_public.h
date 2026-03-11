@@ -1,4 +1,4 @@
-#ifndef EXEC_TYPES_PUBLIC_H
+﻿#ifndef EXEC_TYPES_PUBLIC_H
 #define EXEC_TYPES_PUBLIC_H
 
 /* ============================================================================
@@ -18,19 +18,21 @@ typedef struct exec_frame_t exec_frame_t;
  * ============================================================================ */
 
 /**
- * Status codes returned by executor operations.
+ * Unified status codes returned by executor and frame operations.
+ *
+ * These describe the outcome of an execution attempt (success, failure,
+ * incomplete input, etc.).  Frame-level control flow state (break, continue,
+ * return) is represented separately by frame_control_flow_t.  EXEC_EXIT is
+ * a top-level status indicating the shell has been asked to terminate.
  */
 typedef enum exec_status_t
 {
-    EXEC_OK = 0,
-    EXEC_ERROR = 1,
-    EXEC_NOT_IMPL = 2,
-    EXEC_OK_INTERNAL_FUNCTION_STORED,
-    EXEC_BREAK,            /**< break statement executed */
-    EXEC_CONTINUE,         /**< continue statement executed */
-    EXEC_RETURN,           /**< return statement executed */
-    EXEC_EXIT,             /**< exit statement executed */
-    EXEC_INCOMPLETE_INPUT, /**< input ended but command was incomplete */
+    EXEC_OK = 0,         /**< Successful completion                       */
+    EXEC_ERROR = 1,      /**< Execution error                             */
+    EXEC_NOT_IMPL = 2,   /**< Feature not implemented                     */
+    EXEC_INCOMPLETE = 3, /**< Input ended but command was incomplete      */
+    EXEC_EMPTY = 4,      /**< No commands to execute (empty/comment-only) */
+    EXEC_EXIT = 5        /**< Exit requested (shell is done)              */
 } exec_status_t;
 
 /**
@@ -42,17 +44,6 @@ typedef struct exec_result_t
     exec_status_t status;
     int exit_code;
 } exec_result_t;
-
-/**
- * Result of processing a single string/line of input.
- */
-typedef enum
-{
-    EXEC_STRING_OK,         /* Successfully executed one or more commands */
-    EXEC_STRING_INCOMPLETE, /* Need more input to complete lexing/parsing */
-    EXEC_STRING_EMPTY,      /* No commands to execute (empty input or comments) */
-    EXEC_STRING_ERROR       /* Error occurred */
-} exec_string_status_t;
 
 /* ============================================================================
  * Standard Exit Codes
@@ -102,19 +93,8 @@ typedef enum frame_expand_flags_t
 } frame_expand_flags_t;
 
 /* ============================================================================
- * Frame Status and Error Types
+ * Frame Error Types
  * ============================================================================ */
-
-/**
- * Execution status codes for frame operations.
- */
-typedef enum frame_exec_status_t
-{
-    FRAME_EXEC_OK = 0,        /**< Execution succeeded */
-    FRAME_EXEC_ERROR = 1,     /**< Execution error */
-    FRAME_EXEC_NOT_IMPL = 2,  /**< Feature not implemented */
-    FRAME_EXEC_INCOMPLETE = 3 /**< Incomplete input (e.g. unclosed quotes) */
-} frame_exec_status_t;
 
 /**
  * Export variable status codes.
