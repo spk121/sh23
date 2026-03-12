@@ -1038,7 +1038,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 unsigned long path_len = GetTempPath2A(_MAX_PATH, temp_path);
                 if (path_len == 0 || path_len > _MAX_PATH - 1)
                 {
-                    exec_set_error_cstr(executor, "GetTempPath2A() failed for heredoc");
+                    exec_set_error_cstr(executor, "failed to find a temporary directory for heredoc temp files");
                     string_destroy(&content_str);
                     goto error_restore;
                 }
@@ -1046,7 +1046,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 unsigned int uRet = GetTempFileNameA(temp_path, "mgsh", 0, temp_file);
                 if (uRet == 0)
                 {
-                    exec_set_error_cstr(executor, "GetTempFileNameA() failed for heredoc");
+                    exec_set_error_cstr(executor, "failed to generate a unique temporary file for heredoc");
                     string_destroy(&content_str);
                     goto error_restore;
                 }
@@ -1058,7 +1058,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                              _SH_DENYNO, _S_IREAD | _S_IWRITE);
                 if (err != 0 || tmpfd < 0)
                 {
-                    exec_set_error_printf(executor, "_sopen_s() failed for heredoc temp file: %s",
+                    exec_set_error_printf(executor, "failed to open a temporary file for heredoc: %s",
                                           strerror(errno));
                     DeleteFileA(temp_file);
                     string_destroy(&content_str);
@@ -1076,8 +1076,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 if (_dup2(tmpfd, fd) < 0)
                 {
                     exec_set_error_printf(executor,
-                                          "_dup2(%d, %d) for heredoc temp file failed: %s", tmpfd,
-                                          fd, strerror(errno));
+                                          "failed to duplicate file descriptor for heredoc temp file: %s", strerror(errno));
                     _close(tmpfd);
                     string_destroy(&content_str);
                     goto error_restore;

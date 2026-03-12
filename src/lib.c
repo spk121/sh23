@@ -1,7 +1,11 @@
-#include "lib.h"
-#include <stdint.h>
+#include <errno.h>
 #include <locale.h>
+#include <stdint.h>
 #include <string.h>
+
+#include "lib.h"
+
+#include "string_t.h"
 
 static inline uint8_t ascii_tolower(uint8_t c)
 {
@@ -271,3 +275,39 @@ string_t *lib_quote(const string_t *key, const string_t *value)
     return result;
 }
 
+string_t *lib_getcwd(void)
+{
+    const int TOO_BIG_BUFFER_SIZE = 1024 * 1024; // 1 MiB sanity limit to prevent infinite loop
+
+    string_t *cwd = string_create();
+    char *result = NULL;
+    while (true)
+    {
+#ifdef POSIX_API
+        result = getcwd(string_data(cwd), string_capacity(cwd));
+#elifdef UCRT_API
+        result = _getcwd(string_data(cwd), string_capacity(cwd));
+#else /* ISO C fallback */
+        string_set_cstr(cwd, ".");
+        result = string_data(cwd);
+#endif
+        if (!result && errno == ERANGE && string_capacity(cwd) < TOO_BIG_BUFFER_SIZE)
+        {
+            string_reserve(cwd, string_capacity(cwd) * 2);
+            continue;
+        }
+        break;
+    }
+    if (!result)
+    {
+        log_error("Failed to get current working directory: %s", strerror(errno));
+        // Just in case we got here from some sort of huge error, also shrink the capacity.
+        string_set_cstr(cwd, ".");
+        string_shrink_to_fit(cwd);
+    }
+    else
+    {
+        cwd->length = strlen(result);
+    }
+    return cwd;
+}

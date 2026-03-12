@@ -92,22 +92,6 @@ static exec_frame_execute_result_t exec_frame_execute_background_job(exec_frame_
  * Helper Functions - System Queries
  * ============================================================================ */
 
-static string_t *get_working_directory_from_system(void)
-{
-#ifdef POSIX_API
-    char cwd_buffer[PATH_MAX];
-    char *cwd = getcwd(cwd_buffer, sizeof(cwd_buffer));
-    return cwd ? string_create_from_cstr(cwd) : string_create_from_cstr("/");
-#elifdef UCRT_API
-    char cwd_buffer[_MAX_PATH];
-    char *cwd = _getcwd(cwd_buffer, sizeof(cwd_buffer));
-    return cwd ? string_create_from_cstr(cwd) : string_create_from_cstr("C:\\");
-#else
-    // ISO C has no standard way to get cwd
-    return string_create_from_cstr(".");
-#endif
-}
-
 #ifdef POSIX_API
 static mode_t get_umask_from_system(void)
 #else
@@ -330,7 +314,7 @@ static void init_cwd(exec_frame_t *frame)
     case EXEC_SCOPE_OWN:
         if (policy->cwd.init_from_system)
         {
-            frame->working_directory = get_working_directory_from_system();
+            frame->working_directory = lib_getcwd();
         }
         else
         {

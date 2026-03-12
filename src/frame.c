@@ -813,80 +813,38 @@ bool frame_change_directory_cstr(exec_frame_t *frame, const char *path)
     Expects_not_null(frame);
     Expects_not_null(path);
 
-#ifdef POSIX_API
-    /* Get current PWD before changing */
-    string_t *old_pwd = frame_get_variable_cstr(frame, "PWD");
-
-    if (chdir(path) != 0)
-    {
-        string_destroy(&old_pwd);
-        return false;
-    }
-
-    /* Get the new absolute path */
-    char resolved[PATH_MAX];
-    if (getcwd(resolved, sizeof(resolved)) == NULL)
-    {
-        /* chdir succeeded but getcwd failed; try to go back */
-        if (old_pwd && string_length(old_pwd) > 0)
-        {
-            chdir(string_cstr(old_pwd));
-        }
-        string_destroy(&old_pwd);
-        return false;
-    }
-
-    /* Set OLDPWD = previous PWD */
-    if (old_pwd && string_length(old_pwd) > 0)
-    {
-        frame_set_variable_cstr(frame, "OLDPWD", string_cstr(old_pwd));
-    }
-    string_destroy(&old_pwd);
-
-    /* Set PWD = new directory */
-    frame_set_variable_cstr(frame, "PWD", resolved);
-
-    return true;
-
+#if defined(POSIX_API)
+    int (*const chdir_func)(const char *) = chdir;
 #elif defined(UCRT_API)
-    /* Get current PWD before changing */
-    string_t *old_pwd = frame_get_variable_cstr(frame, "PWD");
-
-    if (_chdir(path) != 0)
-    {
-        string_destroy(&old_pwd);
-        return false;
-    }
-
-    /* Get the new absolute path */
-    char resolved[_MAX_PATH];
-    if (_getcwd(resolved, sizeof(resolved)) == NULL)
-    {
-        if (old_pwd && string_length(old_pwd) > 0)
-        {
-            _chdir(string_cstr(old_pwd));
-        }
-        string_destroy(&old_pwd);
-        return false;
-    }
-
-    /* Set OLDPWD = previous PWD */
-    if (old_pwd && string_length(old_pwd) > 0)
-    {
-        frame_set_variable_cstr(frame, "OLDPWD", string_cstr(old_pwd));
-    }
-    string_destroy(&old_pwd);
-
-    /* Set PWD = new directory */
-    frame_set_variable_cstr(frame, "PWD", resolved);
-
-    return true;
-
+    int (*const chdir_func)(const char *) = _chdir;
 #else
     (void)frame;
     (void)path;
     return false;
 #endif
+
+    string_t *old_pwd = frame_get_variable_cstr(frame, "PWD");
+
+    if (chdir_func(path) != 0)
+    {
+        string_destroy(&old_pwd);
+        return false;
+    }
+
+    string_t *new_pwd = lib_getcwd();
+
+    // OLDPWD ← previous PWD (only if it was non-empty)
+    if (old_pwd && string_length(old_pwd) > 0)
+    {
+        frame_set_variable_cstr(frame, "OLDPWD", string_cstr(old_pwd));
+    }
+    string_destroy(&old_pwd);
+
+    // PWD ← new absolute path
+    frame_set_variable_cstr(frame, "PWD", string_cstr(new_pwd));
+    string_destroy(&new_pwd);
+
+    return true;
 }
 
 /* ============================================================================

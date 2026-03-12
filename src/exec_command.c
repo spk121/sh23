@@ -458,19 +458,22 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
                 char *path = xstrdup(path_env);
                 char *saveptr = NULL;
                 char *dir = strtok_r(path, ":", &saveptr);
+                string_t *fullpath_str = string_create();
                 while (dir)
                 {
-                    char fullpath[PATH_MAX];
-                    snprintf(fullpath, sizeof(fullpath), "%s/%s", dir, cmd_name);
-                    execve(fullpath, argv, envp);
+                    string_set_cstr(fullpath_str, dir);
+                    string_append_cstr(fullpath_str, "/");
+                    string_append_cstr(fullpath_str, cmd_name);
+                    execve(string_cstr(fullpath_str), argv, envp);
                     /* Only print if it looks like a real try (not ENOENT on every dir) */
                     if (errno != ENOENT)
                     {
-                        fprintf(stderr, "%s: %s\n", fullpath, strerror(errno));
+                        fprintf(stderr, "%s: %s\n", string_cstr(fullpath_str), strerror(errno));
                         _exit(126); // 126 = found but cannot execute (permission, format, etc.)
                     }
                     dir = strtok_r(NULL, ":", &saveptr);
                 }
+                string_destroy(fullpath_str);
                 xfree(path);
             }
             else

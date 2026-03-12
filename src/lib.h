@@ -106,7 +106,18 @@ int lib_strcoll(const char *s1, const char *s2);
  */
 string_t *lib_quote(const string_t *key, const string_t *value);
 
+/* ============================================================================
+ * OS-specific utilities
+ * ============================================================================
+ */
 
+/**
+ * Get the current working directory
+ *
+ * @return A newly allocated string containing the current working directory.
+ *         Caller is responsible for freeing the returned string with xfree().
+ */
+string_t *lib_getcwd(void);
 
 /* POSIX-style file descriptor constants for UCRT (Windows) */
 #ifdef UCRT_API

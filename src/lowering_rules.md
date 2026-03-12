@@ -1,4 +1,4 @@
-﻿3. Lowering Rules (Complete Specification)
+3. Lowering Rules (Complete Specification)
 Below is the full lowering plan, node‑by‑node.
 
 G_PROGRAM → AST_COMMAND_LIST
