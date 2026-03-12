@@ -432,7 +432,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
             /* Close CLOEXEC FDs */
             fd_table_t *fds = exec_frame_get_fds(frame);
             size_t cloexec_count = 0;
-            int *cloexec_fds = fd_table_get_fds_with_flag(fds, FD_CLOEXEC, &cloexec_count);
+            int *cloexec_fds = fd_table_get_fds_with_flag(fds, FD_IS_CLOSE_ON_EXEC, &cloexec_count);
             for (size_t j = 0; j < cloexec_count; j++)
             {
                 close(cloexec_fds[j]);

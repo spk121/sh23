@@ -1,4 +1,4 @@
-﻿#ifndef EXEC_TYPES_PUBLIC_H
+#ifndef EXEC_TYPES_PUBLIC_H
 #define EXEC_TYPES_PUBLIC_H
 
 #include "string_list.h"

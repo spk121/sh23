@@ -3,9 +3,11 @@
 // Signal handler archiving implementation
 // ============================================================================
 
-#include "sig_act.h"
-#include "xalloc.h"
 #include <string.h>
+
+#include "sig_act.h"
+
+#include "xalloc.h"
 
 // Platform-specific signal count and definitions
 // We track signals that shells commonly need to handle

@@ -8,14 +8,14 @@
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 
 #include "arithmetic.h"
-#include "exec_frame_expander.h"
 #include "exec_frame.h"
+#include "exec_frame_expander.h"
 #include "exec_types_internal.h"
 #include "glob_util.h"
 #include "logging.h"

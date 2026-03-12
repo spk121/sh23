@@ -1,4 +1,4 @@
-﻿#ifndef VARIABLE_STORE_H
+#ifndef VARIABLE_STORE_H
 #define VARIABLE_STORE_H
 
 #include "ast.h"

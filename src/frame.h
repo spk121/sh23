@@ -1,4 +1,4 @@
-﻿#ifndef FRAME_H
+#ifndef FRAME_H
 #define FRAME_H
 
 /**

@@ -27,10 +27,10 @@
  */
 typedef enum fd_flags_t
 {
-    FD_NONE = 0,
-    FD_CLOEXEC = 1 << 0,    ///< Close-on-exec flag (should be closed in child)
-    FD_REDIRECTED = 1 << 1, ///< FD was created by shell redirection
-    FD_SAVED = 1 << 2,      ///< FD is a saved copy of another FD
+    FD_IS_DEFAULT = 0,
+    FD_IS_CLOSE_ON_EXEC = 1 << 0,    ///< Close-on-exec flag (should be closed in child)
+    FD_IS_REDIRECTED = 1 << 1, ///< FD was created by shell redirection
+    FD_IS_SAVED = 1 << 2,      ///< FD is a saved copy of another FD
 } fd_flags_t;
 
 /**
@@ -39,7 +39,7 @@ typedef enum fd_flags_t
 typedef struct fd_entry_t
 {
     int fd;           ///< File descriptor number
-    int original_fd;  ///< If FD_SAVED, what FD was this a copy of? (-1 otherwise)
+    int original_fd;  ///< If FD_IS_SAVED, what FD was this a copy of? (-1 otherwise)
     fd_flags_t flags; ///< Flags for this FD
     bool is_open;     ///< Whether this FD is currently open
     char padding[3];
@@ -130,7 +130,7 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, const string_t *p
  * @brief Mark an FD as a saved copy of another FD
  *
  * Records that saved_fd is a duplicate of original_fd (e.g., from dup2).
- * Sets the FD_SAVED flag and records the original FD number.
+ * Sets the FD_IS_SAVED flag and records the original FD number.
  *
  * @param table The FD table
  * @param saved_fd The duplicated file descriptor
@@ -202,7 +202,7 @@ bool fd_table_is_open(const fd_table_t *table, int fd);
  *
  * @param table The FD table
  * @param fd File descriptor number
- * @return Flags for the FD, or FD_NONE if not found
+ * @return Flags for the FD, or FD_IS_DEFAULT if not found
  */
 fd_flags_t fd_table_get_flags(const fd_table_t *table, int fd);
 
@@ -221,7 +221,7 @@ bool fd_table_has_flag(const fd_table_t *table, int fd, fd_flags_t flag);
  *
  * @param table The FD table
  * @param fd File descriptor number to query
- * @return Original FD number if FD_SAVED is set, -1 otherwise
+ * @return Original FD number if FD_IS_SAVED is set, -1 otherwise
  */
 int fd_table_get_original(const fd_table_t *table, int fd);
 

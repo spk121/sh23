@@ -252,7 +252,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
 
         // Skip if already redirected by an outer scope — the outermost save
         // is the one we need to restore to, so don't overwrite it.
-        if (fd_table_has_flag(fds, fd, FD_REDIRECTED))
+        if (fd_table_has_flag(fds, fd, FD_IS_REDIRECTED))
             continue;
 
         // F_DUPFD_CLOEXEC: kernel picks the lowest available fd >= min_backup_fd
@@ -267,8 +267,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
         }
         log_debug("apply(posix): phase1 fcntl(F_DUPFD_CLOEXEC, %d) -> backup fd=%d", fd, backup);
 
-        string_t *saved_name = fd_table_generate_name_ex(backup, fd, FD_SAVED | FD_CLOEXEC);
-        if (!fd_table_add(fds, backup, FD_SAVED | FD_CLOEXEC, saved_name))
+        string_t *saved_name = fd_table_generate_name_ex(backup, fd, FD_IS_SAVED | FD_IS_CLOSE_ON_EXEC);
+        if (!fd_table_add(fds, backup, FD_IS_SAVED | FD_IS_CLOSE_ON_EXEC, saved_name))
         {
             string_destroy(&saved_name);
             exec_set_error_printf(executor, "Failed to track saved FD %d", backup);
@@ -357,7 +357,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             log_debug("apply(posix): close(%d) temp file fd", newfd);
             close(newfd);
 
-            if (!fd_table_add(fds, target_fd, FD_REDIRECTED, fname_str))
+            if (!fd_table_add(fds, target_fd, FD_IS_REDIRECTED, fname_str))
             {
                 exec_set_error_printf(executor, "Failed to track redirected FD %d", target_fd);
                 string_destroy(&fname_str);
@@ -408,7 +408,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                     goto cleanup_error;
                 }
                 fd_table_mark_closed(fds, target_fd);
-                fd_table_clear_flag(fds, target_fd, FD_REDIRECTED);
+                fd_table_clear_flag(fds, target_fd, FD_IS_REDIRECTED);
                 break;
             }
 
@@ -420,8 +420,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 goto cleanup_error;
             }
 
-            string_t *redir_name = fd_table_generate_name_ex(target_fd, src.fd, FD_REDIRECTED);
-            if (!fd_table_add(fds, target_fd, FD_REDIRECTED, redir_name))
+            string_t *redir_name = fd_table_generate_name_ex(target_fd, src.fd, FD_IS_REDIRECTED);
+            if (!fd_table_add(fds, target_fd, FD_IS_REDIRECTED, redir_name))
             {
                 exec_set_error_printf(executor, "Failed to track redirected FD %d", target_fd);
                 string_destroy(&redir_name);
@@ -459,7 +459,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 goto cleanup_error;
             }
             fd_table_mark_closed(fds, target_fd);
-            fd_table_clear_flag(fds, target_fd, FD_REDIRECTED);
+            fd_table_clear_flag(fds, target_fd, FD_IS_REDIRECTED);
             break;
         }
 
@@ -520,8 +520,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
                 close(tmpfd);
                 unlink(tmpname);
                 string_destroy(&content_str);
-                string_t *heredoc_name = fd_table_generate_name(target_fd, FD_REDIRECTED);
-                if (!fd_table_add(fds, target_fd, FD_REDIRECTED, heredoc_name))
+                string_t *heredoc_name = fd_table_generate_name(target_fd, FD_IS_REDIRECTED);
+                if (!fd_table_add(fds, target_fd, FD_IS_REDIRECTED, heredoc_name))
                 {
                     exec_set_error_printf(executor, "Failed to track heredoc FD %d", target_fd);
                     string_destroy(&heredoc_name);
@@ -566,8 +566,8 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             close(pipefd[0]);
             string_destroy(&content_str);
 
-            string_t *heredoc_name = fd_table_generate_name(target_fd, FD_REDIRECTED);
-            if (!fd_table_add(fds, target_fd, FD_REDIRECTED, heredoc_name))
+            string_t *heredoc_name = fd_table_generate_name(target_fd, FD_IS_REDIRECTED);
+            if (!fd_table_add(fds, target_fd, FD_IS_REDIRECTED, heredoc_name))
             {
                 exec_set_error_printf(executor, "Failed to track heredoc FD %d", target_fd);
                 string_destroy(&heredoc_name);
@@ -642,15 +642,15 @@ void exec_restore_redirections_posix(exec_frame_t *frame)
         /* Bug 5 fix: after dup2(backup_fd, orig_fd) the original fd is live
          * again — do NOT remove its table entry.  Removing it caused the
          * shell's fd tracking to diverge from reality: subsequent
-         * fd_table_has_flag(fds, orig_fd, FD_REDIRECTED) calls returned false
+         * fd_table_has_flag(fds, orig_fd, FD_IS_REDIRECTED) calls returned false
          * even when another redirection was in flight, leading to double-saves
          * and leaked backup fds.
          *
          * The correct cleanup is:
-         *   - Clear FD_REDIRECTED from orig_fd so it is known to be "normal"
-         *     again.  (Leave any other flags, e.g. FD_CLOEXEC, intact.)
+         *   - Clear FD_IS_REDIRECTED from orig_fd so it is known to be "normal"
+         *     again.  (Leave any other flags, e.g. FD_IS_CLOSE_ON_EXEC, intact.)
          *   - Remove the backup entry entirely — it is now closed and gone. */
-        fd_table_clear_flag(fds, orig_fd, FD_REDIRECTED);
+        fd_table_clear_flag(fds, orig_fd, FD_IS_REDIRECTED);
 
         fd_table_mark_closed(fds, backup_fd);
         fd_table_remove(fds, backup_fd);
@@ -797,7 +797,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
 
         /* Skip if already saved by an outer redirection scope — the outermost
          * backup is the one we need to restore to; don't overwrite it. */
-        if (fds && fd_table_has_flag(fds, fd, FD_REDIRECTED))
+        if (fds && fd_table_has_flag(fds, fd, FD_IS_REDIRECTED))
             continue;
 
         log_debug("apply(ucrt): phase1 saving fd=%d before redirect", fd);
@@ -812,8 +812,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
 
         if (fds)
         {
-            string_t *saved_name = fd_table_generate_name_ex(backup, fd, FD_SAVED | FD_CLOEXEC);
-            fd_table_add(fds, backup, FD_SAVED | FD_CLOEXEC, saved_name);
+            string_t *saved_name = fd_table_generate_name_ex(backup, fd, FD_IS_SAVED | FD_IS_CLOSE_ON_EXEC);
+            fd_table_add(fds, backup, FD_IS_SAVED | FD_IS_CLOSE_ON_EXEC, saved_name);
             string_destroy(&saved_name);
             fd_table_mark_saved(fds, backup, fd);
         }
@@ -919,7 +919,7 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
             _close(newfd);
 
             if (fds)
-                fd_table_add(fds, fd, FD_REDIRECTED, expanded_target);
+                fd_table_add(fds, fd, FD_IS_REDIRECTED, expanded_target);
 
             string_destroy(&expanded_target);
             break;
@@ -964,11 +964,11 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 if (fds)
                 {
                     fd_table_mark_closed(fds, fd);
-                    /* Bug 4 fix: clear FD_REDIRECTED so a subsequent
+                    /* Bug 4 fix: clear FD_IS_REDIRECTED so a subsequent
                      * redirection to this fd in the same command correctly
                      * detects it as unredirected and does not skip the
                      * backup-save step. */
-                    fd_table_clear_flag(fds, fd, FD_REDIRECTED);
+                    fd_table_clear_flag(fds, fd, FD_IS_REDIRECTED);
                 }
                 string_destroy(&fd_str);
                 break;
@@ -985,8 +985,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
 
             if (fds)
             {
-                string_t *redir_name = fd_table_generate_name_ex(fd, src.fd, FD_REDIRECTED);
-                fd_table_add(fds, fd, FD_REDIRECTED, redir_name);
+                string_t *redir_name = fd_table_generate_name_ex(fd, src.fd, FD_IS_REDIRECTED);
+                fd_table_add(fds, fd, FD_IS_REDIRECTED, redir_name);
                 string_destroy(&redir_name);
             }
 
@@ -1020,9 +1020,9 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
             if (fds)
             {
                 fd_table_mark_closed(fds, fd);
-                /* Bug 4 fix: clear FD_REDIRECTED so subsequent redirections
+                /* Bug 4 fix: clear FD_IS_REDIRECTED so subsequent redirections
                  * to this fd correctly re-save the (now-closed) original. */
-                fd_table_clear_flag(fds, fd, FD_REDIRECTED);
+                fd_table_clear_flag(fds, fd, FD_IS_REDIRECTED);
             }
             break;
         }
@@ -1096,8 +1096,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
                 string_destroy(&content_str);
                 if (fds)
                 {
-                    string_t *heredoc_name = fd_table_generate_name(fd, FD_REDIRECTED);
-                    fd_table_add(fds, fd, FD_REDIRECTED, heredoc_name);
+                    string_t *heredoc_name = fd_table_generate_name(fd, FD_IS_REDIRECTED);
+                    fd_table_add(fds, fd, FD_IS_REDIRECTED, heredoc_name);
                     string_destroy(&heredoc_name);
                 }
                 break;
@@ -1131,8 +1131,8 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
 
             if (fds)
             {
-                string_t *heredoc_name = fd_table_generate_name(fd, FD_REDIRECTED);
-                fd_table_add(fds, fd, FD_REDIRECTED, heredoc_name);
+                string_t *heredoc_name = fd_table_generate_name(fd, FD_IS_REDIRECTED);
+                fd_table_add(fds, fd, FD_IS_REDIRECTED, heredoc_name);
                 string_destroy(&heredoc_name);
             }
             break;
@@ -1223,15 +1223,15 @@ void exec_restore_redirections_ucrt_c(exec_frame_t *frame)
         /* Bug 5 fix: after _dup2(backup_fd, orig_fd) the original fd is live
          * again — do NOT remove its table entry.  Removing it caused the
          * shell's fd tracking to diverge from reality: subsequent
-         * fd_table_has_flag(fds, orig_fd, FD_REDIRECTED) calls returned false
+         * fd_table_has_flag(fds, orig_fd, FD_IS_REDIRECTED) calls returned false
          * even when another redirection was in flight, leading to double-saves
          * and leaked backup fds.
          *
          * The correct cleanup is:
-         *   - Clear FD_REDIRECTED from orig_fd so it is known to be "normal"
-         *     again.  (Leave any other flags, e.g. FD_CLOEXEC, intact.)
+         *   - Clear FD_IS_REDIRECTED from orig_fd so it is known to be "normal"
+         *     again.  (Leave any other flags, e.g. FD_IS_CLOSE_ON_EXEC, intact.)
          *   - Remove the backup entry entirely — it is now closed and gone. */
-        fd_table_clear_flag(fds, orig_fd, FD_REDIRECTED);
+        fd_table_clear_flag(fds, orig_fd, FD_IS_REDIRECTED);
 
         fd_table_mark_closed(fds, backup_fd);
         fd_table_remove(fds, backup_fd);

@@ -1,4 +1,4 @@
-﻿#ifndef VARIABLE_MAP_H
+#ifndef VARIABLE_MAP_H
 #define VARIABLE_MAP_H
 
 #ifndef VARIABLE_MAP_INTERNAL

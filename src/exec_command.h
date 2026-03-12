@@ -1,4 +1,4 @@
-﻿#ifndef EXEC_COMMAND_H
+#ifndef EXEC_COMMAND_H
 #define EXEC_COMMAND_H
 
 /**

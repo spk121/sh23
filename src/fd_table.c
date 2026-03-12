@@ -88,7 +88,7 @@ static void clear_entry(fd_entry_t *entry)
     // Do not clear or destroy entry->path here; caller is responsible for freeing.
     entry->fd = -1;
     entry->original_fd = -1;
-    entry->flags = FD_NONE;
+    entry->flags = FD_IS_DEFAULT;
     entry->is_open = false;
     entry->padding[0] = 0;
 }
@@ -175,7 +175,7 @@ void fd_table_destroy(fd_table_t **table)
 string_t *fd_table_generate_name(int fd, fd_flags_t flags)
 {
     char buffer[64];
-    if (flags & FD_SAVED)
+    if (flags & FD_IS_SAVED)
     {
         /* Shouldn't happen, but fallback */
         snprintf(buffer, sizeof(buffer), "(saved copy of fd %d)", fd);
@@ -209,8 +209,8 @@ string_t *fd_table_generate_name(int fd, fd_flags_t flags)
 string_t *fd_table_generate_name_ex(int new_fd, int orig_fd, fd_flags_t flags)
 {
     char buffer[64];
-    char *saved_str = (flags & FD_SAVED) ? "saved copy of " : "";
-    char *redirected_str = (flags & FD_REDIRECTED) ? "redirected " : "";
+    char *saved_str = (flags & FD_IS_SAVED) ? "saved copy of " : "";
+    char *redirected_str = (flags & FD_IS_REDIRECTED) ? "redirected " : "";
     if (orig_fd >= 0)
     {
         snprintf(buffer, sizeof(buffer), "(%s%sfd %d)", saved_str, redirected_str, orig_fd);
@@ -255,7 +255,7 @@ bool fd_table_add(fd_table_t *table, int fd, fd_flags_t flags, const string_t *p
         /* IMPORTANT: do NOT touch original_fd here.
          * That field is owned exclusively by fd_table_mark_saved() and must
          * survive flag / path updates performed by fd_table_add().  Resetting
-         * it to -1 on every FD_SAVED update caused the restore path to lose
+         * it to -1 on every FD_IS_SAVED update caused the restore path to lose
          * the original-fd mapping, leaving the redirected descriptor live
          * forever (Bug 1). */
         char flags_buf[64];
@@ -299,7 +299,7 @@ bool fd_table_mark_saved(fd_table_t *table, int saved_fd, int original_fd)
         /* Update existing entry */
         fd_entry_t *entry = &table->entries[idx];
         entry->original_fd = original_fd;
-        entry->flags = (fd_flags_t)(entry->flags | FD_SAVED);
+        entry->flags = (fd_flags_t)(entry->flags | FD_IS_SAVED);
         log_debug("fd_table_mark_saved: fd=%d marked as saved copy of fd=%d", saved_fd,
                   original_fd);
         return true;
@@ -311,7 +311,7 @@ bool fd_table_mark_saved(fd_table_t *table, int saved_fd, int original_fd)
     fd_entry_t *entry = &table->entries[table->count];
     entry->fd = saved_fd;
     entry->original_fd = original_fd;
-    entry->flags = FD_SAVED;
+    entry->flags = FD_IS_SAVED;
     entry->path = string_create_from_cstr("(unknown)");
     entry->is_open = true;
 
@@ -437,7 +437,7 @@ fd_flags_t fd_table_get_flags(const fd_table_t *table, int fd)
     int idx = find_entry_index(table, fd);
     if (idx < 0)
     {
-        return FD_NONE;
+        return FD_IS_DEFAULT;
     }
 
     return table->entries[idx].flags;
@@ -570,7 +570,7 @@ int *fd_table_get_fds_with_flag(const fd_table_t *table, fd_flags_t flag, size_t
 
 int *fd_table_get_saved_fds(const fd_table_t *table, size_t *saved_count)
 {
-    return fd_table_get_fds_with_flag(table, FD_SAVED, saved_count);
+    return fd_table_get_fds_with_flag(table, FD_IS_SAVED, saved_count);
 }
 
 int fd_table_get_original_fd(const fd_table_t *table, int saved_fd)
@@ -655,23 +655,23 @@ void fd_table_dump(const fd_table_t *table, const char *prefix)
 
 static const char *fd_flags_to_string(fd_flags_t flags, char *buffer, size_t bufsize)
 {
-    if (flags == FD_NONE)
+    if (flags == FD_IS_DEFAULT)
     {
         return "none";
     }
     buffer[0] = '\0';
     bool first = true;
-    if (flags & FD_CLOEXEC)
+    if (flags & FD_IS_CLOSE_ON_EXEC)
     {
         strncat(buffer, "CLOEXEC", bufsize - strlen(buffer) - 1);
         first = false;
     }
-    if (flags & FD_REDIRECTED)
+    if (flags & FD_IS_REDIRECTED)
     {
         strncat(buffer, first ? "REDIR" : "|REDIR", bufsize - strlen(buffer) - 1);
         first = false;
     }
-    if (flags & FD_SAVED)
+    if (flags & FD_IS_SAVED)
     {
         strncat(buffer, first ? "SAVED" : "|SAVED", bufsize - strlen(buffer) - 1);
         first = false;
@@ -690,24 +690,24 @@ static bool fd_table_dump_cb(const fd_entry_t *entry, void *user_data)
     fprintf(out, "%s  fd %-3d  open=%-5s  flags=", prefix, entry->fd,
             entry->is_open ? "yes" : "no ");
 
-    if (entry->flags == FD_NONE)
+    if (entry->flags == FD_IS_DEFAULT)
     {
         fprintf(out, "none");
     }
     else
     {
         bool first = true;
-        if (entry->flags & FD_CLOEXEC)
+        if (entry->flags & FD_IS_CLOSE_ON_EXEC)
         {
             fprintf(out, "%sCLOEXEC", first ? "" : "|");
             first = false;
         }
-        if (entry->flags & FD_REDIRECTED)
+        if (entry->flags & FD_IS_REDIRECTED)
         {
             fprintf(out, "%sREDIR", first ? "" : "|");
             first = false;
         }
-        if (entry->flags & FD_SAVED)
+        if (entry->flags & FD_IS_SAVED)
         {
             fprintf(out, "%sSAVED", first ? "" : "|");
             first = false;

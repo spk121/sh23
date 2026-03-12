@@ -1,4 +1,4 @@
-﻿#include <ctype.h>
+#include <ctype.h>
 #include <limits.h>
 
 #define VARIABLE_MAP_INTERNAL

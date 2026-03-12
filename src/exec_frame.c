@@ -871,8 +871,8 @@ static exec_frame_execute_result_t execute_frame_body(exec_frame_t *frame, exec_
 
         // Track: STDIN is now a pipe-redirected FD
         string_t *name =
-            fd_table_generate_name_ex(STDIN_FILENO, params->stdin_pipe_fd, FD_REDIRECTED);
-        fd_table_add(frame->open_fds, STDIN_FILENO, FD_REDIRECTED, name);
+            fd_table_generate_name_ex(STDIN_FILENO, params->stdin_pipe_fd, FD_IS_REDIRECTED);
+        fd_table_add(frame->open_fds, STDIN_FILENO, FD_IS_REDIRECTED, name);
         string_destroy(&name);
     }
     if (params->stdout_pipe_fd >= 0)
@@ -882,8 +882,8 @@ static exec_frame_execute_result_t execute_frame_body(exec_frame_t *frame, exec_
 
         // Track: STDOUT is now a pipe-redirected FD
         string_t *name =
-            fd_table_generate_name_ex(STDOUT_FILENO, params->stdout_pipe_fd, FD_REDIRECTED);
-        fd_table_add(frame->open_fds, STDOUT_FILENO, FD_REDIRECTED, name);
+            fd_table_generate_name_ex(STDOUT_FILENO, params->stdout_pipe_fd, FD_IS_REDIRECTED);
+        fd_table_add(frame->open_fds, STDOUT_FILENO, FD_IS_REDIRECTED, name);
         string_destroy(&name);
     }
     if (params->pipe_fds_to_close)
