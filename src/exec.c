@@ -8,6 +8,9 @@
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
+#ifdef POSIX_API
+#define _POSIX_C_SOURCE 202405L
+#endif
 
 #include <ctype.h>
 #include <signal.h>

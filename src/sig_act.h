@@ -1,4 +1,4 @@
-// ============================================================================
+﻿// ============================================================================
 // sig_act.h
 // Signal handler archiving for POSIX shell trap builtin
 //
@@ -19,9 +19,9 @@
 // <signal.h> to ensure we get the right definitions. And this has to happen
 // for all files that include <signal.h>.
 
-// #ifdef POSIX_API
-// #define _POSIX_C_SOURCE 202401L
-// #endif
+#ifdef POSIX_API
+#define _POSIX_C_SOURCE 202405L
+#endif
 
 #include <signal.h>
 #include <stdbool.h>

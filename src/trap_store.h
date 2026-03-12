@@ -1,17 +1,14 @@
-// ============================================================================
+﻿// ============================================================================
 // trap_store.h
 // ============================================================================
 
 #ifndef TRAP_STORE_H
 #define TRAP_STORE_H
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <signal.h>
+#include "exec_types_internal.h"
+#include "exec_types_public.h"
+#include "sig_act.h"
 #include "string_t.h"
-
-typedef struct exec_frame_t exec_frame_t;
-typedef struct sig_act_store_t sig_act_store_t;
 
 /* Enable full POSIX signal set only where available (non-Windows POSIX builds). */
 #if defined(POSIX_API) && !defined(_WIN32) && !defined(__MINGW32__) && !defined(__MSYS__)

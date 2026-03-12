@@ -1,4 +1,9 @@
-﻿#define _CRT_SECURE_NO_WARNINGS
+﻿#ifdef UCRT_API
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+#ifdef POSIX_API
+#define _POSIX_C_SOURCE 202405L
+#endif
 
 #include <errno.h>
 #include <signal.h>

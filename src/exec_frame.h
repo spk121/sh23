@@ -1,4 +1,4 @@
-#ifndef EXEC_FRAME_H
+﻿#ifndef EXEC_FRAME_H
 #define EXEC_FRAME_H
 
 /**
@@ -12,20 +12,21 @@
  * - Convenience wrappers for common frame types
  */
 
-#include <signal.h>
-#include <stdbool.h>
+#ifdef POSIX_API
+#define _POSIX_C_SOURCE 202405L
+#endif
+
 #ifdef POSIX_API
 #include <sys/types.h>
 #endif
 
-#include "alias_store.h"
 #include "ast.h"
 #include "exec_types_internal.h"
+#include "exec_types_public.h"
 #include "fd_table.h"
-#include "func_store.h"
-#include "positional_params.h"
 #include "string_list.h"
 #include "string_t.h"
+#include "trap_store.h"
 #include "variable_store.h"
 
 #include "exec_frame_policy.h"
