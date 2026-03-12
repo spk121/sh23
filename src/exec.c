@@ -3613,7 +3613,7 @@ bool exec_job_foreground_cstr(exec_t *executor, int job_id, char **out_cmd)
 
     job->is_background = false;
     if (out_cmd)
-        *out_cmd = xstrdup(string_cstr(job->command));
+        *out_cmd = xstrdup(string_cstr(job->command_line));
 
     job_store_remove(executor->jobs, job_id);
     return true;
@@ -3981,10 +3981,9 @@ void exec_reap_background_jobs(exec_t *executor, bool notify)
         bool terminated = WIFSIGNALED(status);
         int exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + WTERMSIG(status);
         if (terminated)
-            job_store_set_state(executor->jobs, pid, JOB_STATE_TERMINATED);
+            job_store_set_process_state(executor->jobs, pid, JOB_TERMINATED, exit_status);
         else
-            job_store_set_state(executor->jobs, pid, JOB_STATE_DONE);
-        job_store_set_exit_status(executor->jobs, pid, exit_status);
+            job_store_set_process_state(executor->jobs, pid, JOB_DONE, exit_status);
         any_reaped = true;
     }
     if (any_reaped && notify)
