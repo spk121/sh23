@@ -14,6 +14,7 @@ jobs:
     permissions:
       contents: read
     strategy:
+      fail-fast: false
       matrix:
         api_type: [POSIX, ISO_C]
     
@@ -45,6 +46,7 @@ jobs:
     permissions:
       contents: read
     strategy:
+      fail-fast: false  
       matrix:
         api_type: [UCRT, ISO_C]
     
