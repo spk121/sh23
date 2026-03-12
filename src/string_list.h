@@ -1,4 +1,4 @@
-#ifndef STRING_LIST_H
+﻿#ifndef STRING_LIST_H
 #define STRING_LIST_H
 
 #include <stdint.h>
@@ -46,6 +46,8 @@ string_list_t *string_list_create_from_cstr_array(const char **strv, int len);
 /**
  * Create a string list from the system environment variables.
  * Gets the environment from the system (environ on Unix, _environ on Windows).
+ * In ISO C, always returns an empty string list, since there is no environ
+ * variable that can be queried in ISO C.
  *
  * @return New string list instance with environment variables, or NULL on allocation failure.
  */

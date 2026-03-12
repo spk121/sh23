@@ -1,4 +1,4 @@
-#ifdef _MSC_VER
+﻿#ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
@@ -111,13 +111,16 @@ string_list_t *string_list_create_from_cstr_array(const char **strv, int len)
 string_list_t *string_list_create_from_system_env(void)
 {
     string_list_t *lst = string_list_create();
-
-#ifdef _WIN32
-    extern char **_environ;
-    char **env = _environ;
-#else
+    char * const *env;
+#ifdef POSIX_API
     extern char **environ;
-    char **env = environ;
+    env = (char * const *)environ;
+#elifdef UCRT_API
+    extern char **_environ;
+    env = (char * const *)_environ;
+#else
+    // There is no `environ` in ISO C.  There is only getenv().
+    env = NULL;
 #endif
 
     if (!env)

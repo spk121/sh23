@@ -1059,6 +1059,8 @@ static exec_status_t exec_setup_core(exec_t *e, bool interactive)
     if (e->envp)
         e->env_vars = string_list_create_from_cstr_array((const char **)e->envp, -1);
     else
+        // In POSIX_API and UCRT_API, this gets the env from the `environ` global.
+        // In ISO C, there is no `environ`, so this will be initialized as an empty list.
         e->env_vars = string_list_create_from_system_env();
 
     if (!e->top_frame)
@@ -1268,6 +1270,8 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
     }
     else
     {
+        // In POSIX_API and UCRT_API, this gets the env from the `environ` global.
+        // In ISO C, there is no `environ`, so this will be initialized as an empty list.
         e->env_vars = string_list_create_from_system_env();
     }
 
