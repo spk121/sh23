@@ -8,6 +8,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef POSIX_API
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#endif
+
 #ifdef UCRT_API
 #if defined(_WIN64)
 #define _AMD64_

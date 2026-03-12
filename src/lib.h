@@ -34,8 +34,9 @@
 #endif
 
 /* Fallback: provide our own */
+/* TODO: doesn't seem possible to make this workaround work. */
 #ifndef LIB_NULLPTR_PROVIDED
-typedef void *nullptr_t;
+// typedef void *nullptr_t;
 #define nullptr ((void *)0)
 #define LIB_NULLPTR_PROVIDED 1
 #endif
