@@ -1,4 +1,4 @@
-#include "trap_controller.h"
+﻿#include "trap_controller.h"
 #include "logging.h"
 #include "xalloc.h"
 
@@ -238,7 +238,7 @@ int trap_controller_execute_exit_trap(trap_controller_t *controller,
     Expects_true(trap_store_is_exit_set(controller->trap_store));
 
     // Delegate to trap_store for EXIT trap execution
-    trap_store_run_exit_trap(controller->trap_store, frame);
+    trap_store_run_exit_trap(controller->trap_store, (void *)frame);
 
     // EXIT trap exit status handling would go here
     return 0;  // Stub

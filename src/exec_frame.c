@@ -696,7 +696,7 @@ exec_frame_t *exec_frame_pop(exec_frame_t **frame_ptr)
     if (policy->traps.exit_trap_runs)
     {
         if (frame->traps && frame->traps->exit_trap_set)
-            trap_store_run_exit_trap(frame->traps, frame);
+            trap_store_run_exit_trap(frame->traps, (void *) frame);
     }
 
     /* Propagate exit status to parent if applicable */

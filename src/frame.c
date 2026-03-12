@@ -1489,7 +1489,7 @@ void frame_run_exit_traps(exec_frame_t *frame)
         return;
     }
 
-    trap_store_run_exit_trap(traps, frame);
+    trap_store_run_exit_trap(traps, (void *)frame);
 }
 
 /* Callback adapter for frame_for_each_set_trap */

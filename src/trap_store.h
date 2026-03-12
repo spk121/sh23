@@ -5,8 +5,6 @@
 #ifndef TRAP_STORE_H
 #define TRAP_STORE_H
 
-#include "exec_types_internal.h"
-#include "exec_types_public.h"
 #include "sig_act.h"
 #include "string_t.h"
 
@@ -144,6 +142,8 @@ void trap_store_for_each_set_trap(const trap_store_t *store,
                                                     void *context),
                                    void *context);
 
-void trap_store_run_exit_trap(const trap_store_t *store, exec_frame_t *frame);
+// FIXME: The trap store shouldn't run traps. The frame executor should run traps.
+// Using void * for frame to avoid circular dependency between trap_store.h and exec_frame.h
+void trap_store_run_exit_trap(const trap_store_t *store, void *frame);
 
 #endif // TRAP_STORE_H

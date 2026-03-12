@@ -950,12 +950,14 @@ void trap_store_for_each_set_trap(const trap_store_t *store,
     }
 }
 
-void trap_store_run_exit_trap(const trap_store_t* store, exec_frame_t* frame)
+void trap_store_run_exit_trap(const trap_store_t* store, void* fram)
 {
     Expects_not_null(store);
-    Expects_not_null(frame);
+    Expects_not_null(fram);
     Expects_eq(store->exit_trap_set, true);
     Expects_not_null(store->exit_action);
+    // exec_frame_t* exec_frame = (exec_frame_t*)fram;
+
     // Execute the EXIT trap action
     printf("Executing EXIT trap action: %s\n", string_cstr(store->exit_action));
     // In a real shell, we would execute the command and handle its exit status.
