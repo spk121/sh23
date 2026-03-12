@@ -14,9 +14,18 @@
 #endif
 
 #include <ctype.h>
-#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifdef POSIX_API
+#include <errno.h>
+#endif
+
+#ifdef UCRT_API
+#include <direct.h>
+#include <io.h>
+#include <stdlib.h>
+#endif
 
 #include "exec_frame.h"
 
@@ -40,11 +49,6 @@
 #include "trap_store.h"
 #include "variable_store.h"
 #include "xalloc.h"
-#ifdef UCRT_API
-#include <direct.h>
-#include <io.h>
-#include <process.h>
-#endif
 
 exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t *frame,
                                                                     exec_params_t *params);

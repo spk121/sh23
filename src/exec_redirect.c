@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -16,15 +17,13 @@
 #include <fcntl.h>
 #include <fileapi.h>
 #include <io.h>
+#include <share.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #endif
 
 #ifndef FD_SETSIZE
 #define FD_SETSIZE 64
-#endif
-
-#ifndef MAX_PATH
-#define MAX_PATH 260
 #endif
 
 #include "exec_redirect.h"
@@ -33,9 +32,11 @@
 #include "exec_frame.h"
 #include "exec_frame_expander.h"
 #include "exec_types_internal.h"
+#include "fd_table.h"
 #include "lib.h"
 #include "logging.h"
 #include "string_t.h"
+#include "token.h"
 #include "xalloc.h"
 
 /**
@@ -1032,17 +1033,17 @@ exec_status_t exec_apply_redirections_ucrt_c(exec_frame_t *frame, const exec_red
             if (content_len > 4096)
             {
                 // Use temp file fallback for large heredocs
-                char temp_path[MAX_PATH];
-                char temp_file[MAX_PATH];
-                uint32_t path_len = GetTempPathA(MAX_PATH, temp_path);
-                if (path_len == 0 || path_len > MAX_PATH - 1)
+                char temp_path[_MAX_PATH];
+                char temp_file[_MAX_PATH];
+                unsigned long path_len = GetTempPath2A(_MAX_PATH, temp_path);
+                if (path_len == 0 || path_len > _MAX_PATH - 1)
                 {
-                    exec_set_error_cstr(executor, "GetTempPathA() failed for heredoc");
+                    exec_set_error_cstr(executor, "GetTempPath2A() failed for heredoc");
                     string_destroy(&content_str);
                     goto error_restore;
                 }
                 // uUnique=0: Windows generates a unique name and creates the file atomically.
-                uint32_t uRet = GetTempFileNameA(temp_path, "mgsh", 0, temp_file);
+                unsigned int uRet = GetTempFileNameA(temp_path, "mgsh", 0, temp_file);
                 if (uRet == 0)
                 {
                     exec_set_error_cstr(executor, "GetTempFileNameA() failed for heredoc");

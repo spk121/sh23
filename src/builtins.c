@@ -28,6 +28,7 @@
 #define _X86_
 #endif
 #include <direct.h>
+#include <stdlib.h>    // _MAX_PATH
 #include <handleapi.h> // CloseHandle
 #include <io.h>
 #include <process.h>
@@ -58,6 +59,7 @@
 #define GETCWD getcwd
 #define STAT stat
 #define STAT_T struct stat
+#define MY_PATH_MAX (PATH_MAX)    // POSIX uses PATH_MAX
 #endif
 
 #ifdef UCRT_API
@@ -68,9 +70,7 @@
 #ifndef WAIT_OBJECT_0
 #define WAIT_OBJECT_0 0
 #endif
-#ifndef PATH_MAX
-#define PATH_MAX 1024
-#endif
+#define MY_PATH_MAX (_MAX_PATH)    // UCRT uses MAX_PATH
 #define CHDIR _chdir
 #define GETCWD _getcwd
 #define STAT _stat
@@ -80,8 +80,12 @@
 #endif
 #endif // UCRT_API
 
-#ifndef PATH_MAX
-#define PATH_MAX 260
+#if !defined(POSIX_API) && !defined(UCRT_API)
+#ifdef FILENAME_MAX
+#define MY_PATH_MAX (FILENAME_MAX)   // ISO C defines FILENAME MAX
+#else
+#define MY_PATH_MAX 260
+#endif
 #endif
 
 /* ============================================================================
@@ -2517,7 +2521,7 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
                     STAT_T st;
                     if (STAT(string_cstr(candidate), &st) == 0 && S_ISDIR(st.st_mode))
                     {
-                        if (string_length(candidate) >= PATH_MAX)
+                        if (string_length(candidate) >= MY_PATH_MAX)
                         {
                             fprintf(stderr, "cd: path too long\n");
                             string_destroy(&candidate);
@@ -2570,7 +2574,7 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
     if (flag_P)
     {
 #ifdef POSIX_API
-        char physical[PATH_MAX];
+        char physical[MY_PATH_MAX];
         if (!realpath(string_cstr(curpath), physical))
         {
             fprintf(stderr, "cd: cannot resolve path '%s': %s\n", string_cstr(curpath),
@@ -2579,8 +2583,8 @@ int builtin_cd(exec_frame_t *frame, const string_list_t *args)
             return 1;
         }
 #elifdef UCRT_API
-        char physical[PATH_MAX];
-        if (!_fullpath(physical, string_cstr(curpath), PATH_MAX))
+        char physical[MY_PATH_MAX];
+        if (!_fullpath(physical, string_cstr(curpath), MY_PATH_MAX))
         {
             fprintf(stderr, "cd: cannot resolve path '%s': %s\n", string_cstr(curpath),
                     strerror(errno));
@@ -2697,7 +2701,7 @@ int builtin_pwd(exec_frame_t *frame, const string_list_t *args)
 #undef STAT_T
 #endif
 #if !defined(POSIX_API) && !defined(UCRT_API)
-#undef PATH_MAX
+#undef MY_PATH_MAX
 #endif
 
 /* ============================================================================

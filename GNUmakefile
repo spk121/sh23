@@ -150,10 +150,12 @@ src/variable_store.c
 MGSHLOGIC_SOURCES := \
 src/arithmetic.c \
 src/builtins.c \
+src/builtin_store.c \
 src/exec.c \
 src/exec_command.c \
 src/exec_frame_expander.c \
 src/exec_frame.c \
+src/exec_parse_session.c \
 src/exec_redirect.c \
 src/frame.c \
 src/getopt_string.c \

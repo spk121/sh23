@@ -5,7 +5,6 @@
 
 #include "sig_act.h"
 #include "xalloc.h"
-#include <errno.h>
 #include <string.h>
 
 // Platform-specific signal count and definitions

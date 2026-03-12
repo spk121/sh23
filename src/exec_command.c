@@ -420,7 +420,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
         else if (pid == 0) /* child */
         {
             /* Apply redirections in child */
-            exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs, false);
+            exec_status_t redir_st = exec_apply_redirections_posix(frame, runtime_redirs);
             if (redir_st != EXEC_OK)
             {
                 _exit(127);

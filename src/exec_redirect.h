@@ -1,4 +1,4 @@
-﻿#ifndef EXEC_REDIRECT_H
+#ifndef EXEC_REDIRECT_H
 #define EXEC_REDIRECT_H
 
 /**

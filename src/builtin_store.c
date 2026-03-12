@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file builtin_store.c
  * @brief Hash-based builtin command registry implementation.
  *
