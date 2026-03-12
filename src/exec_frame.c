@@ -43,6 +43,7 @@
 #include "func_store.h"
 #include "glob_util.h"
 #include "job_store.h"
+#include "lib.h"
 #include "logging.h"
 #include "positional_params.h"
 #include "string_list.h"
@@ -1211,7 +1212,7 @@ exec_frame_execute_result_t exec_in_frame(exec_frame_t *parent, exec_frame_type_
                 /* Background job: record and return immediately */
                 parent->last_bg_pid = pid;
                 string_t *cmdline =
-                    params ? string_list_join(params->command_args) : string_create_from_cstr("");
+                    params ? string_list_join(params->command_args, " ") : string_create_from_cstr("");
                 job_store_add(exec->jobs, pid, cmdline);
                 string_destroy(&cmdline);
                 return (exec_frame_execute_result_t){.exit_status = 0,
@@ -2353,7 +2354,7 @@ exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t
     {
         if (pipe(pipes + 2 * i) == -1)
         {
-            exec_set_error(frame->executor, "pipe() failed: %s", strerror(errno));
+            exec_set_error_printf(frame->executor, "pipe() failed: %s", strerror(errno));
             result.status = EXEC_ERROR;
             result.exit_status = 1;
             goto cleanup;
@@ -2376,7 +2377,7 @@ exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t
         pid_t pid = fork();
         if (pid == -1)
         {
-            exec_set_error(frame->executor, "fork() failed in pipeline: %s", strerror(errno));
+            exec_set_error_printf(frame->executor, "fork() failed in pipeline: %s", strerror(errno));
 
             /* Kill and reap all children we already forked */
             for (int j = 0; j < i; j++)
@@ -2432,7 +2433,7 @@ exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t
             exec_result_t cmd_result = exec_execute_dispatch(frame, cmd);
 
             /* Exit the child with the command's exit status */
-            _exit(cmd_result.has_exit_status ? cmd_result.exit_status : 0);
+            _exit(cmd_result.exit_code);
         }
 
         /* ---- Parent process ---- */
@@ -2502,7 +2503,7 @@ exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t
              */
             if (errno != ECHILD)
             {
-                exec_set_error(frame->executor, "waitpid() failed for pid %d: %s", (int)pids[i],
+                exec_set_error_printf(frame->executor, "waitpid() failed for pid %d: %s", (int)pids[i],
                                strerror(errno));
             }
             if (i == ncmds - 1)
