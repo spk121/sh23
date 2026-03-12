@@ -19,32 +19,8 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
-
-// FIXME: This module should not need internal headers.
-// It should be delegating down to functions from exec_frame.h.
-#include "alias_store.h"
-#include "ast.h"
-#include "exec.h"
-#include "exec_frame.h"
-#include "exec_frame_expander.h"
-#include "exec_types_internal.h"
-#include "exec_types_public.h"
-#include "func_store.h"
-#include "gnode.h"
-#include "lexer.h"
-#include "lib.h"
-#include "logging.h"
-#include "lower.h"
-#include "parser.h"
-#include "positional_params.h"
-#include "string_list.h"
-#include "string_t.h"
-#include "token.h"
-#include "tokenizer.h"
-#include "trap_store.h"
-#include "variable_store.h"
-#include "xalloc.h"
 
 #ifdef POSIX_API
 #include <errno.h>
@@ -58,12 +34,41 @@
 #endif
 
 #ifdef UCRT_API
-#define WIN32_LEAN_AND_MEAN
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif 
 #include <direct.h>
 #include <io.h>
 #include <process.h>
-#include <windows.h>
+#include <search.h>
 #endif
+
+
+// FIXME: This module should not need internal headers.
+// It should be delegating down to functions from exec_frame.h.
+#include "alias_store.h"
+#include "ast.h"
+#include "exec.h"
+#include "exec_frame.h"
+#include "exec_frame_expander.h"
+#include "exec_frame_policy.h"
+#include "exec_types_internal.h"
+#include "exec_types_public.h"
+#include "func_store.h"
+#include "gnode.h"
+#include "lib.h"
+#include "logging.h"
+#include "lower.h"
+#include "parser.h"
+#include "positional_params.h"
+#include "string_list.h"
+#include "string_t.h"
+#include "trap_store.h"
+#include "variable_store.h"
+#include "xalloc.h"
+
 
 /* ============================================================================
  * Error Handling
@@ -854,7 +859,7 @@ bool frame_change_directory_cstr(exec_frame_t *frame, const char *path)
     }
 
     /* Get the new absolute path */
-    char resolved[MAX_PATH];
+    char resolved[_MAX_PATH];
     if (_getcwd(resolved, sizeof(resolved)) == NULL)
     {
         if (old_pwd && string_length(old_pwd) > 0)

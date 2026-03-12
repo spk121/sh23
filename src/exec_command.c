@@ -8,6 +8,23 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef POSIX_API
+#include <limits.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+#ifdef UCRT_API
+#if defined(_WIN64)
+#define _AMD64_
+#elif defined(_WIN32)
+#define _X86_
+#endif
+#include <handleapi.h>
+#include <process.h>
+#include <processthreadsapi.h>
+#endif
+
 #include "exec_command.h"
 
 #include "ast.h"
@@ -29,21 +46,7 @@
 #include "variable_store.h"
 #include "xalloc.h"
 
-#ifdef POSIX_API
-#include <sys/wait.h>
-#include <unistd.h>
-#endif
 
-#ifdef UCRT_API
-#if defined(_WIN64)
-#define _AMD64_
-#elif defined(_WIN32)
-#define _X86_
-#endif
-#include <handleapi.h>
-#include <process.h>
-#include <processthreadsapi.h>
-#endif
 
 /* ============================================================================
  * Helper Functions

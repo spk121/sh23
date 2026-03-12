@@ -14,6 +14,7 @@
 #include <time.h>
 
 #ifdef POSIX_API
+#include <limits.h> // PATH_MAX
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -882,8 +883,8 @@ int builtin_readonly(exec_frame_t *frame, const string_list_t *args)
         /* Set value if provided */
         if (value)
         {
-            var_store_error_t set_result = frame_set_variable(frame, name, value);
-            if (set_result != VAR_STORE_ERROR_NONE)
+            frame_var_error_t set_result = frame_set_variable(frame, name, value);
+            if (set_result != FRAME_VAR_ERROR_NONE)
             {
                 fprintf(stderr, "readonly: failed to set variable '%s'\n", name_cstr);
                 string_destroy(&name);
@@ -910,8 +911,8 @@ int builtin_readonly(exec_frame_t *frame, const string_list_t *args)
         else
         {
             /* Mark variable as readonly */
-            var_store_error_t ro_result = frame_set_variable_readonly(frame, name, true);
-            if (ro_result != VAR_STORE_ERROR_NONE)
+            frame_var_error_t ro_result = frame_set_variable_readonly(frame, name, true);
+            if (ro_result != FRAME_VAR_ERROR_NONE)
             {
                 fprintf(stderr, "readonly: failed to mark '%s' as readonly\n", name_cstr);
                 exit_status = 1;
@@ -1401,7 +1402,7 @@ int builtin_times(exec_frame_t *frame, const string_list_t *args)
     return 0;
 }
 
-#elif defined(UCRT_API)
+#elifdef UCRT_API
 
 int builtin_times(exec_frame_t *frame, const string_list_t *args)
 {
@@ -1805,16 +1806,16 @@ int builtin_unset(exec_frame_t *frame, const string_list_t *args)
         if (flag_f)
         {
             /* Unset function using frame API */
-            func_store_error_t err = frame_unset_function(frame, string_list_at(args, optind));
-            if (err == FUNC_STORE_ERROR_NOT_FOUND)
+            frame_func_error_t err = frame_unset_function(frame, string_list_at(args, optind));
+            if (err == FRAME_FUNC_ERROR_NOT_FOUND)
             {
                 fprintf(stderr, "unset: function '%s' not found\n",
                         string_cstr(string_list_at(args, optind)));
                 err_count++;
             }
-            else if (err == FUNC_STORE_ERROR_EMPTY_NAME || err == FUNC_STORE_ERROR_NAME_TOO_LONG ||
-                     err == FUNC_STORE_ERROR_NAME_INVALID_CHARACTER ||
-                     err == FUNC_STORE_ERROR_NAME_STARTS_WITH_DIGIT)
+            else if (err == FRAME_FUNC_ERROR_EMPTY_NAME || err == FRAME_FUNC_ERROR_NAME_TOO_LONG ||
+                     err == FRAME_FUNC_ERROR_NAME_INVALID_CHARACTER ||
+                     err == FRAME_FUNC_ERROR_NAME_STARTS_WITH_DIGIT)
             {
                 fprintf(stderr, "unset: invalid function name '%s'\n",
                         string_cstr(string_list_at(args, optind)));

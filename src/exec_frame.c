@@ -19,6 +19,7 @@
 
 #ifdef POSIX_API
 #include <errno.h>
+#include <limits.h>
 #endif
 
 #ifdef UCRT_API
@@ -2207,7 +2208,7 @@ exec_frame_execute_result_t exec_frame_execute_iteration_loop(exec_frame_t *fram
                                           .flow_depth = 0};
 
     // Iterate over each word
-    for (size_t i = 0; i < string_list_size(params->iteration_words); i++)
+    for (int i = 0; i < string_list_size(params->iteration_words); i++)
     {
         const string_t *word = string_list_at(params->iteration_words, i);
 
