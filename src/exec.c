@@ -85,7 +85,6 @@
  * Forward Declarations
  * ============================================================================ */
 
-exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node);
 
 /* ============================================================================
  * Helper Functions
@@ -1478,7 +1477,7 @@ struct exec_t *exec_create(const struct exec_cfg_t *cfg)
  * exec_set_error, and exec_clear_error are defined in the
  * "Global State Queries" section below. */
 
-char *exec_get_ps1_cstr(const exec_t *executor)
+string_t *exec_get_ps1(const exec_t *executor)
 {
     Expects_not_null(executor);
     /* We expect to use the current frame's variable store, but
@@ -1488,20 +1487,31 @@ char *exec_get_ps1_cstr(const exec_t *executor)
     {
         const char *ps1 = variable_store_get_value_cstr(executor->current_frame->variables, "PS1");
         if (ps1 && *ps1)
-            return xstrdup(ps1);
+            return string_create_from_cstr(ps1);
     }
     else if (executor->variables)
     {
         const char *ps1 = variable_store_get_value_cstr(executor->variables, "PS1");
         if (ps1 && *ps1)
-            return xstrdup(ps1);
+            return string_create_from_cstr(ps1);
     }
 
-    return xstrdup("$ ");
+    return string_create_from_cstr("$ ");
 }
 
-/* Forward declarations — defined after frame_render_ps1 below. */
+char *exec_get_ps1_cstr(const exec_t *executor)
+{
+    string_t *s = exec_get_ps1(executor);
+    return string_release(&s);
+}
+
+/* Forward declarations — defined after render_ps1 below. */
 static const char *ps1_lookup_variable(const exec_frame_t *frame, const char *name);
+
+static bool is_valid_ps1_variable_char(char c)
+{
+    return (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
 
 /**
  * Render the PS1 prompt string.
@@ -1529,34 +1539,34 @@ static const char *ps1_lookup_variable(const exec_frame_t *frame, const char *na
  * Returns a newly heap-allocated C string. The caller is responsible for
  * freeing it.
  */
-char *frame_render_ps1(const exec_frame_t *frame)
+static string_t *render_ps1(const exec_t *exec)
 {
+    Expects_not_null(exec);
+
+    if (!exec->top_frame_initialized)
+    {
+        /* No frames at all yet — return the default PS1 value. */
+        return string_create_from_cstr("$ ");
+    }
+
+    const exec_frame_t *frame = exec->current_frame;
     Expects_not_null(frame);
 
     /* -------------------------------------------------------------------------
      * 1. Retrieve the raw PS1 value.
      *
-     * Check the frame's variable store first (covers local overrides), then
-     * fall back to the executor-level store (covers the normal case where the
-     * top frame owns all variables). If PS1 is unset or empty, use the POSIX
+     * If PS1 is unset or empty, use the POSIX
      * default of "$ ".
      * -------------------------------------------------------------------------
      */
-    const char *ps1_raw = NULL;
-    if (frame->variables)
-    {
-        const char *v = variable_store_get_value_cstr(frame->variables, "PS1");
-        if (v && *v)
-            ps1_raw = v;
-    }
-    if (!ps1_raw && frame->executor && frame->executor->variables)
-    {
-        const char *v = variable_store_get_value_cstr(frame->executor->variables, "PS1");
-        if (v && *v)
-            ps1_raw = v;
-    }
+    string_t *ps1_str = string_create_from_cstr("PS1");
+    string_t *ps1_raw = exec_frame_get_variable(frame, ps1_str);
+    string_destroy(&ps1_str);
+
     if (!ps1_raw)
-        ps1_raw = "$ ";
+    {
+        return string_create_from_cstr("$ ");
+    }
 
     /* -------------------------------------------------------------------------
      * 2. Expand parameter references in the PS1 string.
@@ -1571,34 +1581,44 @@ char *frame_render_ps1(const exec_frame_t *frame)
     if (!out)
         return NULL;
 
-    const char *p = ps1_raw;
-    while (*p)
+    int i = 0;
+    char c;
+    while (i < string_length(ps1_raw))
     {
         /* ------------------------------------------------------------------
          * Backslash escape sequences (non-POSIX extension).
          * Processed before '$' so that e.g. "\\$HOME" emits a literal
          * backslash then expands HOME, not a literal backslash-dollar-HOME.
          * ------------------------------------------------------------------ */
-        if (*p == '\\')
+        char c = string_at(ps1_raw, i);
+        if (c == '\\')
         {
-            p++; /* consume '\\' */
-            switch (*p)
+            i++; /* consume '\\' */
+            if (i >= string_length(ps1_raw))
+            {
+                /* Trailing backslash at end of string — emit literally. */
+                string_append_char(out, '\\');
+                break;
+            }
+
+            char c2 = string_at(ps1_raw, i);
+            switch (c2)
             {
             case 'n':
                 string_append_char(out, '\n');
-                p++;
+                i++;
                 break;
             case 'r':
                 string_append_char(out, '\r');
-                p++;
+                i++;
                 break;
             case 't':
                 string_append_char(out, '\t');
-                p++;
+                i++;
                 break;
             case '\\':
                 string_append_char(out, '\\');
-                p++;
+                i++;
                 break;
 
             case 'x': {
@@ -1607,14 +1627,15 @@ char *frame_render_ps1(const exec_frame_t *frame)
                  * range U+0000..U+00FF (Latin-1 supplement), which maps
                  * trivially to its UTF-8 representation.  Fewer than 2
                  * valid hex digits: copy the escape literally. */
-                p++; /* consume 'x' */
-                char hi = *p, lo = p[1];
+                i++; /* consume 'x' */
+                char hi = string_at(ps1_raw, i);
+                char lo = string_at(ps1_raw, i + 1);
                 if (isxdigit((unsigned char)hi) && isxdigit((unsigned char)lo))
                 {
                     char hex[3] = {hi, lo, '\0'};
                     uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
                     string_append_utf8(out, cp);
-                    p += 2;
+                    i += 2;
                 }
                 else
                 {
@@ -1626,17 +1647,20 @@ char *frame_render_ps1(const exec_frame_t *frame)
 
             case 'u': {
                 /* \uhhhh — exactly 4 hex digits, BMP Unicode code point. */
-                p++; /* consume 'u' */
+                i++; /* consume 'u' */
                 char hex[5];
                 int n = 0;
-                while (n < 4 && isxdigit((unsigned char)p[n]))
-                    hex[n] = p[n], n++;
+                while (n < 4 && isxdigit((unsigned char)string_at(ps1_raw, i + n)))
+                {
+                    hex[n] = string_at(ps1_raw, i + n);
+                    n = n + 1;
+                }
                 if (n == 4)
                 {
                     hex[4] = '\0';
                     uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
                     string_append_utf8(out, cp);
-                    p += 4;
+                    i += 4;
                 }
                 else
                 {
@@ -1650,17 +1674,20 @@ char *frame_render_ps1(const exec_frame_t *frame)
                  * (Unicode only needs 5.5 hex digits to cover U+10FFFF,
                  * but 6 gives a clean fixed-width field and matches common
                  * shell practice for emoji, e.g. \U01F600.) */
-                p++; /* consume 'U' */
+                i++; /* consume 'U' */
                 char hex[7];
                 int n = 0;
-                while (n < 6 && isxdigit((unsigned char)p[n]))
-                    hex[n] = p[n], n++;
+                while (n < 6 && isxdigit((unsigned char)string_at(ps1_raw, i + n)))
+                {
+                    hex[n] = string_at(ps1_raw, i + n);
+                    n = n + 1;
+                }
                 if (n == 6)
                 {
                     hex[6] = '\0';
                     uint32_t cp = (uint32_t)strtoul(hex, NULL, 16);
                     string_append_utf8(out, cp);
-                    p += 6;
+                    i += 6;
                 }
                 else
                 {
@@ -1669,94 +1696,95 @@ char *frame_render_ps1(const exec_frame_t *frame)
                 break;
             }
 
-            case '\0':
-                /* Trailing backslash at end of string — emit literally. */
-                string_append_char(out, '\\');
-                break;
-
             default:
                 /* Unrecognised escape — emit literally so the user sees
                  * what they typed and can diagnose typos. */
                 string_append_char(out, '\\');
-                string_append_char(out, *p);
-                p++;
+                string_append_char(out, string_at(ps1_raw, i));
+                i++;
                 break;
             }
             continue;
         }
 
-        if (*p != '$')
+        if (string_at(ps1_raw, i) != '$')
         {
             /* Ordinary character — copy verbatim. */
-            string_append_char(out, *p++);
+            string_append_char(out, string_at(ps1_raw, i));
+            i++;
             continue;
         }
 
         /* '$' found — identify the parameter reference. */
-        p++; /* consume '$' */
+        i++; /* consume '$' */
 
-        if (*p == '{')
+        if (string_at(ps1_raw, i) == '{')
         {
             /* ${VAR} form */
-            p++; /* consume '{' */
-            const char *name_start = p;
-            while (*p && *p != '}')
-                p++;
-            int name_len = (int)(p - name_start);
-            if (*p == '}')
-                p++; /* consume '}' */
-
-            if (name_len > 0)
+            i++; /* consume '{' */
+            int end = string_find_first_of_cstr_at(ps1_raw, "}", i);
+            if (end == -1)
             {
-                char name[256];
-                if (name_len < (int)sizeof(name))
-                {
-                    memcpy(name, name_start, name_len);
-                    name[name_len] = '\0';
-                    const char *val = ps1_lookup_variable(frame, name);
-                    if (val)
-                        string_append_cstr(out, val);
-                }
-                /* Names that are too long are silently dropped per POSIX
-                 * (undefined behaviour for extremely long names). */
+                /* No closing '}' found — emit literally. */
+                string_append_cstr(out, "${");
+                continue;
             }
+            string_t *name_str = string_substring(ps1_raw, i, end);
+            i = end + 1; /* consume up to and including '}' */
+            const string_t *val = exec_frame_get_variable(frame, name_str);
+            if (val)
+                string_append(out, val);
+            else
+            {
+                /* Variable not found - emit literally. */
+                string_append_cstr(out, "${");
+                string_append(out, name_str);
+                string_append_char(out, '}');
+            }
+            string_destroy(&name_str);
         }
-        else if (*p == '?')
+        else if (string_at(ps1_raw, i) == '?')
         {
             /* $? — last exit status */
-            p++;
-            char buf[16];
-            snprintf(buf, sizeof(buf), "%d", frame->last_exit_status);
-            string_append_cstr(out, buf);
+            i++;
+            string_t *exit_status_str = string_from_int(exec->last_exit_status);
+            string_append(out, exit_status_str);
+            string_destroy(&exit_status_str);
         }
-        else if (*p == '$')
+        else if (string_at(ps1_raw, i) == '$')
         {
             /* $$ — shell PID */
-            p++;
-            if (frame->executor && frame->executor->shell_pid_valid)
+            i++;
+            if (exec->shell_pid_valid)
             {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%d", (int)frame->executor->shell_pid);
-                string_append_cstr(out, buf);
+                string_t *pid_str = string_from_int(exec->shell_pid);
+                string_append(out, pid_str);
+                string_destroy(&pid_str);
+            }
+            else
+            {
+                /* PID not available — emit literally. */
+                string_append_cstr(out, "$$");
             }
         }
-        else if (*p == '_' || isalpha((unsigned char)*p))
+        else if (string_at(ps1_raw, i) == '_' || isalpha((unsigned char)string_at(ps1_raw, i)))
         {
             /* $VAR — unbraced name */
-            const char *name_start = p;
-            while (*p == '_' || isalnum((unsigned char)*p))
-                p++;
-            int name_len = (int)(p - name_start);
+            int end = string_find_first_not_of_predicate_at(ps1_raw, is_valid_ps1_variable_char, i);
+            Expects_ne(end, -1);
+            string_t *name_str = string_substring(ps1_raw, i, end);
+            i = end; /* consume the variable name */
 
-            char name[256];
-            if (name_len < (int)sizeof(name))
+            const string_t *val = exec_frame_get_variable(frame, name_str);
+            if (val)
+                string_append(out, val);
+            else
             {
-                memcpy(name, name_start, name_len);
-                name[name_len] = '\0';
-                const char *val = ps1_lookup_variable(frame, name);
-                if (val)
-                    string_append_cstr(out, val);
+                /* Variable not found - emit literally. */
+                string_append_char(out, '$');
+                string_append(out, name_str);
             }
+            string_destroy(&name_str);
         }
         else
         {
@@ -1769,16 +1797,19 @@ char *frame_render_ps1(const exec_frame_t *frame)
         }
     }
 
-    return string_release(&out);
+    return out;
+}
+
+string_t *exec_get_rendered_ps1(const exec_t *executor)
+{
+    Expects_not_null(executor);
+    return render_ps1(executor);
 }
 
 char *exec_get_rendered_ps1_cstr(const exec_t *executor)
 {
-    Expects_not_null(executor);
-    if (executor->current_frame)
-        return frame_render_ps1(executor->current_frame);
-    else
-        return frame_render_ps1(executor->top_frame);
+    string_t *s = exec_get_rendered_ps1(executor);
+    return string_release(&s);
 }
 
 /**
@@ -1803,7 +1834,7 @@ static const char *ps1_lookup_variable(const exec_frame_t *frame, const char *na
     return NULL;
 }
 
-char *exec_get_ps2_cstr(const exec_t *executor)
+string_t *exec_get_ps2(const exec_t *executor)
 {
     Expects_not_null(executor);
     const char *ps2 = NULL;
@@ -1811,13 +1842,19 @@ char *exec_get_ps2_cstr(const exec_t *executor)
     {
         ps2 = variable_store_get_value_cstr(executor->current_frame->variables, "PS2");
         if (ps2 && *ps2)
-            return xstrdup(ps2);
+            return string_create_from_cstr(ps2);
     }
     if (executor->variables)
     {
         ps2 = variable_store_get_value_cstr(executor->variables, "PS2");
     }
-    return (ps2 && *ps2) ? xstrdup(ps2) : xstrdup("> ");
+    return string_create_from_cstr((ps2 && *ps2) ? ps2 : "> ");
+}
+
+char *exec_get_ps2_cstr(const exec_t *executor)
+{
+    string_t *s = exec_get_ps2(executor);
+    return string_release(&s);
 }
 
 positional_params_t *exec_get_positional_params(const exec_t *executor)
@@ -1870,25 +1907,6 @@ void exec_setup_interactive_execute(exec_t *executor)
     }
 
     /* FIXME handle rcfile here */
-}
-
-
-exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
-{
-    exec_frame_execute_result_t res = exec_frame_execute_dispatch(frame, node);
-    exec_result_t result;
-    result.exit_code = res.exit_status;
-    switch (res.exit_status)
-    {
-    case EXEC_OK:
-        result.status = EXEC_OK;
-        break;
-    case EXEC_ERROR:
-    default:
-        result.status = EXEC_ERROR;
-        break;
-    }
-    return result;
 }
 
 /* ============================================================================
@@ -1947,9 +1965,9 @@ exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interact
             }
             else
             {
-                char *ps1 = frame_render_ps1(executor->current_frame);
-                fprintf(stderr, "%s", ps1 ? ps1 : "$ ");
-                xfree(ps1);
+                string_t *ps1 = render_ps1(executor);
+                fprintf(stderr, "%s", ps1 ? string_cstr(ps1) : "$ ");
+                string_destroy(&ps1);
             }
             fflush(stderr);
         }
@@ -2706,9 +2724,8 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
         }
         else
         {
-            prompt = frame_render_ps1(executor->current_frame);
-            if (!prompt)
-                prompt = xstrdup("$ ");
+            string_t *ps1 = render_ps1(executor);
+            prompt = ps1 ? string_release(&ps1) : xstrdup("$ ");
         }
 
         /* ---- 2. Call the line editor ---- */
