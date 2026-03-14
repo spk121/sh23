@@ -1,4 +1,4 @@
-﻿/**
+/**
  * frame.c - Public API implementation for exec_frame_t
  *
  * This file implements the public API defined in frame.h, providing a clean

@@ -1,4 +1,4 @@
-﻿#ifndef EXEC_TYPES_INTERNAL_H
+#ifndef EXEC_TYPES_INTERNAL_H
 #define EXEC_TYPES_INTERNAL_H
 
 /**

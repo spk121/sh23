@@ -1,4 +1,4 @@
-﻿#ifndef BUILTIN_STORE_H
+#ifndef BUILTIN_STORE_H
 #define BUILTIN_STORE_H
 
 /**

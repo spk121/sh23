@@ -1,4 +1,4 @@
-﻿/**
+/**
  * exec_frame.c - Execution frame management for mgsh
  *
  * This file implements frame creation (push), destruction (pop), and execution.

@@ -69,7 +69,7 @@
 #define MGSH_GETOPT_H
 
 #include "migash/api.h"
-#include "migash/config.h"
+#include "migash/mgshconf.h"
 #include "migash/strlist.h"
 #include "migash/string_t.h"
 

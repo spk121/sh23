@@ -2,7 +2,7 @@
 #define TYPE_PUB_H
 
 #include "migash/api.h"
-#include "migash/config.h"
+#include "migash/mgshconf.h"
 #include "migash/strlist.h"
 
 MGSH_EXTERN_C_START

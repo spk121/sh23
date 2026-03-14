@@ -1,4 +1,4 @@
-﻿/**
+/**
  * exec.c - Shell executor implementation
  *
  * This file implements the public executor API and high-level execution.

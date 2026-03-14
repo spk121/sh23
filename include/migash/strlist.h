@@ -1,4 +1,4 @@
-﻿#ifndef STRLIST_H
+#ifndef STRLIST_H
 #define STRLIST_H
 
 #include <stdint.h>
@@ -36,7 +36,7 @@ typedef struct strlist_t
  *
  * @return New string list instance, or NULL on allocation failure
  */
-strlist_t *strlist_create(void);
+MGSH_API strlist_t *strlist_create(void);
 
 /**
  * Create a new string list by deep-copying a C string array.
@@ -45,7 +45,7 @@ strlist_t *strlist_create(void);
  * @param len Length of the C array. If -1, strv is a NULL terminated list.
  * @return New string list instance.
  */
-strlist_t *strlist_create_from_cstr_array(const char **strv, int len);
+MGSH_API strlist_t *strlist_create_from_cstr_array(const char **strv, int len);
 
 /**
  * Create a string list from the system environment variables.
@@ -55,9 +55,9 @@ strlist_t *strlist_create_from_cstr_array(const char **strv, int len);
  *
  * @return New string list instance with environment variables, or NULL on allocation failure.
  */
-strlist_t *strlist_create_from_system_env(void);
+MGSH_API strlist_t *strlist_create_from_system_env(void);
 
-strlist_t *strlist_create_from(const strlist_t *other);
+MGSH_API strlist_t *strlist_create_from(const strlist_t *other);
 
 /**
  * Create a string list by splitting a string using a single character separator.
@@ -66,7 +66,7 @@ strlist_t *strlist_create_from(const strlist_t *other);
  * @param separator Character to split on
  * @return New string list instance with split strings, or NULL on allocation failure
  */
-strlist_t *strlist_create_from_string_split_char(const string_t *str, char separator);
+MGSH_API strlist_t *strlist_create_from_string_split_char(const string_t *str, char separator);
 
 /**
  * Create a string list by splitting a string using any of the characters in the separators
@@ -75,7 +75,7 @@ strlist_t *strlist_create_from_string_split_char(const string_t *str, char separ
  * @param separators C-string containing separator characters
  * @return New string list instance with split strings, or NULL on allocation failure
  */
-strlist_t *strlist_create_from_string_split_cstr(const string_t *str,
+MGSH_API strlist_t *strlist_create_from_string_split_cstr(const string_t *str,
                                                          const char *separators);
 
 /**
@@ -87,7 +87,7 @@ strlist_t *strlist_create_from_string_split_cstr(const string_t *str,
  * @param end Ending index (exclusive), clamped to [start, size]. Use -1 for end of list.
  * @return New string list with copied strings from [start, end), or NULL on error
  */
-strlist_t *strlist_create_slice(const strlist_t *list, int start, int end);
+MGSH_API strlist_t *strlist_create_slice(const strlist_t *list, int start, int end);
 
 /**
  * Destroys the string list and frees its memory.
@@ -96,7 +96,7 @@ strlist_t *strlist_create_slice(const strlist_t *list, int start, int end);
  *
  * @param list Pointer to the list pointer (set to NULL after destruction)
  */
-void strlist_destroy(strlist_t **list);
+MGSH_API void strlist_destroy(strlist_t **list);
 
 /* ============================================================================
  * Capacity
@@ -108,7 +108,7 @@ void strlist_destroy(strlist_t **list);
  * @param list The string list
  * @return Number of strings in the list
  */
-int strlist_size(const strlist_t *list);
+MGSH_API int strlist_size(const strlist_t *list);
 
 /* ============================================================================
  * Element Access
@@ -121,7 +121,7 @@ int strlist_size(const strlist_t *list);
  * @param index Index of the string to retrieve
  * @return Pointer to the string at the given index, or NULL if out of bounds
  */
-const string_t *strlist_at(const strlist_t *list, int index);
+MGSH_API const string_t *strlist_at(const strlist_t *list, int index);
 
 /* ============================================================================
  * Modifiers
@@ -133,7 +133,7 @@ const string_t *strlist_at(const strlist_t *list, int index);
  * @param list The string list
  * @param str String to copy and append (if NULL, does nothing)
  */
-void strlist_push_back(strlist_t *list, const string_t *str);
+MGSH_API void strlist_push_back(strlist_t *list, const string_t *str);
 
 /**
  * Moves the string into the list, taking ownership of it.
@@ -142,7 +142,7 @@ void strlist_push_back(strlist_t *list, const string_t *str);
  * @param list The string list
  * @param str Pointer to string pointer to move (if NULL or *str is NULL, does nothing)
  */
-void strlist_move_push_back(strlist_t *list, string_t **str);
+MGSH_API void strlist_move_push_back(strlist_t *list, string_t **str);
 
 /**
  * Inserts a copy of the string into the list at the given index.
@@ -152,7 +152,7 @@ void strlist_move_push_back(strlist_t *list, string_t **str);
  * @param index Position to insert at
  * @param str String to copy and insert (if NULL, inserts an empty string)
  */
-void strlist_insert(strlist_t *list, int index, const string_t *str);
+MGSH_API void strlist_insert(strlist_t *list, int index, const string_t *str);
 
 /**
  * Moves the string into the list at the given index, taking ownership of it.
@@ -163,7 +163,7 @@ void strlist_insert(strlist_t *list, int index, const string_t *str);
  * @param index Position to insert at
  * @param str Pointer to string pointer to move (if NULL or *str is NULL, does nothing)
  */
-void strlist_move_insert(strlist_t *list, int index, string_t **str);
+MGSH_API void strlist_move_insert(strlist_t *list, int index, string_t **str);
 
 /**
  * Removes the string at the given index from the list and destroys it.
@@ -171,14 +171,14 @@ void strlist_move_insert(strlist_t *list, int index, string_t **str);
  * @param list The string list
  * @param index Index of the string to remove (if out of bounds, does nothing)
  */
-void strlist_erase(strlist_t *list, int index);
+MGSH_API void strlist_erase(strlist_t *list, int index);
 
 /**
  * Clears the list, destroying all strings contained in it.
  *
  * @param list The string list
  */
-void strlist_clear(strlist_t *list);
+MGSH_API void strlist_clear(strlist_t *list);
 
 /* ============================================================================
  * Conversion and Utility
@@ -194,7 +194,7 @@ void strlist_clear(strlist_t *list);
  * @param out_size Pointer to receive the number of strings (optional, can be NULL)
  * @return Null-terminated array of C-strings, or NULL on error
  */
-char **strlist_to_cstr_array(const strlist_t *list, int *out_size);
+MGSH_API char **strlist_to_cstr_array(const strlist_t *list, int *out_size);
 
 /**
  * Returns a null-terminated array of C-strings representing the strings in the list.
@@ -207,9 +207,9 @@ char **strlist_to_cstr_array(const strlist_t *list, int *out_size);
  * @param out_size Pointer to receive the number of strings (optional, can be NULL)
  * @return Null-terminated array of C-strings, or NULL on error
  */
-char **strlist_release_cstr_array(strlist_t **list, int *out_size);
+MGSH_API char **strlist_release_cstr_array(strlist_t **list, int *out_size);
 
-string_t *strlist_join(const strlist_t *list, const char *separator);
+MGSH_API string_t *strlist_join(const strlist_t *list, const char *separator);
 
 /**
  * Returns a new string that is the result of joining all strings in the list
@@ -220,7 +220,7 @@ string_t *strlist_join(const strlist_t *list, const char *separator);
  * @param separator Separator string to place between elements
  * @return Joined string, or NULL on error
  */
-string_t *strlist_join_move(strlist_t **list, const char *separator);
+MGSH_API string_t *strlist_join_move(strlist_t **list, const char *separator);
 
 MGSH_EXTERN_C_END
 

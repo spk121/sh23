@@ -1,4 +1,4 @@
-﻿#ifndef EXEC_FRAME_H
+#ifndef EXEC_FRAME_H
 #define EXEC_FRAME_H
 
 /**

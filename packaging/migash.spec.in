@@ -41,7 +41,7 @@ find %{buildroot} -name '*.la' -delete
 %files devel
 %{_includedir}/migash.h
 %{_includedir}/migash/api.h
-%{_includedir}/migash/config.h
+%{_includedir}/migash/mgshconf.h
 %{_includedir}/migash/exec.h
 %{_includedir}/migash/frame.h
 %{_includedir}/migash/getopt.h

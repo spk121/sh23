@@ -3,7 +3,7 @@
 #define MIGASH_H
 
 /* Must come first */
-#include "migash/config.h"
+#include "migash/mgshconf.h"
 
 /* Primitive types */
 #include "migash/string_t.h"

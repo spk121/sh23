@@ -1,4 +1,4 @@
-﻿/* exec.h - a POSIX shell executor */
+/* exec.h - a POSIX shell executor */
 #ifndef MGSH_EXEC_H
 #define MGSH_EXEC_H
 
@@ -24,7 +24,7 @@
  */
 
 /* Compile-time configuration must come first. */
-#include "migash/config.h"
+#include "migash/mgshconf.h"
 
 #include <stdbool.h>
 #include <stdio.h>

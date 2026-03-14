@@ -1,4 +1,4 @@
-﻿#include "trap_controller.h"
+#include "trap_controller.h"
 
 #include "migash/type_pub.h"
 #include "logging.h"

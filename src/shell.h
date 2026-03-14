@@ -1,4 +1,4 @@
-﻿#ifndef SHELL_T_H
+#ifndef SHELL_T_H
 #define SHELL_T_H
 
 #ifdef POSIX_API

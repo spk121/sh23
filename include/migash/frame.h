@@ -31,7 +31,7 @@
 #include <stdio.h>
 
 #include "migash/api.h"
-#include "migash/config.h"
+#include "migash/mgshconf.h"
 #include "migash/type_pub.h"
 #include "migash/strlist.h"
 #include "migash/string_t.h"

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * exec_expander.c - Word expansion implementation
  *
  * Performs POSIX word expansion in the context of execution frames.

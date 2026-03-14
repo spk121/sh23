@@ -1,4 +1,4 @@
-﻿#ifdef UCRT_API
+#ifdef UCRT_API
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #ifdef POSIX_API

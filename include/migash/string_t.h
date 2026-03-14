@@ -8,7 +8,7 @@
 #include <stdio.h>
 
 #include "migash/api.h"
-#include "migash/config.h"
+#include "migash/mgshconf.h"
 
 MGSH_EXTERN_C_START
 

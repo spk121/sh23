@@ -104,7 +104,7 @@ endif
 # FIXME? Libtool always adds -DDLL_EXPORT by default. Use that instead of defining
 # MGSH_BUILD_SHARED? Or is it better to have a separate macro for the API?
 
-libmigash_la_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)
+libmigash_la_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir) -I$(top_builddir)/include
 if ENABLE_SHARED
 libmigash_la_CPPFLAGS += -DMGSH_BUILD_SHARED
 endif
@@ -114,4 +114,4 @@ migash_SOURCES = \
     main.c \
     shell.c
 migash_LDADD = libmigash.la
-migash_CPPFLAGS = -I$(top_srcdir)/include
+migash_CPPFLAGS = -I$(top_srcdir)/include -I$(top_builddir)/include

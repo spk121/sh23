@@ -1,16 +1,18 @@
+nobase_nodist_pkginclude_HEADERS = \
+    libmigash/mgshconf.h
 
-include_HEADERS = \
-    migash.h
-
-pkginclude_HEADERS = \
-    migash/api.h \
-    migash/config.h \
-    migash/exec.h \
-    migash/frame.h \
-    migash/getopt.h \
-    migash/string_t.h \
-    migash/strlist.h \
-    migash/type_pub.h
+nobase_pkginclude_HEADERS = \
+    libmigash.h \
+    libmigash/api.h \
+    libmigash/exec.h \
+    libmigash/frame.h \
+    libmigash/getopt.h \
+    libmigash/string_t.h \
+    libmigash/strlist.h \
+    libmigash/type_pub.h
 
 EXTRA_DIST = \
-    migash/config.h.in
+    libmigash/mgshconf.h.in
+
+BUILT_SOURCES = \
+    libmigash/mgshconf.h

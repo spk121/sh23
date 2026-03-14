@@ -1,4 +1,4 @@
-﻿#ifdef POSIX_API
+#ifdef POSIX_API
 #define _POSIX_C_SOURCE 202405L
 #endif
 #ifdef _MSC_VER
