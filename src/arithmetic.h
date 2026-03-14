@@ -1,8 +1,8 @@
 #ifndef ARITHMETIC_H
 #define ARITHMETIC_H
 
-#include "frame.h"
-#include "string_t.h"
+#include "migash/frame.h"
+#include "migash/string_t.h"
 
 /**
  * Result of an arithmetic expression evaluation.

@@ -2,7 +2,7 @@
 
 #include "lexer.h"
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include "xalloc.h"
 #include <ctype.h>

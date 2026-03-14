@@ -2,7 +2,7 @@
 #define FUNC_STORE_H
 
 #include "ast.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include <stdbool.h>
 #include <stddef.h>
 

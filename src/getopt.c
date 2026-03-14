@@ -14,11 +14,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Traditional global variables */
-char *optarg = NULL;
-int optind = 1;
-int opterr = 1;
-int optopt = '?';
+/* ============================================================================
+ * Traditional global variables (file-local, used by non-reentrant wrappers)
+ * ============================================================================ */
+
+static char *optarg = NULL;
+static int optind = 1;
+static int opterr = 1;
+static int optopt = '?';
 
 static struct getopt_state _getopt_global_state = {
     .optind = 1, .opterr = 1, .optopt = '?', .initialized = 0, .__getopt_external_argv = NULL};
@@ -487,9 +490,6 @@ static advance_result_t advance_to_next_option(int argc, char **argv, struct get
     {
         ++st->optind; /* Skip past "--" */
         finalize_nonoptions(argv, st, argc);
-        /* Don't set optind = argc here; fall through to the end-of-arguments
-         * check below which will reset optind to first_nonopt if needed.
-         */
     }
 
     /* Check for POSIX single-hyphen terminator */
@@ -497,7 +497,6 @@ static advance_result_t advance_to_next_option(int argc, char **argv, struct get
     {
         ++st->optind; /* Skip past "-" */
         finalize_nonoptions(argv, st, argc);
-        /* Fall through to end-of-arguments check */
     }
 
     /* Check for end of arguments, or if all remaining args are non-options */
@@ -541,10 +540,10 @@ static option_type_t classify_option(const char *arg, int plus_aware)
 }
 
 /* ============================================================================
- * Main entry point (refactored)
+ * Core internal entry point
  * ============================================================================ */
 
-int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
+MGSH_LOCAL int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
                        const void *longopts_void, int *longind, int long_only, int posixly_correct,
                        struct getopt_state *st, int plus_aware)
 {
@@ -639,7 +638,7 @@ int _getopt_internal_r(int argc, char *const argv[], const char *optstring,
 }
 
 /* ============================================================================
- * Public non-reentrant APIs
+ * Non-reentrant APIs (all MGSH_LOCAL)
  * ============================================================================ */
 
 static void sync_globals(const struct getopt_state *st)
@@ -659,7 +658,7 @@ static void reset_global_state(void)
     _getopt_global_state.initialized = 0;
 }
 
-int getopt(int argc, char *const argv[], const char *optstring)
+MGSH_LOCAL int getopt(int argc, char *const argv[], const char *optstring)
 {
     if (optind == 0)
     {
@@ -672,8 +671,8 @@ int getopt(int argc, char *const argv[], const char *optstring)
     return rc;
 }
 
-int getopt_long(int argc, char *const argv[], const char *optstring, const struct option *longopts,
-                int *longind)
+MGSH_LOCAL int getopt_long(int argc, char *const argv[], const char *optstring,
+                           const struct option *longopts, int *longind)
 {
     if (optind == 0)
     {
@@ -686,8 +685,8 @@ int getopt_long(int argc, char *const argv[], const char *optstring, const struc
     return rc;
 }
 
-int getopt_long_only(int argc, char *const argv[], const char *optstring,
-                     const struct option *longopts, int *longind)
+MGSH_LOCAL int getopt_long_only(int argc, char *const argv[], const char *optstring,
+                                const struct option *longopts, int *longind)
 {
     if (optind == 0)
     {
@@ -700,8 +699,8 @@ int getopt_long_only(int argc, char *const argv[], const char *optstring,
     return rc;
 }
 
-int getopt_long_plus(int argc, char *const argv[], const char *optstring,
-                     const struct option_ex *longopts, int *longind)
+MGSH_LOCAL int getopt_long_plus(int argc, char *const argv[], const char *optstring,
+                                const struct option_ex *longopts, int *longind)
 {
     static struct getopt_state state = {0};
     if (optind == 0)
@@ -718,8 +717,8 @@ int getopt_long_plus(int argc, char *const argv[], const char *optstring,
     return rc;
 }
 
-int getopt_long_only_plus(int argc, char *const argv[], const char *optstring,
-                          const struct option_ex *longopts, int *longind)
+MGSH_LOCAL int getopt_long_only_plus(int argc, char *const argv[], const char *optstring,
+                                     const struct option_ex *longopts, int *longind)
 {
     static struct getopt_state state = {0};
     if (optind == 0)
@@ -737,42 +736,47 @@ int getopt_long_only_plus(int argc, char *const argv[], const char *optstring,
 }
 
 /* ============================================================================
- * Re-entrant variants
+ * Raw char** reentrant variants (all MGSH_LOCAL)
  * ============================================================================ */
 
-int getopt_r(int argc, char *const argv[], const char *optstring, struct getopt_state *state)
+MGSH_LOCAL int getopt_r(int argc, char *const argv[], const char *optstring,
+                        struct getopt_state *state)
 {
     if (!state)
         return -1;
     return _getopt_internal_r(argc, argv, optstring, NULL, NULL, 0, 0, state, 0);
 }
 
-int getopt_long_r(int argc, char *const argv[], const char *optstring,
-                  const struct option *longopts, int *longind, struct getopt_state *state)
+MGSH_LOCAL int getopt_long_r(int argc, char *const argv[], const char *optstring,
+                             const struct option *longopts, int *longind,
+                             struct getopt_state *state)
 {
     if (!state)
         return -1;
     return _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0, state, 0);
 }
 
-int getopt_long_only_r(int argc, char *const argv[], const char *optstring,
-                       const struct option *longopts, int *longind, struct getopt_state *state)
+MGSH_LOCAL int getopt_long_only_r(int argc, char *const argv[], const char *optstring,
+                                  const struct option *longopts, int *longind,
+                                  struct getopt_state *state)
 {
     if (!state)
         return -1;
     return _getopt_internal_r(argc, argv, optstring, longopts, longind, 1, 0, state, 0);
 }
 
-int getopt_long_plus_r(int argc, char *const argv[], const char *optstring,
-                       const struct option_ex *longopts, int *longind, struct getopt_state *state)
+MGSH_LOCAL int getopt_long_plus_r(int argc, char *const argv[], const char *optstring,
+                                  const struct option_ex *longopts, int *longind,
+                                  struct getopt_state *state)
 {
     if (!state)
         return -1;
     return _getopt_internal_r(argc, argv, optstring, longopts, longind, 0, 0, state, 1);
 }
 
-int getopt_long_only_plus_r(int argc, char *const argv[], const char *optstring,
-                            const struct option_ex *longopts, int *longind, struct getopt_state *state)
+MGSH_LOCAL int getopt_long_only_plus_r(int argc, char *const argv[], const char *optstring,
+                                       const struct option_ex *longopts, int *longind,
+                                       struct getopt_state *state)
 {
     if (!state)
         return -1;
@@ -780,10 +784,10 @@ int getopt_long_only_plus_r(int argc, char *const argv[], const char *optstring,
 }
 
 /* ============================================================================
- * State reset functions
+ * State reset functions (MGSH_LOCAL)
  * ============================================================================ */
 
-void getopt_reset(void)
+MGSH_LOCAL void getopt_reset(void)
 {
     optind = 1;
     optarg = NULL;
@@ -791,25 +795,34 @@ void getopt_reset(void)
     reset_global_state();
 }
 
-void getopt_reset_plus(void)
+MGSH_LOCAL void getopt_reset_plus(void)
 {
     optind = 1;
     optarg = NULL;
     optopt = '?';
-    /* Reset the static state used by getopt_long_plus() and getopt_long_only_plus() */
-    /* Note: This is a bit hacky - we're resetting by triggering reinitialization */
 }
 
+/* ============================================================================
+ * State initialization (MGSH_API)
+ * ============================================================================ */
 
-/* =========
- * String and string-list based getopot
- * ==
- * */
+void getopt_state_init(struct getopt_state *state)
+{
+    if (!state)
+        return;
+    memset(state, 0, sizeof(*state));
+    state->optind = 1;
+    state->opterr = 1;
+    state->optopt = '?';
+}
 
- /* Helper to convert strlist_t to argv array
+/* ============================================================================
+ * Strlist/string_t helpers
+ * ============================================================================ */
+
+/* Helper to convert strlist_t to argv array.
    Caller owns the returned array but NOT the strings it points to (they're
-   owned by the strlist_t).
-*/
+   owned by the strlist_t).  The array is NULL-terminated. */
 static char **strlist_to_argv(const strlist_t *list, int *argc)
 {
     if (!list)
@@ -824,7 +837,8 @@ static char **strlist_to_argv(const strlist_t *list, int *argc)
     if (count == 0)
         return NULL;
 
-    char **argv = malloc(count * sizeof(char *));
+    /* +1 for NULL terminator */
+    char **argv = malloc(((size_t)count + 1) * sizeof(char *));
     if (!argv)
         return NULL;
 
@@ -833,36 +847,104 @@ static char **strlist_to_argv(const strlist_t *list, int *argc)
         const string_t *str = strlist_at(list, i);
         argv[i] = (char *)string_cstr(str);
     }
+    argv[count] = NULL;
 
     return argv;
 }
 
-int getopt_string(const strlist_t *argv, const string_t *optstring)
+/* ============================================================================
+ * Public API — reentrant, strlist-based wrappers (MGSH_API)
+ * ============================================================================ */
+
+int getopt_r_string(const strlist_t *argv, const string_t *optstring,
+                    struct getopt_state *state)
 {
+    if (!state)
+        return -1;
+
     int argc;
     char **argv_array = strlist_to_argv(argv, &argc);
     if (!argv_array)
         return -1;
 
     const char *optstr = string_cstr(optstring);
-
-    int result = getopt(argc, argv_array, optstr);
+    int result = _getopt_internal_r(argc, argv_array, optstr, NULL, NULL, 0, 0, state, 0);
 
     free(argv_array);
     return result;
 }
 
-int getopt_long_plus_string(const strlist_t *argv, const string_t *optstring,
-                            const struct option_ex *longopts, int *longind)
+int getopt_long_r_string(const strlist_t *argv, const string_t *optstring,
+                         const struct option *longopts, int *longind,
+                         struct getopt_state *state)
 {
+    if (!state)
+        return -1;
+
     int argc;
     char **argv_array = strlist_to_argv(argv, &argc);
     if (!argv_array)
         return -1;
 
     const char *optstr = string_cstr(optstring);
+    int result = _getopt_internal_r(argc, argv_array, optstr, longopts, longind, 0, 0, state, 0);
 
-    int result = getopt_long_plus(argc, argv_array, optstr, longopts, longind);
+    free(argv_array);
+    return result;
+}
+
+int getopt_long_only_r_string(const strlist_t *argv, const string_t *optstring,
+                              const struct option *longopts, int *longind,
+                              struct getopt_state *state)
+{
+    if (!state)
+        return -1;
+
+    int argc;
+    char **argv_array = strlist_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = _getopt_internal_r(argc, argv_array, optstr, longopts, longind, 1, 0, state, 0);
+
+    free(argv_array);
+    return result;
+}
+
+int getopt_long_plus_r_string(const strlist_t *argv, const string_t *optstring,
+                              const struct option_ex *longopts, int *longind,
+                              struct getopt_state *state)
+{
+    if (!state)
+        return -1;
+
+    int argc;
+    char **argv_array = strlist_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = _getopt_internal_r(argc, argv_array, optstr, longopts, longind, 0, 0, state, 1);
+
+    free(argv_array);
+    return result;
+}
+
+int getopt_long_only_plus_r_string(const strlist_t *argv, const string_t *optstring,
+                                   const struct option_ex *longopts, int *longind,
+                                   struct getopt_state *state)
+{
+    if (!state)
+        return -1;
+
+    int argc;
+    char **argv_array = strlist_to_argv(argv, &argc);
+    if (!argv_array)
+        return -1;
+
+    const char *optstr = string_cstr(optstring);
+    int result = _getopt_internal_r(argc, argv_array, optstr, longopts, longind, 1, 0, state, 1);
 
     free(argv_array);
     return result;

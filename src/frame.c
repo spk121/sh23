@@ -19,7 +19,7 @@
 #endif
 
 
-#include "frame.h"
+#include "migash/frame.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -54,12 +54,12 @@
 // It should be delegating down to functions from exec_frame.h.
 #include "alias_store.h"
 #include "ast.h"
-#include "exec.h"
+#include "migash/exec.h"
 #include "exec_frame.h"
 #include "exec_frame_expander.h"
 #include "exec_frame_policy.h"
 #include "exec_types_internal.h"
-#include "exec_types_public.h"
+#include "migash/type_pub.h"
 #include "func_store.h"
 #include "gnode.h"
 #include "lib.h"
@@ -68,7 +68,7 @@
 #include "parser.h"
 #include "positional_params.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "trap_store.h"
 #include "variable_store.h"
 #include "xalloc.h"
@@ -812,6 +812,13 @@ bool frame_change_directory(exec_frame_t *frame, const string_t *path)
     return frame_change_directory_cstr(frame, string_cstr(path));
 }
 
+// This stub is just to avoid a warning.
+static int chdir_stub(const char *path)
+{
+    (void)path;
+    return -1;
+}
+
 bool frame_change_directory_cstr(exec_frame_t *frame, const char *path)
 {
     Expects_not_null(frame);
@@ -824,6 +831,7 @@ bool frame_change_directory_cstr(exec_frame_t *frame, const char *path)
 #else
     (void)frame;
     (void)path;
+    int (*const chdir_func)(const char *) = chdir_stub;
     return false;
 #endif
 
@@ -1741,7 +1749,7 @@ bool frame_alias_name_is_valid(const char *name)
  /**
  * Execute a complete command string.
  *
- * This is a simplified wrapper around exec_string_core() for cases where the
+ * This is a simplified wrapper around exec_frame_string_core() for cases where the
  * input string is expected to be a complete, self-contained command that does
  * not require continuation.  Useful for trap handlers, eval, and any case
  * where you have a complete command as a string.
@@ -1768,7 +1776,7 @@ static exec_result_t execute_command_string(exec_frame_t *frame, const char *com
     exec_t *executor = frame->executor;
 
     /* Create a temporary parse session */
-    exec_parse_session_t *session = exec_parse_session_create(executor->aliases);
+    parse_session_t *session = exec_create_parse_session(executor);
     if (!session)
     {
         frame_set_error_printf(frame, "Failed to create parse session for command string");
@@ -1786,10 +1794,10 @@ static exec_result_t execute_command_string(exec_frame_t *frame, const char *com
     }
 
     /* Execute the command string */
-    exec_status_t status = exec_string_core(frame, string_cstr(cmd_with_newline), session);
+    exec_status_t status = exec_frame_string_core(frame, string_cstr(cmd_with_newline), session);
 
     string_destroy(&cmd_with_newline);
-    exec_parse_session_destroy(&session);
+    parse_session_destroy(&session);
 
     /* Map result: only EXEC_OK passes through; everything else is an error */
     if (status == EXEC_OK)

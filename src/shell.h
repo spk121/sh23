@@ -5,7 +5,7 @@
 #define _POSIX_C_SOURCE 202401L
 #endif
 
-#include "exec.h"
+#include "migash/exec.h"
 #include "exec_frame.h"
 
 // Status/result conventions applied everywhere

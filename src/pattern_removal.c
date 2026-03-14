@@ -13,7 +13,7 @@
 #include <string.h>
 #include "glob_util.h"
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 
 /**
  * Remove prefix matching pattern (smallest match).

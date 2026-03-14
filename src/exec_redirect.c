@@ -44,7 +44,7 @@
 #include "fd_table.h"
 #include "lib.h"
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include "xalloc.h"
 

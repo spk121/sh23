@@ -233,7 +233,7 @@ sig_act_store_t *trap_store_get_sig_act_store(void)
 // Trap Execution Functions
 // ============================================================================
 
-static int execute_trap_action(const trap_action_t *trap)
+int execute_trap_action(const trap_action_t *trap)
 {
     if (!trap || !trap->action)
         return -1;

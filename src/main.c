@@ -6,7 +6,7 @@
 //#include "tokenizer.h"
 #include "shell.h"
 #include "logging.h"
-#include "getopt.h"
+#include "migash/getopt.h"
 #include "lib.h"
 #ifdef POSIX_API
 #include <unistd.h>
@@ -52,33 +52,6 @@ static int flag_x = 0; /* xtrace */
 static int flag_c = 0; /* command string mode */
 static int flag_s = 0; /* stdin mode */
 
-/* -o options list */
-typedef struct
-{
-    char **o_options;
-    int o_count;
-    int o_capacity;
-} o_options_list;
-
-static void init_o_options(o_options_list *opts)
-{
-    opts->o_capacity = 8;
-    opts->o_options = malloc((size_t)opts->o_capacity * sizeof(char *));
-    opts->o_count = 0;
-}
-
-static void free_o_options(o_options_list *opts)
-{
-    if (opts->o_options)
-    {
-        for (int i = 0; i < opts->o_count; i++)
-        {
-            free(opts->o_options[i]);
-        }
-        free(opts->o_options);
-    }
-}
-
 static int is_valid_o_arg(const char *arg)
 {
     for (int i = 0; valid_o_args[i]; i++)
@@ -89,19 +62,11 @@ static int is_valid_o_arg(const char *arg)
     return 0;
 }
 
-static void add_o_option(o_options_list *opts, const char *value, int is_plus)
+static void add_o_option(strlist_t *o_opts, const char *value, int is_plus)
 {
-    if (opts->o_count >= opts->o_capacity)
-    {
-        opts->o_capacity *= 2;
-        opts->o_options = realloc(opts->o_options,
-                  (size_t)opts->o_capacity * sizeof(char *));
-    }
-
-    size_t len = strlen(value) + 2;
-    opts->o_options[opts->o_count] = malloc(len);
-    snprintf(opts->o_options[opts->o_count], len, "%c%s", is_plus ? '+' : '-', value);
-    opts->o_count++;
+    string_t *entry = string_create();
+    string_printf(entry, "%c%s", is_plus ? '+' : '-', value);
+    strlist_move_push_back(o_opts, &entry);
 }
 
 static int check_command_file_readable(const char *command_file)
@@ -176,11 +141,12 @@ static shell_mode_t compute_shell_mode(int c_flag, int s_flag, int i_flag, const
     return mode;
 }
 
-static void print_usage(const char *prog)
+static void print_usage(const string_t *prog)
 {
-    fprintf(stderr, "Usage: %s [options] [command_file [argument ...]]\n", prog);
-    fprintf(stderr, "       %s [options] -c command_string [command_name [argument ...]]\n", prog);
-    fprintf(stderr, "       %s [options] -s [argument ...]\n", prog);
+    const char *p = string_cstr(prog);
+    fprintf(stderr, "Usage: %s [options] [command_file [argument ...]]\n", p);
+    fprintf(stderr, "       %s [options] -c command_string [command_name [argument ...]]\n", p);
+    fprintf(stderr, "       %s [options] -s [argument ...]\n", p);
     fprintf(stderr, "\nOptions (can use - or + prefix):\n");
     fprintf(stderr, "  -a/+a           allexport\n");
     fprintf(stderr, "  -b/+b           (b flag)\n");
@@ -200,19 +166,23 @@ static void print_usage(const char *prog)
 }
 
 // Note: envp is not part of ISO C, but it is a standard extension
-// in both POSIX and UCRT environments
+// in both POSIX and UCRT environments.
+// Actually, in ISO C, since there is no envp and no environ
+// there is no way to get all the environmental variables. all you have is getenv();
 int main(int argc, char **argv, char **envp)
 {
+    arena_init();
     log_init();
     lib_setlocale();
 
-    o_options_list o_opts;
-    init_o_options(&o_opts);
+    /* Convert argv to strlist_t for the new getopt API */
+    strlist_t *argv_list = strlist_create_from_cstr_array((const char **)argv, argc);
+    string_t *optstring = string_create_from_cstr("abCefimno:uvxcs");
 
-    char *command_string = NULL;
-    char *command_file = NULL;
+    strlist_t *o_opts = strlist_create();
 
-    opterr = 1;
+    const char *command_string = NULL;
+    const char *command_file = NULL;
 
     /* Define option_ex array with allow_plus settings.
        Options a, b, C, e, f, i, m, n, u, v, x allow both - and +
@@ -246,16 +216,14 @@ int main(int argc, char **argv, char **envp)
         {0}};
 
     int c;
-    struct getopt_state state = {0};
-    state.optind = 1;
-    state.opterr = 1;
+    struct getopt_state state;
+    getopt_state_init(&state);
     state.posix_hyphen = 1; /* Enable POSIX shell lone '-' handling */
 
-    /* Use getopt_long_plus_r for re-entrant version with explicit state
+    /* Use getopt_long_plus_r_string for re-entrant, strlist-based version.
        Note: -c and -s are flags, not options with arguments.
        The command_string comes from positional args after option processing. */
-    while ((c = getopt_long_plus_r(argc, argv, "abCefimno:uvxcs", long_options, NULL, &state)) !=
-           -1)
+    while ((c = getopt_long_plus_r_string(argv_list, optstring, long_options, NULL, &state)) != -1)
     {
         switch (c)
         {
@@ -283,12 +251,14 @@ int main(int argc, char **argv, char **envp)
             if (!is_valid_o_arg(state.optarg))
             {
                 fprintf(stderr, "%s: invalid -o option: %s\n", argv[0], state.optarg);
-                print_usage(argv[0]);
-                free_o_options(&o_opts);
+                print_usage(strlist_at(argv_list, 0));
+                strlist_destroy(&o_opts);
+                strlist_destroy(&argv_list);
+                string_destroy(&optstring);
                 return 2;
             }
             /* Check if + prefix was used */
-            add_o_option(&o_opts, state.optarg, state.opt_plus_prefix);
+            add_o_option(o_opts, state.optarg, state.opt_plus_prefix);
             break;
 
         case 'c':
@@ -306,80 +276,89 @@ int main(int argc, char **argv, char **envp)
 
         case '?':
             /* getopt_long_plus already printed an error message */
-            print_usage(argv[0]);
-            free_o_options(&o_opts);
+            print_usage(strlist_at(argv_list, 0));
+            strlist_destroy(&o_opts);
+            strlist_destroy(&argv_list);
+            string_destroy(&optstring);
             return 2;
 
         default:
             fprintf(stderr, "%s: unexpected getopt return: %c\n", argv[0], c);
-            free_o_options(&o_opts);
+            strlist_destroy(&o_opts);
+            strlist_destroy(&argv_list);
+            string_destroy(&optstring);
             return 2;
         }
     }
 
-    optind = state.optind; /* sync global optind */
+    int optind_final = state.optind;
 
     /* Validate -c and -s mutual exclusion */
     if (flag_c && flag_s)
     {
         fprintf(stderr, "%s: cannot specify both -c and -s\n", argv[0]);
-        print_usage(argv[0]);
-        free_o_options(&o_opts);
+        print_usage(strlist_at(argv_list, 0));
+        strlist_destroy(&o_opts);
+        strlist_destroy(&argv_list);
+        string_destroy(&optstring);
         return 2;
     }
 
-    /* Parse positional arguments based on -c and -s */
-    char *command_name = NULL;
-    char **arguments = NULL;
-    int arg_count = 0;
+    /* Parse positional arguments based on -c and -s.
+       Use strlist_create_slice to capture the remaining args. */
+    const char *command_name = NULL;
+    strlist_t *arguments = NULL;
 
     if (flag_c)
     {
         /* -c mode: first positional arg is command_string (required)
            Remaining args are: [command_name [argument ...]] */
-        if (optind >= argc)
+        if (optind_final >= argc)
         {
             fprintf(stderr, "%s: -c requires a command string\n", argv[0]);
-            print_usage(argv[0]);
-            free_o_options(&o_opts);
+            print_usage(strlist_at(argv_list, 0));
+            strlist_destroy(&o_opts);
+            strlist_destroy(&argv_list);
+            string_destroy(&optstring);
             return 2;
         }
-        command_string = argv[optind++];
+        command_string = string_cstr(strlist_at(argv_list, optind_final));
+        optind_final++;
 
-        if (optind < argc)
+        if (optind_final < argc)
         {
-            command_name = argv[optind++];
+            command_name = string_cstr(strlist_at(argv_list, optind_final));
+            optind_final++;
         }
 
-        if (optind < argc)
-        {
-            arg_count = argc - optind;
-            arguments = &argv[optind];
-        }
+        if (optind_final < argc)
+            arguments = strlist_create_slice(argv_list, optind_final, -1);
     }
     else if (flag_s)
     {
         /* -s mode: [argument ...] */
-        if (optind < argc)
-        {
-            arg_count = argc - optind;
-            arguments = &argv[optind];
-        }
+        if (optind_final < argc)
+            arguments = strlist_create_slice(argv_list, optind_final, -1);
     }
     else
     {
         /* Normal mode: [command_file [argument ...]] */
-        if (optind < argc)
+        if (optind_final < argc)
         {
-            command_file = argv[optind++];
+            command_file = string_cstr(strlist_at(argv_list, optind_final));
+            optind_final++;
 
-            if (optind < argc)
-            {
-                arg_count = argc - optind;
-                arguments = &argv[optind];
-            }
+            if (optind_final < argc)
+                arguments = strlist_create_slice(argv_list, optind_final, -1);
         }
     }
+
+    int arg_count = arguments ? strlist_size(arguments) : 0;
+
+    /* Convert arguments strlist to char** for shell_cfg_t */
+    char **arg_array = NULL;
+    if (arguments)
+        arg_array = strlist_to_cstr_array(arguments, NULL);
 
     /* Print parsed results */
     log_debug("=== Parsed Shell Options ===\n");
@@ -396,12 +375,13 @@ int main(int argc, char **argv, char **envp)
     log_debug("  -v (verbose):    %s\n", flag_v ? "set" : "unset");
     log_debug("  -x (xtrace):     %s\n", flag_x ? "set" : "unset");
 
-    if (o_opts.o_count > 0)
+    int o_count = strlist_size(o_opts);
+    if (o_count > 0)
     {
         log_debug("\n-o options:\n");
-        for (int j = 0; j < o_opts.o_count; j++)
+        for (int j = 0; j < o_count; j++)
         {
-            log_debug("  %s\n", o_opts.o_options[j]);
+            log_debug("  %s\n", string_cstr(strlist_at(o_opts, j)));
         }
     }
 
@@ -429,11 +409,9 @@ int main(int argc, char **argv, char **envp)
         log_debug("\nArguments:\n");
         for (int j = 0; j < arg_count; j++)
         {
-            log_debug("  [%d]: %s\n", j, arguments[j]);
+            log_debug("  [%d]: %s\n", j, string_cstr(strlist_at(arguments, j)));
         }
     }
-
-    free_o_options(&o_opts);
 
     if (command_file)
     {
@@ -441,11 +419,21 @@ int main(int argc, char **argv, char **envp)
         if (ret == SH_EXIT_COMMAND_FILE_NOT_FOUND)
         {
             fprintf(stderr, "%s: command file '%s' not found\n", argv[0], command_file);
+            strlist_destroy(&o_opts);
+            strlist_destroy(&arguments);
+            strlist_destroy(&argv_list);
+            string_destroy(&optstring);
+            free(arg_array);
             return SH_EXIT_COMMAND_FILE_NOT_FOUND;
         }
         else if (ret == SH_EXIT_COMMAND_FILE_READ_ERROR)
         {
             fprintf(stderr, "%s: cannot read command file '%s'\n", argv[0], command_file);
+            strlist_destroy(&o_opts);
+            strlist_destroy(&arguments);
+            strlist_destroy(&argv_list);
+            string_destroy(&optstring);
+            free(arg_array);
             return SH_EXIT_COMMAND_FILE_READ_ERROR;
         }
     }
@@ -454,19 +442,23 @@ int main(int argc, char **argv, char **envp)
     if (mode == SHELL_MODE_INVALID_UID_GID)
     {
         fprintf(stderr, "%s: cannot run interactive shell with differing real and effective UID/GID\n", argv[0]);
+        strlist_destroy(&o_opts);
+        strlist_destroy(&arguments);
+        strlist_destroy(&argv_list);
+        string_destroy(&optstring);
+        free(arg_array);
         return SH_EXIT_GENERAL_ERROR;
     }
 
-    char *name =
+    const char *name =
         command_name ? command_name : ((argc > 0 && argv[0][0]) ? argv[0] : "shell");
-
 
     shell_cfg_t cfg = {0};
     cfg.mode = mode;
     cfg.command_name = name;
     cfg.command_string = command_string;
     cfg.command_file = command_file;
-    cfg.arguments = arguments;
+    cfg.arguments = arg_array;
     cfg.argument_count = arg_count;
     cfg.envp = envp;
     cfg.flags = (shell_flags_t){.allexport = flag_a,
@@ -482,7 +474,11 @@ int main(int argc, char **argv, char **envp)
 
     if (flag_c && (command_string == NULL || command_string[0] == '\0'))
     {
-        free_o_options(&o_opts);
+        strlist_destroy(&o_opts);
+        strlist_destroy(&arguments);
+        strlist_destroy(&argv_list);
+        string_destroy(&optstring);
+        free(arg_array);
         return SH_EXIT_SUCCESS;
     }
 
@@ -504,8 +500,14 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
+    strlist_destroy(&o_opts);
+    strlist_destroy(&arguments);
+    strlist_destroy(&argv_list);
+    string_destroy(&optstring);
+
     // Don't call shell_destroy here - arena_end will call shell_cleanup
     arena_end();
+
+    free(arg_array);
     return status;
 }
-

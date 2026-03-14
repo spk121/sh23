@@ -1,10 +1,10 @@
 #ifndef BUILTINS_H
 #define BUILTINS_H
 
-#include "exec_types_public.h"
-#include "frame.h"
+#include "migash/type_pub.h"
+#include "migash/frame.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 
 /* ============================================================================
  * Builtin Commands

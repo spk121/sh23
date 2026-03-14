@@ -2,7 +2,7 @@
 #include "logging.h"
 #include "token.h"
 #include "gnode.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include <stdlib.h>
 
 // Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label

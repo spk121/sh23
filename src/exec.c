@@ -20,18 +20,22 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "exec.h"
+#include "migash/exec.h"
+
+#include "migash/strlist.h"
+#include "migash/string_t.h"
+#include "migash/frame.h"
 
 #include "alias_store.h"
 #include "ast.h"
 #include "builtin_store.h"
 #include "exec_frame.h"
 #include "exec_frame_policy.h"
-#include "exec_parse_session.h"
+#include "parse_session.h"
 #include "exec_types_internal.h"
-#include "exec_types_public.h"
+#include "migash/type_pub.h"
 #include "fd_table.h"
-#include "frame.h"
+#include "migash/frame.h"
 #include "func_store.h"
 #include "gnode.h"
 #include "job_store.h"
@@ -42,8 +46,6 @@
 #include "parser.h"
 #include "positional_params.h"
 #include "sig_act.h"
-#include "migash/strlist.h"
-#include "string_t.h"
 #include "token.h"
 #include "tokenizer.h"
 #include "trap_store.h"
@@ -168,7 +170,7 @@ void exec_destroy(exec_t **executor_ptr)
     if (e->aliases)
         alias_store_destroy(&e->aliases);
     if (e->session)
-        exec_parse_session_destroy(&e->session);
+        parse_session_destroy(&e->session);
     if (e->traps)
         trap_store_destroy(&e->traps);
     if (e->original_signals)
@@ -1870,45 +1872,6 @@ void exec_setup_interactive_execute(exec_t *executor)
     /* FIXME handle rcfile here */
 }
 
-/**
- * Update the LINENO variable in the frame's variable store.
- *
- * POSIX says LINENO is set by the shell "to a decimal number representing the
- * current sequential line number (numbered starting with 1) within a script or
- * function before it executes each command."
- *
- * LINENO is a regular variable — the user can unset or reset it. If they do,
- * it will be recreated or updated again when the next command executes.
- *
- * We only update when we have a valid source line (> 0) from the AST, and
- * only when executing within a script or function context.
- */
-static void exec_update_lineno(exec_frame_t *frame, const ast_node_t *node)
-{
-    if (!frame || !node)
-        return;
-
-    /* Only update for valid source lines (parser-assigned, 1-based) */
-    if (node->first_line <= 0)
-        return;
-
-    /* Update the frame's internal line tracker */
-    frame->source_line = node->first_line;
-
-    /* Write LINENO into the variable store as a regular variable */
-    variable_store_t *vars = exec_frame_get_variables(frame);
-    if (!vars)
-        return;
-
-    if (variable_store_has_name_cstr(vars, "LINENO") &&
-        variable_store_is_read_only_cstr(vars, "LINENO"))
-        /* You can't make LINENO readonly, permanently. Muhuhuwahaha! */
-        variable_store_set_read_only_cstr(vars, "LINENO", false);
-
-    char buf[24];
-    snprintf(buf, sizeof(buf), "%d", node->first_line);
-    variable_store_add_cstr(vars, "LINENO", buf, false, false);
-}
 
 exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
 {
@@ -1932,385 +1895,6 @@ exec_result_t exec_execute_dispatch(exec_frame_t *frame, const ast_node_t *node)
  * Stream Execution Core
  * ============================================================================ */
 
-/**
- * Initialize the string execution context.
- */
-/* exec_string_ctx_t lifecycle functions have been replaced by
- * exec_parse_session_t — see exec_parse_session.c */
-
-/**
- * Core implementation for executing shell commands from a string.
- *
- * This function processes a single chunk of input (typically one line),
- * handling lexing, tokenization, parsing, and execution. It maintains
- * state in the provided session for handling multi-line constructs.
- *
- * @param frame   The execution frame
- * @param input   The input string to process
- * @param session The parse session (maintains lexer, tokenizer, and accumulated tokens)
- * @return Status indicating success, need for more input, or error
- */
-static exec_status_t exec_string_core(exec_frame_t *frame, const char *input,
-                                      exec_parse_session_t *session)
-{
-    Expects_not_null(frame);
-    Expects_not_null(input);
-    Expects_not_null(session);
-    Expects_not_null(session->lexer);
-    Expects_not_null(session->tokenizer);
-    Expects_not_null(frame->executor);
-
-    exec_t *executor = frame->executor;
-    lexer_t *lx = session->lexer;
-    tokenizer_t *tokenizer = session->tokenizer;
-
-    session->line_num++;
-    log_debug("exec_string_core: Processing line %d: %.*s", session->line_num,
-              (int)strcspn(input, "\r\n"), input);
-
-    lexer_append_input_cstr(lx, input);
-
-    token_list_t *raw_tokens = token_list_create();
-    lex_status_t lex_status = lexer_tokenize(lx, raw_tokens, NULL);
-
-    if (lex_status == LEX_ERROR)
-    {
-        log_debug("exec_string_core: Lexer error at line %d", session->line_num);
-        const char *err = lexer_get_error(lx);
-        frame_set_error_printf(frame, "Lexer error: %s", err ? err : "unknown");
-        token_list_destroy(&raw_tokens);
-        return EXEC_ERROR;
-    }
-
-    if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
-    {
-        log_debug("exec_string_core: Lexer incomplete/heredoc at line %d", session->line_num);
-
-        /* Check if any tokens were produced before the incomplete state.
-         * If so, we should accumulate them for parsing when more input arrives. */
-        if (token_list_size(raw_tokens) > 0)
-        {
-            log_debug("exec_string_core: Lexer produced %d tokens before becoming incomplete",
-                      token_list_size(raw_tokens));
-
-            /* Process the tokens that were produced */
-            token_list_t *processed_tokens = token_list_create();
-            tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
-            token_list_destroy(&raw_tokens);
-
-            if (tok_status == TOK_ERROR)
-            {
-                log_debug("exec_string_core: Tokenizer error on incomplete line %d",
-                          session->line_num);
-                const char *err = tokenizer_get_error(tokenizer);
-                frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
-                token_list_destroy(&processed_tokens);
-                return EXEC_ERROR;
-            }
-
-            if (tok_status == TOK_INCOMPLETE)
-            {
-                log_debug("exec_string_core: Tokenizer incomplete (compound command) during lexer "
-                          "incomplete at line %d",
-                          session->line_num);
-                /* Tokens are buffered in tokenizer, continue to next line */
-                token_list_destroy(&processed_tokens);
-                return EXEC_INCOMPLETE;
-            }
-
-            /* Accumulate these tokens for when the lexer completes */
-            if (session->accumulated_tokens == NULL)
-            {
-                session->accumulated_tokens = processed_tokens;
-            }
-            else
-            {
-                if (token_list_append_list_move(session->accumulated_tokens, &processed_tokens) !=
-                    0)
-                {
-                    log_debug("exec_string_core: Failed to append incomplete tokens");
-                    return EXEC_ERROR;
-                }
-            }
-        }
-        else
-        {
-            token_list_destroy(&raw_tokens);
-        }
-        return EXEC_INCOMPLETE;
-    }
-
-    log_debug("exec_string_core: Lexer produced %d raw tokens at line %d",
-              token_list_size(raw_tokens), session->line_num);
-
-    token_list_t *processed_tokens = token_list_create();
-    tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
-    token_list_destroy(&raw_tokens);
-
-    if (tok_status == TOK_ERROR)
-    {
-        log_debug("exec_string_core: Tokenizer error at line %d", session->line_num);
-        const char *err = tokenizer_get_error(tokenizer);
-        frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
-        token_list_destroy(&processed_tokens);
-        return EXEC_ERROR;
-    }
-
-    if (tok_status == TOK_INCOMPLETE)
-    {
-        log_debug(
-            "exec_string_core: Tokenizer incomplete (compound command) at line %d, tokens buffered",
-            session->line_num);
-        /* Tokenizer is buffering tokens for an incomplete compound command.
-         * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
-         * Continue reading more input. */
-        token_list_destroy(&processed_tokens);
-        return EXEC_INCOMPLETE;
-    }
-
-    if (token_list_size(processed_tokens) == 0)
-    {
-        log_debug("exec_string_core: No tokens after processing at line %d", session->line_num);
-        token_list_destroy(&processed_tokens);
-        return EXEC_EMPTY;
-    }
-
-    /* Accumulate tokens if we had an incomplete parse previously */
-    if (session->accumulated_tokens)
-    {
-        log_debug("exec_string_core: Appending %d new tokens to %d accumulated tokens",
-                  token_list_size(processed_tokens), token_list_size(session->accumulated_tokens));
-
-        /* Move all tokens from processed_tokens to accumulated_tokens */
-        if (token_list_append_list_move(session->accumulated_tokens, &processed_tokens) != 0)
-        {
-            log_debug("exec_string_core: Failed to append tokens");
-            return EXEC_ERROR;
-        }
-
-        /* Use the accumulated list for parsing */
-        processed_tokens = session->accumulated_tokens;
-        session->accumulated_tokens = NULL;
-    }
-
-    log_debug("exec_string_core: Tokenizer produced %d processed tokens at line %d",
-              token_list_size(processed_tokens), session->line_num);
-
-    /* Debug: print all tokens */
-    for (int i = 0; i < token_list_size(processed_tokens); i++)
-    {
-        const token_t *t = token_list_get(processed_tokens, i);
-        log_debug("  Token %d: type=%d, text='%s'", i, token_get_type(t),
-                  string_cstr(token_to_string(t)));
-    }
-
-    parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
-    gnode_t *gnode = NULL;
-
-    log_debug("exec_string_core: Starting parse at line %d", session->line_num);
-    parse_status_t parse_status = parser_parse_program(parser, &gnode);
-
-    if (parse_status == PARSE_ERROR)
-    {
-        log_debug("exec_string_core: Parse error at line %d", session->line_num);
-        const char *err = parser_get_error(parser);
-        if (err && err[0])
-        {
-            frame_set_error_printf(frame, "Parse error at line %d: %s", session->line_num, err);
-        }
-        else
-        {
-            /* Parser returned error but didn't set error message */
-            token_t *curr_tok = token_clone(parser_current_token(parser));
-            if (curr_tok)
-            {
-                string_t *tok_str = token_to_string(curr_tok);
-                log_debug("exec_string_core: Current token: type=%d, line=%d, col=%d, text='%s'",
-                          token_get_type(curr_tok), token_get_first_line(curr_tok),
-                          token_get_first_column(curr_tok), string_cstr(tok_str));
-                frame_set_error_printf(frame, "Parse error at line %d, column %d near '%s'",
-                                       token_get_first_line(curr_tok),
-                                       token_get_first_column(curr_tok), string_cstr(tok_str));
-                string_destroy(&tok_str);
-                token_destroy(&curr_tok);
-            }
-            else
-            {
-                log_debug("exec_string_core: No current token available");
-                frame_set_error_printf(frame, "Parse error at line %d: no error details available",
-                                       session->line_num);
-            }
-        }
-        parser_destroy(&parser);
-        return EXEC_ERROR;
-    }
-
-    if (parse_status == PARSE_INCOMPLETE)
-    {
-        log_debug("exec_string_core: Parse incomplete at line %d, accumulating tokens",
-                  session->line_num);
-        if (gnode)
-            g_node_destroy(&gnode);
-        /* Clone token list from parser - respect silo boundary */
-        session->accumulated_tokens = token_list_clone(parser->tokens);
-        parser_destroy(&parser);
-        return EXEC_INCOMPLETE;
-    }
-
-    if (parse_status == PARSE_EMPTY || !gnode)
-    {
-        log_debug("exec_string_core: Parse empty at line %d", session->line_num);
-        parser_destroy(&parser);
-        return EXEC_EMPTY;
-    }
-
-    ast_node_t *ast = ast_lower(gnode);
-    g_node_destroy(&gnode);
-    parser_destroy(&parser);
-
-    if (!ast)
-    {
-        return EXEC_EMPTY;
-    }
-
-    /* Execute via the dispatch function */
-    exec_frame_execute_result_t result = exec_frame_execute_dispatch(frame, ast);
-
-    /* Update frame's exit status */
-    if (result.has_exit_status)
-    {
-        frame->last_exit_status = result.exit_status;
-        executor->last_exit_status = result.exit_status;
-        executor->last_exit_status_set = true;
-    }
-
-    ast_node_destroy(&ast);
-
-    if (result.status == EXEC_ERROR)
-    {
-        return EXEC_ERROR;
-    }
-
-    /* Reset context after successful execution */
-    exec_parse_session_reset(session);
-
-    return EXEC_OK;
-}
-
-/* extracts strings from an input stream to feed to exec_string_core */
-exec_status_t exec_stream_core_ex(exec_frame_t *frame, FILE *fp, exec_parse_session_t *session)
-{
-    Expects_not_null(frame);
-    Expects_not_null(fp);
-    Expects_not_null(session);
-    Expects_not_null(session->lexer);
-    Expects_not_null(session->tokenizer);
-    Expects_not_null(frame->executor);
-
-    exec_status_t final_status = EXEC_OK;
-
-    /* Read a single logical line of any size, efficiently */
-#define LINE_CHUNK_SIZE 4096
-    char chunk[LINE_CHUNK_SIZE];
-    char *line_buf = NULL;
-    size_t line_buf_size = 0;
-    size_t line_len = 0;
-
-    while (fgets(chunk, sizeof(chunk), fp) != NULL)
-    {
-        size_t chunk_len = strlen(chunk);
-
-        if (chunk_len > 0 && chunk[chunk_len - 1] == '\n')
-        {
-            if (line_len == 0)
-            {
-                /* Fast path: entire line fits in chunk */
-                exec_status_t status = exec_string_core(frame, chunk, session);
-                if (session->line_num > 0)
-                    frame->source_line = session->line_num;
-
-                switch (status)
-                {
-                case EXEC_OK:
-                case EXEC_EMPTY:
-                    final_status = EXEC_OK;
-                    break;
-                case EXEC_INCOMPLETE:
-                    final_status = EXEC_INCOMPLETE;
-                    break;
-                case EXEC_ERROR:
-                    final_status = EXEC_ERROR;
-                    break;
-                }
-                return final_status;
-            }
-            else
-            {
-                /* Append final chunk to accumulated buffer */
-                if (line_len + chunk_len + 1 > line_buf_size)
-                {
-                    line_buf_size = (line_len + chunk_len + 1) * 2;
-                    line_buf = (char *)xrealloc(line_buf, line_buf_size);
-                }
-                memcpy(line_buf + line_len, chunk, chunk_len);
-                line_len += chunk_len;
-                line_buf[line_len] = '\0';
-                break; /* Line complete — fall through to process it */
-            }
-        }
-        else
-        {
-            /* No newline yet — accumulate */
-            if (line_buf == NULL)
-            {
-                line_buf_size = (chunk_len + 1) * 2;
-                line_buf = (char *)xmalloc(line_buf_size);
-                memcpy(line_buf, chunk, chunk_len);
-                line_len = chunk_len;
-                line_buf[line_len] = '\0';
-            }
-            else
-            {
-                if (line_len + chunk_len + 1 > line_buf_size)
-                {
-                    line_buf_size = (line_len + chunk_len + 1) * 2;
-                    line_buf = (char *)xrealloc(line_buf, line_buf_size);
-                }
-                memcpy(line_buf + line_len, chunk, chunk_len);
-                line_len += chunk_len;
-                line_buf[line_len] = '\0';
-            }
-        }
-    }
-
-    /* Process whatever we accumulated (may be empty on pure EOF) */
-    if (line_len > 0)
-    {
-        exec_status_t status = exec_string_core(frame, line_buf, session);
-        if (session->line_num > 0)
-            frame->source_line = session->line_num;
-
-        switch (status)
-        {
-        case EXEC_OK:
-        case EXEC_EMPTY:
-            final_status = EXEC_OK;
-            break;
-        case EXEC_INCOMPLETE:
-            final_status = EXEC_INCOMPLETE;
-            break;
-        case EXEC_ERROR:
-            final_status = EXEC_ERROR;
-            break;
-        }
-    }
-
-    if (line_buf)
-        xfree(line_buf);
-
-    return final_status;
-}
-
 exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interactive)
 {
     Expects_not_null(executor);
@@ -2331,14 +1915,14 @@ exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interact
      * ------------------------------------------------------------------ */
     if (!executor->session)
     {
-        executor->session = exec_parse_session_create(executor->aliases);
+        executor->session = exec_create_parse_session(executor);
         if (!executor->session)
         {
             exec_set_error_cstr(executor, "Failed to create parse session");
             return EXEC_ERROR;
         }
     }
-    exec_parse_session_t *session = executor->session;
+    parse_session_t *session = executor->session;
 
     /* ------------------------------------------------------------------
      * REPL state
@@ -2371,7 +1955,7 @@ exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interact
         }
 
         /* ---- 2. Read & execute one line ---- */
-        exec_status_t line_status = exec_stream_core_ex(executor->current_frame, fp, session);
+        exec_status_t line_status = exec_frame_stream_core(executor->current_frame, fp, session);
 
         /* ---- 3. EOF handling ---- */
         if (feof(fp))
@@ -2432,14 +2016,14 @@ exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interact
         need_continuation = false;
 
         /*
-         * The session was reset internally by exec_string_core on success
-         * (exec_parse_session_reset clears the lexer and accumulated
+         * The session was reset internally by exec_frame_string_core on success
+         * (parse_session_reset clears the lexer and accumulated
          * tokens).  On error the session may have stale state, so reset
          * it explicitly to be safe.
          */
         if (line_status == EXEC_ERROR)
         {
-            exec_parse_session_reset(session);
+            parse_session_reset(session);
 
             if (interactive)
             {
@@ -2534,7 +2118,7 @@ exec_status_t exec_execute_stream_repl(exec_t *executor, FILE *fp, bool interact
                  * the lexer, accumulated tokens, and any buffered
                  * compound-command tokens in the tokenizer are flushed.
                  */
-                exec_parse_session_hard_reset(session, executor->aliases);
+                parse_session_hard_reset(session, executor->aliases);
             }
             else
             {
@@ -2598,17 +2182,17 @@ exec_status_t exec_execute_stream_once(exec_t *executor, FILE *fp)
 
     /* Create a transient parse session for this stream.
      * Unlike the REPL, this session does not persist across calls. */
-    exec_parse_session_t *session = exec_parse_session_create(executor->aliases);
+    parse_session_t *session = exec_create_parse_session(executor);
     if (!session)
     {
         exec_set_error_cstr(executor, "Failed to create parse session");
         return EXEC_ERROR;
     }
 
-    exec_status_t raw_status = exec_stream_core_ex(executor->current_frame, fp, session);
+    exec_status_t raw_status = exec_frame_stream_core(executor->current_frame, fp, session);
 
     /* Tear down the transient session. */
-    exec_parse_session_destroy(&session);
+    parse_session_destroy(&session);
 
     /* Map INCOMPLETE to OK — a non-interactive stream that ends mid-construct
      * is not an error for existing callers (exec_execute_stream,
@@ -2649,7 +2233,7 @@ exec_status_t exec_execute_stream_once(exec_t *executor, FILE *fp)
                 exec_frame_t *trap_frame =
                     exec_frame_push(executor->current_frame, EXEC_FRAME_TRAP, executor, NULL);
 
-                exec_result_t trap_result =
+                exec_status_t trap_result =
                     frame_execute_string(trap_frame, trap_action->action);
 
                 exec_frame_pop(&executor->current_frame);
@@ -2657,7 +2241,7 @@ exec_status_t exec_execute_stream_once(exec_t *executor, FILE *fp)
                 /* Restore exit status */
                 executor->last_exit_status = saved_exit_status;
 
-                if (trap_result.status == EXEC_ERROR)
+                if (trap_result == EXEC_ERROR)
                 {
                     status = EXEC_ERROR;
                     break;
@@ -2704,7 +2288,7 @@ exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
      * Unlike the REPL, we feed all input at once, so the session is
      * local to this call rather than persistent across lines.
      * ------------------------------------------------------------------ */
-    exec_parse_session_t *session = exec_parse_session_create(executor->aliases);
+    parse_session_t *session = exec_create_parse_session(executor);
     if (!session)
     {
         exec_set_error_cstr(executor, "Failed to create parse session");
@@ -2716,7 +2300,7 @@ exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
     /* ------------------------------------------------------------------
      * Feed the entire command string to the core execution engine.
      * ------------------------------------------------------------------ */
-    exec_status_t str_status = exec_string_core(frame, command, session);
+    exec_status_t str_status = exec_frame_string_core(frame, command, session);
 
     switch (str_status)
     {
@@ -2770,7 +2354,7 @@ exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
     /* ------------------------------------------------------------------
      * Clean up.
      * ------------------------------------------------------------------ */
-    exec_parse_session_destroy(&session);
+    parse_session_destroy(&session);
 
     return result;
 }
@@ -2779,45 +2363,45 @@ exec_result_t exec_execute_command_string(exec_t *executor, const char *command)
  * Partial State Lifecycle
  * ============================================================================ */
 
-exec_parse_session_t *exec_create_parse_session(exec_t *executor)
+parse_session_t *exec_create_parse_session(exec_t *executor)
 {
     Expects_not_null(executor);
-    return exec_parse_session_create(executor->aliases);
+    return parse_session_create(executor->aliases);
 }
 
 size_t exec_get_parse_session_size(void)
 {
-    return sizeof(exec_parse_session_t);
+    return sizeof(parse_session_t);
 }
 
-void exec_reset_parse_session(exec_parse_session_t *session)
+void exec_reset_parse_session(parse_session_t *session)
 {
     Expects_not_null(session);
-    exec_parse_session_reset(session);
+    parse_session_reset(session);
 }
 
-void exec_hard_reset_parse_session(exec_parse_session_t *session, exec_t *executor)
+void exec_hard_reset_parse_session(parse_session_t *session, exec_t *executor)
 {
     Expects_not_null(session);
     if (executor)
-        exec_parse_session_hard_reset(session, executor->aliases);
+        parse_session_hard_reset(session, executor->aliases);
     else
-        exec_parse_session_hard_reset(session, NULL);
+        parse_session_hard_reset(session, NULL);
 }
 
-const char *exec_get_parse_session_filename_cstr(const exec_parse_session_t *session)
+const char *exec_get_parse_session_filename_cstr(const parse_session_t *session)
 {
     Expects_not_null(session);
     return session->filename ? string_cstr(session->filename) : NULL;
 }
 
-size_t exec_get_parse_session_line_number(const exec_parse_session_t *session)
+size_t exec_get_parse_session_line_number(const parse_session_t *session)
 {
     Expects_not_null(session);
     return session->caller_line_number;
 }
 
-void exec_set_parse_session_filename_cstr(exec_parse_session_t *session, const char *filename)
+void exec_set_parse_session_filename_cstr(parse_session_t *session, const char *filename)
 {
     Expects_not_null(session);
     if (filename)
@@ -2837,16 +2421,16 @@ void exec_set_parse_session_filename_cstr(exec_parse_session_t *session, const c
     }
 }
 
-void exec_set_parse_session_line_number(exec_parse_session_t *session, size_t line_number)
+void exec_set_parse_session_line_number(parse_session_t *session, size_t line_number)
 {
     Expects_not_null(session);
     session->caller_line_number = line_number;
 }
 
-void exec_destroy_parse_session(exec_parse_session_t **session)
+void exec_destroy_parse_session(parse_session_t **session)
 {
     Expects_not_null(session);
-    exec_parse_session_destroy(session);
+    parse_session_destroy(session);
 }
 
 /* ============================================================================
@@ -2855,7 +2439,7 @@ void exec_destroy_parse_session(exec_parse_session_t **session)
 
 exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const char *command,
                                                        const char *filename, size_t line_number,
-                                                       exec_parse_session_t *session)
+                                                       parse_session_t *session)
 {
     Expects_not_null(executor);
     Expects_not_null(command);
@@ -2959,18 +2543,18 @@ exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const c
 
     /* ------------------------------------------------------------------
      * Synchronise the session's line number so that error messages from
-     * exec_string_core reference the correct line.
+     * exec_frame_string_core reference the correct line.
      * ------------------------------------------------------------------ */
     if (session->caller_line_number >= 1)
         session->line_num = (int)session->caller_line_number - 1;
-    /* -1 because exec_string_core increments before processing */
+    /* -1 because exec_frame_string_core increments before processing */
 
     /* ------------------------------------------------------------------
      * Feed this chunk to the core execution engine.
      * ------------------------------------------------------------------ */
-    exec_status_t str_status = exec_string_core(frame, command, session);
+    exec_status_t str_status = exec_frame_string_core(frame, command, session);
 
-    /* Update the caller line number from the session (exec_string_core may
+    /* Update the caller line number from the session (exec_frame_string_core may
        have incremented it). */
     session->caller_line_number = (size_t)session->line_num;
 
@@ -3005,7 +2589,7 @@ exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const c
     case EXEC_ERROR:
         /* On error, clean up the session so the next call starts fresh.
          * The caller can inspect exec_get_error() for details. */
-        exec_parse_session_reset(session);
+        parse_session_reset(session);
         session->incomplete = false;
         result = EXEC_ERROR;
         break;
@@ -3039,7 +2623,7 @@ exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor, const c
      * ------------------------------------------------------------------ */
     if (result != EXEC_INCOMPLETE)
     {
-        exec_parse_session_reset(session);
+        parse_session_reset(session);
         session->incomplete = false;
         /* Keep session allocated for reuse on next call. */
     }
@@ -3084,14 +2668,14 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
      * ------------------------------------------------------------------ */
     if (!executor->session)
     {
-        executor->session = exec_parse_session_create(executor->aliases);
+        executor->session = exec_create_parse_session(executor);
         if (!executor->session)
         {
             exec_set_error_cstr(executor, "Failed to create parse session");
             return EXEC_ERROR;
         }
     }
-    exec_parse_session_t *session = executor->session;
+    parse_session_t *session = executor->session;
 
     /* ------------------------------------------------------------------
      * REPL state
@@ -3181,7 +2765,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
             consecutive_eof = 0;
             need_continuation = false;
 
-            exec_parse_session_hard_reset(session, executor->aliases);
+            parse_session_hard_reset(session, executor->aliases);
 
             /* POSIX: $? = 128 + SIGINT after an interrupted command. */
             executor->last_exit_status = 128 + SIGINT;
@@ -3205,7 +2789,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
 
         /* ---- 5. Append a newline and feed to the execution core ----
          *
-         * exec_string_core expects input lines to end with '\n' (the
+         * exec_frame_string_core expects input lines to end with '\n' (the
          * lexer uses newlines as token delimiters).  The line-editor
          * contract says the returned string has NO trailing newline,
          * so we append one.
@@ -3214,7 +2798,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
         string_append_char(input, '\n');
 
         exec_status_t str_status =
-            exec_string_core(executor->current_frame, string_cstr(input), session);
+            exec_frame_string_core(executor->current_frame, string_cstr(input), session);
 
         string_destroy(&input);
 
@@ -3234,7 +2818,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
 
         if (str_status == EXEC_ERROR)
         {
-            exec_parse_session_reset(session);
+            parse_session_reset(session);
 
             const char *err = exec_get_error_cstr(executor);
             if (err)
@@ -3317,7 +2901,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
          *
          * The line editor normally catches SIGINT itself and returns
          * LINE_EDIT_INTERRUPT.  But a signal could arrive during
-         * exec_string_core or between steps.  Handle it here as a
+         * exec_frame_string_core or between steps.  Handle it here as a
          * fallback.
          */
         if (executor->sigint_received)
@@ -3327,7 +2911,7 @@ exec_status_t exec_execute_stream_with_line_editor(exec_t *executor, FILE *fp,
             fprintf(stderr, "\n");
             need_continuation = false;
 
-            exec_parse_session_hard_reset(session, executor->aliases);
+            parse_session_hard_reset(session, executor->aliases);
         }
 
     } /* for (;;) */

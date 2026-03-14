@@ -19,15 +19,11 @@
  */
 
 #include "exec_types_internal.h"
-#include "exec.h"
+#include "migash/exec.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include <stdbool.h>
-
-/* Forward declarations */
-typedef struct exec_t exec_t;
-typedef struct exec_frame_t exec_frame_t;
 
 /* ============================================================================
  * Expansion Context

@@ -34,8 +34,7 @@
 #endif
 
 #include "migash/api.h"
-#include "migash/exec_types_public.h"
-#include "migash/getopt_string.h"
+#include "migash/type_pub.h"
 #include "migash/strlist.h"
 #include "migash/string_t.h"
 
@@ -272,7 +271,7 @@ MGSH_API exec_frame_t *exec_get_current_frame(const exec_t *executor);
  * the builtin name.
  *
  * The builtin_fn_t signature and builtin_category_t enum are defined in
- * exec_types_public.h so they can be shared between the public API and
+ * type_pub.h so they can be shared between the public API and
  * the internal builtin store.
  */
 
@@ -493,7 +492,7 @@ MGSH_API exec_result_t exec_execute_command_string(exec_t *executor,
  * exec_get_parse_session_size() bytes and zero-initialise before the first call.
  * The executor populates it with continuation state after each call.
  */
-typedef struct exec_parse_session_t exec_parse_session_t;
+typedef struct parse_session_t parse_session_t;
 
 /* Create a new parse session.
  * The EXECUTOR argument is used to determine the alias table for alias expansion
@@ -502,11 +501,11 @@ typedef struct exec_parse_session_t exec_parse_session_t;
  * If EXECUTOR is NULL, the session will create its own alias state that is independent
  * of any executor.
  */
-MGSH_API exec_parse_session_t *exec_create_parse_session(const exec_t *executor);
+MGSH_API parse_session_t *exec_create_parse_session(exec_t *executor);
 
 /**
- * Return the size of exec_parse_session_t so callers can allocate it
- * without including exec_parse_session.h.
+ * Return the size of parse_session_t so callers can allocate it
+ * without including parse_session.h.
  */
 MGSH_API size_t exec_get_parse_session_size(void);
 
@@ -518,7 +517,7 @@ MGSH_API size_t exec_get_parse_session_size(void);
  * The filename and line counter are NOT reset (they keep incrementing).
  * The alias store is NOT reset (aliases persist across commands).
  */
-MGSH_API void exec_reset_parse_session(exec_parse_session_t *session);
+MGSH_API void exec_reset_parse_session(parse_session_t *session);
 
 /**
  * Fully reset a session, including destroying and recreating the tokenizer.
@@ -533,22 +532,22 @@ MGSH_API void exec_reset_parse_session(exec_parse_session_t *session);
  * @param session  The session.
  * @param executor Executor whose alias store will replace the existing one (may be NULL).
  */
-MGSH_API void exec_hard_reset_parse_session(exec_parse_session_t *session, exec_t *executor);
+MGSH_API void exec_hard_reset_parse_session(parse_session_t *session, exec_t *executor);
 
 /* return val may be NULL */
-MGSH_API const char *exec_get_parse_session_filename_cstr(const exec_parse_session_t *session);
+MGSH_API const char *exec_get_parse_session_filename_cstr(const parse_session_t *session);
 /* return value of zero indicates line numbers are not being tracked */
-MGSH_API size_t exec_get_parse_session_line_number(const exec_parse_session_t *session);
+MGSH_API size_t exec_get_parse_session_line_number(const parse_session_t *session);
 /* 'filename' may be NULL */
-MGSH_API void exec_set_parse_session_filename_cstr(exec_parse_session_t *session, const char *filename);
+MGSH_API void exec_set_parse_session_filename_cstr(parse_session_t *session, const char *filename);
 /* set to zero to stop counting line numbers, or set to > 0 to indicate a specific line number. */
-MGSH_API void exec_set_parse_session_line_number(exec_parse_session_t *session, size_t line_number);
+MGSH_API void exec_set_parse_session_line_number(parse_session_t *session, size_t line_number);
 
 /**
  * Destroy a parse session allocated with exec_create_parse_session() and set
  * the pointer to NULL.
  */
-MGSH_API void exec_destroy_parse_session(exec_parse_session_t **session);
+MGSH_API void exec_destroy_parse_session(parse_session_t **session);
 
 /**
  * Execute a command string incrementally. The 'session' argument
@@ -578,13 +577,13 @@ MGSH_API exec_status_t exec_execute_command_string_partial(exec_t *executor,
                                                            const string_t *command,
                                                            const string_t *filename,
                                                            size_t line_number,
-                                                           exec_parse_session_t *session);
+                                                           parse_session_t *session);
 
 MGSH_API exec_status_t exec_execute_command_string_partial_cstr(exec_t *executor,
                                                                 const char *command,
                                                                 const char *filename,
                                                                 size_t line_number,
-                                                       exec_parse_session_t *session);
+                                                       parse_session_t *session);
 
 /* ── Custom line-editor support ──────────────────────────────────────────── */
 

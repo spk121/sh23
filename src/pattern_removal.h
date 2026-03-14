@@ -6,7 +6,7 @@
 #ifndef PATTERN_REMOVAL_H
 #define PATTERN_REMOVAL_H
 
-#include "string_t.h"
+#include "migash/string_t.h"
 
 /**
  * Remove smallest matching prefix.

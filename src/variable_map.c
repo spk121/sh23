@@ -2,7 +2,7 @@
 #define VARIABLE_MAP_INTERNAL
 #include "logging.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "variable_map.h"
 #include "xalloc.h"
 

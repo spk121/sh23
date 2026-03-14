@@ -6,7 +6,7 @@
 #include "exec_frame_expander.h"
 #include "lexer.h"
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "migash/strlist.h"
 #include "tokenizer.h"
 #include "xalloc.h"

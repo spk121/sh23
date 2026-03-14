@@ -2,7 +2,7 @@
 #define PARSER_H
 
 #include "gnode.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include <stdbool.h>
 

@@ -39,17 +39,16 @@
 #include "builtin_store.h"
 #include "builtins.h"
 
-#include "exec.h"
+#include "migash/exec.h"
+#include "migash/getopt.h"
+#include "migash/frame.h"
 #include "exec_types_internal.h"
-#include "frame.h"
 #include "func_store.h"
-#include "getopt.h"
-#include "getopt_string.h"
 #include "job_store.h"
 #include "lib.h"
 #include "logging.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "variable_store.h"
 #include "xalloc.h"
 
@@ -88,7 +87,6 @@ int builtin_colon(exec_frame_t *frame, const strlist_t *args)
     (void)frame;
     (void)args;
 
-    getopt_reset();
 
     /* Do nothing, return success */
     return 0;
@@ -104,7 +102,6 @@ int builtin_break(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     /* Parse optional loop count argument (default 1) */
     int loop_count = 1;
@@ -147,7 +144,6 @@ int builtin_continue(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     /* Parse optional loop count argument (default 1) */
     int loop_count = 1;
@@ -189,7 +185,6 @@ int builtin_shift(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     if (!frame_has_positional_params(frame))
     {
@@ -327,7 +322,6 @@ int builtin_dot(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     if (argc < 2)
@@ -435,7 +429,6 @@ int builtin_eval(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
 
@@ -501,7 +494,6 @@ int builtin_exec(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
 
@@ -557,7 +549,6 @@ int builtin_exit(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int exit_status = frame_get_last_exit_status(frame);
 
@@ -621,7 +612,6 @@ int builtin_export(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     /* No arguments → print exported variables */
     if (strlist_size(args) == 1)
@@ -729,7 +719,6 @@ int builtin_readonly(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     bool print_mode = false;
@@ -1009,7 +998,6 @@ int builtin_trap(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     bool list_signals = false;
@@ -1514,8 +1502,6 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
-
     // Shell option flags - initialized to -1 so we can detect "not mentioned"
     int flag_a = -1; /* allexport */
     int flag_b = -1; /* notify (job control) - not yet implemented */
@@ -1550,23 +1536,14 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
         /* Terminator */
         {0}};
 
-    /* Convert strlist_t to char** for getopt */
     int argc = strlist_size(args);
-    char **argv = xmalloc(argc * sizeof(char *));
-
-    for (int i = 0; i < argc; i++)
-    {
-        const string_t *str = strlist_at(args, i);
-        argv[i] = (char *)string_cstr(str); // Cast away const for getopt compatibility
-    }
-
-    const char *optstring = "abCefhmnuvxo:";
+    string_t *optstring_str = string_create_from_cstr("abCefhmnuvxo:");
 
     /* Track whether the user supplied "--" so we know to clear positional params */
     bool saw_double_dash = false;
     for (int i = 1; i < argc; i++)
     {
-        if (strcmp(argv[i], "--") == 0)
+        if (string_eq_cstr(strlist_at(args, i), "--"))
         {
             saw_double_dash = true;
             break;
@@ -1580,12 +1557,11 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
     bool options_changed = false;
 
     /* Initialize getopt state for re-entrant parsing */
-    struct getopt_state state = {0};
-    state.optind = 1;
-    state.opterr = 1;
+    struct getopt_state state;
+    getopt_state_init(&state);
 
-    /* Use getopt_long_plus_r to parse options with explicit state */
-    while ((c = getopt_long_plus_r(argc, argv, optstring, long_options, &longind, &state)) != -1)
+    /* Use getopt_long_plus_r_string to parse options */
+    while ((c = getopt_long_plus_r_string(args, optstring_str, long_options, &longind, &state)) != -1)
     {
         switch (c)
         {
@@ -1621,7 +1597,7 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
             if (!builtin_set_is_valid_o_arg(state.optarg))
             {
                 fprintf(stderr, "set: invalid -o option: %s\n", state.optarg);
-                xfree(argv);
+                string_destroy(&optstring_str);
                 return 2;
             }
 
@@ -1631,7 +1607,7 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
             if (!frame_set_named_option_cstr(frame, state.optarg, value, state.opt_plus_prefix))
             {
                 fprintf(stderr, "set: option '%s' not supported yet\n", state.optarg);
-                xfree(argv);
+                string_destroy(&optstring_str);
                 return 1;
             }
             options_changed = true;
@@ -1639,21 +1615,22 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
 
         case '?':
             /* Error - getopt already printed error message */
-            xfree(argv);
+            string_destroy(&optstring_str);
             return 2;
 
         default:
             fprintf(stderr, "set: internal error in option parsing\n");
-            xfree(argv);
+            string_destroy(&optstring_str);
             return 2;
         }
     }
+
+    string_destroy(&optstring_str);
 
     /* Handle special cases: set -o or set +o */
     if (print_o_options)
     {
         builtin_set_print_options(frame, reusable_format);
-        xfree(argv);
         return 0;
     }
 
@@ -1673,7 +1650,6 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
         {
             /* Pure "set" with no arguments - print all variables */
             frame_print_variables(frame, true, builtin_stdout(frame));
-            xfree(argv);
             return 0;
         }
     }
@@ -1725,21 +1701,14 @@ int builtin_set(exec_frame_t *frame, const strlist_t *args)
     /* Replace positional parameters if requested (includes explicit "set --") */
     if (have_positional_request)
     {
-        /* Build a strlist_t from the new parameters */
-        strlist_t *new_params = strlist_create();
-        for (int i = 0; i < new_param_count; i++)
-        {
-            string_t *param = string_create_from_cstr(argv[state.optind + i]);
-            strlist_push_back(new_params, param);
-            string_destroy(&param);
-        }
+        /* Use strlist_create_slice to get remaining args directly */
+        strlist_t *new_params = strlist_create_slice(args, state.optind, -1);
 
         /* Use frame API to replace positional parameters */
         frame_replace_positional_params(frame, new_params);
         strlist_destroy(&new_params);
     }
 
-    xfree(argv);
     return 0;
 }
 
@@ -1752,16 +1721,16 @@ int builtin_unset(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
-
     int flag_f = 0;
     int flag_v = 0;
     int flag_err = 0;
     int err_count = 0;
     int c;
     string_t *opts = string_create_from_cstr("fv");
+    struct getopt_state state;
+    getopt_state_init(&state);
 
-    while ((c = getopt_string(args, opts)) != -1)
+    while ((c = getopt_r_string(args, opts, &state)) != -1)
     {
         switch (c)
         {
@@ -1778,7 +1747,7 @@ int builtin_unset(exec_frame_t *frame, const strlist_t *args)
                 flag_v++;
             break;
         case '?':
-            fprintf(stderr, "unset: Unrecognized option: '-%c'\n", optopt);
+            fprintf(stderr, "unset: Unrecognized option: '-%c'\n", state.optopt);
             flag_err++;
             break;
         }
@@ -1789,16 +1758,16 @@ int builtin_unset(exec_frame_t *frame, const strlist_t *args)
         fprintf(stderr, "usage:");
         return 2;
     }
-    for (; optind < strlist_size(args); optind++)
+    for (int i = state.optind; i < strlist_size(args); i++)
     {
         if (flag_f)
         {
             /* Unset function using frame API */
-            frame_func_error_t err = frame_unset_function(frame, strlist_at(args, optind));
+            frame_func_error_t err = frame_unset_function(frame, strlist_at(args, i));
             if (err == FRAME_FUNC_ERROR_NOT_FOUND)
             {
                 fprintf(stderr, "unset: function '%s' not found\n",
-                        string_cstr(strlist_at(args, optind)));
+                        string_cstr(strlist_at(args, i)));
                 err_count++;
             }
             else if (err == FRAME_FUNC_ERROR_EMPTY_NAME || err == FRAME_FUNC_ERROR_NAME_TOO_LONG ||
@@ -1806,28 +1775,28 @@ int builtin_unset(exec_frame_t *frame, const strlist_t *args)
                      err == FRAME_FUNC_ERROR_NAME_STARTS_WITH_DIGIT)
             {
                 fprintf(stderr, "unset: invalid function name '%s'\n",
-                        string_cstr(strlist_at(args, optind)));
+                        string_cstr(strlist_at(args, i)));
                 err_count++;
             }
         }
         else
         {
             /* Unset variable using frame API */
-            if (!frame_has_variable(frame, strlist_at(args, optind)))
+            if (!frame_has_variable(frame, strlist_at(args, i)))
             {
                 fprintf(stderr, "unset: variable '%s' not found\n",
-                        string_cstr(strlist_at(args, optind)));
+                        string_cstr(strlist_at(args, i)));
                 err_count++;
             }
-            else if (frame_variable_is_readonly(frame, strlist_at(args, optind)))
+            else if (frame_variable_is_readonly(frame, strlist_at(args, i)))
             {
                 fprintf(stderr, "unset: variable '%s' is read-only\n",
-                        string_cstr(strlist_at(args, optind)));
+                        string_cstr(strlist_at(args, i)));
                 err_count++;
             }
             else
             {
-                const string_t *name = strlist_at(args, optind);
+                const string_t *name = strlist_at(args, i);
                 frame_unset_variable(frame, name);
                 if (string_eq_cstr(name, "LINENO"))
                 {
@@ -1896,7 +1865,6 @@ int builtin_alias(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     bool print_all = false;
@@ -2039,7 +2007,6 @@ int builtin_unalias(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     bool remove_all = false;
@@ -2127,8 +2094,6 @@ int builtin_getopts(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
-
     int argc = strlist_size(args);
     if (argc < 3)
     {
@@ -2161,17 +2126,27 @@ int builtin_getopts(exec_frame_t *frame, const strlist_t *args)
         opt_args = frame_get_all_positional_params(frame);
     }
 
-    // Call getopt_string
-    int c = getopt_string(opt_args, optstring);
+    // Restore OPTIND from the shell variable so repeated getopts calls resume correctly
+    struct getopt_state state;
+    getopt_state_init(&state);
+    if (frame_has_variable_cstr(frame, "OPTIND"))
+    {
+        string_t *optind_var = frame_get_variable_cstr(frame, "OPTIND");
+        int val = string_atoi(optind_var);
+        if (val > 0)
+            state.optind = val;
+        string_destroy(&optind_var);
+    }
 
-    // Set OPTIND and OPTARG variables
-    extern int optind;
-    extern char *optarg;
+    // Call getopt_r_string
+    int c = getopt_r_string(opt_args, optstring, &state);
+
+    // Set OPTIND and OPTARG shell variables from state
     char indbuf[16];
-    snprintf(indbuf, sizeof(indbuf), "%d", optind);
+    snprintf(indbuf, sizeof(indbuf), "%d", state.optind);
     frame_set_variable_cstr(frame, "OPTIND", indbuf);
-    if (optarg)
-        frame_set_variable_cstr(frame, "OPTARG", optarg);
+    if (state.optarg)
+        frame_set_variable_cstr(frame, "OPTARG", state.optarg);
     else
         frame_set_variable_cstr(frame, "OPTARG", "");
 
@@ -2181,30 +2156,21 @@ int builtin_getopts(exec_frame_t *frame, const strlist_t *args)
     {
         // End of options
         frame_set_variable_cstr(frame, string_cstr(name), "--");
-        if (argc > 3)
-            strlist_destroy(&opt_args);
-        else
-            strlist_destroy(&opt_args);
+        strlist_destroy(&opt_args);
         return 1;
     }
     else if (c == '?')
     {
         // Error
         frame_set_variable_cstr(frame, string_cstr(name), "?");
-        if (argc > 3)
-            strlist_destroy(&opt_args);
-        else
-            strlist_destroy(&opt_args);
+        strlist_destroy(&opt_args);
         return 2;
     }
     else
     {
         optbuf[0] = (char)c;
         frame_set_variable_cstr(frame, string_cstr(name), optbuf);
-        if (argc > 3)
-            strlist_destroy(&opt_args);
-        else
-            strlist_destroy(&opt_args);
+        strlist_destroy(&opt_args);
         return 0;
     }
 }
@@ -2376,7 +2342,6 @@ int builtin_cd(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     bool flag_L = true;
     bool flag_P = false;
@@ -2385,7 +2350,9 @@ int builtin_cd(exec_frame_t *frame, const strlist_t *args)
     int c;
 
     string_t *opts = string_create_from_cstr("LPe");
-    while ((c = getopt_string(args, opts)) != -1)
+    struct getopt_state state;
+    getopt_state_init(&state);
+    while ((c = getopt_r_string(args, opts, &state)) != -1)
     {
         switch (c)
         {
@@ -2401,7 +2368,7 @@ int builtin_cd(exec_frame_t *frame, const strlist_t *args)
             flag_e = true;
             break;
         case '?':
-            fprintf(stderr, "cd: unrecognized option: '-%c'\n", optopt);
+            fprintf(stderr, "cd: unrecognized option: '-%c'\n", state.optopt);
             flag_err++;
             break;
         }
@@ -2422,7 +2389,7 @@ int builtin_cd(exec_frame_t *frame, const strlist_t *args)
     return 1;
 #else
 
-    int remaining = strlist_size(args) - optind;
+    int remaining = strlist_size(args) - state.optind;
     if (remaining > 1)
     {
         fprintf(stderr, "cd: too many arguments\n");
@@ -2443,7 +2410,7 @@ int builtin_cd(exec_frame_t *frame, const strlist_t *args)
     }
     else
     {
-        const string_t *arg = strlist_at(args, optind);
+        const string_t *arg = strlist_at(args, state.optind);
 
         if (string_empty(arg))
         {
@@ -2597,7 +2564,6 @@ int builtin_pwd(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     bool flag_L = true;
     bool flag_P = false;
@@ -2605,7 +2571,9 @@ int builtin_pwd(exec_frame_t *frame, const strlist_t *args)
     int c;
 
     string_t *opts = string_create_from_cstr("LP");
-    while ((c = getopt_string(args, opts)) != -1)
+    struct getopt_state state;
+    getopt_state_init(&state);
+    while ((c = getopt_r_string(args, opts, &state)) != -1)
     {
         switch (c)
         {
@@ -2618,7 +2586,7 @@ int builtin_pwd(exec_frame_t *frame, const strlist_t *args)
             flag_L = false;
             break;
         case '?':
-            fprintf(stderr, "pwd: unrecognized option: '-%c'\n", optopt);
+            fprintf(stderr, "pwd: unrecognized option: '-%c'\n", state.optopt);
             flag_err++;
             break;
         }
@@ -2631,7 +2599,7 @@ int builtin_pwd(exec_frame_t *frame, const strlist_t *args)
         return 2;
     }
 
-    if (optind < strlist_size(args))
+    if (state.optind < strlist_size(args))
     {
         fprintf(stderr, "pwd: too many arguments\n");
         return 1;
@@ -2685,7 +2653,6 @@ int builtin_pwd(exec_frame_t *frame, const strlist_t *args)
 
 int builtin_jobs(exec_frame_t *frame, const strlist_t *args)
 {
-    getopt_reset();
 
     if (!frame)
         return 1;
@@ -3193,7 +3160,6 @@ int builtin_kill(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
 
@@ -3664,7 +3630,6 @@ int builtin_wait(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     int exit_status = 0;
@@ -3763,7 +3728,6 @@ int builtin_fg(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     if (!frame->executor || !frame->executor->jobs)
     {
@@ -3955,7 +3919,6 @@ int builtin_bg(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     if (!frame->executor || !frame->executor->jobs)
     {
@@ -4418,7 +4381,6 @@ int builtin_ls(exec_frame_t *frame, const strlist_t *args)
 
     (void)frame; /* Unused, but kept for consistent builtin signature */
 
-    getopt_reset();
 
     int flag_a = 0;
     int flag_A = 0;
@@ -4431,8 +4393,10 @@ int builtin_ls(exec_frame_t *frame, const strlist_t *args)
     int c;
 
     string_t *opts = string_create_from_cstr("aAlFh1");
+    struct getopt_state state;
+    getopt_state_init(&state);
 
-    while ((c = getopt_string(args, opts)) != -1)
+    while ((c = getopt_r_string(args, opts, &state)) != -1)
     {
         switch (c)
         {
@@ -4455,7 +4419,7 @@ int builtin_ls(exec_frame_t *frame, const strlist_t *args)
             flag_h = 1;
             break;
         case '?':
-            fprintf(stderr, "ls: unrecognized option: '-%c'\n", optopt);
+            fprintf(stderr, "ls: unrecognized option: '-%c'\n", state.optopt);
             flag_err++;
             break;
         }
@@ -4476,8 +4440,8 @@ int builtin_ls(exec_frame_t *frame, const strlist_t *args)
     }
 
     /* Collect directories to list */
-    int dir_count = strlist_size(args) - optind;
-    int start_index = optind;
+    int dir_count = strlist_size(args) - state.optind;
+    int start_index = state.optind;
 
     /* Default to current directory if none specified */
     string_t *default_dir = NULL;
@@ -4544,7 +4508,6 @@ int builtin_echo(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int flag_n = 0; /* suppress newline */
     int flag_e = 0; /* interpret escapes */
@@ -4552,8 +4515,10 @@ int builtin_echo(exec_frame_t *frame, const strlist_t *args)
     int c;
 
     string_t *opts = string_create_from_cstr("neE");
+    struct getopt_state state;
+    getopt_state_init(&state);
 
-    while ((c = getopt_string(args, opts)) != -1)
+    while ((c = getopt_r_string(args, opts, &state)) != -1)
     {
         switch (c)
         {
@@ -4569,7 +4534,7 @@ int builtin_echo(exec_frame_t *frame, const strlist_t *args)
                 flag_e = 0;
             break;
         case '?':
-            fprintf(stderr, "echo: unrecognized option: '-%c'\n", optopt);
+            fprintf(stderr, "echo: unrecognized option: '-%c'\n", state.optopt);
             flag_err++;
             break;
         }
@@ -4582,11 +4547,11 @@ int builtin_echo(exec_frame_t *frame, const strlist_t *args)
         return 2;
     }
 
-    /* Print arguments starting from optind, separated by spaces */
+    /* Print arguments starting from state.optind, separated by spaces */
     int argc = strlist_size(args);
-    for (int i = optind; i < argc; i++)
+    for (int i = state.optind; i < argc; i++)
     {
-        if (i > optind)
+        if (i > state.optind)
         {
             putchar(' ');
         }
@@ -5375,7 +5340,6 @@ int builtin_return(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     /* Check if return is valid (must be in a function or dot script) */
     exec_frame_t *return_target = frame_find_return_target(frame);
@@ -6299,7 +6263,6 @@ int builtin_mgsh_cat(exec_frame_t *frame, const strlist_t *args)
     Expects_not_null(frame);
     Expects_not_null(args);
 
-    getopt_reset();
 
     int argc = strlist_size(args);
     if (argc != 2)

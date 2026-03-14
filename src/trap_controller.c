@@ -1,4 +1,6 @@
 ﻿#include "trap_controller.h"
+
+#include "migash/type_pub.h"
 #include "logging.h"
 #include "xalloc.h"
 
@@ -217,7 +219,7 @@ int trap_controller_execute_trap(trap_controller_t *controller,
     Expects_not_null(controller);
     Expects_not_null(frame);
     Expects_ge(signal_number, 0);
-    Expects_true(trap_store_is_set(controller->trap_store, signal_number));
+    Expects(trap_store_is_set(controller->trap_store, signal_number));
 
     // Delegate to trap_store (which knows how to execute actions)
     // In a full implementation, this would:
@@ -235,7 +237,7 @@ int trap_controller_execute_exit_trap(trap_controller_t *controller,
 {
     Expects_not_null(controller);
     Expects_not_null(frame);
-    Expects_true(trap_store_is_exit_set(controller->trap_store));
+    Expects(trap_store_is_exit_set(controller->trap_store));
 
     // Delegate to trap_store for EXIT trap execution
     trap_store_run_exit_trap(controller->trap_store, (void *)frame);

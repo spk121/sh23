@@ -14,7 +14,7 @@
 #include "lexer_param_exp.h"
 #include "lexer_squote.h"
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include "xalloc.h"
 

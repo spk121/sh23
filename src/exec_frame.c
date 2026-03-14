@@ -35,22 +35,30 @@
 
 #include "alias_store.h"
 #include "ast.h"
-#include "exec.h"
+#include "migash/exec.h"
+#include "migash/frame.h"
 #include "exec_command.h"
 #include "exec_frame_expander.h"
 #include "exec_frame_policy.h"
 #include "exec_redirect.h"
 #include "exec_types_internal.h"
-#include "exec_types_public.h"
+#include "migash/type_pub.h"
 #include "fd_table.h"
 #include "func_store.h"
 #include "glob_util.h"
 #include "job_store.h"
+#include "lexer.h"
 #include "lib.h"
 #include "logging.h"
+#include "lower.h"
+#include "gnode.h"
+#include "parse_session.h"
+#include "parser.h"
+#include "token.h"
+#include "tokenizer.h"
 #include "positional_params.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "trap_store.h"
 #include "variable_store.h"
 #include "xalloc.h"
@@ -2675,4 +2683,386 @@ exec_frame_execute_result_t exec_frame_execute_case_clause(exec_frame_t *frame, 
 
     /* If no match found, exit status remains 0 */
     return result;
+}
+
+/* ============================================================================
+ * String Core Execution
+ * ============================================================================ */
+
+/**
+ * Core implementation for executing shell commands from a string.
+ *
+ * This function processes a single chunk of input (typically one line),
+ * handling lexing, tokenization, parsing, and execution. It maintains
+ * state in the provided session for handling multi-line constructs.
+ *
+ * @param frame   The execution frame
+ * @param input   The input string to process
+ * @param session The parse session (maintains lexer, tokenizer, and accumulated tokens)
+ * @return Status indicating success, need for more input, or error
+ */
+exec_status_t exec_frame_string_core(exec_frame_t *frame, const char *input,
+                                     parse_session_t *session)
+{
+    Expects_not_null(frame);
+    Expects_not_null(input);
+    Expects_not_null(session);
+    Expects_not_null(session->lexer);
+    Expects_not_null(session->tokenizer);
+    Expects_not_null(frame->executor);
+
+    exec_t *executor = frame->executor;
+    lexer_t *lx = session->lexer;
+    tokenizer_t *tokenizer = session->tokenizer;
+
+    session->line_num++;
+    log_debug("exec_frame_string_core: Processing line %d: %.*s", session->line_num,
+              (int)strcspn(input, "\r\n"), input);
+
+    lexer_append_input_cstr(lx, input);
+
+    token_list_t *raw_tokens = token_list_create();
+    lex_status_t lex_status = lexer_tokenize(lx, raw_tokens, NULL);
+
+    if (lex_status == LEX_ERROR)
+    {
+        log_debug("exec_frame_string_core: Lexer error at line %d", session->line_num);
+        const char *err = lexer_get_error(lx);
+        frame_set_error_printf(frame, "Lexer error: %s", err ? err : "unknown");
+        token_list_destroy(&raw_tokens);
+        return EXEC_ERROR;
+    }
+
+    if (lex_status == LEX_INCOMPLETE || lex_status == LEX_NEED_HEREDOC)
+    {
+        log_debug("exec_frame_string_core: Lexer incomplete/heredoc at line %d", session->line_num);
+
+        /* Check if any tokens were produced before the incomplete state.
+         * If so, we should accumulate them for parsing when more input arrives. */
+        if (token_list_size(raw_tokens) > 0)
+        {
+            log_debug("exec_frame_string_core: Lexer produced %d tokens before becoming incomplete",
+                      token_list_size(raw_tokens));
+
+            /* Process the tokens that were produced */
+            token_list_t *processed_tokens = token_list_create();
+            tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+            token_list_destroy(&raw_tokens);
+
+            if (tok_status == TOK_ERROR)
+            {
+                log_debug("exec_frame_string_core: Tokenizer error on incomplete line %d",
+                          session->line_num);
+                const char *err = tokenizer_get_error(tokenizer);
+                frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
+                token_list_destroy(&processed_tokens);
+                return EXEC_ERROR;
+            }
+
+            if (tok_status == TOK_INCOMPLETE)
+            {
+                log_debug("exec_frame_string_core: Tokenizer incomplete (compound command) during lexer "
+                          "incomplete at line %d",
+                          session->line_num);
+                /* Tokens are buffered in tokenizer, continue to next line */
+                token_list_destroy(&processed_tokens);
+                return EXEC_INCOMPLETE;
+            }
+
+            /* Accumulate these tokens for when the lexer completes */
+            if (session->accumulated_tokens == NULL)
+            {
+                session->accumulated_tokens = processed_tokens;
+            }
+            else
+            {
+                if (token_list_append_list_move(session->accumulated_tokens, &processed_tokens) !=
+                    0)
+                {
+                    log_debug("exec_frame_string_core: Failed to append incomplete tokens");
+                    return EXEC_ERROR;
+                }
+            }
+        }
+        else
+        {
+            token_list_destroy(&raw_tokens);
+        }
+        return EXEC_INCOMPLETE;
+    }
+
+    log_debug("exec_frame_string_core: Lexer produced %d raw tokens at line %d",
+              token_list_size(raw_tokens), session->line_num);
+
+    token_list_t *processed_tokens = token_list_create();
+    tok_status_t tok_status = tokenizer_process(tokenizer, raw_tokens, processed_tokens);
+    token_list_destroy(&raw_tokens);
+
+    if (tok_status == TOK_ERROR)
+    {
+        log_debug("exec_frame_string_core: Tokenizer error at line %d", session->line_num);
+        const char *err = tokenizer_get_error(tokenizer);
+        frame_set_error_printf(frame, "Tokenizer error: %s", err ? err : "unknown");
+        token_list_destroy(&processed_tokens);
+        return EXEC_ERROR;
+    }
+
+    if (tok_status == TOK_INCOMPLETE)
+    {
+        log_debug(
+            "exec_frame_string_core: Tokenizer incomplete (compound command) at line %d, tokens buffered",
+            session->line_num);
+        /* Tokenizer is buffering tokens for an incomplete compound command.
+         * The processed_tokens list will be empty - tokens are held in the tokenizer's buffer.
+         * Continue reading more input. */
+        token_list_destroy(&processed_tokens);
+        return EXEC_INCOMPLETE;
+    }
+
+    if (token_list_size(processed_tokens) == 0)
+    {
+        log_debug("exec_frame_string_core: No tokens after processing at line %d", session->line_num);
+        token_list_destroy(&processed_tokens);
+        return EXEC_EMPTY;
+    }
+
+    /* Accumulate tokens if we had an incomplete parse previously */
+    if (session->accumulated_tokens)
+    {
+        log_debug("exec_frame_string_core: Appending %d new tokens to %d accumulated tokens",
+                  token_list_size(processed_tokens), token_list_size(session->accumulated_tokens));
+
+        /* Move all tokens from processed_tokens to accumulated_tokens */
+        if (token_list_append_list_move(session->accumulated_tokens, &processed_tokens) != 0)
+        {
+            log_debug("exec_frame_string_core: Failed to append tokens");
+            return EXEC_ERROR;
+        }
+
+        /* Use the accumulated list for parsing */
+        processed_tokens = session->accumulated_tokens;
+        session->accumulated_tokens = NULL;
+    }
+
+    log_debug("exec_frame_string_core: Tokenizer produced %d processed tokens at line %d",
+              token_list_size(processed_tokens), session->line_num);
+
+    /* Debug: print all tokens */
+    for (int i = 0; i < token_list_size(processed_tokens); i++)
+    {
+        const token_t *t = token_list_get(processed_tokens, i);
+        log_debug("  Token %d: type=%d, text='%s'", i, token_get_type(t),
+                  string_cstr(token_to_string(t)));
+    }
+
+    parser_t *parser = parser_create_with_tokens_move(&processed_tokens);
+    gnode_t *gnode = NULL;
+
+    log_debug("exec_frame_string_core: Starting parse at line %d", session->line_num);
+    parse_status_t parse_status = parser_parse_program(parser, &gnode);
+
+    if (parse_status == PARSE_ERROR)
+    {
+        log_debug("exec_frame_string_core: Parse error at line %d", session->line_num);
+        const char *err = parser_get_error(parser);
+        if (err && err[0])
+        {
+            frame_set_error_printf(frame, "Parse error at line %d: %s", session->line_num, err);
+        }
+        else
+        {
+            /* Parser returned error but didn't set error message */
+            token_t *curr_tok = token_clone(parser_current_token(parser));
+            if (curr_tok)
+            {
+                string_t *tok_str = token_to_string(curr_tok);
+                log_debug("exec_frame_string_core: Current token: type=%d, line=%d, col=%d, text='%s'",
+                          token_get_type(curr_tok), token_get_first_line(curr_tok),
+                          token_get_first_column(curr_tok), string_cstr(tok_str));
+                frame_set_error_printf(frame, "Parse error at line %d, column %d near '%s'",
+                                       token_get_first_line(curr_tok),
+                                       token_get_first_column(curr_tok), string_cstr(tok_str));
+                string_destroy(&tok_str);
+                token_destroy(&curr_tok);
+            }
+            else
+            {
+                log_debug("exec_frame_string_core: No current token available");
+                frame_set_error_printf(frame, "Parse error at line %d: no error details available",
+                                       session->line_num);
+            }
+        }
+        parser_destroy(&parser);
+        return EXEC_ERROR;
+    }
+
+    if (parse_status == PARSE_INCOMPLETE)
+    {
+        log_debug("exec_frame_string_core: Parse incomplete at line %d, accumulating tokens",
+                  session->line_num);
+        if (gnode)
+            g_node_destroy(&gnode);
+        /* Clone token list from parser - respect silo boundary */
+        session->accumulated_tokens = token_list_clone(parser->tokens);
+        parser_destroy(&parser);
+        return EXEC_INCOMPLETE;
+    }
+
+    if (parse_status == PARSE_EMPTY || !gnode)
+    {
+        log_debug("exec_frame_string_core: Parse empty at line %d", session->line_num);
+        parser_destroy(&parser);
+        return EXEC_EMPTY;
+    }
+
+    ast_node_t *ast = ast_lower(gnode);
+    g_node_destroy(&gnode);
+    parser_destroy(&parser);
+
+    if (!ast)
+    {
+        return EXEC_EMPTY;
+    }
+
+    /* Execute via the dispatch function */
+    exec_frame_execute_result_t result = exec_frame_execute_dispatch(frame, ast);
+
+    /* Update frame's exit status */
+    if (result.has_exit_status)
+    {
+        frame->last_exit_status = result.exit_status;
+        executor->last_exit_status = result.exit_status;
+        executor->last_exit_status_set = true;
+    }
+
+    ast_node_destroy(&ast);
+
+    if (result.status == EXEC_ERROR)
+    {
+        return EXEC_ERROR;
+    }
+
+    /* Reset context after successful execution */
+    parse_session_reset(session);
+
+    return EXEC_OK;
+}
+
+/**
+ * Core implementation for executing shell commands from a stream.
+ *
+ * Reads lines from fp and feeds them to exec_frame_string_core one at a time,
+ * handling lines longer than the read buffer by accumulating chunks.
+ */
+exec_status_t exec_frame_stream_core(exec_frame_t *frame, FILE *fp, parse_session_t *session)
+{
+    Expects_not_null(frame);
+    Expects_not_null(fp);
+    Expects_not_null(session);
+    Expects_not_null(session->lexer);
+    Expects_not_null(session->tokenizer);
+    Expects_not_null(frame->executor);
+
+    exec_status_t final_status = EXEC_OK;
+
+    /* Read a single logical line of any size, efficiently */
+#define LINE_CHUNK_SIZE 4096
+    char chunk[LINE_CHUNK_SIZE];
+    char *line_buf = NULL;
+    size_t line_buf_size = 0;
+    size_t line_len = 0;
+
+    while (fgets(chunk, sizeof(chunk), fp) != NULL)
+    {
+        size_t chunk_len = strlen(chunk);
+
+        if (chunk_len > 0 && chunk[chunk_len - 1] == '\n')
+        {
+            if (line_len == 0)
+            {
+                /* Fast path: entire line fits in chunk */
+                exec_status_t status = exec_frame_string_core(frame, chunk, session);
+                if (session->line_num > 0)
+                    frame->source_line = session->line_num;
+
+                switch (status)
+                {
+                case EXEC_OK:
+                case EXEC_EMPTY:
+                    final_status = EXEC_OK;
+                    break;
+                case EXEC_INCOMPLETE:
+                    final_status = EXEC_INCOMPLETE;
+                    break;
+                case EXEC_ERROR:
+                    final_status = EXEC_ERROR;
+                    break;
+                }
+                return final_status;
+            }
+            else
+            {
+                /* Append final chunk to accumulated buffer */
+                if (line_len + chunk_len + 1 > line_buf_size)
+                {
+                    line_buf_size = (line_len + chunk_len + 1) * 2;
+                    line_buf = (char *)xrealloc(line_buf, line_buf_size);
+                }
+                memcpy(line_buf + line_len, chunk, chunk_len);
+                line_len += chunk_len;
+                line_buf[line_len] = '\0';
+                break; /* Line complete — fall through to process it */
+            }
+        }
+        else
+        {
+            /* No newline yet — accumulate */
+            if (line_buf == NULL)
+            {
+                line_buf_size = (chunk_len + 1) * 2;
+                line_buf = (char *)xmalloc(line_buf_size);
+                memcpy(line_buf, chunk, chunk_len);
+                line_len = chunk_len;
+                line_buf[line_len] = '\0';
+            }
+            else
+            {
+                if (line_len + chunk_len + 1 > line_buf_size)
+                {
+                    line_buf_size = (line_len + chunk_len + 1) * 2;
+                    line_buf = (char *)xrealloc(line_buf, line_buf_size);
+                }
+                memcpy(line_buf + line_len, chunk, chunk_len);
+                line_len += chunk_len;
+                line_buf[line_len] = '\0';
+            }
+        }
+    }
+
+    /* Process whatever we accumulated (may be empty on pure EOF) */
+    if (line_len > 0)
+    {
+        exec_status_t status = exec_frame_string_core(frame, line_buf, session);
+        if (session->line_num > 0)
+            frame->source_line = session->line_num;
+
+        switch (status)
+        {
+        case EXEC_OK:
+        case EXEC_EMPTY:
+            final_status = EXEC_OK;
+            break;
+        case EXEC_INCOMPLETE:
+            final_status = EXEC_INCOMPLETE;
+            break;
+        case EXEC_ERROR:
+            final_status = EXEC_ERROR;
+            break;
+        }
+    }
+
+    if (line_buf)
+        xfree(line_buf);
+
+    return final_status;
 }

@@ -13,7 +13,7 @@
 #include "fd_table.h"
 
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "xalloc.h"
 
 /* Initial capacity for the FD entries array */

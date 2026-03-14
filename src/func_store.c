@@ -7,7 +7,7 @@
 #include "func_map.h"
 #include "func_store.h"
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "xalloc.h"
 
 // Simple POSIX-like identifier validator: [A-Za-z_][A-Za-z0-9_]*

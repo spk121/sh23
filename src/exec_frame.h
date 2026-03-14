@@ -20,14 +20,17 @@
 #include <sys/types.h>
 #endif
 
+#include <stdio.h>
+
 #include "ast.h"
 #include "exec_types_internal.h"
-#include "exec_types_public.h"
+#include "migash/type_pub.h"
 #include "fd_table.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "trap_store.h"
 #include "variable_store.h"
+#include "parse_session.h"
 
 #include "exec_frame_policy.h"
 
@@ -138,5 +141,27 @@ void exec_frame_set_variable(exec_frame_t *frame, const string_t *name, const st
  * Returns 0 on success, -1 if locals not supported in this frame.
  */
 int exec_frame_declare_local(exec_frame_t *frame, const string_t *name, const string_t *value);
+
+/* ============================================================================
+ * String Core Execution
+ * ============================================================================ */
+
+/**
+ * Core implementation for executing shell commands from a string.
+ *
+ * Processes a single chunk of input (typically one line), handling lexing,
+ * tokenization, parsing, and execution. Maintains state in the provided
+ * session for handling multi-line constructs.
+ */
+exec_status_t exec_frame_string_core(exec_frame_t *frame, const char *input,
+                                     parse_session_t *session);
+
+/**
+ * Core implementation for executing shell commands from a stream.
+ *
+ * Reads lines from fp and feeds them to exec_frame_string_core one at a time,
+ * handling lines longer than the read buffer by accumulating chunks.
+ */
+exec_status_t exec_frame_stream_core(exec_frame_t *frame, FILE *fp, parse_session_t *session);
 
 #endif /* EXEC_FRAME_H */

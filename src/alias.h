@@ -7,7 +7,7 @@
 #endif
 
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 
 struct alias_t
 {

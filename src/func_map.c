@@ -2,7 +2,7 @@
 #include "func_map.h"
 #include "ast.h"
 #include "exec_redirect.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "xalloc.h"
 #include <stdint.h>
 

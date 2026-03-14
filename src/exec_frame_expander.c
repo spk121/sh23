@@ -20,7 +20,7 @@
 #include "glob_util.h"
 #include "logging.h"
 #include "pattern_removal.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "variable_store.h"
 #include "xalloc.h"
 

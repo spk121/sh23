@@ -11,6 +11,7 @@
 // The controller prevents race conditions, ensures cleanup, and provides
 // simplified API for shell builtins that need coordinated access.
 
+#include "migash/type_pub.h"
 #include "trap_store.h"
 #include "sig_act.h"
 
@@ -84,6 +85,8 @@ bool trap_controller_set_exit_trap(trap_controller_t *controller,
 // Precondition: controller must not be NULL
 // Returns true on success
 bool trap_controller_clear_exit_trap(trap_controller_t *controller);
+
+int execute_trap_action(const trap_action_t *trap);
 
 // ============================================================================
 // Bulk Operations

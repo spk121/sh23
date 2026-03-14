@@ -13,7 +13,7 @@
 
 #include "ast.h"
 #include "exec_types_internal.h"
-#include "exec_types_public.h"
+#include "migash/type_pub.h"
 
 /* Forward declarations */
 struct ast_node_t;

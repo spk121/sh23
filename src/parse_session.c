@@ -3,12 +3,12 @@
  * @brief Implementation of the unified parse session.
  */
 
-#include "exec_parse_session.h"
+#include "parse_session.h"
 
 #include "lexer.h"
 #include "token.h"
 #include "tokenizer.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "xalloc.h"
 
 #include <string.h>
@@ -17,9 +17,9 @@
   * Lifecycle
   * ============================================================================ */
 
-exec_parse_session_t* exec_parse_session_create(alias_store_t* aliases)
+parse_session_t* parse_session_create(alias_store_t* aliases)
 {
-    exec_parse_session_t* s = xcalloc(1, sizeof(*s));
+    parse_session_t* s = xcalloc(1, sizeof(*s));
 
     s->lexer = lexer_create();
     if (!s->lexer)
@@ -48,12 +48,12 @@ exec_parse_session_t* exec_parse_session_create(alias_store_t* aliases)
     return s;
 }
 
-void exec_parse_session_destroy(exec_parse_session_t** session)
+void parse_session_destroy(parse_session_t** session)
 {
     if (!session || !*session)
         return;
 
-    exec_parse_session_t* s = *session;
+    parse_session_t* s = *session;
 
     if (s->lexer)
         lexer_destroy(&s->lexer);
@@ -73,7 +73,7 @@ void exec_parse_session_destroy(exec_parse_session_t** session)
     *session = NULL;
 }
 
-void exec_parse_session_reset(exec_parse_session_t* session)
+void parse_session_reset(parse_session_t* session)
 {
     if (!session)
         return;
@@ -91,7 +91,7 @@ void exec_parse_session_reset(exec_parse_session_t* session)
     session->incomplete = false;
 }
 
-void exec_parse_session_hard_reset(exec_parse_session_t* session, alias_store_t* aliases)
+void parse_session_hard_reset(parse_session_t* session, alias_store_t* aliases)
 {
     if (!session)
         return;
@@ -145,7 +145,7 @@ void exec_parse_session_hard_reset(exec_parse_session_t* session, alias_store_t*
  * Opaque-size helpers
  * ============================================================================ */
 
-size_t exec_parse_session_size(void)
+size_t parse_session_size(void)
 {
-    return sizeof(exec_parse_session_t);
+    return sizeof(parse_session_t);
 }

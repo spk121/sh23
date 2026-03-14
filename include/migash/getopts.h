@@ -10,7 +10,7 @@
 #define GETOPT_STRING_H
 
 #include "getopt.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "migash/strlist.h"
 
 

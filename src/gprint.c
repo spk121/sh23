@@ -1,5 +1,5 @@
 #include "gprint.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include <stdio.h>
 

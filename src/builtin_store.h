@@ -22,7 +22,7 @@
 #include <stdio.h>
 
 #include "exec_types_internal.h"
-#include "exec_types_public.h"
+#include "migash/type_pub.h"
 #include "migash/strlist.h"
 
 /* ── Forward declarations ────────────────────────────────────────────────── */

@@ -7,7 +7,7 @@
 #include "migash/strlist.h"
 
 #include "logging.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "xalloc.h"
 
 /* ============================================================================

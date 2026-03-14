@@ -11,10 +11,9 @@
 
 /* Getopt for shell builtins */
 #include "migash/getopt.h"
-#include "migash/getopt_string.h"
 
 /* Shell execution API */
-#include "migash/exec_types_public.h"
+#include "migash/type_pub.h"
 #include "migash/frame.h"
 #include "migash/exec.h"
 

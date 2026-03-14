@@ -5,7 +5,7 @@
 
 #include "lib.h"
 
-#include "string_t.h"
+#include "migash/string_t.h"
 
 static inline uint8_t ascii_tolower(uint8_t c)
 {

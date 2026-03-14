@@ -6,7 +6,7 @@
 #endif
 
 #include "ast.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include <stdbool.h>
 #include <stdint.h>
 

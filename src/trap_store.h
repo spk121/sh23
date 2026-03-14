@@ -6,7 +6,7 @@
 #define TRAP_STORE_H
 
 #include "sig_act.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 
 /* Enable full POSIX signal set only where available (non-Windows POSIX builds). */
 #if defined(POSIX_API) && !defined(_WIN32) && !defined(__MINGW32__) && !defined(__MSYS__)

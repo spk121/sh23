@@ -4,7 +4,7 @@
 #include <stdbool.h>
 
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 
 /* ============================================================================
  * Pattern Matching (fnmatch-like API)

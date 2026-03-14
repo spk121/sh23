@@ -14,12 +14,12 @@
  * it should include lexer.h instead.
  *
  * Because this is internal, the functions declared here are free to
- * manipulate lexer_t and its member structures directly — no const /
+ * manipulate lexer_t and its member structures directly ï¿½ no const /
  * deep-copy discipline is required at this layer.
  */
 
 #include "lexer_t.h" /* lex_status_t, forward decl of lexer_t */
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "token.h"
 #include <stdbool.h>
 #include <stddef.h>
@@ -44,7 +44,7 @@ static const int LEXER_LARGE_UNUSED_INPUT_THRESHOLD = 8192;
 static const int LEXER_INPUT_RESIZE_PADDING = 1024;
 
 /* ============================================================================
- * Lexer Modes (for mode stack) — internal
+ * Lexer Modes (for mode stack) ï¿½ internal
  * ============================================================================ */
 
 typedef enum
@@ -61,7 +61,7 @@ typedef enum
 } lex_mode_t;
 
 /* ============================================================================
- * Mode Stack (for tracking nested contexts) — internal
+ * Mode Stack (for tracking nested contexts) ï¿½ internal
  * ============================================================================ */
 
 typedef struct
@@ -72,7 +72,7 @@ typedef struct
 } lex_mode_stack_t;
 
 /* ============================================================================
- * Heredoc Queue (for pending heredoc bodies) — internal
+ * Heredoc Queue (for pending heredoc bodies) ï¿½ internal
  * ============================================================================ */
 
 typedef struct
@@ -91,14 +91,14 @@ typedef struct
 } heredoc_queue_t;
 
 /* ============================================================================
- * Forward declarations — internal
+ * Forward declarations ï¿½ internal
  * ============================================================================ */
 
 typedef struct builder_stack_t builder_stack_t;
 typedef struct builder_frame_t builder_frame_t;
 
 /* ============================================================================
- * Nested Expansion Builder Stack — internal
+ * Nested Expansion Builder Stack ï¿½ internal
  * ============================================================================ */
 
 struct builder_frame_t
@@ -118,7 +118,7 @@ struct builder_stack_t
 };
 
 /* ============================================================================
- * Lexer Context (full struct definition) — internal
+ * Lexer Context (full struct definition) ï¿½ internal
  * ============================================================================ */
 
 struct lexer_t

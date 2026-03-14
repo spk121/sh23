@@ -9,7 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "string_t.h"
+#include "migash/string_t.h"
 
 #ifdef POSIX_API
 #include <sys/types.h> // For pid_t

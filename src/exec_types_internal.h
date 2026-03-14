@@ -21,7 +21,7 @@
 #include <stdbool.h>
 
 /* ── Public API headers (for the types they define) ──────────────────────── */
-#include "exec.h"
+#include "migash/exec.h"
 
 /* ── Internal module headers ─────────────────────────────────────────────── */
 #include "alias_store.h"
@@ -34,7 +34,7 @@
 #include "positional_params.h"
 #include "sig_act.h"
 #include "migash/strlist.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "trap_store.h"
 #include "variable_store.h"
 
@@ -188,7 +188,7 @@ struct exec_t
     trap_store_t *traps;
 
     /* Parse session (persistent across interactive commands) */
-    exec_parse_session_t *session;
+    parse_session_t *session;
 
 #if defined(POSIX_API) || defined(UCRT_API)
     fd_table_t *open_fds;
@@ -290,7 +290,7 @@ typedef struct exec_redirections_t
  * Partial Execution State
  * ============================================================================
  *
- * The concrete definition lives in exec_parse_session.h.
+ * The concrete definition lives in parse_session.h.
  *
  * ============================================================================ */
 
@@ -326,7 +326,7 @@ typedef struct exec_frame_execute_result_t
  * various pieces of state (variables, file descriptors, traps, etc.)
  * based on its policy.
  */
-typedef struct exec_frame_t
+struct exec_frame_t
 {
     /* Frame identity */
     exec_frame_type_t type;
@@ -387,7 +387,7 @@ typedef struct exec_frame_t
 
     /* Trap handler state */
     bool in_trap_handler; /* Prevents recursive trap handling */
-} exec_frame_t;
+};
 
 /* ============================================================================
  * Execution Parameters

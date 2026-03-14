@@ -7,11 +7,11 @@
 // which is in frame.h and exec.h.
 #define MGSH_USE_PUBLIC_INTERFACES
 
-#include "exec.h"
-#include "frame.h"
+#include "migash/exec.h"
+#include "migash/frame.h"
 #include "logging.h"
 // #include "positional_params.h"
-#include "string_t.h"
+#include "migash/string_t.h"
 #include "xalloc.h"
 
 

@@ -1,7 +1,7 @@
 #ifndef LIB_OF_LEFTOVER_JUNK_H
 #define LIB_OF_LEFTOVER_JUNK_H
 
-#include "string_t.h"
+#include "migash/string_t.h"
 
 /* lib.h - C23 compatibility layer
  *
