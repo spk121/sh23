@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdint.h>
 #define VARIABLE_MAP_INTERNAL
 #include "logging.h"

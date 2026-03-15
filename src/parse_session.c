@@ -3,6 +3,10 @@
  * @brief Implementation of the unified parse session.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "parse_session.h"
 
 #include "lexer.h"

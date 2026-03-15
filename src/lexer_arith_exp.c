@@ -21,6 +21,10 @@
  * - Parameter expansions ${...} can be nested
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #define LEXER_INTERNAL
 #include "lexer_arith_exp.h"
 

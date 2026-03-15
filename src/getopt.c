@@ -7,6 +7,10 @@
    it under the terms of the GNU Lesser General Public License as published by
    the Free Software Foundation, version 2.1 or later.
 */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

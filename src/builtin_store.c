@@ -7,6 +7,10 @@
  * exceeds 70%.  On growth, tombstones are purged.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "builtin_store.h"
 
 #include <stdlib.h>

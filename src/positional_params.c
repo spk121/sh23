@@ -3,6 +3,10 @@
  * @brief Implementation of positional parameters management
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "positional_params.h"
 #include "miga/xalloc.h"
 #include "miga/string_t.h"

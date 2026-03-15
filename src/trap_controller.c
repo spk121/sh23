@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "trap_controller.h"
 
 #include "miga/type_pub.h"

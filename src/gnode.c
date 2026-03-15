@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "gnode.h"
 #include "miga/xalloc.h"
 #include <stdint.h>

@@ -17,6 +17,10 @@
  * except when followed by $, `, \, or newline.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #define LEXER_INTERNAL
 #include "lexer_cmd_subst.h"
 

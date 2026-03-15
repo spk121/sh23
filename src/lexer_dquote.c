@@ -12,6 +12,10 @@
  * For any other character, the backslash is preserved literally.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <ctype.h>
 
 #define LEXER_INTERNAL

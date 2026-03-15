@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "gprint.h"
 #include "miga/string_t.h"
 #include "token.h"

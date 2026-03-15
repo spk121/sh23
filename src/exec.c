@@ -5,6 +5,10 @@
  * Frame management and policy-driven execution is in exec_frame.c.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #ifdef MIGA_POSIX_API
 #define _POSIX_C_SOURCE 202405L
 #endif

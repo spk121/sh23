@@ -12,6 +12,10 @@
  * could be interpreted as part of the name.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <ctype.h>
 
 #define LEXER_INTERNAL

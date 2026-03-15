@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "token_array.h"
 #include "logging.h"
 #include "token.h"

@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #define FUNC_MAP_INTERNAL
 #include "func_map.h"
 #include "ast.h"

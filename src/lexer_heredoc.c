@@ -14,6 +14,10 @@
  * - Within unquoted heredoc, backslash escapes: $ ` \ newline
  * - Double quotes are literal except within $(), ``, or ${}
  */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <ctype.h>
 #include <string.h>
 

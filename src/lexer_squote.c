@@ -8,6 +8,10 @@
  * single quotes, even when preceded by a backslash.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #define LEXER_INTERNAL
 #include "lexer_squote.h"
 
