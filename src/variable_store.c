@@ -7,7 +7,7 @@
 #include "miga/string_t.h"
 #include "variable_map.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // POSIX limits for variable names and values
 #define MAX_VAR_NAME_LENGTH 1024

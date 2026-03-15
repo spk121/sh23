@@ -6,7 +6,7 @@
 #include "miga/strlist.h"
 #include "miga/string_t.h"
 #include "token.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 
 

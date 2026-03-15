@@ -9,6 +9,12 @@
  * around frame-level operations that are exposed to builtins and library consumers.
  */
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+#ifdef MIGA_POSIX_API
+#define _GNU_SOURCE
+#endif 
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
 #endif
@@ -21,6 +27,7 @@
 #include <errno.h>
 #include <fnmatch.h>
 #include <limits.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -61,7 +68,7 @@
 #include "miga/string_t.h"
 #include "trap_store.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 exec_frame_execute_result_t exec_frame_execute_pipeline_orchestrate(exec_frame_t *frame,
                                                                     exec_params_t *params);
@@ -1224,7 +1231,8 @@ exec_frame_execute_result_t exec_in_frame(exec_frame_t *parent, exec_frame_type_
                 parent->last_bg_pid = pid;
                 string_t *cmdline =
                     params ? strlist_join(params->command_args, " ") : string_create_from_cstr("");
-                job_store_add(exec->jobs, pid, cmdline);
+                int job_id = job_store_add(exec->jobs, cmdline, true /* is_background */);
+                job_store_add_process(exec->jobs, job_id, pid, cmdline);
                 string_destroy(&cmdline);
                 return (exec_frame_execute_result_t){.exit_status = 0,
                                                      .has_exit_status = true,

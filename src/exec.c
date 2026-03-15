@@ -50,7 +50,7 @@
 #include "tokenizer.h"
 #include "trap_store.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 #ifdef MIGA_POSIX_API
 #include <fcntl.h>

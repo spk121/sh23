@@ -1,6 +1,9 @@
 // ============================================================================
 // trap_store.c
 // ============================================================================
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #ifdef MIGA_POSIX_API
 #define _POSIX_C_SOURCE 202405L
@@ -13,7 +16,7 @@
 
 #include "logging.h"
 #include "sig_act.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // Platform-specific signal support gates
 #ifdef TRAP_USE_POSIX_SIGNALS

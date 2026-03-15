@@ -1,5 +1,5 @@
 #include "gnode.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

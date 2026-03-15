@@ -4,7 +4,7 @@
  */
 
 #include "positional_params.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include "miga/string_t.h"
 #include "miga/strlist.h"
 #include "logging.h"

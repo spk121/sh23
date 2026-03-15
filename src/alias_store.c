@@ -6,7 +6,7 @@
 #include "alias.h"
 #include "alias_array.h"
 #include "logging.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // Check if a character is valid for an alias name
 static bool is_valid_alias_char(char c)

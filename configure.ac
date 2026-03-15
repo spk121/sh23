@@ -29,6 +29,11 @@ dnl ----------------------------------------------------------------------------
 dnl - library configuration options - for migaconf.h
 dnl ------------------------------------------------------------------------------
 
+dnl Tell autoheader about API-selection symbols used in config.h
+AH_TEMPLATE([MIGA_POSIX_API], [Define to 1 when building with POSIX API mode])
+AH_TEMPLATE([MIGA_UCRT_API],  [Define to 1 when building with UCRT API mode])
+AH_TEMPLATE([MIGA_ISO_C_API], [Define to 1 when building with ISO C API mode])
+
 AC_ARG_ENABLE([configuration],
   [AS_HELP_STRING([--enable-configuration={posix,ucrt,iso_c}],
                   [Select API configuration])],
@@ -57,13 +62,16 @@ fi
 
 case "$configuration" in
   posix)
-    CONFIG_DEFINE="#define MIGA_POSIX_API"
+    CONFIG_DEFINE="#define MIGA_POSIX_API 1"
+    AC_DEFINE([MIGA_POSIX_API], [1], [Build with POSIX API])
     ;;
   ucrt)
-    CONFIG_DEFINE="#define MIGA_UCRT_API"
+    CONFIG_DEFINE="#define MIGA_UCRT_API 1"
+    AC_DEFINE([MIGA_UCRT_API], [1], [Build with UCRT API])
     ;;
   iso_c)
-    CONFIG_DEFINE="#define MIGA_ISO_C_API"
+    CONFIG_DEFINE="#define MIGA_ISO_C_API 1"
+    AC_DEFINE([MIGA_ISO_C_API], [1], [Build with ISO C API])
     ;;
   *)
     AC_MSG_ERROR([Invalid value for --enable-configuration: $configuration])

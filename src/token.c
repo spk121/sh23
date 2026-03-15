@@ -1,6 +1,6 @@
 #include "token.h"
 #include "logging.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>

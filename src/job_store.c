@@ -3,6 +3,10 @@
 // Job control store implementation
 // ============================================================================
 
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
@@ -10,7 +14,7 @@
 
 #include "logging.h"
 #include "miga/string_t.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 #ifdef MIGA_UCRT_API
 #if defined(_WIN64)
@@ -447,7 +451,7 @@ void job_store_print_jobs(const job_store_t *store, FILE *output)
 
         fprintf(output, "[%d] %s\t%s\n", job->job_id, state_str,
                 job->command_line ? string_cstr(job->command_line) : "(no command)");
-#if MIGA_POSIX_API
+#ifdef MIGA_POSIX_API
         // Posix says pid_t is a signed integer type of unspecified size.
         fprintf(output, "    pgid: %ld\n", (long)job->pgid);
 #else

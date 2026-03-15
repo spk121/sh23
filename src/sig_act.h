@@ -33,7 +33,7 @@
 /* Most Unix-likes + real POSIX environments */
 
 // Disabled for now until we fix the <signal.h> macro problem
-// #define SIG_ACT_USE_SIGACTION
+// #define MIGA_POSIX_API
 #endif
 
 // Signal disposition tracking for restoration after traps
@@ -45,7 +45,7 @@ typedef struct sig_act_t
     bool is_saved;   // Whether we have a saved handler for this signal
     bool was_ignored; // Whether the original handler was SIG_IGN
 
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
     struct sigaction original_action; // Original sigaction structure
 #else
     void (*original_handler)(int); // Original signal handler (signal() style)
@@ -68,7 +68,7 @@ void sig_act_store_destroy(sig_act_store_t **store);
 // Set a new signal handler AND save the previous one (if not already saved)
 // This is the primary way handlers get saved in the store
 // Returns: the previous handler (for chaining), or SIG_ERR on error
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
 int sig_act_store_set_and_save(sig_act_store_t *store, int signo,
                                const struct sigaction *new_action);
 #else

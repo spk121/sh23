@@ -1,4 +1,7 @@
-#ifdef _MSC_VER
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+#ifdef MIGA_UCRT_API
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 

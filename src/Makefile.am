@@ -91,7 +91,7 @@ libmigash_la_SOURCES = \
     variable_map.h \
     variable_store.c \
     variable_store.h \
-    xalloc.h
+    xalloc.c
 
 # Libtool ABI versioning: current:revision:age
 # See the "Libtool Version-Info" section below for how to update this.

@@ -14,7 +14,7 @@
 
 #include "logging.h"
 #include "miga/string_t.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 /* Initial capacity for the FD entries array */
 #define INITIAL_CAPACITY 16

@@ -16,7 +16,7 @@
 #include "logging.h"
 #include "miga/string_t.h"
 #include "token.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 /* ============================================================================
  * Lexer Lifecycle Functions

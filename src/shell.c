@@ -1,13 +1,17 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <stdio.h>
 #include <string.h>
 
 #include "shell.h"
 
-#include "miga/exec.h"
-#include "miga/frame.h"
-#include "miga/string_t.h"
-#include "xalloc.h"
+/* This is not part of libmigash, so only use the public API header. */
+#include "libmigash.h"
 
+/* FIXME: figure out logging */
+#define log_fatal(...) while(false) {}
 
 struct shell_t
 {
@@ -26,7 +30,7 @@ shell_t *shell_create(const shell_cfg_t *cfg)
 {
     Expects_not_null(cfg);
 
-    shell_t *sh = xcalloc(1, sizeof(shell_t));
+    shell_t *sh = calloc(1, sizeof(shell_t));
     if (!sh)
         return NULL;
 
@@ -104,7 +108,7 @@ void shell_destroy(shell_t **sh)
     }
 
     exec_destroy(&(*sh)->executor);
-    xfree(*sh);
+    free(*sh);
     *sh = NULL;
 }
 
@@ -160,8 +164,7 @@ void shell_cleanup(void *sh_ptr)
     exec_destroy(&sh->executor);
 
     // Free the shell structure
-    // Note: We don't null out sh_ptr since it's owned by the arena
-    xfree(sh);
+    free(sh);
 }
 
 // TODO: Implement these functions for REPL and script execution

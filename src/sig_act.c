@@ -2,17 +2,20 @@
 // sig_act.c
 // Signal handler archiving implementation
 // ============================================================================
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #include <string.h>
 
 #include "sig_act.h"
 
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // Platform-specific signal count and definitions
 // We track signals that shells commonly need to handle
 
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
 // POSIX signals that shells typically manage (only when full sigaction is available)
 static const int shell_signals[] = {
     SIGINT,
@@ -118,7 +121,7 @@ sig_act_store_t *sig_act_store_create(void)
         store->actions[i].signal_number = (int)i;
         store->actions[i].is_saved = false;
         store->actions[i].was_ignored = false;
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
         memset(&store->actions[i].original_action, 0, sizeof(struct sigaction));
 #else
         store->actions[i].original_handler = SIG_DFL;
@@ -143,7 +146,7 @@ void sig_act_store_destroy(sig_act_store_t **store_ptr)
 // Set and Save Function
 // ============================================================================
 
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
 int sig_act_store_set_and_save(sig_act_store_t *store, int signo,
                                  const struct sigaction *new_action)
 {
@@ -273,7 +276,7 @@ bool sig_act_store_restore_one(const sig_act_store_t *store, int signo)
     if (!entry->is_saved)
         return false;
 
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
     // Skip SIGKILL and SIGSTOP as they cannot be caught or ignored
         if (
     #ifdef SIGKILL
@@ -334,7 +337,7 @@ bool sig_act_store_is_supported(const sig_act_store_t *store, int signo)
     if (signo < 0 || (size_t)signo >= store->capacity)
         return false;
 
-#ifdef SIG_ACT_USE_SIGACTION
+#ifdef MIGA_POSIX_API
 #ifdef SIGKILL
     if (signo == SIGKILL)
         return false;

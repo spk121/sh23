@@ -22,7 +22,7 @@
 #include "pattern_removal.h"
 #include "miga/string_t.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 #ifdef MIGA_POSIX_API
 #include <pwd.h>

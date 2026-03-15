@@ -1,7 +1,7 @@
 #include "parser.h"
 #include "logging.h"
 #include "gnode.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include "lib.h"
 #include <stdarg.h>
 #include <stdio.h>

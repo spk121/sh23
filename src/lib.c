@@ -1,7 +1,15 @@
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include <errno.h>
 #include <locale.h>
 #include <stdint.h>
 #include <string.h>
+#ifdef MIGA_POSIX_API
+#include <unistd.h>
+#endif
 
 #include "lib.h"
 

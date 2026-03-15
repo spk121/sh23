@@ -1,13 +1,16 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <locale.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
-//#include "lexer.h"
-#include "xalloc.h"
-//#include "tokenizer.h"
-#include "shell.h"
-#include "logging.h"
-#include "miga/getopt.h"
-#include "lib.h"
+
+/* This is not part of libmigash, so only use the public API header. */
+#include "libmigash.h"
+
+/* These must come after libmigash.h where MIGA_*_API is defined.*/
 #ifdef MIGA_POSIX_API
 #include <unistd.h>
 #include <sys/types.h>
@@ -16,6 +19,11 @@
 #include <io.h>
 #include <process.h>
 #endif
+
+/* Only use non-library headers */
+#include "shell.h"
+
+#define log_debug(...) while(false) {} // FIXME: figure out logging
 
 typedef enum
 {
@@ -178,8 +186,11 @@ int main(int argc, char **argv)
 #endif
 
     miga_arena_init();
-    log_init();
-    lib_setlocale();
+    // FIXME: do I need to add a function to the library to set up
+    // the logger?
+    // log_init();
+    setlocale(LC_ALL, "");
+    printf("Welcome to Miga Shell. This is pre-alpha software. Use at your own risk.\n");
 
     /* Convert argv to strlist_t for the new getopt API */
     strlist_t *argv_list = strlist_create_from_cstr_array((const char **)argv, argc);
@@ -515,5 +526,6 @@ int main(int argc, char **argv)
     miga_arena_end();
 
     free(arg_array);
+    printf("Goodbye!\n");
     return status;
 }

@@ -9,7 +9,7 @@
 #include "token.h"
 #include "tokenizer.h"
 #include "miga/string_t.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 #include <string.h>
 

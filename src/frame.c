@@ -71,7 +71,7 @@
 #include "miga/string_t.h"
 #include "trap_store.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 
 /* ============================================================================

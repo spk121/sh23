@@ -9,7 +9,7 @@
 #include "miga/string_t.h"
 #include "miga/strlist.h"
 #include "tokenizer.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // Ignore warning 4061: enumerator in switch of enum is not explicitly handled by a case label
 #ifdef _MSC_VER

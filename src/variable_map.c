@@ -4,7 +4,7 @@
 #include "miga/strlist.h"
 #include "miga/string_t.h"
 #include "variable_map.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 #define VARIABLE_MAP_INITIAL_CAPACITY 16
 

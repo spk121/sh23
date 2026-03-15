@@ -12,7 +12,7 @@
 #include <string.h>
 
 #include "miga/getopt.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 /* ============================================================================
  * Traditional global variables (file-local, used by non-reentrant wrappers)

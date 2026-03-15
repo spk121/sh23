@@ -4,7 +4,7 @@
 #include "logging.h"
 #include "miga/string_t.h"
 #include "token.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>

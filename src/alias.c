@@ -1,7 +1,7 @@
 #define ALIAS_STORE_INTERNAL
 #include "alias.h"
 
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // Constructors
 alias_t *alias_create(const string_t *name, const string_t *value)

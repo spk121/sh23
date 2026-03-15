@@ -8,7 +8,7 @@
 #include "func_store.h"
 #include "logging.h"
 #include "miga/string_t.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 // Simple POSIX-like identifier validator: [A-Za-z_][A-Za-z0-9_]*
 static bool is_valid_name_cstr(const char *s)

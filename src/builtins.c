@@ -1,8 +1,13 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 #ifdef MIGA_UCRT_API
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 #ifdef MIGA_POSIX_API
-#define _POSIX_C_SOURCE 202405L
+// #define _POSIX_C_SOURCE 202405L
+// Need the full power of _GNU_SOURCE for realpath()
+#define _GNU_SOURCE
 #endif
 
 #include <errno.h>
@@ -50,7 +55,7 @@
 #include "miga/strlist.h"
 #include "miga/string_t.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 #ifdef MIGA_POSIX_API
 #define CHDIR chdir

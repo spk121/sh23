@@ -1,7 +1,13 @@
-#ifdef MIGA_POSIX_API
-#define _POSIX_C_SOURCE 202405L
+#ifdef HAVE_CONFIG_H
+#include "config.h"
 #endif
-#ifdef _MSC_VER
+
+#ifdef MIGA_POSIX_API
+// #define _POSIX_C_SOURCE 202405L
+#define _GNU_SOURCE
+#endif
+
+#ifdef MIGA_UCRT_API
 #define _CRT_SECURE_NO_WARNINGS
 #endif
 
@@ -46,7 +52,7 @@
 #include "logging.h"
 #include "miga/string_t.h"
 #include "token.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 /**
  * Result of parsing a file descriptor number.
@@ -468,7 +474,7 @@ exec_status_t exec_apply_redirections_posix(exec_frame_t *frame, const exec_redi
             if (r->target.heredoc.content)
             {
                 content_str = r->target.heredoc.needs_expansion
-                                  ? exec_expand_heredoc(executor, r->target.heredoc.content, false)
+                                  ? expand_heredoc(frame, r->target.heredoc.content, false)
                                   : string_create_from(r->target.heredoc.content);
                 if (!content_str)
                 {

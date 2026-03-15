@@ -3,7 +3,7 @@
 #include "ast.h"
 #include "exec_redirect.h"
 #include "miga/string_t.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include <stdint.h>
 
 #define FUNC_MAP_INITIAL_CAPACITY 16

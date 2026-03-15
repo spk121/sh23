@@ -1,5 +1,11 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 #ifdef _MSC_VER
 #define _CRT_SECURE_NO_WARNINGS
+#endif
+#ifdef MIGA_POSIX_API
+#define _GNU_SOURCE
 #endif
 
 #include <errno.h>
@@ -44,7 +50,7 @@
 #include "token.h"
 #include "trap_store.h"
 #include "variable_store.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 
 
@@ -473,7 +479,7 @@ exec_frame_execute_result_t exec_frame_execute_simple_command_impl(exec_frame_t 
                     }
                     dir = strtok_r(NULL, ":", &saveptr);
                 }
-                string_destroy(fullpath_str);
+                string_destroy(&fullpath_str);
                 xfree(path);
             }
             else

@@ -2,7 +2,7 @@
 
 #include "miga/type_pub.h"
 #include "logging.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 
 struct trap_controller_t
 {

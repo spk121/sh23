@@ -2,7 +2,7 @@
 #include "alias_array.h"
 #include "alias.h"
 #include "logging.h"
-#include "xalloc.h"
+#include "miga/xalloc.h"
 #include <string.h>
 
 #define INITIAL_CAPACITY 16
