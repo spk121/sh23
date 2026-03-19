@@ -1,0 +1,7 @@
+/* config.h - compile-time configuration options that affect public API */
+#ifndef MIGA_CONFIG_H
+#define MIGA_CONFIG_H
+
+@MIGA_API@
+
+#endif /* MIGA_CONFIG_H */
